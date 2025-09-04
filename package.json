@@ -4,9 +4,9 @@
   "description": "backend application for cesto_damore",
   "main": "server.ts",
   "scripts": {
-    "dev": "nodemon --watch src --exec ts-node src/index.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/server.ts"
   },
   "author": "marrecos",
   "license": "ISC",
@@ -20,6 +20,7 @@
     "prisma": "^6.15.0"
   },
   "devDependencies": {
+    "@prisma/client": "^6.15.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",

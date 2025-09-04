@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cesto d'Amore API - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            max-width: 800px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            color: #764ba2;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 1.2rem;
+            margin-bottom: 30px;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-weight: bold;
+            margin-bottom: 30px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            margin-right: 10px;
+            animation: blink 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        @keyframes blink {
+
+            0%,
+            50% {
+                opacity: 1;
+            }
+
+            51%,
+            100% {
+                opacity: 0.3;
+            }
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .info-card {
+            background: linear-gradient(145deg, #f0f0f0, #ffffff);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .info-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .info-card h3 {
+            color: #764ba2;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .info-card p {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .api-endpoints {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+
+        .api-endpoints h3 {
+            color: #764ba2;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .endpoint-list {
+            list-style: none;
+        }
+
+        .endpoint-item {
+            background: white;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .method {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.8rem;
+            color: white;
+        }
+
+        .method.get {
+            background: #4CAF50;
+        }
+
+        .method.post {
+            background: #2196F3;
+        }
+
+        .method.put {
+            background: #FF9800;
+        }
+
+        .method.delete {
+            background: #f44336;
+        }
+
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            color: #333;
+            flex: 1;
+            margin-left: 15px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .timestamp {
+            color: #999;
+            font-size: 0.8rem;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            .logo {
+                font-size: 2rem;
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .endpoint-item {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .endpoint-path {
+                margin-left: 0;
+                margin-top: 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🧺 Cesto d'Amore</div>
+            <div class="subtitle">API Backend - Sistema de Gestão</div>
+            <div class="status-indicator">
+                <div class="status-dot"></div>
+                API Online
+            </div>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>📊 Status do Sistema</h3>
+                <p>A API está funcionando corretamente e pronta para receber requisições. Todos os serviços estão
+                    operacionais.</p>
+            </div>
+
+            <div class="info-card">
+                <h3>🛠️ Tecnologias</h3>
+                <p>Node.js, Express, TypeScript, Prisma ORM, PostgreSQL, bcryptjs para autenticação segura.</p>
+            </div>
+
+            <div class="info-card">
+                <h3>🔒 Segurança</h3>
+                <p>Sistema com autenticação segura, criptografia de senhas e validação de dados implementada.</p>
+            </div>
+
+            <div class="info-card">
+                <h3>📈 Performance</h3>
+                <p>API otimizada com conexões de banco eficientes e estrutura de dados bem definida.</p>
+            </div>
+        </div>
+
+        <div class="api-endpoints">
+            <h3>🔗 Endpoints Disponíveis</h3>
+            <ul class="endpoint-list">
+                <li class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/</span>
+                </li>
+                <li class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/api/health</span>
+                </li>
+                <li class="endpoint-item">
+                    <span class="method post">POST</span>
+                    <span class="endpoint-path">/api/auth/login</span>
+                </li>
+                <li class="endpoint-item">
+                    <span class="method post">POST</span>
+                    <span class="endpoint-path">/api/auth/register</span>
+                </li>
+                <li class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/api/users</span>
+                </li>
+                <li class="endpoint-item">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/api/products</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>Desenvolvido com ❤️ para Cesto d'Amore</p>
+            <p class="timestamp">Última atualização: <span id="timestamp"></span></p>
+        </div>
+    </div>
+
+    <script>
+        // Atualiza o timestamp
+        document.getElementById('timestamp').textContent = new Date().toLocaleString('pt-BR');
+
+        // Simula verificação de status da API
+        setInterval(() => {
+            const statusIndicator = document.querySelector('.status-indicator');
+            const statusDot = document.querySelector('.status-dot');
+
+            // Você pode implementar uma verificação real de status aqui
+            // Por enquanto, mantém sempre como "online"
+            statusIndicator.style.background = '#4CAF50';
+        }, 5000);
+    </script>
+</body>
+
+</html>

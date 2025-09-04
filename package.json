@@ -1,0 +1,32 @@
+{
+  "name": "cesto_damore",
+  "version": "1.0.0",
+  "description": "backend application for cesto_damore",
+  "main": "server.ts",
+  "scripts": {
+    "dev": "nodemon --watch src --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "author": "marrecos",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "googleapis": "^159.0.0",
+    "multer": "^2.0.2",
+    "prisma": "^6.15.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.3.1",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}

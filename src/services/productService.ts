@@ -46,7 +46,6 @@ class ProductService {
   }
 
   async createProduct(data: CreateProductInput) {
-    // Validações de campos obrigatórios
     if (!data.name || data.name.trim() === "") {
       throw new Error("Nome do produto é obrigatório");
     }
@@ -66,7 +65,6 @@ class ProductService {
       const { additionals, ...rest } = data as any;
       const normalized: any = { ...rest };
 
-      // Normalização de tipos
       normalized.price = this.normalizePrice(normalized.price);
       normalized.stock_quantity = this.normalizeStockQuantity(
         normalized.stock_quantity
@@ -75,7 +73,6 @@ class ProductService {
 
       const created = await prisma.product.create({ data: { ...normalized } });
 
-      // Processa adicionais se fornecidos
       if (Array.isArray(additionals) && additionals.length) {
         await Promise.all(
           additionals.map((addId: string) =>
@@ -123,7 +120,6 @@ class ProductService {
         normalized.is_active = this.normalizeBoolean(normalized.is_active);
       }
 
-      // Se uma nova imagem foi fornecida, deletar a imagem antiga
       if (
         normalized.image_url &&
         currentProduct.image_url &&
@@ -137,7 +133,6 @@ class ProductService {
         data: { ...normalized },
       });
 
-      // Atualiza adicionais se fornecidos
       if (Array.isArray(additionals)) {
         await prisma.productAdditional.deleteMany({
           where: { product_id: id },
@@ -168,16 +163,13 @@ class ProductService {
       throw new Error("ID do produto é obrigatório");
     }
 
-    // Verifica se o produto existe e obtém os dados para deletar a imagem
     const product = await this.getProductById(id);
 
     try {
-      // Deletar a imagem associada ao produto (se existir)
       if (product.image_url) {
         await deleteProductImage(product.image_url);
       }
 
-      // Deletar relacionamentos e produto do banco
       await prisma.productAdditional.deleteMany({ where: { product_id: id } });
       await prisma.product.delete({ where: { id } });
 
@@ -196,7 +188,6 @@ class ProductService {
     }
 
     try {
-      // Verifica se o produto existe
       await this.getProductById(productId);
 
       return await prisma.productAdditional.create({
@@ -236,7 +227,6 @@ class ProductService {
     }
   }
 
-  // Métodos privados de normalização
   private normalizePrice(price: any): number {
     if (typeof price === "string") {
       let cleanPrice = price;

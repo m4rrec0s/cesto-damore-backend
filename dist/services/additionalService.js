@@ -3,140 +3,361 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.additionalService = void 0;
 const prisma_1 = __importDefault(require("../database/prisma"));
-function serializeCompatible(value) {
-    if (!value)
-        return null;
-    if (Array.isArray(value))
-        return value.join(",");
-    return value;
-}
-function deserializeCompatible(value) {
-    if (!value)
-        return [];
-    if (Array.isArray(value)) {
-        return value.map((s) => String(s).trim()).filter(Boolean);
-    }
-    return String(value)
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-}
-exports.additionalService = {
-    async list() {
-        const results = await prisma_1.default.additional.findMany({});
-        return results.map((r) => ({
-            ...r,
-            compatible_with: deserializeCompatible(r.compatible_with),
-        }));
-    },
-    async getById(id) {
-        const r = await prisma_1.default.additional.findUnique({ where: { id } });
-        if (!r)
-            return null;
-        const dr = r;
-        return {
-            ...dr,
-            compatible_with: deserializeCompatible(dr.compatible_with),
-        };
-    },
-    async create(data) {
-        const stored = serializeCompatible(data.compatible_with);
-        const r = await prisma_1.default.additional.create({
-            data: {
-                name: data.name,
-                description: data.description ?? null,
-                price: data.price,
-                image_url: data.image_url ?? null,
-                compatible_with: stored,
-            },
-        });
-        // Se vier compatibilidades, sincroniza a tabela de junção ProductAdditional
-        const compatArray = deserializeCompatible(data.compatible_with);
-        if (compatArray.length) {
-            // validando ids de produto existentes
-            const existing = await prisma_1.default.product.findMany({
-                where: { id: { in: compatArray } },
-                select: { id: true },
+class AdditionalService {
+    async getAllAdditionals(includeProducts = false) {
+        try {
+            const results = await prisma_1.default.additional.findMany({
+                include: includeProducts ? {
+                    products: {
+                        include: {
+                            product: {
+                                select: { id: true, name: true }
+                            }
+                        },
+                        where: { is_active: true }
+                    }
+                } : undefined
             });
-            const existingIds = existing.map((p) => p.id);
-            if (existingIds.length) {
-                await prisma_1.default.productAdditional.createMany({
-                    data: existingIds.map((pid) => ({
-                        product_id: pid,
-                        additional_id: r.id,
-                    })),
-                    skipDuplicates: true,
-                });
-            }
+            return results.map((r) => ({
+                ...r,
+                compatible_products: r.products?.map((p) => ({
+                    product_id: p.product.id,
+                    product_name: p.product.name,
+                    custom_price: p.custom_price,
+                    is_active: p.is_active
+                })) || undefined
+            }));
         }
-        return {
-            ...r,
-            compatible_with: deserializeCompatible(r.compatible_with),
-        };
-    },
-    async update(id, data) {
-        const payload = {};
-        if (data.name !== undefined)
-            payload.name = data.name;
-        if (data.description !== undefined)
-            payload.description = data.description;
-        if (data.price !== undefined)
-            payload.price = data.price;
-        if (data.image_url !== undefined)
-            payload.image_url = data.image_url;
-        if (data.compatible_with !== undefined)
-            payload.compatible_with = serializeCompatible(data.compatible_with);
-        const r = await prisma_1.default.additional.update({ where: { id }, data: payload });
-        // Se foi enviado compatible_with, sincroniza as associações na tabela de junção
-        if (data.compatible_with !== undefined) {
-            const compatArray = deserializeCompatible(data.compatible_with);
-            // remove associações antigas
+        catch (error) {
+            throw new Error(`Erro ao buscar adicionais: ${error.message}`);
+        }
+    }
+    async getAdditionalById(id, includeProducts = false) {
+        if (!id) {
+            throw new Error("ID do adicional é obrigatório");
+        }
+        try {
+            const r = await prisma_1.default.additional.findUnique({
+                where: { id },
+                include: includeProducts ? {
+                    products: {
+                        include: {
+                            product: {
+                                select: { id: true, name: true }
+                            }
+                        },
+                        where: { is_active: true }
+                    }
+                } : undefined
+            });
+            if (!r) {
+                throw new Error("Adicional não encontrado");
+            }
+            return {
+                ...r,
+                compatible_products: r.products?.map((p) => ({
+                    product_id: p.product.id,
+                    product_name: p.product.name,
+                    custom_price: p.custom_price,
+                    is_active: p.is_active
+                })) || undefined
+            };
+        }
+        catch (error) {
+            if (error.message.includes("não encontrado")) {
+                throw error;
+            }
+            throw new Error(`Erro ao buscar adicional: ${error.message}`);
+        }
+    }
+    async createAdditional(data) {
+        if (!data.name || data.name.trim() === "") {
+            throw new Error("Nome do adicional é obrigatório");
+        }
+        if (!data.price || data.price <= 0) {
+            throw new Error("Preço do adicional é obrigatório e deve ser maior que zero");
+        }
+        try {
+            const payload = {
+                name: data.name,
+                description: data.description,
+                price: this.normalizePrice(data.price),
+                image_url: data.image_url,
+            };
+            const r = await prisma_1.default.additional.create({ data: payload });
+            // Vincular aos produtos se fornecido
+            if (data.compatible_products && data.compatible_products.length > 0) {
+                await this.linkToProducts(r.id, data.compatible_products);
+            }
+            return await this.getAdditionalById(r.id, true);
+        }
+        catch (error) {
+            if (error.message.includes("obrigatório") ||
+                error.message.includes("inválido")) {
+                throw error;
+            }
+            throw new Error(`Erro ao criar adicional: ${error.message}`);
+        }
+    }
+    async updateAdditional(id, data) {
+        if (!id) {
+            throw new Error("ID do adicional é obrigatório");
+        }
+        await this.getAdditionalById(id);
+        try {
+            const payload = {};
+            if (data.name !== undefined)
+                payload.name = data.name;
+            if (data.description !== undefined)
+                payload.description = data.description;
+            if (data.price !== undefined)
+                payload.price = this.normalizePrice(data.price);
+            if (data.image_url !== undefined)
+                payload.image_url = data.image_url;
+            const r = await prisma_1.default.additional.update({
+                where: { id },
+                data: payload,
+            });
+            // Atualizar produtos compatíveis se fornecido
+            if (data.compatible_products !== undefined) {
+                // Remove todas as associações antigas
+                await prisma_1.default.productAdditional.deleteMany({
+                    where: { additional_id: id },
+                });
+                // Adiciona as novas associações
+                if (data.compatible_products.length > 0) {
+                    await this.linkToProducts(id, data.compatible_products);
+                }
+            }
+            return await this.getAdditionalById(id, true);
+        }
+        catch (error) {
+            if (error.message.includes("não encontrado") ||
+                error.message.includes("obrigatório")) {
+                throw error;
+            }
+            throw new Error(`Erro ao atualizar adicional: ${error.message}`);
+        }
+    }
+    async deleteAdditional(id) {
+        if (!id) {
+            throw new Error("ID do adicional é obrigatório");
+        }
+        // Verifica se o adicional existe
+        await this.getAdditionalById(id);
+        try {
+            // Remove associações na tabela de junção manualmente
             await prisma_1.default.productAdditional.deleteMany({
                 where: { additional_id: id },
             });
-            if (compatArray.length) {
-                const existing = await prisma_1.default.product.findMany({
-                    where: { id: { in: compatArray } },
-                    select: { id: true },
+            await prisma_1.default.additional.delete({ where: { id } });
+            return { message: "Adicional deletado com sucesso" };
+        }
+        catch (error) {
+            throw new Error(`Erro ao deletar adicional: ${error.message}`);
+        }
+    }
+    async linkToProduct(additionalId, productId, customPrice) {
+        if (!additionalId) {
+            throw new Error("ID do adicional é obrigatório");
+        }
+        if (!productId) {
+            throw new Error("ID do produto é obrigatório");
+        }
+        try {
+            // Verifica se o adicional existe
+            await this.getAdditionalById(additionalId);
+            // Verifica se o produto existe
+            const product = await prisma_1.default.product.findUnique({
+                where: { id: productId },
+                select: { id: true }
+            });
+            if (!product) {
+                throw new Error("Produto não encontrado");
+            }
+            return await prisma_1.default.productAdditional.create({
+                data: {
+                    additional_id: additionalId,
+                    product_id: productId,
+                    custom_price: customPrice || null
+                },
+            });
+        }
+        catch (error) {
+            if (error.message.includes("não encontrado") ||
+                error.message.includes("obrigatório")) {
+                throw error;
+            }
+            throw new Error(`Erro ao vincular adicional ao produto: ${error.message}`);
+        }
+    }
+    async updateProductLink(additionalId, productId, customPrice) {
+        if (!additionalId) {
+            throw new Error("ID do adicional é obrigatório");
+        }
+        if (!productId) {
+            throw new Error("ID do produto é obrigatório");
+        }
+        try {
+            return await prisma_1.default.productAdditional.update({
+                where: {
+                    product_id_additional_id: {
+                        product_id: productId,
+                        additional_id: additionalId,
+                    },
+                },
+                data: {
+                    custom_price: customPrice || null,
+                    updated_at: new Date()
+                }
+            });
+        }
+        catch (error) {
+            throw new Error(`Erro ao atualizar vínculo do adicional: ${error.message}`);
+        }
+    }
+    async linkToProducts(additionalId, products) {
+        const validProducts = await prisma_1.default.product.findMany({
+            where: { id: { in: products.map(p => p.product_id) } },
+            select: { id: true }
+        });
+        const validProductIds = new Set(validProducts.map(p => p.id));
+        const dataToInsert = products
+            .filter(p => validProductIds.has(p.product_id))
+            .map(p => ({
+            product_id: p.product_id,
+            additional_id: additionalId,
+            custom_price: p.custom_price || null
+        }));
+        if (dataToInsert.length > 0) {
+            await prisma_1.default.productAdditional.createMany({
+                data: dataToInsert,
+                skipDuplicates: true,
+            });
+        }
+    }
+    async unlinkFromProduct(additionalId, productId) {
+        if (!additionalId) {
+            throw new Error("ID do adicional é obrigatório");
+        }
+        if (!productId) {
+            throw new Error("ID do produto é obrigatório");
+        }
+        try {
+            await prisma_1.default.productAdditional.delete({
+                where: {
+                    product_id_additional_id: {
+                        product_id: productId,
+                        additional_id: additionalId,
+                    },
+                },
+            });
+            return { message: "Adicional desvinculado do produto com sucesso" };
+        }
+        catch (error) {
+            throw new Error(`Erro ao desvincular adicional do produto: ${error.message}`);
+        }
+    }
+    // Método para buscar o preço correto do adicional
+    async getAdditionalPrice(additionalId, productId) {
+        if (!additionalId) {
+            throw new Error("ID do adicional é obrigatório");
+        }
+        try {
+            const additional = await prisma_1.default.additional.findUnique({
+                where: { id: additionalId },
+                select: { price: true }
+            });
+            if (!additional) {
+                throw new Error("Adicional não encontrado");
+            }
+            // Se tem produto específico, busca o preço customizado
+            if (productId) {
+                const productAdditional = await prisma_1.default.productAdditional.findUnique({
+                    where: {
+                        product_id_additional_id: {
+                            product_id: productId,
+                            additional_id: additionalId,
+                        },
+                    },
+                    select: { custom_price: true, is_active: true }
                 });
-                const existingIds = existing.map((p) => p.id);
-                if (existingIds.length) {
-                    await prisma_1.default.productAdditional.createMany({
-                        data: existingIds.map((pid) => ({
-                            product_id: pid,
-                            additional_id: id,
-                        })),
-                        skipDuplicates: true,
-                    });
+                // Se existe vínculo ativo e tem preço customizado, usa ele
+                if (productAdditional?.is_active && productAdditional.custom_price !== null) {
+                    return productAdditional.custom_price;
                 }
             }
+            // Caso contrário, usa o preço base
+            return additional.price;
         }
-        return {
-            ...r,
-            compatible_with: deserializeCompatible(r.compatible_with),
-        };
-    },
-    async remove(id) {
-        // Remove associações na tabela de junção manualmente
-        await prisma_1.default.productAdditional.deleteMany({ where: { additional_id: id } });
-        const r = await prisma_1.default.additional.delete({ where: { id } });
-        return r;
-    },
-    async linkToProduct(additionalId, productId) {
-        return prisma_1.default.productAdditional.create({
-            data: { additional_id: additionalId, product_id: productId },
-        });
-    },
-    async unlinkFromProduct(additionalId, productId) {
-        return prisma_1.default.productAdditional.delete({
-            where: {
-                product_id_additional_id: {
-                    product_id: productId,
-                    additional_id: additionalId,
+        catch (error) {
+            throw new Error(`Erro ao buscar preço do adicional: ${error.message}`);
+        }
+    }
+    // Método para buscar adicionais compatíveis com um produto
+    async getAdditionalsByProduct(productId) {
+        if (!productId) {
+            throw new Error("ID do produto é obrigatório");
+        }
+        try {
+            const results = await prisma_1.default.additional.findMany({
+                where: {
+                    products: {
+                        some: {
+                            product_id: productId,
+                            is_active: true
+                        }
+                    }
                 },
-            },
-        });
-    },
-};
+                include: {
+                    products: {
+                        where: { product_id: productId },
+                        select: {
+                            custom_price: true,
+                            is_active: true,
+                            product: {
+                                select: { id: true, name: true }
+                            }
+                        }
+                    }
+                }
+            });
+            return results.map((r) => ({
+                ...r,
+                compatible_products: r.products.map((p) => ({
+                    product_id: p.product.id,
+                    product_name: p.product.name,
+                    custom_price: p.custom_price,
+                    is_active: p.is_active
+                }))
+            }));
+        }
+        catch (error) {
+            throw new Error(`Erro ao buscar adicionais do produto: ${error.message}`);
+        }
+    }
+    normalizePrice(price) {
+        if (typeof price === "string") {
+            let cleanPrice = price;
+            const pointCount = (cleanPrice.match(/\./g) || []).length;
+            const commaCount = (cleanPrice.match(/,/g) || []).length;
+            if (commaCount === 1 && pointCount === 0) {
+                cleanPrice = cleanPrice.replace(",", ".");
+            }
+            else if (commaCount === 1 && pointCount >= 1) {
+                cleanPrice = cleanPrice.replace(/\./g, "").replace(",", ".");
+            }
+            const normalizedPrice = parseFloat(cleanPrice);
+            if (isNaN(normalizedPrice) || normalizedPrice <= 0) {
+                throw new Error("Preço inválido: " + cleanPrice);
+            }
+            return normalizedPrice;
+        }
+        if (typeof price === "number" && price > 0) {
+            return price;
+        }
+        throw new Error("Preço deve ser um número positivo");
+    }
+}
+exports.default = new AdditionalService();

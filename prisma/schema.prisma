@@ -63,14 +63,13 @@ model Category {
 }
 
 model Additional {
-  id              String   @id @default(uuid())
-  name            String
-  description     String?
-  price           Float
-  image_url       String?
-  compatible_with String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  price       Float // Preço base (venda separada)
+  image_url   String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
   products   ProductAdditional[]
   orderItems OrderItemAdditional[]
@@ -79,6 +78,10 @@ model Additional {
 model ProductAdditional {
   product_id    String
   additional_id String
+  custom_price  Float? // Preço quando vendido como adicional deste produto
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
 
   product    Product    @relation(fields: [product_id], references: [id])
   additional Additional @relation(fields: [additional_id], references: [id])

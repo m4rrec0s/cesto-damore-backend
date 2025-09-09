@@ -3,63 +3,167 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.orderService = void 0;
 const prisma_1 = __importDefault(require("../database/prisma"));
-exports.orderService = {
-    async list() {
-        return prisma_1.default.order.findMany({
-            include: {
-                items: { include: { additionals: true, product: true } },
-                user: true,
-            },
-        });
-    },
-    async getById(id) {
-        return prisma_1.default.order.findUnique({
-            where: { id },
-            include: {
-                items: { include: { additionals: true, product: true } },
-                user: true,
-            },
-        });
-    },
-    async create(data) {
-        const { items, ...orderData } = data;
-        const created = await prisma_1.default.order.create({ data: { ...orderData } });
-        for (const it of items) {
-            const orderItem = await prisma_1.default.orderItem.create({
-                data: {
-                    order_id: created.id,
-                    product_id: it.product_id,
-                    quantity: it.quantity,
-                    price: it.price,
+class OrderService {
+    async getAllOrders() {
+        try {
+            return await prisma_1.default.order.findMany({
+                include: {
+                    items: { include: { additionals: true, product: true } },
+                    user: true,
                 },
             });
-            if (Array.isArray(it.additionals)) {
-                for (const a of it.additionals) {
-                    await prisma_1.default.orderItemAdditional.create({
-                        data: {
-                            order_item_id: orderItem.id,
-                            additional_id: a.additional_id,
-                            quantity: a.quantity,
-                            price: a.price,
-                        },
-                    });
-                }
+        }
+        catch (error) {
+            throw new Error(`Erro ao buscar pedidos: ${error.message}`);
+        }
+    }
+    async getOrderById(id) {
+        if (!id) {
+            throw new Error("ID do pedido é obrigatório");
+        }
+        try {
+            const order = await prisma_1.default.order.findUnique({
+                where: { id },
+                include: {
+                    items: { include: { additionals: true, product: true } },
+                    user: true,
+                },
+            });
+            if (!order) {
+                throw new Error("Pedido não encontrado");
+            }
+            return order;
+        }
+        catch (error) {
+            if (error.message.includes("não encontrado")) {
+                throw error;
+            }
+            throw new Error(`Erro ao buscar pedido: ${error.message}`);
+        }
+    }
+    async createOrder(data) {
+        // Validações de campos obrigatórios
+        if (!data.user_id || data.user_id.trim() === "") {
+            throw new Error("ID do usuário é obrigatório");
+        }
+        if (!data.total_price || data.total_price <= 0) {
+            throw new Error("Preço total é obrigatório e deve ser maior que zero");
+        }
+        if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+            throw new Error("Pelo menos um item é obrigatório");
+        }
+        // Validações dos itens
+        for (let i = 0; i < data.items.length; i++) {
+            const item = data.items[i];
+            if (!item.product_id || item.product_id.trim() === "") {
+                throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
+            }
+            if (!item.quantity || item.quantity <= 0) {
+                throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
+            }
+            if (!item.price || item.price <= 0) {
+                throw new Error(`Item ${i + 1}: Preço deve ser maior que zero`);
             }
         }
-        return this.getById(created.id);
-    },
-    async remove(id) {
-        // cascade delete items and additionals
-        const items = await prisma_1.default.orderItem.findMany({ where: { order_id: id } });
-        for (const it of items) {
-            await prisma_1.default.orderItemAdditional.deleteMany({
-                where: { order_item_id: it.id },
+        try {
+            // Verifica se o usuário existe
+            const user = await prisma_1.default.user.findUnique({
+                where: { id: data.user_id },
             });
+            if (!user) {
+                throw new Error("Usuário não encontrado");
+            }
+            // Verifica se todos os produtos existem
+            const productIds = data.items.map((item) => item.product_id);
+            const products = await prisma_1.default.product.findMany({
+                where: { id: { in: productIds } },
+            });
+            if (products.length !== productIds.length) {
+                throw new Error("Um ou mais produtos não foram encontrados");
+            }
+            const { items, ...orderData } = data;
+            const created = await prisma_1.default.order.create({ data: { ...orderData } });
+            for (const item of items) {
+                const orderItem = await prisma_1.default.orderItem.create({
+                    data: {
+                        order_id: created.id,
+                        product_id: item.product_id,
+                        quantity: item.quantity,
+                        price: item.price,
+                    },
+                });
+                if (Array.isArray(item.additionals) && item.additionals.length > 0) {
+                    for (const additional of item.additionals) {
+                        await prisma_1.default.orderItemAdditional.create({
+                            data: {
+                                order_item_id: orderItem.id,
+                                additional_id: additional.additional_id,
+                                quantity: additional.quantity,
+                                price: additional.price,
+                            },
+                        });
+                    }
+                }
+            }
+            return await this.getOrderById(created.id);
         }
-        await prisma_1.default.orderItem.deleteMany({ where: { order_id: id } });
-        return prisma_1.default.order.delete({ where: { id } });
-    },
-};
-exports.default = exports.orderService;
+        catch (error) {
+            if (error.message.includes("obrigatório") ||
+                error.message.includes("não encontrado") ||
+                error.message.includes("deve ser maior")) {
+                throw error;
+            }
+            throw new Error(`Erro ao criar pedido: ${error.message}`);
+        }
+    }
+    async deleteOrder(id) {
+        if (!id) {
+            throw new Error("ID do pedido é obrigatório");
+        }
+        // Verifica se o pedido existe
+        await this.getOrderById(id);
+        try {
+            // Remove em cascata: adicionais dos itens, itens e pedido
+            const items = await prisma_1.default.orderItem.findMany({
+                where: { order_id: id },
+            });
+            for (const item of items) {
+                await prisma_1.default.orderItemAdditional.deleteMany({
+                    where: { order_item_id: item.id },
+                });
+            }
+            await prisma_1.default.orderItem.deleteMany({ where: { order_id: id } });
+            await prisma_1.default.order.delete({ where: { id } });
+            return { message: "Pedido deletado com sucesso" };
+        }
+        catch (error) {
+            if (error.message.includes("não encontrado")) {
+                throw error;
+            }
+            throw new Error(`Erro ao deletar pedido: ${error.message}`);
+        }
+    }
+    // Métodos de compatibilidade com o código existente
+    async list() {
+        return this.getAllOrders();
+    }
+    async getById(id) {
+        try {
+            return await this.getOrderById(id);
+        }
+        catch (error) {
+            if (error.message.includes("não encontrado")) {
+                return null;
+            }
+            throw error;
+        }
+    }
+    async create(data) {
+        return this.createOrder(data);
+    }
+    async remove(id) {
+        return this.deleteOrder(id);
+    }
+}
+exports.default = new OrderService();

@@ -50,7 +50,13 @@ router.put(
 );
 router.delete("/additional/:id", additionalController.remove);
 router.post("/additional/:id/link", additionalController.link);
+router.put("/additional/:id/link", additionalController.updateLink);
 router.post("/additional/:id/unlink", additionalController.unlink);
+router.get("/additional/:id/price", additionalController.getPrice);
+router.get(
+  "/products/:productId/additionals",
+  additionalController.getByProduct
+);
 
 // product routes
 router.get("/products", productController.index);

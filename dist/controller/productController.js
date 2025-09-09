@@ -3,108 +3,200 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.productController = void 0;
-const productService_1 = __importDefault(require("../services/productService"));
 const sharp_1 = __importDefault(require("sharp"));
-const googleDrive_1 = require("../config/googleDrive");
-exports.productController = {
+const productService_1 = __importDefault(require("../services/productService"));
+const localStorage_1 = require("../config/localStorage");
+class ProductController {
     async index(req, res) {
-        const list = await productService_1.default.list();
-        res.json(list);
-    },
+        try {
+            const products = await productService_1.default.getAllProducts();
+            res.json(products);
+        }
+        catch (error) {
+            console.error("Erro ao buscar produtos:", error);
+            res.status(500).json({ error: "Erro interno do servidor" });
+        }
+    }
     async show(req, res) {
-        const { id } = req.params;
-        const item = await productService_1.default.getById(id);
-        if (!item)
-            return res.status(404).json({ message: "Product not found" });
-        res.json(item);
-    },
+        try {
+            const { id } = req.params;
+            const product = await productService_1.default.getProductById(id);
+            res.json(product);
+        }
+        catch (error) {
+            console.error("Erro ao buscar produto:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("obrigatório")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
+        }
+    }
     async create(req, res) {
         try {
-            const payload = req.body;
-            console.log("Received file:", req.file ? "YES" : "NO");
-            console.log("Payload before image processing:", payload);
+            const data = { ...req.body };
+            // Processar imagem se existir
+            let fileToProcess = null;
             if (req.file) {
-                console.log("Processing image file:", req.file.originalname, req.file.size);
-                const compressed = await (0, sharp_1.default)(req.file.buffer)
-                    .resize({ width: 1600, withoutEnlargement: true })
-                    .jpeg({ quality: 80 })
-                    .toBuffer();
-                const url = await (0, googleDrive_1.uploadToDrive)(compressed, req.file.originalname, req.file.mimetype);
-                payload.image_url = url;
-                console.log("Image uploaded to:", url);
+                fileToProcess = req.file;
             }
-            console.log("Final payload:", payload);
-            const created = await productService_1.default.create(payload);
-            res.status(201).json(created);
+            else if (req.files) {
+                if (Array.isArray(req.files) && req.files.length > 0) {
+                    fileToProcess = req.files[0];
+                }
+                else if (typeof req.files === "object") {
+                    const fileKeys = Object.keys(req.files);
+                    if (fileKeys.length > 0) {
+                        const files = req.files[fileKeys[0]];
+                        if (Array.isArray(files) && files.length > 0) {
+                            fileToProcess = files[0];
+                        }
+                    }
+                }
+            }
+            if (fileToProcess) {
+                try {
+                    const imageUrl = await (0, localStorage_1.saveImageLocally)(fileToProcess.buffer, fileToProcess.originalname || `product_${Date.now()}.webp`, fileToProcess.mimetype || "image/webp");
+                    data.image_url = imageUrl;
+                }
+                catch (imageError) {
+                    console.error("Erro ao salvar imagem:", imageError);
+                    return res.status(500).json({
+                        error: "Erro ao processar imagem",
+                        details: imageError.message,
+                    });
+                }
+            }
+            const product = await productService_1.default.createProduct(data);
+            res.status(201).json(product);
         }
-        catch (err) {
-            console.error("Error creating product:", err);
-            res
-                .status(400)
-                .json({ message: "Error creating product: " + err.message });
+        catch (error) {
+            console.error("Erro ao criar produto:", error);
+            if (error.message.includes("obrigatório") ||
+                error.message.includes("inválido")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
         }
-    },
+    }
     async update(req, res) {
-        const { id } = req.params;
         try {
-            const payload = req.body;
-            if (req.file) {
-                const compressed = await (0, sharp_1.default)(req.file.buffer)
-                    .resize({ width: 1600, withoutEnlargement: true })
-                    .jpeg({ quality: 80 })
-                    .toBuffer();
-                const url = await (0, googleDrive_1.uploadToDrive)(compressed, req.file.originalname, req.file.mimetype);
-                payload.image_url = url;
+            const { id } = req.params;
+            const data = { ...req.body };
+            const file = (() => {
+                if (req.file)
+                    return req.file;
+                if (Array.isArray(req.files) && req.files.length)
+                    return req.files[0];
+                if (req.files && typeof req.files === "object") {
+                    const vals = Object.values(req.files).flat();
+                    if (vals.length)
+                        return vals[0];
+                }
+                return null;
+            })();
+            // Processamento de imagem se fornecida
+            if (file) {
+                try {
+                    const compressedImage = await (0, sharp_1.default)(file.buffer)
+                        .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
+                        .webp({ quality: 80 })
+                        .toBuffer();
+                    const imageUrl = await (0, localStorage_1.saveImageLocally)(compressedImage, file.originalname || `product_${Date.now()}.webp`, "image/webp");
+                    data.image_url = imageUrl;
+                }
+                catch (imageError) {
+                    console.error("Erro no processamento de imagem:", imageError);
+                    return res.status(500).json({
+                        error: "Erro ao processar imagem",
+                        details: imageError.message,
+                    });
+                }
             }
-            const updated = await productService_1.default.update(id, payload);
-            if (!updated)
-                return res.status(404).json({ message: "Product not found" });
-            res.json(updated);
+            const product = await productService_1.default.updateProduct(id, data);
+            res.json(product);
         }
-        catch (err) {
-            res
-                .status(400)
-                .json({ message: "Error updating product: " + err.message });
+        catch (error) {
+            console.error("Erro ao atualizar produto:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("obrigatório") ||
+                error.message.includes("inválido")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
         }
-    },
+    }
     async remove(req, res) {
-        const { id } = req.params;
         try {
-            await productService_1.default.remove(id);
-            res.status(204).send();
+            const { id } = req.params;
+            const result = await productService_1.default.deleteProduct(id);
+            res.json(result);
         }
-        catch (err) {
-            res
-                .status(400)
-                .json({ message: "Error removing product: " + err.message });
+        catch (error) {
+            console.error("Erro ao deletar produto:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("obrigatório")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
         }
-    },
+    }
     async link(req, res) {
-        const { id } = req.params;
-        const { additionalId } = req.body;
         try {
-            const rel = await productService_1.default.linkAdditional(id, additionalId);
-            res.status(201).json(rel);
+            const { id } = req.params;
+            const { additionalId } = req.body;
+            if (!additionalId) {
+                return res.status(400).json({ error: "ID do adicional é obrigatório" });
+            }
+            const result = await productService_1.default.linkAdditional(id, additionalId);
+            res.status(201).json(result);
         }
-        catch (err) {
-            res
-                .status(400)
-                .json({ message: "Error linking product: " + err.message });
+        catch (error) {
+            console.error("Erro ao vincular adicional:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("obrigatório")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
         }
-    },
+    }
     async unlink(req, res) {
-        const { id } = req.params;
-        const { additionalId } = req.body;
         try {
-            await productService_1.default.unlinkAdditional(id, additionalId);
-            res.status(204).send();
+            const { id } = req.params;
+            const { additionalId } = req.body;
+            if (!additionalId) {
+                return res.status(400).json({ error: "ID do adicional é obrigatório" });
+            }
+            const result = await productService_1.default.unlinkAdditional(id, additionalId);
+            res.json(result);
         }
-        catch (err) {
-            res
-                .status(400)
-                .json({ message: "Error unlinking product: " + err.message });
+        catch (error) {
+            console.error("Erro ao desvincular adicional:", error);
+            if (error.message.includes("obrigatório")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
         }
-    },
-};
-exports.default = exports.productController;
+    }
+}
+exports.default = new ProductController();

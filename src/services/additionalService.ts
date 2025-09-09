@@ -8,13 +8,17 @@ interface DBAdditional {
   description: string | null;
   price: number;
   image_url: string | null;
-  compatible_with: string | null;
   created_at: Date;
   updated_at: Date;
 }
 
-interface ServiceAdditional extends Omit<DBAdditional, "compatible_with"> {
-  compatible_with: string[];
+interface ServiceAdditional extends DBAdditional {
+  compatible_products?: Array<{
+    product_id: string;
+    product_name: string;
+    custom_price: number | null;
+    is_active: boolean;
+  }>;
 }
 
 type CreateAdditionalInput = {
@@ -22,38 +26,87 @@ type CreateAdditionalInput = {
   description?: string | null;
   price: number;
   image_url?: string | null;
-  compatible_with?: string[] | string | null;
+  compatible_products?: Array<{
+    product_id: string;
+    custom_price?: number | null;
+  }>;
 };
 
 type UpdateAdditionalInput = Partial<CreateAdditionalInput>;
 
 class AdditionalService {
-  async getAllAdditionals(): Promise<ServiceAdditional[]> {
+  async getAllAdditionals(
+    includeProducts = false
+  ): Promise<ServiceAdditional[]> {
     try {
-      const results = await prisma.additional.findMany({});
-      return results.map((r: DBAdditional) => ({
+      const results = await prisma.additional.findMany({
+        include: includeProducts
+          ? {
+              products: {
+                include: {
+                  product: {
+                    select: { id: true, name: true },
+                  },
+                },
+                where: { is_active: true },
+              },
+            }
+          : undefined,
+      });
+
+      return results.map((r: any) => ({
         ...r,
-        compatible_with: this.deserializeCompatible(r.compatible_with),
+        compatible_products:
+          r.products?.map((p: any) => ({
+            product_id: p.product.id,
+            product_name: p.product.name,
+            custom_price: p.custom_price,
+            is_active: p.is_active,
+          })) || undefined,
       }));
     } catch (error: any) {
       throw new Error(`Erro ao buscar adicionais: ${error.message}`);
     }
   }
 
-  async getAdditionalById(id: string): Promise<ServiceAdditional> {
+  async getAdditionalById(
+    id: string,
+    includeProducts = false
+  ): Promise<ServiceAdditional> {
     if (!id) {
       throw new Error("ID do adicional é obrigatório");
     }
 
     try {
-      const r = await prisma.additional.findUnique({ where: { id } });
+      const r = await prisma.additional.findUnique({
+        where: { id },
+        include: includeProducts
+          ? {
+              products: {
+                include: {
+                  product: {
+                    select: { id: true, name: true },
+                  },
+                },
+                where: { is_active: true },
+              },
+            }
+          : undefined,
+      });
+
       if (!r) {
         throw new Error("Adicional não encontrado");
       }
 
       return {
         ...r,
-        compatible_with: this.deserializeCompatible(r.compatible_with),
+        compatible_products:
+          (r as any).products?.map((p: any) => ({
+            product_id: p.product.id,
+            product_name: p.product.name,
+            custom_price: p.custom_price,
+            is_active: p.is_active,
+          })) || undefined,
       } as ServiceAdditional;
     } catch (error: any) {
       if (error.message.includes("não encontrado")) {
@@ -66,7 +119,6 @@ class AdditionalService {
   async createAdditional(
     data: CreateAdditionalInput
   ): Promise<ServiceAdditional> {
-    // Validações de campos obrigatórios
     if (!data.name || data.name.trim() === "") {
       throw new Error("Nome do adicional é obrigatório");
     }
@@ -82,36 +134,16 @@ class AdditionalService {
         description: data.description,
         price: this.normalizePrice(data.price),
         image_url: data.image_url,
-        compatible_with: this.serializeCompatible(data.compatible_with),
       };
 
       const r = await prisma.additional.create({ data: payload });
 
-      // Se foi enviado compatible_with, cria as associações na tabela de junção
-      if (data.compatible_with) {
-        const compatArray = this.deserializeCompatible(data.compatible_with);
-        if (compatArray.length) {
-          const existing = await prisma.product.findMany({
-            where: { id: { in: compatArray } },
-            select: { id: true },
-          });
-          const existingIds = existing.map((p: { id: string }) => p.id);
-          if (existingIds.length) {
-            await prisma.productAdditional.createMany({
-              data: existingIds.map((pid: string) => ({
-                product_id: pid,
-                additional_id: r.id,
-              })),
-              skipDuplicates: true,
-            });
-          }
-        }
+      // Vincular aos produtos se fornecido
+      if (data.compatible_products && data.compatible_products.length > 0) {
+        await this.linkToProducts(r.id, data.compatible_products);
       }
 
-      return {
-        ...r,
-        compatible_with: this.deserializeCompatible(r.compatible_with),
-      } as ServiceAdditional;
+      return await this.getAdditionalById(r.id, true);
     } catch (error: any) {
       if (
         error.message.includes("obrigatório") ||
@@ -131,7 +163,6 @@ class AdditionalService {
       throw new Error("ID do adicional é obrigatório");
     }
 
-    // Verifica se o adicional existe
     await this.getAdditionalById(id);
 
     try {
@@ -142,46 +173,26 @@ class AdditionalService {
       if (data.price !== undefined)
         payload.price = this.normalizePrice(data.price);
       if (data.image_url !== undefined) payload.image_url = data.image_url;
-      if (data.compatible_with !== undefined) {
-        payload.compatible_with = this.serializeCompatible(
-          data.compatible_with
-        );
-      }
 
       const r = await prisma.additional.update({
         where: { id },
         data: payload,
       });
 
-      // Se foi enviado compatible_with, sincroniza as associações na tabela de junção
-      if (data.compatible_with !== undefined) {
-        const compatArray = this.deserializeCompatible(data.compatible_with);
-        // remove associações antigas
+      // Atualizar produtos compatíveis se fornecido
+      if (data.compatible_products !== undefined) {
+        // Remove todas as associações antigas
         await prisma.productAdditional.deleteMany({
           where: { additional_id: id },
         });
-        if (compatArray.length) {
-          const existing = await prisma.product.findMany({
-            where: { id: { in: compatArray } },
-            select: { id: true },
-          });
-          const existingIds = existing.map((p: { id: string }) => p.id);
-          if (existingIds.length) {
-            await prisma.productAdditional.createMany({
-              data: existingIds.map((pid: string) => ({
-                product_id: pid,
-                additional_id: id,
-              })),
-              skipDuplicates: true,
-            });
-          }
+
+        // Adiciona as novas associações
+        if (data.compatible_products.length > 0) {
+          await this.linkToProducts(id, data.compatible_products);
         }
       }
 
-      return {
-        ...r,
-        compatible_with: this.deserializeCompatible(r.compatible_with),
-      } as ServiceAdditional;
+      return await this.getAdditionalById(id, true);
     } catch (error: any) {
       if (
         error.message.includes("não encontrado") ||
@@ -213,7 +224,11 @@ class AdditionalService {
     }
   }
 
-  async linkToProduct(additionalId: string, productId: string) {
+  async linkToProduct(
+    additionalId: string,
+    productId: string,
+    customPrice?: number | null
+  ) {
     if (!additionalId) {
       throw new Error("ID do adicional é obrigatório");
     }
@@ -225,8 +240,22 @@ class AdditionalService {
       // Verifica se o adicional existe
       await this.getAdditionalById(additionalId);
 
+      // Verifica se o produto existe
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: { id: true },
+      });
+
+      if (!product) {
+        throw new Error("Produto não encontrado");
+      }
+
       return await prisma.productAdditional.create({
-        data: { additional_id: additionalId, product_id: productId },
+        data: {
+          additional_id: additionalId,
+          product_id: productId,
+          custom_price: customPrice || null,
+        },
       });
     } catch (error: any) {
       if (
@@ -238,6 +267,64 @@ class AdditionalService {
       throw new Error(
         `Erro ao vincular adicional ao produto: ${error.message}`
       );
+    }
+  }
+
+  async updateProductLink(
+    additionalId: string,
+    productId: string,
+    customPrice?: number | null
+  ) {
+    if (!additionalId) {
+      throw new Error("ID do adicional é obrigatório");
+    }
+    if (!productId) {
+      throw new Error("ID do produto é obrigatório");
+    }
+
+    try {
+      return await prisma.productAdditional.update({
+        where: {
+          product_id_additional_id: {
+            product_id: productId,
+            additional_id: additionalId,
+          },
+        },
+        data: {
+          custom_price: customPrice || null,
+          updated_at: new Date(),
+        },
+      });
+    } catch (error: any) {
+      throw new Error(
+        `Erro ao atualizar vínculo do adicional: ${error.message}`
+      );
+    }
+  }
+
+  private async linkToProducts(
+    additionalId: string,
+    products: Array<{ product_id: string; custom_price?: number | null }>
+  ) {
+    const validProducts = await prisma.product.findMany({
+      where: { id: { in: products.map((p) => p.product_id) } },
+      select: { id: true },
+    });
+
+    const validProductIds = new Set(validProducts.map((p) => p.id));
+    const dataToInsert = products
+      .filter((p) => validProductIds.has(p.product_id))
+      .map((p) => ({
+        product_id: p.product_id,
+        additional_id: additionalId,
+        custom_price: p.custom_price || null,
+      }));
+
+    if (dataToInsert.length > 0) {
+      await prisma.productAdditional.createMany({
+        data: dataToInsert,
+        skipDuplicates: true,
+      });
     }
   }
 
@@ -266,22 +353,97 @@ class AdditionalService {
     }
   }
 
-  // Métodos privados de serialização/deserialização
-  private serializeCompatible(value?: string[] | string | null): string | null {
-    if (!value) return null;
-    if (Array.isArray(value)) return value.join(",");
-    return value;
+  // Método para buscar o preço correto do adicional
+  async getAdditionalPrice(
+    additionalId: string,
+    productId?: string
+  ): Promise<number> {
+    if (!additionalId) {
+      throw new Error("ID do adicional é obrigatório");
+    }
+
+    try {
+      const additional = await prisma.additional.findUnique({
+        where: { id: additionalId },
+        select: { price: true },
+      });
+
+      if (!additional) {
+        throw new Error("Adicional não encontrado");
+      }
+
+      // Se tem produto específico, busca o preço customizado
+      if (productId) {
+        const productAdditional = await prisma.productAdditional.findUnique({
+          where: {
+            product_id_additional_id: {
+              product_id: productId,
+              additional_id: additionalId,
+            },
+          },
+          select: { custom_price: true, is_active: true },
+        });
+
+        // Se existe vínculo ativo e tem preço customizado, usa ele
+        if (
+          productAdditional?.is_active &&
+          productAdditional.custom_price !== null
+        ) {
+          return productAdditional.custom_price;
+        }
+      }
+
+      // Caso contrário, usa o preço base
+      return additional.price;
+    } catch (error: any) {
+      throw new Error(`Erro ao buscar preço do adicional: ${error.message}`);
+    }
   }
 
-  private deserializeCompatible(value?: string[] | string | null): string[] {
-    if (!value) return [] as string[];
-    if (Array.isArray(value)) {
-      return value.map((s) => String(s).trim()).filter(Boolean);
+  // Método para buscar adicionais compatíveis com um produto
+  async getAdditionalsByProduct(
+    productId: string
+  ): Promise<ServiceAdditional[]> {
+    if (!productId) {
+      throw new Error("ID do produto é obrigatório");
     }
-    return String(value)
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+
+    try {
+      const results = await prisma.additional.findMany({
+        where: {
+          products: {
+            some: {
+              product_id: productId,
+              is_active: true,
+            },
+          },
+        },
+        include: {
+          products: {
+            where: { product_id: productId },
+            select: {
+              custom_price: true,
+              is_active: true,
+              product: {
+                select: { id: true, name: true },
+              },
+            },
+          },
+        },
+      });
+
+      return results.map((r: any) => ({
+        ...r,
+        compatible_products: r.products.map((p: any) => ({
+          product_id: p.product.id,
+          product_name: p.product.name,
+          custom_price: p.custom_price,
+          is_active: p.is_active,
+        })),
+      }));
+    } catch (error: any) {
+      throw new Error(`Erro ao buscar adicionais do produto: ${error.message}`);
+    }
   }
 
   private normalizePrice(price: any): number {

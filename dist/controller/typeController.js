@@ -1,51 +1,95 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.typeController = void 0;
-const typeService_1 = require("../services/typeService");
-exports.typeController = {
+const typeService_1 = __importDefault(require("../services/typeService"));
+class TypeController {
     async index(req, res) {
-        const list = await typeService_1.typeService.list();
-        res.json(list);
-    },
-    async show(req, res) {
-        const { id } = req.params;
-        const item = await typeService_1.typeService.getById(id);
-        if (!item)
-            return res.status(404).json({ message: "Type not found" });
-        res.json(item);
-    },
-    async create(req, res) {
         try {
-            const newItem = await typeService_1.typeService.create(req.body);
-            res.status(201).json(newItem);
-        }
-        catch (err) {
-            res.status(400).json({ message: "Error creating type: " + err.message });
-        }
-    },
-    async update(req, res) {
-        const { id } = req.params;
-        try {
-            const updatedItem = await typeService_1.typeService.update(id, req.body);
-            if (!updatedItem)
-                return res.status(404).json({ message: "Type not found" });
-            res.json(updatedItem);
+            const types = await typeService_1.default.getAllTypes();
+            res.json(types);
         }
         catch (error) {
-            res
-                .status(400)
-                .json({ message: "Error updating type: " + error.message });
+            console.error("Erro ao buscar tipos:", error);
+            res.status(500).json({ error: "Erro interno do servidor" });
         }
-    },
-    async remove(req, res) {
-        const { id } = req.params;
+    }
+    async show(req, res) {
         try {
-            await typeService_1.typeService.remove(id);
-            res.status(204).send();
+            const { id } = req.params;
+            const type = await typeService_1.default.getTypeById(id);
+            res.json(type);
         }
-        catch (err) {
-            res.status(400).json({ message: "Error removing type: " + err.message });
+        catch (error) {
+            console.error("Erro ao buscar tipo:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("obrigatório")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
         }
-    },
-};
-exports.default = exports.typeController;
+    }
+    async create(req, res) {
+        try {
+            const type = await typeService_1.default.createType(req.body);
+            res.status(201).json(type);
+        }
+        catch (error) {
+            console.error("Erro ao criar tipo:", error);
+            if (error.message.includes("obrigatório") ||
+                error.message.includes("Já existe")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
+        }
+    }
+    async update(req, res) {
+        try {
+            const { id } = req.params;
+            const type = await typeService_1.default.updateType(id, req.body);
+            res.json(type);
+        }
+        catch (error) {
+            console.error("Erro ao atualizar tipo:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("obrigatório") ||
+                error.message.includes("Já existe") ||
+                error.message.includes("não pode estar vazio")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
+        }
+    }
+    async remove(req, res) {
+        try {
+            const { id } = req.params;
+            const result = await typeService_1.default.deleteType(id);
+            res.json(result);
+        }
+        catch (error) {
+            console.error("Erro ao deletar tipo:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("obrigatório") ||
+                error.message.includes("Não é possível deletar")) {
+                res.status(400).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
+        }
+    }
+}
+exports.default = new TypeController();

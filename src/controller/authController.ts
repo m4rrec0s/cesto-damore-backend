@@ -1,0 +1,110 @@
+import { Request, Response } from "express";
+import authService from "../services/authService";
+import sharp from "sharp";
+import { saveImageLocally } from "../config/localStorage";
+
+class AuthController {
+  async google(req: Request, res: Response) {
+    try {
+      const { idToken } = req.body;
+
+      if (!idToken) {
+        return res.status(400).json({ error: "Token do Google é obrigatório" });
+      }
+
+      const result = await authService.googleLogin({ idToken, ...req.body });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Erro no login do Google:", error);
+      if (
+        error.message.includes("obrigatório") ||
+        error.message.includes("necessários")
+      ) {
+        res.status(400).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    }
+  }
+
+  async login(req: Request, res: Response) {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res
+          .status(400)
+          .json({ error: "Email e senha são obrigatórios" });
+      }
+
+      const result = await authService.login(email, password);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Erro no login:", error);
+      if (
+        error.message.includes("não encontrado") ||
+        error.message.includes("não configurada")
+      ) {
+        res.status(400).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    }
+  }
+
+  async register(req: Request, res: Response) {
+    try {
+      const { email, password, name } = req.body;
+
+      if (!email || !password || !name) {
+        return res
+          .status(400)
+          .json({ error: "Email, senha e nome são obrigatórios" });
+      }
+
+      let imageUrl: string | undefined = undefined;
+
+      // Processamento de imagem se fornecida
+      if (req.file) {
+        try {
+          const compressedImage = await sharp(req.file.buffer)
+            .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+
+          imageUrl = await saveImageLocally(
+            compressedImage,
+            req.file.originalname || `user_${Date.now()}.jpg`,
+            "image/jpeg"
+          );
+        } catch (imageError: any) {
+          console.error("Erro no processamento de imagem:", imageError);
+          return res.status(500).json({
+            error: "Erro ao processar imagem",
+            details: imageError.message,
+          });
+        }
+      }
+
+      const result = await authService.registerWithEmail(
+        email,
+        password,
+        name,
+        imageUrl
+      );
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error("Erro no registro:", error);
+      if (
+        error.message.includes("já registrado") ||
+        error.message.includes("obrigatório")
+      ) {
+        res.status(400).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    }
+  }
+}
+
+export default new AuthController();

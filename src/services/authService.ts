@@ -1,6 +1,7 @@
 import { auth, createCustomToken } from "../config/firebase";
 import axios from "axios";
 import prisma from "../database/prisma";
+import jwt from "jsonwebtoken";
 
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 
@@ -17,6 +18,22 @@ interface GoogleLoginInput {
   email?: string;
   name?: string;
   imageUrl?: string;
+}
+
+// Nova função para criar JWT interno da aplicação
+function createAppJWT(userId: string, email: string) {
+  const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+  return jwt.sign(
+    {
+      userId,
+      email,
+      type: "app-token",
+    },
+    jwtSecret,
+    {
+      expiresIn: "7d", // Token dura 7 dias
+    }
+  );
 }
 
 class AuthService {
@@ -121,8 +138,18 @@ class AuthService {
       where: { firebaseUId: uid },
       data: { updated_at: new Date() },
     });
+
+    // Criar tokens
     const sessionToken = await createCustomToken(uid);
-    return { idToken, firebaseUid: uid, user, sessionToken };
+    const appToken = createAppJWT(user.id, user.email); // Novo token JWT interno
+
+    return {
+      idToken,
+      firebaseUid: uid,
+      user,
+      sessionToken,
+      appToken, // Retornar o token da aplicação
+    };
   }
 }
 

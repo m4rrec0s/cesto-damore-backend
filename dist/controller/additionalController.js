@@ -4,12 +4,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const additionalService_1 = __importDefault(require("../services/additionalService"));
-const sharp_1 = __importDefault(require("sharp"));
 const localStorage_1 = require("../config/localStorage");
 class AdditionalController {
     async index(req, res) {
         try {
-            const includeProducts = req.query.include_products === 'true';
+            const includeProducts = req.query.include_products === "true";
             const additionals = await additionalService_1.default.getAllAdditionals(includeProducts);
             res.json(additionals);
         }
@@ -21,7 +20,7 @@ class AdditionalController {
     async show(req, res) {
         try {
             const { id } = req.params;
-            const includeProducts = req.query.include_products === 'true';
+            const includeProducts = req.query.include_products === "true";
             const additional = await additionalService_1.default.getAdditionalById(id, includeProducts);
             res.json(additional);
         }
@@ -62,7 +61,7 @@ class AdditionalController {
             }
             if (fileToProcess) {
                 try {
-                    const imageUrl = await (0, localStorage_1.saveImageLocally)(fileToProcess.buffer, fileToProcess.originalname || `additional_${Date.now()}.webp`, fileToProcess.mimetype || "image/webp");
+                    const imageUrl = await (0, localStorage_1.saveImageLocally)(fileToProcess.buffer, fileToProcess.originalname || `additional_${Date.now()}.webp`, fileToProcess.mimetype);
                     data.image_url = imageUrl;
                 }
                 catch (imageError) {
@@ -91,14 +90,9 @@ class AdditionalController {
         try {
             const { id } = req.params;
             const data = { ...req.body };
-            // Processamento de imagem se fornecida
             if (req.file) {
                 try {
-                    const compressedImage = await (0, sharp_1.default)(req.file.buffer)
-                        .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
-                        .jpeg({ quality: 80 })
-                        .toBuffer();
-                    const imageUrl = await (0, localStorage_1.saveImageLocally)(compressedImage, req.file.originalname || `additional_${Date.now()}.jpg`, "image/jpeg");
+                    const imageUrl = await (0, localStorage_1.saveImageLocally)(req.file.buffer, req.file.originalname || `additional_${Date.now()}.webp`, req.file.mimetype);
                     data.image_url = imageUrl;
                 }
                 catch (imageError) {
@@ -238,6 +232,9 @@ class AdditionalController {
             console.error("Erro ao desvincular adicional:", error);
             if (error.message.includes("obrigatório")) {
                 res.status(400).json({ error: error.message });
+            }
+            else if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
             }
             else {
                 res.status(500).json({ error: "Erro interno do servidor" });

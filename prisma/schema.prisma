@@ -24,6 +24,7 @@ model User {
   city        String?
   state       String?
   zip_code    String?
+  role        String   @default("client")
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
@@ -35,19 +36,19 @@ model Product {
   name           String
   description    String?
   price          Float
+  discount       Float?   @default(0)
   stock_quantity Int?
   is_active      Boolean  @default(true)
   image_url      String?
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
-  type_id     String
-  category_id String
-  type        ProductType @relation(fields: [type_id], references: [id])
-  category    Category    @relation(fields: [category_id], references: [id])
+  type_id String
+  type    ProductType @relation(fields: [type_id], references: [id])
 
   orderItems  OrderItem[]
   additionals ProductAdditional[]
+  categories  ProductCategory[]
 }
 
 model ProductType {
@@ -57,9 +58,20 @@ model ProductType {
 }
 
 model Category {
-  id       String    @id @default(uuid())
+  id       String            @id @default(uuid())
   name     String
-  products Product[]
+  products ProductCategory[]
+}
+
+model ProductCategory {
+  product_id  String
+  category_id String
+  created_at  DateTime @default(now())
+
+  product  Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
+
+  @@id([product_id, category_id]) // PK composta
 }
 
 model Additional {
@@ -67,6 +79,7 @@ model Additional {
   name        String
   description String?
   price       Float // Preço base (venda separada)
+  discount    Float?   @default(0)
   image_url   String?
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
@@ -93,14 +106,16 @@ model Order {
   id               String      @id @default(uuid())
   user_id          String
   status           OrderStatus @default(PENDING)
+  discount         Float       @default(0)
   total_price      Float
   delivery_address String?
   delivery_date    DateTime?
   created_at       DateTime    @default(now())
   updated_at       DateTime    @updatedAt
 
-  user  User        @relation(fields: [user_id], references: [id])
-  items OrderItem[]
+  user    User        @relation(fields: [user_id], references: [id])
+  items   OrderItem[]
+  payment Payment?
 }
 
 model OrderItem {
@@ -127,10 +142,155 @@ model OrderItemAdditional {
   additional Additional @relation(fields: [additional_id], references: [id])
 }
 
+model Payment {
+  id                  String        @id @default(uuid())
+  order_id            String        @unique
+  mercado_pago_id     String?       @unique // ID do pagamento no Mercado Pago
+  preference_id       String? // ID da preferência de pagamento
+  payment_method      String? // Método de pagamento usado
+  payment_type        String? // Tipo de pagamento (credit_card, debit_card, etc.)
+  status              PaymentStatus @default(PENDING)
+  transaction_amount  Float
+  net_received_amount Float? // Valor líquido recebido (após taxas)
+  fee_details         String? // Detalhes das taxas (JSON)
+  external_reference  String? // Referência externa
+  webhook_attempts    Int           @default(0)
+  last_webhook_at     DateTime?
+  approved_at         DateTime?
+  created_at          DateTime      @default(now())
+  updated_at          DateTime      @updatedAt
+
+  order Order @relation(fields: [order_id], references: [id])
+}
+
+model FinancialSummary {
+  id                     String   @id @default(uuid())
+  date                   DateTime @unique @db.Date // Data do resumo (por dia)
+  total_sales            Float    @default(0) // Total de vendas do dia
+  total_net_revenue      Float    @default(0) // Receita líquida (após taxas)
+  total_fees             Float    @default(0) // Total de taxas pagas
+  total_orders           Int      @default(0) // Número de pedidos
+  approved_orders        Int      @default(0) // Pedidos aprovados
+  canceled_orders        Int      @default(0) // Pedidos cancelados
+  pending_orders         Int      @default(0) // Pedidos pendentes
+  total_products_sold    Int      @default(0) // Total de produtos vendidos
+  total_additionals_sold Int      @default(0) // Total de adicionais vendidos
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+}
+
+model WebhookLog {
+  id            String   @id @default(uuid())
+  payment_id    String? // ID do pagamento relacionado
+  topic         String // Tópico do webhook (payment, merchant_order, etc.)
+  resource_id   String // ID do recurso
+  raw_data      String // Dados brutos do webhook (JSON)
+  processed     Boolean  @default(false)
+  error_message String?
+  created_at    DateTime @default(now())
+}
+
+enum PaymentStatus {
+  PENDING // Pendente
+  APPROVED // Aprovado
+  AUTHORIZED // Autorizado
+  IN_PROCESS // Em processamento
+  IN_MEDIATION // Em mediação
+  REJECTED // Rejeitado
+  CANCELLED // Cancelado
+  REFUNDED // Reembolsado
+  CHARGED_BACK // Chargeback
+}
+
 enum OrderStatus {
   PENDING
   PAID
   SHIPPED
   DELIVERED
   CANCELED
+}
+
+// ================ FEED CONFIGURATION MODELS ================
+
+model FeedConfiguration {
+  id               String   @id @default(uuid())
+  name             String // Nome da configuração (ex: "Home Page Feed")
+  is_active        Boolean  @default(true)
+  show_banners     Boolean  @default(true)
+  show_recommended Boolean  @default(true)
+  show_discounted  Boolean  @default(true)
+  show_categories  Boolean  @default(true)
+  show_additionals Boolean  @default(true)
+  max_recommended  Int      @default(6) // Máximo de produtos recomendados
+  max_discounted   Int      @default(4) // Máximo de produtos com desconto
+  max_categories   Int      @default(8) // Máximo de categorias em destaque
+  max_additionals  Int      @default(6) // Máximo de adicionais em destaque
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  banners  FeedBanner[]
+  sections FeedSection[]
+}
+
+model FeedBanner {
+  id               String    @id @default(uuid())
+  feed_config_id   String
+  title            String
+  subtitle         String?
+  image_url        String
+  button_text      String?
+  button_url       String? // URL ou rota para onde o botão leva
+  background_color String?   @default("#FFFFFF")
+  text_color       String?   @default("#000000")
+  button_color     String?   @default("#007BFF")
+  is_active        Boolean   @default(true)
+  display_order    Int       @default(0) // Ordem de exibição
+  start_date       DateTime? // Data de início da exibição
+  end_date         DateTime? // Data de fim da exibição
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  feedConfiguration FeedConfiguration @relation(fields: [feed_config_id], references: [id], onDelete: Cascade)
+}
+
+model FeedSection {
+  id             String          @id @default(uuid())
+  feed_config_id String
+  title          String // Título da seção (ex: "Produtos Recomendados")
+  section_type   FeedSectionType // Tipo da seção
+  is_active      Boolean         @default(true)
+  display_order  Int             @default(0)
+  max_items      Int             @default(6) // Máximo de itens nesta seção
+  show_view_all  Boolean         @default(true) // Mostrar botão "Ver Todos"
+  view_all_url   String? // URL para "Ver Todos"
+  created_at     DateTime        @default(now())
+  updated_at     DateTime        @updatedAt
+
+  feedConfiguration FeedConfiguration @relation(fields: [feed_config_id], references: [id], onDelete: Cascade)
+  items             FeedSectionItem[]
+}
+
+model FeedSectionItem {
+  id              String   @id @default(uuid())
+  feed_section_id String
+  item_type       String // "product", "category", "additional"
+  item_id         String // ID do produto, categoria ou adicional
+  display_order   Int      @default(0)
+  is_featured     Boolean  @default(false) // Se é item em destaque
+  custom_title    String? // Título customizado para o item
+  custom_subtitle String? // Subtítulo customizado
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  feedSection FeedSection @relation(fields: [feed_section_id], references: [id], onDelete: Cascade)
+}
+
+enum FeedSectionType {
+  RECOMMENDED_PRODUCTS // Produtos recomendados
+  DISCOUNTED_PRODUCTS // Produtos com desconto
+  FEATURED_CATEGORIES // Categorias em destaque
+  FEATURED_ADDITIONALS // Adicionais em destaque
+  CUSTOM_PRODUCTS // Produtos customizados pelo admin
+  NEW_ARRIVALS // Novos produtos
+  BEST_SELLERS // Mais vendidos
 }

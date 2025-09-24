@@ -1,3 +1,4 @@
+import { deleteAdditionalImage } from "../config/localStorage";
 import prisma from "../database/prisma";
 import { Additional as AdditionalModel } from "../models/Addtional";
 
@@ -26,10 +27,12 @@ type CreateAdditionalInput = {
   description?: string | null;
   price: number;
   image_url?: string | null;
-  compatible_products?: Array<{
-    product_id: string;
-    custom_price?: number | null;
-  }>;
+  compatible_products?:
+    | Array<{
+        product_id: string;
+        custom_price?: number | null;
+      }>
+    | string[]; // Permite array de strings também
 };
 
 type UpdateAdditionalInput = Partial<CreateAdditionalInput>;
@@ -140,7 +143,10 @@ class AdditionalService {
 
       // Vincular aos produtos se fornecido
       if (data.compatible_products && data.compatible_products.length > 0) {
-        await this.linkToProducts(r.id, data.compatible_products);
+        const normalizedProducts = this.normalizeCompatibleProducts(
+          data.compatible_products
+        );
+        await this.linkToProducts(r.id, normalizedProducts);
       }
 
       return await this.getAdditionalById(r.id, true);
@@ -179,16 +185,16 @@ class AdditionalService {
         data: payload,
       });
 
-      // Atualizar produtos compatíveis se fornecido
       if (data.compatible_products !== undefined) {
-        // Remove todas as associações antigas
         await prisma.productAdditional.deleteMany({
           where: { additional_id: id },
         });
 
-        // Adiciona as novas associações
         if (data.compatible_products.length > 0) {
-          await this.linkToProducts(id, data.compatible_products);
+          const normalizedProducts = this.normalizeCompatibleProducts(
+            data.compatible_products
+          );
+          await this.linkToProducts(id, normalizedProducts);
         }
       }
 
@@ -209,11 +215,13 @@ class AdditionalService {
       throw new Error("ID do adicional é obrigatório");
     }
 
-    // Verifica se o adicional existe
-    await this.getAdditionalById(id);
+    const additional = await this.getAdditionalById(id);
+
+    if (additional.image_url) {
+      await deleteAdditionalImage(additional.image_url);
+    }
 
     try {
-      // Remove associações na tabela de junção manualmente
       await prisma.productAdditional.deleteMany({
         where: { additional_id: id },
       });
@@ -337,6 +345,21 @@ class AdditionalService {
     }
 
     try {
+      // Primeiro verifica se o vínculo existe
+      const existingLink = await prisma.productAdditional.findUnique({
+        where: {
+          product_id_additional_id: {
+            product_id: productId,
+            additional_id: additionalId,
+          },
+        },
+      });
+
+      if (!existingLink) {
+        throw new Error("Vínculo entre produto e adicional não encontrado");
+      }
+
+      // Se existe, então remove
       await prisma.productAdditional.delete({
         where: {
           product_id_additional_id: {
@@ -345,6 +368,7 @@ class AdditionalService {
           },
         },
       });
+
       return { message: "Adicional desvinculado do produto com sucesso" };
     } catch (error: any) {
       throw new Error(
@@ -444,6 +468,29 @@ class AdditionalService {
     } catch (error: any) {
       throw new Error(`Erro ao buscar adicionais do produto: ${error.message}`);
     }
+  }
+
+  // Função helper para normalizar compatible_products
+  private normalizeCompatibleProducts(
+    products:
+      | Array<{ product_id: string; custom_price?: number | null }>
+      | string[]
+  ): Array<{ product_id: string; custom_price?: number | null }> {
+    if (!products || products.length === 0) return [];
+
+    // Se o primeiro elemento é string, todo o array é de strings
+    if (typeof products[0] === "string") {
+      return (products as string[]).map((productId) => ({
+        product_id: productId,
+        custom_price: null,
+      }));
+    }
+
+    // Caso contrário, já está no formato correto
+    return products as Array<{
+      product_id: string;
+      custom_price?: number | null;
+    }>;
   }
 
   private normalizePrice(price: any): number {

@@ -128,7 +128,7 @@ class CategoryService {
     try {
       // Verifica se a categoria tem produtos
       const products = await prisma.product.count({
-        where: { category_id: id },
+        where: { categories: { some: { category_id: id } } },
       });
       if (products > 0) {
         throw new Error("Não é possível deletar categoria que possui produtos");

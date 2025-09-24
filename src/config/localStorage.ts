@@ -1,11 +1,9 @@
 import fs from "fs";
 import path from "path";
 
-// Configuração do diretório de imagens
 const IMAGES_DIR = path.join(process.cwd(), "images");
 const BASE_URL = process.env.BASE_URL || "http://localhost:8080";
 
-// Garante que o diretório de imagens existe
 export const ensureImagesDirectory = () => {
   if (!fs.existsSync(IMAGES_DIR)) {
     fs.mkdirSync(IMAGES_DIR, { recursive: true });
@@ -13,19 +11,16 @@ export const ensureImagesDirectory = () => {
   }
 };
 
-// Salva uma imagem no sistema local
 export const saveImageLocally = async (
   buffer: Buffer,
   originalName: string,
   mimeType: string
 ): Promise<string> => {
   try {
-    // Garantir que o diretório existe
     ensureImagesDirectory();
 
-    // Gerar nome único para o arquivo
     const timestamp = Date.now();
-    const baseFileName = path.parse(originalName).name; // Nome sem extensão
+    const baseFileName = path.parse(originalName).name;
     const extension =
       path.extname(originalName) || getExtensionFromMimeType(mimeType);
     const fileName = `${timestamp}-${sanitizeFileName(
@@ -33,19 +28,9 @@ export const saveImageLocally = async (
     )}${extension}`;
     const filePath = path.join(IMAGES_DIR, fileName);
 
-    // Salvar o arquivo
     fs.writeFileSync(filePath, buffer);
 
-    // Retornar URL para acessar a imagem
     const imageUrl = `${BASE_URL}/api/images/${fileName}`;
-
-    console.log("✅ Imagem salva:", {
-      originalName,
-      fileName,
-      size: buffer.length,
-      path: filePath,
-      url: imageUrl,
-    });
 
     return imageUrl;
   } catch (error: any) {
@@ -54,10 +39,8 @@ export const saveImageLocally = async (
   }
 };
 
-// Remove uma imagem do sistema local
 export const deleteImageLocally = async (imageUrl: string): Promise<void> => {
   try {
-    // Extrair nome do arquivo da URL
     const fileName = path.basename(new URL(imageUrl).pathname);
     const filePath = path.join(IMAGES_DIR, fileName);
 
@@ -73,7 +56,6 @@ export const deleteImageLocally = async (imageUrl: string): Promise<void> => {
   }
 };
 
-// Remove a imagem de um produto (sem falhar se a imagem não existir)
 export const deleteProductImage = async (
   imageUrl: string | null
 ): Promise<void> => {
@@ -86,7 +68,6 @@ export const deleteProductImage = async (
     await deleteImageLocally(imageUrl);
     console.log("✅ Imagem do produto deletada com sucesso");
   } catch (error: any) {
-    // Log do erro mas não falha a operação de deletar produto
     console.warn(
       "⚠️ Não foi possível deletar a imagem do produto:",
       error.message
@@ -95,7 +76,26 @@ export const deleteProductImage = async (
   }
 };
 
-// Lista todas as imagens salvas
+export const deleteAdditionalImage = async (
+  imageUrl: string | null
+): Promise<void> => {
+  if (!imageUrl) {
+    console.log("📄 Adicional sem imagem associada, nada para deletar");
+    return;
+  }
+
+  try {
+    await deleteImageLocally(imageUrl);
+    console.log("✅ Imagem adicional deletada com sucesso");
+  } catch (error: any) {
+    console.warn(
+      "⚠️ Não foi possível deletar a imagem adicional:",
+      error.message
+    );
+    console.warn("🔄 Imagem adicional será deletada mesmo assim");
+  }
+};
+
 export const listLocalImages = (): {
   fileName: string;
   url: string;
@@ -122,7 +122,6 @@ export const listLocalImages = (): {
   }
 };
 
-// Funções auxiliares
 const sanitizeFileName = (fileName: string): string => {
   return fileName
     .replace(/[^a-zA-Z0-9.-]/g, "_")

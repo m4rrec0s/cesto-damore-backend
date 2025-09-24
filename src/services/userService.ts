@@ -1,5 +1,6 @@
 import prisma from "../database/prisma";
 import { CreateUserInput } from "../models/User";
+import cepService from "./cepService";
 
 class UserService {
   async getAllUsers() {
@@ -47,6 +48,15 @@ class UserService {
       throw new Error("Formato de email inválido");
     }
 
+    // Validação de CEP se fornecido
+    if (data.zip_code && data.zip_code.trim() !== "") {
+      if (!cepService.validateCepFormat(data.zip_code)) {
+        throw new Error(
+          "Formato de CEP inválido. Use o formato 00000-000 ou 00000000"
+        );
+      }
+    }
+
     try {
       // Verifica se o email já existe
       const existingUser = await prisma.user.findFirst({
@@ -64,7 +74,13 @@ class UserService {
         }
       }
 
-      return await prisma.user.create({ data });
+      // Formata CEP se fornecido
+      const userData = { ...data };
+      if (userData.zip_code && userData.zip_code.trim() !== "") {
+        userData.zip_code = cepService.formatCep(userData.zip_code);
+      }
+
+      return await prisma.user.create({ data: userData });
     } catch (error: any) {
       if (
         error.message.includes("obrigatório") ||
@@ -105,8 +121,23 @@ class UserService {
       }
     }
 
+    // Validação de CEP se fornecido
+    if (data.zip_code && data.zip_code.trim() !== "") {
+      if (!cepService.validateCepFormat(data.zip_code)) {
+        throw new Error(
+          "Formato de CEP inválido. Use o formato 00000-000 ou 00000000"
+        );
+      }
+    }
+
     try {
-      return await prisma.user.update({ where: { id }, data });
+      // Formata CEP se fornecido
+      const userData = { ...data };
+      if (userData.zip_code && userData.zip_code.trim() !== "") {
+        userData.zip_code = cepService.formatCep(userData.zip_code);
+      }
+
+      return await prisma.user.update({ where: { id }, data: userData });
     } catch (error: any) {
       if (
         error.message.includes("não encontrado") ||
@@ -173,6 +204,26 @@ class UserService {
 
   async remove(id: string) {
     return this.deleteUser(id);
+  }
+
+  // Novo método: consulta informações de endereço por CEP
+  async getAddressByZipCode(zipCode: string) {
+    try {
+      const addressInfo = await cepService.getAddressByCep(zipCode);
+      return {
+        zip_code: addressInfo.zip_code,
+        address: addressInfo.address,
+        neighborhood: addressInfo.neighborhood,
+        city: addressInfo.city,
+        state: addressInfo.state,
+        additional_info: {
+          ibge_code: addressInfo.ibge_code,
+          ddd: addressInfo.ddd,
+        },
+      };
+    } catch (error: any) {
+      throw new Error(`Erro ao consultar CEP: ${error.message}`);
+    }
   }
 }
 

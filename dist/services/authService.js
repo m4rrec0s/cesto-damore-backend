@@ -6,7 +6,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const firebase_1 = require("../config/firebase");
 const axios_1 = __importDefault(require("axios"));
 const prisma_1 = __importDefault(require("../database/prisma"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+// Nova função para criar JWT interno da aplicação
+function createAppJWT(userId, email) {
+    const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+    return jsonwebtoken_1.default.sign({
+        userId,
+        email,
+        type: "app-token",
+    }, jwtSecret, {
+        expiresIn: "7d", // Token dura 7 dias
+    });
+}
 class AuthService {
     async register({ firebaseUid, email, name, imageUrl }) {
         const existingUser = await prisma_1.default.user.findUnique({
@@ -86,8 +98,16 @@ class AuthService {
             where: { firebaseUId: uid },
             data: { updated_at: new Date() },
         });
+        // Criar tokens
         const sessionToken = await (0, firebase_1.createCustomToken)(uid);
-        return { idToken, firebaseUid: uid, user, sessionToken };
+        const appToken = createAppJWT(user.id, user.email); // Novo token JWT interno
+        return {
+            idToken,
+            firebaseUid: uid,
+            user,
+            sessionToken,
+            appToken, // Retornar o token da aplicação
+        };
     }
 }
 exports.default = new AuthService();

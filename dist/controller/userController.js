@@ -132,5 +132,24 @@ class UserController {
             }
         }
     }
+    // Novo método: obter informações do usuário logado
+    async me(req, res) {
+        try {
+            if (!req.user) {
+                return res.status(401).json({ error: "Usuário não autenticado" });
+            }
+            const user = await userService_1.default.getUserById(req.user.id);
+            res.json(user);
+        }
+        catch (error) {
+            console.error("Erro ao buscar usuário atual:", error);
+            if (error.message.includes("não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
+        }
+    }
 }
 exports.default = new UserController();

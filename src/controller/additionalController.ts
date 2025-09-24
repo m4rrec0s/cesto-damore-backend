@@ -66,7 +66,7 @@ class AdditionalController {
           const imageUrl = await saveImageLocally(
             fileToProcess.buffer,
             fileToProcess.originalname || `additional_${Date.now()}.webp`,
-            fileToProcess.mimetype || "image/webp"
+            fileToProcess.mimetype
           );
           data.image_url = imageUrl;
         } catch (imageError: any) {
@@ -98,18 +98,12 @@ class AdditionalController {
       const { id } = req.params;
       const data = { ...req.body };
 
-      // Processamento de imagem se fornecida
       if (req.file) {
         try {
-          const compressedImage = await sharp(req.file.buffer)
-            .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
-            .jpeg({ quality: 80 })
-            .toBuffer();
-
           const imageUrl = await saveImageLocally(
-            compressedImage,
-            req.file.originalname || `additional_${Date.now()}.jpg`,
-            "image/jpeg"
+            req.file.buffer,
+            req.file.originalname || `additional_${Date.now()}.webp`,
+            req.file.mimetype
           );
 
           data.image_url = imageUrl;
@@ -262,6 +256,8 @@ class AdditionalController {
       console.error("Erro ao desvincular adicional:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
+      } else if (error.message.includes("não encontrado")) {
+        res.status(404).json({ error: error.message });
       } else {
         res.status(500).json({ error: "Erro interno do servidor" });
       }

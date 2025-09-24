@@ -89,5 +89,32 @@ class AuthController {
             }
         }
     }
+    // Novo método: renovar token
+    async refreshToken(req, res) {
+        try {
+            if (!req.user) {
+                return res.status(401).json({ error: "Usuário não autenticado" });
+            }
+            // Importar a função aqui para evitar circular dependency
+            const jwt = require("jsonwebtoken");
+            const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+            const newToken = jwt.sign({
+                userId: req.user.id,
+                email: req.user.email,
+                type: "app-token",
+            }, jwtSecret, {
+                expiresIn: "7d",
+            });
+            res.json({
+                appToken: newToken,
+                user: req.user,
+                expiresIn: "7 days",
+            });
+        }
+        catch (error) {
+            console.error("Erro ao renovar token:", error);
+            res.status(500).json({ error: "Erro interno do servidor" });
+        }
+    }
 }
 exports.default = new AuthController();

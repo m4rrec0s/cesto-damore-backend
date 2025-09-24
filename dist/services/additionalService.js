@@ -3,21 +3,24 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const localStorage_1 = require("../config/localStorage");
 const prisma_1 = __importDefault(require("../database/prisma"));
 class AdditionalService {
     async getAllAdditionals(includeProducts = false) {
         try {
             const results = await prisma_1.default.additional.findMany({
-                include: includeProducts ? {
-                    products: {
-                        include: {
-                            product: {
-                                select: { id: true, name: true }
-                            }
+                include: includeProducts
+                    ? {
+                        products: {
+                            include: {
+                                product: {
+                                    select: { id: true, name: true },
+                                },
+                            },
+                            where: { is_active: true },
                         },
-                        where: { is_active: true }
                     }
-                } : undefined
+                    : undefined,
             });
             return results.map((r) => ({
                 ...r,
@@ -25,8 +28,8 @@ class AdditionalService {
                     product_id: p.product.id,
                     product_name: p.product.name,
                     custom_price: p.custom_price,
-                    is_active: p.is_active
-                })) || undefined
+                    is_active: p.is_active,
+                })) || undefined,
             }));
         }
         catch (error) {
@@ -40,16 +43,18 @@ class AdditionalService {
         try {
             const r = await prisma_1.default.additional.findUnique({
                 where: { id },
-                include: includeProducts ? {
-                    products: {
-                        include: {
-                            product: {
-                                select: { id: true, name: true }
-                            }
+                include: includeProducts
+                    ? {
+                        products: {
+                            include: {
+                                product: {
+                                    select: { id: true, name: true },
+                                },
+                            },
+                            where: { is_active: true },
                         },
-                        where: { is_active: true }
                     }
-                } : undefined
+                    : undefined,
             });
             if (!r) {
                 throw new Error("Adicional não encontrado");
@@ -60,8 +65,8 @@ class AdditionalService {
                     product_id: p.product.id,
                     product_name: p.product.name,
                     custom_price: p.custom_price,
-                    is_active: p.is_active
-                })) || undefined
+                    is_active: p.is_active,
+                })) || undefined,
             };
         }
         catch (error) {
@@ -88,7 +93,8 @@ class AdditionalService {
             const r = await prisma_1.default.additional.create({ data: payload });
             // Vincular aos produtos se fornecido
             if (data.compatible_products && data.compatible_products.length > 0) {
-                await this.linkToProducts(r.id, data.compatible_products);
+                const normalizedProducts = this.normalizeCompatibleProducts(data.compatible_products);
+                await this.linkToProducts(r.id, normalizedProducts);
             }
             return await this.getAdditionalById(r.id, true);
         }
@@ -119,15 +125,13 @@ class AdditionalService {
                 where: { id },
                 data: payload,
             });
-            // Atualizar produtos compatíveis se fornecido
             if (data.compatible_products !== undefined) {
-                // Remove todas as associações antigas
                 await prisma_1.default.productAdditional.deleteMany({
                     where: { additional_id: id },
                 });
-                // Adiciona as novas associações
                 if (data.compatible_products.length > 0) {
-                    await this.linkToProducts(id, data.compatible_products);
+                    const normalizedProducts = this.normalizeCompatibleProducts(data.compatible_products);
+                    await this.linkToProducts(id, normalizedProducts);
                 }
             }
             return await this.getAdditionalById(id, true);
@@ -144,10 +148,11 @@ class AdditionalService {
         if (!id) {
             throw new Error("ID do adicional é obrigatório");
         }
-        // Verifica se o adicional existe
-        await this.getAdditionalById(id);
+        const additional = await this.getAdditionalById(id);
+        if (additional.image_url) {
+            await (0, localStorage_1.deleteAdditionalImage)(additional.image_url);
+        }
         try {
-            // Remove associações na tabela de junção manualmente
             await prisma_1.default.productAdditional.deleteMany({
                 where: { additional_id: id },
             });
@@ -171,7 +176,7 @@ class AdditionalService {
             // Verifica se o produto existe
             const product = await prisma_1.default.product.findUnique({
                 where: { id: productId },
-                select: { id: true }
+                select: { id: true },
             });
             if (!product) {
                 throw new Error("Produto não encontrado");
@@ -180,7 +185,7 @@ class AdditionalService {
                 data: {
                     additional_id: additionalId,
                     product_id: productId,
-                    custom_price: customPrice || null
+                    custom_price: customPrice || null,
                 },
             });
         }
@@ -209,8 +214,8 @@ class AdditionalService {
                 },
                 data: {
                     custom_price: customPrice || null,
-                    updated_at: new Date()
-                }
+                    updated_at: new Date(),
+                },
             });
         }
         catch (error) {
@@ -219,16 +224,16 @@ class AdditionalService {
     }
     async linkToProducts(additionalId, products) {
         const validProducts = await prisma_1.default.product.findMany({
-            where: { id: { in: products.map(p => p.product_id) } },
-            select: { id: true }
+            where: { id: { in: products.map((p) => p.product_id) } },
+            select: { id: true },
         });
-        const validProductIds = new Set(validProducts.map(p => p.id));
+        const validProductIds = new Set(validProducts.map((p) => p.id));
         const dataToInsert = products
-            .filter(p => validProductIds.has(p.product_id))
-            .map(p => ({
+            .filter((p) => validProductIds.has(p.product_id))
+            .map((p) => ({
             product_id: p.product_id,
             additional_id: additionalId,
-            custom_price: p.custom_price || null
+            custom_price: p.custom_price || null,
         }));
         if (dataToInsert.length > 0) {
             await prisma_1.default.productAdditional.createMany({
@@ -245,6 +250,19 @@ class AdditionalService {
             throw new Error("ID do produto é obrigatório");
         }
         try {
+            // Primeiro verifica se o vínculo existe
+            const existingLink = await prisma_1.default.productAdditional.findUnique({
+                where: {
+                    product_id_additional_id: {
+                        product_id: productId,
+                        additional_id: additionalId,
+                    },
+                },
+            });
+            if (!existingLink) {
+                throw new Error("Vínculo entre produto e adicional não encontrado");
+            }
+            // Se existe, então remove
             await prisma_1.default.productAdditional.delete({
                 where: {
                     product_id_additional_id: {
@@ -267,7 +285,7 @@ class AdditionalService {
         try {
             const additional = await prisma_1.default.additional.findUnique({
                 where: { id: additionalId },
-                select: { price: true }
+                select: { price: true },
             });
             if (!additional) {
                 throw new Error("Adicional não encontrado");
@@ -281,10 +299,11 @@ class AdditionalService {
                             additional_id: additionalId,
                         },
                     },
-                    select: { custom_price: true, is_active: true }
+                    select: { custom_price: true, is_active: true },
                 });
                 // Se existe vínculo ativo e tem preço customizado, usa ele
-                if (productAdditional?.is_active && productAdditional.custom_price !== null) {
+                if (productAdditional?.is_active &&
+                    productAdditional.custom_price !== null) {
                     return productAdditional.custom_price;
                 }
             }
@@ -306,9 +325,9 @@ class AdditionalService {
                     products: {
                         some: {
                             product_id: productId,
-                            is_active: true
-                        }
-                    }
+                            is_active: true,
+                        },
+                    },
                 },
                 include: {
                     products: {
@@ -317,11 +336,11 @@ class AdditionalService {
                             custom_price: true,
                             is_active: true,
                             product: {
-                                select: { id: true, name: true }
-                            }
-                        }
-                    }
-                }
+                                select: { id: true, name: true },
+                            },
+                        },
+                    },
+                },
             });
             return results.map((r) => ({
                 ...r,
@@ -329,13 +348,27 @@ class AdditionalService {
                     product_id: p.product.id,
                     product_name: p.product.name,
                     custom_price: p.custom_price,
-                    is_active: p.is_active
-                }))
+                    is_active: p.is_active,
+                })),
             }));
         }
         catch (error) {
             throw new Error(`Erro ao buscar adicionais do produto: ${error.message}`);
         }
+    }
+    // Função helper para normalizar compatible_products
+    normalizeCompatibleProducts(products) {
+        if (!products || products.length === 0)
+            return [];
+        // Se o primeiro elemento é string, todo o array é de strings
+        if (typeof products[0] === "string") {
+            return products.map((productId) => ({
+                product_id: productId,
+                custom_price: null,
+            }));
+        }
+        // Caso contrário, já está no formato correto
+        return products;
     }
     normalizePrice(price) {
         if (typeof price === "string") {

@@ -13,23 +13,21 @@ const userController_1 = __importDefault(require("./controller/userController"))
 const orderController_1 = __importDefault(require("./controller/orderController"));
 const typeController_1 = __importDefault(require("./controller/typeController"));
 const authController_1 = __importDefault(require("./controller/authController"));
-const testController_1 = __importDefault(require("./controller/testController"));
+const paymentController_1 = __importDefault(require("./controller/paymentController"));
 const multer_1 = require("./config/multer");
+const security_1 = require("./middleware/security");
 const router = (0, express_1.Router)();
-// Rota para servir imagens locais
 router.get("/images/:filename", (req, res) => {
     try {
         const filename = req.params.filename;
         const imagesPath = path_1.default.join(process.cwd(), "images");
         const filePath = path_1.default.join(imagesPath, filename);
-        // Verifica se o arquivo existe
         if (!fs_1.default.existsSync(filePath)) {
             return res.status(404).json({
                 error: "Imagem não encontrada",
                 filename: filename,
             });
         }
-        // Envia a imagem
         res.sendFile(filePath);
     }
     catch (error) {
@@ -42,8 +40,8 @@ router.get("/images/:filename", (req, res) => {
 });
 router.get("/additional", additionalController_1.default.index);
 router.get("/additional/:id", additionalController_1.default.show);
-router.post("/additional", multer_1.upload.single("image"), additionalController_1.default.create);
-router.put("/additional/:id", multer_1.upload.single("image"), additionalController_1.default.update);
+router.post("/additional", multer_1.upload.single("image"), multer_1.convertImagesToWebP, additionalController_1.default.create);
+router.put("/additional/:id", multer_1.upload.single("image"), multer_1.convertImagesToWebP, additionalController_1.default.update);
 router.delete("/additional/:id", additionalController_1.default.remove);
 router.post("/additional/:id/link", additionalController_1.default.link);
 router.put("/additional/:id/link", additionalController_1.default.updateLink);
@@ -68,6 +66,7 @@ router.delete("/types/:id", typeController_1.default.remove);
 router.post("/auth/google", authController_1.default.google);
 router.post("/auth/login", authController_1.default.login);
 router.post("/auth/register", multer_1.upload.single("image"), authController_1.default.register);
+router.post("/auth/refresh", security_1.authenticateToken, authController_1.default.refreshToken); // Novo: renovar token
 // category routes
 router.get("/categories", categoryController_1.default.index);
 router.get("/categories/:id", categoryController_1.default.show);
@@ -75,6 +74,7 @@ router.post("/categories", categoryController_1.default.create);
 router.put("/categories/:id", categoryController_1.default.update);
 router.delete("/categories/:id", categoryController_1.default.remove);
 // user routes
+router.get("/users/me", security_1.authenticateToken, userController_1.default.me); // Novo: obter usuário logado
 router.get("/users", userController_1.default.index);
 router.get("/users/:id", userController_1.default.show);
 router.post("/users", multer_1.upload.single("image"), userController_1.default.create);
@@ -85,37 +85,21 @@ router.get("/orders", orderController_1.default.index);
 router.get("/orders/:id", orderController_1.default.show);
 router.post("/orders", orderController_1.default.create);
 router.delete("/orders/:id", orderController_1.default.remove);
-// test routes
-router.post("/test/upload", multer_1.upload.single("image"), multer_1.convertImagesToWebP, testController_1.default.testUpload);
-router.post("/test/local-upload", multer_1.upload.single("image"), multer_1.convertImagesToWebP, testController_1.default.testLocalUpload);
-router.post("/test/debug-multipart", (req, res) => {
-    console.log("=== DEBUG MULTIPART ===");
-    console.log("Headers:", req.headers);
-    console.log("Content-Type:", req.headers["content-type"]);
-    console.log("Body keys:", Object.keys(req.body || {}));
-    console.log("Body:", req.body);
-    console.log("File:", req.file);
-    console.log("Files:", req.files);
-    console.log("Raw headers:", JSON.stringify(req.headers, null, 2));
-    console.log("========================");
-    res.json({
-        headers: req.headers,
-        bodyKeys: Object.keys(req.body || {}),
-        body: req.body,
-        hasFile: !!req.file,
-        hasFiles: !!req.files,
-        file: req.file
-            ? {
-                fieldname: req.file.fieldname,
-                originalname: req.file.originalname,
-                mimetype: req.file.mimetype,
-                size: req.file.size,
-            }
-            : null,
-        files: req.files,
-    });
-});
-router.get("/test/images", testController_1.default.listImages);
-router.delete("/test/image", testController_1.default.deleteImage);
-router.post("/test/plain", testController_1.default.testPlain);
+// ========== PAYMENT ROUTES ==========
+// Health check do Mercado Pago
+router.get("/payment/health", paymentController_1.default.healthCheck);
+// Webhook do Mercado Pago (sem autenticação)
+router.post("/webhook/mercadopago", security_1.validateMercadoPagoWebhook, paymentController_1.default.handleWebhook);
+// Páginas de retorno do checkout (sem autenticação)
+router.get("/payment/success", paymentController_1.default.paymentSuccess);
+router.get("/payment/failure", paymentController_1.default.paymentFailure);
+router.get("/payment/pending", paymentController_1.default.paymentPending);
+// Rotas de pagamento protegidas
+router.post("/payment/preference", security_1.authenticateToken, security_1.paymentRateLimit, (0, security_1.logFinancialOperation)("CREATE_PREFERENCE"), paymentController_1.default.createPreference);
+router.post("/payment/create", security_1.authenticateToken, security_1.paymentRateLimit, security_1.validatePaymentData, (0, security_1.logFinancialOperation)("CREATE_PAYMENT"), paymentController_1.default.createPayment);
+router.get("/payment/:paymentId/status", security_1.authenticateToken, (0, security_1.logFinancialOperation)("GET_PAYMENT_STATUS"), paymentController_1.default.getPaymentStatus);
+router.post("/payment/:paymentId/cancel", security_1.authenticateToken, (0, security_1.logFinancialOperation)("CANCEL_PAYMENT"), paymentController_1.default.cancelPayment);
+router.get("/payments/user", security_1.authenticateToken, (0, security_1.logFinancialOperation)("GET_USER_PAYMENTS"), paymentController_1.default.getUserPayments);
+// Rotas administrativas
+router.get("/admin/financial-summary", security_1.authenticateToken, security_1.requireAdmin, (0, security_1.logFinancialOperation)("GET_FINANCIAL_SUMMARY"), paymentController_1.default.getFinancialSummary);
 exports.default = router;

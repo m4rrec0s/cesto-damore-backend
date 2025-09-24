@@ -12,10 +12,11 @@ export interface Product {
   updated_at: Date;
 
   type_id: string;
-  category_id: string;
 
   // Additionals linked to this product (array of Additional objects)
   additionals?: Additional[];
+  // Categories linked to this product
+  categories: { category: { id: string; name: string } }[];
 }
 
 export type CreateProductInput = {
@@ -26,6 +27,6 @@ export type CreateProductInput = {
   is_active?: boolean;
   image?: Express.Multer.File;
   type_id: string;
-  category_id: string;
+  categories: string[];
   additionals?: string[]; // array of additional ids to link
 };

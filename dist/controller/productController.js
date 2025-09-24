@@ -9,8 +9,21 @@ const localStorage_1 = require("../config/localStorage");
 class ProductController {
     async index(req, res) {
         try {
-            const products = await productService_1.default.getAllProducts();
-            res.json(products);
+            const page = parseInt(req.query.page) || 1;
+            const perPage = parseInt(req.query.per_page) || 15;
+            const sort = req.query.sort || "name";
+            const search = req.query.search;
+            const category_id = req.query.category_id;
+            const type_id = req.query.type_id;
+            const result = await productService_1.default.getAllProducts({
+                page,
+                perPage,
+                sort,
+                search,
+                category_id,
+                type_id,
+            });
+            res.json(result);
         }
         catch (error) {
             console.error("Erro ao buscar produtos:", error);

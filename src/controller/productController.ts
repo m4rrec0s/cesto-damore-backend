@@ -6,8 +6,22 @@ import { saveImageLocally } from "../config/localStorage";
 class ProductController {
   async index(req: Request, res: Response) {
     try {
-      const products = await productService.getAllProducts();
-      res.json(products);
+      const page = parseInt(req.query.page as string) || 1;
+      const perPage = parseInt(req.query.per_page as string) || 15;
+      const sort = (req.query.sort as string) || "name";
+      const search = req.query.search as string;
+      const category_id = req.query.category_id as string;
+      const type_id = req.query.type_id as string;
+
+      const result = await productService.getAllProducts({
+        page,
+        perPage,
+        sort,
+        search,
+        category_id,
+        type_id,
+      });
+      res.json(result);
     } catch (error: any) {
       console.error("Erro ao buscar produtos:", error);
       res.status(500).json({ error: "Erro interno do servidor" });

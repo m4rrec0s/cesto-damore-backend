@@ -141,6 +141,57 @@ class UserController {
       }
     }
   }
+
+  // Novo método: obter informações do usuário logado
+  async me(req: any, res: Response) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Usuário não autenticado" });
+      }
+
+      const user = await userService.getUserById(req.user.id);
+      res.json(user);
+    } catch (error: any) {
+      console.error("Erro ao buscar usuário atual:", error);
+      if (error.message.includes("não encontrado")) {
+        res.status(404).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    }
+  }
+
+  // Novo método: consultar informações de endereço por CEP
+  async getAddressByZipCode(req: Request, res: Response) {
+    try {
+      const { zipCode } = req.params;
+
+      if (!zipCode) {
+        return res.status(400).json({ error: "CEP é obrigatório" });
+      }
+
+      const addressInfo = await userService.getAddressByZipCode(zipCode);
+      res.json(addressInfo);
+    } catch (error: any) {
+      console.error("Erro ao consultar CEP:", error);
+
+      if (
+        error.message.includes("CEP deve ter 8 dígitos") ||
+        error.message.includes("Formato de CEP inválido")
+      ) {
+        res.status(400).json({ error: error.message });
+      } else if (error.message.includes("CEP não encontrado")) {
+        res.status(404).json({ error: error.message });
+      } else if (
+        error.message.includes("Timeout") ||
+        error.message.includes("temporariamente indisponível")
+      ) {
+        res.status(503).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    }
+  }
 }
 
 export default new UserController();

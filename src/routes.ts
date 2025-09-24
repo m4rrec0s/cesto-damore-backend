@@ -9,19 +9,26 @@ import userController from "./controller/userController";
 import orderController from "./controller/orderController";
 import typeController from "./controller/typeController";
 import authController from "./controller/authController";
-import testController from "./controller/testController";
-import { upload, convertImagesToWebP, uploadAny } from "./config/multer";
+import PaymentController from "./controller/paymentController";
+import feedController from "./controller/feedController";
+import { upload, convertImagesToWebP } from "./config/multer";
+import {
+  authenticateToken,
+  requireAdmin,
+  validateMercadoPagoWebhook,
+  paymentRateLimit,
+  validatePaymentData,
+  logFinancialOperation,
+} from "./middleware/security";
 
 const router = Router();
 
-// Rota para servir imagens locais
 router.get("/images/:filename", (req: Request, res: Response) => {
   try {
     const filename = req.params.filename;
     const imagesPath = path.join(process.cwd(), "images");
     const filePath = path.join(imagesPath, filename);
 
-    // Verifica se o arquivo existe
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         error: "Imagem não encontrada",
@@ -29,7 +36,6 @@ router.get("/images/:filename", (req: Request, res: Response) => {
       });
     }
 
-    // Envia a imagem
     res.sendFile(filePath);
   } catch (error: any) {
     console.error("Erro ao servir imagem:", error.message);
@@ -42,10 +48,16 @@ router.get("/images/:filename", (req: Request, res: Response) => {
 
 router.get("/additional", additionalController.index);
 router.get("/additional/:id", additionalController.show);
-router.post("/additional", upload.single("image"), additionalController.create);
+router.post(
+  "/additional",
+  upload.single("image"),
+  convertImagesToWebP,
+  additionalController.create
+);
 router.put(
   "/additional/:id",
   upload.single("image"),
+  convertImagesToWebP,
   additionalController.update
 );
 router.delete("/additional/:id", additionalController.remove);
@@ -88,6 +100,7 @@ router.delete("/types/:id", typeController.remove);
 router.post("/auth/google", authController.google);
 router.post("/auth/login", authController.login);
 router.post("/auth/register", upload.single("image"), authController.register);
+router.post("/auth/refresh", authenticateToken, authController.refreshToken); // Novo: renovar token
 
 // category routes
 router.get("/categories", categoryController.index);
@@ -97,6 +110,8 @@ router.put("/categories/:id", categoryController.update);
 router.delete("/categories/:id", categoryController.remove);
 
 // user routes
+router.get("/users/me", authenticateToken, userController.me); // Novo: obter usuário logado
+router.get("/users/cep/:zipCode", userController.getAddressByZipCode); // Novo: consultar CEP
 router.get("/users", userController.index);
 router.get("/users/:id", userController.show);
 router.post("/users", upload.single("image"), userController.create);
@@ -109,49 +124,185 @@ router.get("/orders/:id", orderController.show);
 router.post("/orders", orderController.create);
 router.delete("/orders/:id", orderController.remove);
 
-// test routes
-router.post(
-  "/test/upload",
-  upload.single("image"),
-  convertImagesToWebP,
-  testController.testUpload
-);
-router.post(
-  "/test/local-upload",
-  upload.single("image"),
-  convertImagesToWebP,
-  testController.testLocalUpload
-);
-router.post("/test/debug-multipart", (req: Request, res: Response) => {
-  console.log("=== DEBUG MULTIPART ===");
-  console.log("Headers:", req.headers);
-  console.log("Content-Type:", req.headers["content-type"]);
-  console.log("Body keys:", Object.keys(req.body || {}));
-  console.log("Body:", req.body);
-  console.log("File:", req.file);
-  console.log("Files:", req.files);
-  console.log("Raw headers:", JSON.stringify(req.headers, null, 2));
-  console.log("========================");
+// ========== PAYMENT ROUTES ==========
 
-  res.json({
-    headers: req.headers,
-    bodyKeys: Object.keys(req.body || {}),
-    body: req.body,
-    hasFile: !!req.file,
-    hasFiles: !!req.files,
-    file: req.file
-      ? {
-          fieldname: req.file.fieldname,
-          originalname: req.file.originalname,
-          mimetype: req.file.mimetype,
-          size: req.file.size,
-        }
-      : null,
-    files: req.files,
-  });
-});
-router.get("/test/images", testController.listImages);
-router.delete("/test/image", testController.deleteImage);
-router.post("/test/plain", testController.testPlain);
+// Health check do Mercado Pago
+router.get("/payment/health", PaymentController.healthCheck);
+
+// Webhook do Mercado Pago (sem autenticação)
+router.post(
+  "/webhook/mercadopago",
+  validateMercadoPagoWebhook,
+  PaymentController.handleWebhook
+);
+
+// Páginas de retorno do checkout (sem autenticação)
+router.get("/payment/success", PaymentController.paymentSuccess);
+router.get("/payment/failure", PaymentController.paymentFailure);
+router.get("/payment/pending", PaymentController.paymentPending);
+
+// Rotas de pagamento protegidas
+router.post(
+  "/payment/preference",
+  authenticateToken,
+  paymentRateLimit,
+  logFinancialOperation("CREATE_PREFERENCE"),
+  PaymentController.createPreference
+);
+
+router.post(
+  "/payment/create",
+  authenticateToken,
+  paymentRateLimit,
+  validatePaymentData,
+  logFinancialOperation("CREATE_PAYMENT"),
+  PaymentController.createPayment
+);
+
+router.get(
+  "/payment/:paymentId/status",
+  authenticateToken,
+  logFinancialOperation("GET_PAYMENT_STATUS"),
+  PaymentController.getPaymentStatus
+);
+
+router.post(
+  "/payment/:paymentId/cancel",
+  authenticateToken,
+  logFinancialOperation("CANCEL_PAYMENT"),
+  PaymentController.cancelPayment
+);
+
+router.get(
+  "/payments/user",
+  authenticateToken,
+  logFinancialOperation("GET_USER_PAYMENTS"),
+  PaymentController.getUserPayments
+);
+
+// Rotas administrativas
+router.get(
+  "/admin/financial-summary",
+  authenticateToken,
+  requireAdmin,
+  logFinancialOperation("GET_FINANCIAL_SUMMARY"),
+  PaymentController.getFinancialSummary
+);
+
+// ========== FEED ROUTES ==========
+
+// Rota pública para obter feed (sem autenticação)
+router.get("/feed", feedController.getPublicFeed);
+
+// Utilitários públicos
+router.get("/feed/section-types", feedController.getSectionTypes);
+
+// ============== ROTAS ADMINISTRATIVAS DE FEED ==============
+
+// Feed Configuration Routes (Admin only)
+router.get(
+  "/admin/feed/configurations",
+  authenticateToken,
+  requireAdmin,
+  feedController.getAllConfigurations
+);
+
+router.get(
+  "/admin/feed/configurations/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.getConfiguration
+);
+
+router.post(
+  "/admin/feed/configurations",
+  authenticateToken,
+  requireAdmin,
+  feedController.createConfiguration
+);
+
+router.put(
+  "/admin/feed/configurations/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.updateConfiguration
+);
+
+router.delete(
+  "/admin/feed/configurations/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteConfiguration
+);
+
+// Feed Banner Routes (Admin only)
+router.post(
+  "/admin/feed/banners",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebP,
+  feedController.createBanner
+);
+
+router.put(
+  "/admin/feed/banners/:id",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebP,
+  feedController.updateBanner
+);
+
+router.delete(
+  "/admin/feed/banners/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteBanner
+);
+
+// Feed Section Routes (Admin only)
+router.post(
+  "/admin/feed/sections",
+  authenticateToken,
+  requireAdmin,
+  feedController.createSection
+);
+
+router.put(
+  "/admin/feed/sections/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.updateSection
+);
+
+router.delete(
+  "/admin/feed/sections/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteSection
+);
+
+// Feed Section Item Routes (Admin only)
+router.post(
+  "/admin/feed/section-items",
+  authenticateToken,
+  requireAdmin,
+  feedController.createSectionItem
+);
+
+router.put(
+  "/admin/feed/section-items/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.updateSectionItem
+);
+
+router.delete(
+  "/admin/feed/section-items/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteSectionItem
+);
 
 export default router;

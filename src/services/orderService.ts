@@ -57,7 +57,6 @@ class OrderService {
   }
 
   async createOrder(data: CreateOrderInput) {
-    // Validações de campos obrigatórios
     if (!data.user_id || data.user_id.trim() === "") {
       throw new Error("ID do usuário é obrigatório");
     }
@@ -68,7 +67,6 @@ class OrderService {
       throw new Error("Pelo menos um item é obrigatório");
     }
 
-    // Validações dos itens
     for (let i = 0; i < data.items.length; i++) {
       const item = data.items[i];
       if (!item.product_id || item.product_id.trim() === "") {
@@ -83,7 +81,6 @@ class OrderService {
     }
 
     try {
-      // Verifica se o usuário existe
       const user = await prisma.user.findUnique({
         where: { id: data.user_id },
       });
@@ -91,7 +88,6 @@ class OrderService {
         throw new Error("Usuário não encontrado");
       }
 
-      // Verifica se todos os produtos existem
       const productIds = data.items.map((item) => item.product_id);
       const products = await prisma.product.findMany({
         where: { id: { in: productIds } },

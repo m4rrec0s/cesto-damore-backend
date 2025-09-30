@@ -5,7 +5,6 @@ import prisma from "../database/prisma";
 import { mercadoPagoConfig } from "../config/mercadopago";
 import { auth } from "../config/firebase";
 
-// Interface para o usuário autenticado
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
@@ -15,9 +14,6 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-/**
- * Middleware de autenticação JWT
- */
 export const authenticateToken = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -25,7 +21,7 @@ export const authenticateToken = async (
 ) => {
   try {
     const authHeader = req.headers["authorization"];
-    const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+    const token = authHeader && authHeader.split(" ")[1];
 
     if (!token) {
       return res.status(401).json({
@@ -34,12 +30,10 @@ export const authenticateToken = async (
       });
     }
 
-    // Verificar token - primeiro tentar JWT normal, depois Firebase
     let user;
     let decodedToken;
 
     try {
-      // Tentativa 1: JWT normal com JWT_SECRET
       const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
       decodedToken = jwt.verify(token, jwtSecret) as any;
 
@@ -49,11 +43,11 @@ export const authenticateToken = async (
           id: true,
           email: true,
           name: true,
+          role: true,
           firebaseUId: true,
         },
       });
     } catch (jwtError) {
-      // Tentativa 2: Token Firebase
       try {
         decodedToken = await auth.verifyIdToken(token);
 
@@ -63,6 +57,7 @@ export const authenticateToken = async (
             id: true,
             email: true,
             name: true,
+            role: true,
             firebaseUId: true,
           },
         });
@@ -85,12 +80,11 @@ export const authenticateToken = async (
       });
     }
 
-    // Adicionar usuário ao request
     req.user = {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: "user", // Por enquanto todos são usuários normais
+      role: user.role,
     };
 
     next();
@@ -118,9 +112,6 @@ export const authenticateToken = async (
   }
 };
 
-/**
- * Middleware de verificação de admin
- */
 export const requireAdmin = (
   req: AuthenticatedRequest,
   res: Response,
@@ -143,26 +134,20 @@ export const requireAdmin = (
   next();
 };
 
-/**
- * Middleware para validar webhook do Mercado Pago
- */
 export const validateMercadoPagoWebhook = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    // Verificar se a validação está habilitada
     if (!mercadoPagoConfig.security.enableWebhookValidation) {
       return next();
     }
 
-    // Verificar IP se habilitado
     if (mercadoPagoConfig.security.enableIPWhitelist) {
       const clientIP = req.ip || req.connection.remoteAddress || "";
       const isAllowedIP = mercadoPagoConfig.security.allowedIPs.some(
         (allowedRange) => {
-          // Implementação básica - pode ser melhorada com biblioteca específica
           return clientIP.includes(allowedRange.split("/")[0]);
         }
       );
@@ -176,7 +161,6 @@ export const validateMercadoPagoWebhook = (
       }
     }
 
-    // Validar estrutura básica do webhook
     const { type, data } = req.body;
 
     if (!type || !data || !data.id) {
@@ -186,7 +170,6 @@ export const validateMercadoPagoWebhook = (
       });
     }
 
-    // Verificar assinatura se disponível
     const signature = req.headers["x-signature"] as string;
     const requestId = req.headers["x-request-id"] as string;
 
@@ -215,16 +198,12 @@ export const validateMercadoPagoWebhook = (
   }
 };
 
-/**
- * Validar assinatura do webhook
- */
 function validateWebhookSignature(
   payload: any,
   signature: string,
   secret: string
 ): boolean {
   try {
-    // Implementar validação de assinatura conforme documentação do Mercado Pago
     const payloadString = JSON.stringify(payload);
     const expectedSignature = crypto
       .HmacSHA256(payloadString, secret)
@@ -237,26 +216,21 @@ function validateWebhookSignature(
   }
 }
 
-/**
- * Middleware de rate limiting para pagamentos
- */
 export const paymentRateLimit = (() => {
   const requests = new Map<string, { count: number; resetTime: number }>();
-  const WINDOW_SIZE = 15 * 60 * 1000; // 15 minutos
-  const MAX_REQUESTS = 10; // 10 tentativas por IP por janela
+  const WINDOW_SIZE = 15 * 60 * 1000;
+  const MAX_REQUESTS = 10;
 
   return (req: Request, res: Response, next: NextFunction) => {
     const clientIP = req.ip || req.connection.remoteAddress || "unknown";
     const now = Date.now();
 
-    // Limpar entradas expiradas
     for (const [ip, data] of requests.entries()) {
       if (now > data.resetTime) {
         requests.delete(ip);
       }
     }
 
-    // Verificar rate limit
     const current = requests.get(clientIP);
 
     if (!current) {
@@ -277,9 +251,6 @@ export const paymentRateLimit = (() => {
   };
 })();
 
-/**
- * Middleware de validação de dados de pagamento
- */
 export const validatePaymentData = (
   req: Request,
   res: Response,
@@ -288,7 +259,6 @@ export const validatePaymentData = (
   try {
     const { orderId, amount, payerEmail } = req.body;
 
-    // Validações básicas
     if (!orderId || typeof orderId !== "string") {
       return res.status(400).json({
         error: "ID do pedido é obrigatório e deve ser uma string",
@@ -310,8 +280,7 @@ export const validatePaymentData = (
       });
     }
 
-    // Verificar se o valor não excede o limite
-    const MAX_AMOUNT = 50000; // R$ 50.000
+    const MAX_AMOUNT = 50000;
     if (amount > MAX_AMOUNT) {
       return res.status(400).json({
         error: `Valor excede o limite máximo de R$ ${MAX_AMOUNT}`,
@@ -329,27 +298,19 @@ export const validatePaymentData = (
   }
 };
 
-/**
- * Validar formato de email
- */
 function isValidEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }
 
-/**
- * Middleware para log de operações financeiras
- */
 export const logFinancialOperation = (operation: string) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const startTime = Date.now();
 
-    // Log da operação
     console.log(
       `[FINANCIAL_OP] ${operation} iniciada por usuário ${req.user?.id} - IP: ${req.ip}`
     );
 
-    // Interceptar resposta para log
     const originalSend = res.send;
     res.send = function (data) {
       const duration = Date.now() - startTime;

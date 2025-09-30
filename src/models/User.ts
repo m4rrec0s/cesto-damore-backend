@@ -9,6 +9,7 @@ export interface User {
   city?: string | null;
   state?: string | null;
   zip_code?: string | null;
+  role: string | null;
   created_at: Date;
   updated_at: Date;
 }

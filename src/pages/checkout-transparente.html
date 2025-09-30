@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout Transparente - Cesto d'Amore</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #d81b60;
+            margin-bottom: 10px;
+        }
+
+        .payment-form {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .form-section {
+            margin-bottom: 25px;
+        }
+
+        .form-section h3 {
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #d81b60;
+            padding-bottom: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-control:focus {
+            border-color: #d81b60;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(216, 27, 96, 0.2);
+        }
+
+        .card-container {
+            height: 40px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 8px;
+            margin-bottom: 15px;
+            background: white;
+        }
+
+        .two-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .payment-button {
+            width: 100%;
+            background: linear-gradient(45deg, #d81b60, #e91e63);
+            color: white;
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .payment-button:hover {
+            background: linear-gradient(45deg, #c2185b, #d81b60);
+            transform: translateY(-2px);
+        }
+
+        .payment-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background-color: #f0f0f0;
+            border-radius: 2px;
+            margin: 10px 0;
+            display: none;
+        }
+
+        .progress-bar[value="0"] {
+            display: block;
+            background: linear-gradient(90deg, #d81b60, #e91e63);
+            animation: progress 1.5s infinite;
+        }
+
+        @keyframes progress {
+            0% {
+                width: 0%;
+            }
+
+            50% {
+                width: 70%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+
+        .error-message {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #c62828;
+            display: none;
+        }
+
+        .success-message {
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #2e7d32;
+            display: none;
+        }
+
+        .order-summary {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .summary-item:last-child {
+            border-bottom: none;
+            font-weight: bold;
+            font-size: 18px;
+            color: #d81b60;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .two-columns {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Novos estilos para seleção de método de pagamento */
+        .payment-methods {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .payment-method-option {
+            cursor: pointer;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+        }
+
+        .payment-method-option:hover {
+            border-color: #d81b60;
+            background-color: #fdf2f8;
+        }
+
+        .payment-method-option input[type="radio"] {
+            display: none;
+        }
+
+        .payment-method-option input[type="radio"]:checked+.payment-method-label {
+            color: #d81b60;
+            font-weight: bold;
+        }
+
+        .payment-method-option input[type="radio"]:checked {
+            border-color: #d81b60;
+            background-color: #fdf2f8;
+        }
+
+        .payment-method-option input[type="radio"]:checked~* {
+            border-color: #d81b60;
+            background-color: #fdf2f8;
+        }
+
+        .payment-method-option.selected {
+            border-color: #d81b60;
+            background-color: #fdf2f8;
+        }
+
+        .payment-method-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .payment-icon {
+            font-size: 24px;
+        }
+
+        /* Estilos para PIX */
+        .pix-info {
+            background: #f0f9ff;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #0ea5e9;
+            margin-bottom: 20px;
+        }
+
+        .pix-info p {
+            margin: 5px 0;
+            color: #0c4a6e;
+        }
+
+        .qr-code-display {
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .pix-code-display {
+            margin: 20px 0;
+        }
+
+        .pix-code-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .pix-code-container input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .pix-code-container button {
+            padding: 12px 16px;
+            background: #d81b60;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .pix-code-container button:hover {
+            background: #c2185b;
+        }
+
+        .pix-timer {
+            text-align: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+        }
+
+        .pix-timer p {
+            margin: 0;
+            color: #856404;
+            font-weight: bold;
+        }
+
+        #timer-countdown {
+            font-size: 18px;
+            color: #d81b60;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .security-info {
+            text-align: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .security-info p {
+            color: #666;
+            font-size: 14px;
+            margin: 0;
+        }
+
+        .optional-label {
+            font-size: 12px;
+            color: #666;
+            font-weight: normal;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🌹 Cesto d'Amore</h1>
+            <p>Checkout Transparente - Pagamento Seguro</p>
+        </div>
+
+        <!-- Resumo do Pedido -->
+        <div id="order-summary" class="order-summary">
+            <h3>📦 Resumo do Pedido</h3>
+            <div class="summary-item">
+                <span>Subtotal:</span>
+                <span id="subtotal">R$ 0,00</span>
+            </div>
+            <div class="summary-item">
+                <span>Frete:</span>
+                <span id="shipping">R$ 0,00</span>
+            </div>
+            <div class="summary-item">
+                <span>Desconto:</span>
+                <span id="discount">R$ 0,00</span>
+            </div>
+            <div class="summary-item">
+                <span>Total:</span>
+                <span id="total">R$ 0,00</span>
+            </div>
+        </div>
+
+        <!-- Mensagens -->
+        <div id="error-message" class="error-message"></div>
+        <div id="success-message" class="success-message"></div>
+
+        <!-- Formulário de Pagamento -->
+        <form id="form-checkout" class="payment-form">
+            <!-- Seleção do Método de Pagamento -->
+            <div class="form-section">
+                <h3>💰 Método de Pagamento</h3>
+                <div class="payment-methods">
+                    <label class="payment-method-option">
+                        <input type="radio" name="payment_method" value="card" checked>
+                        <span class="payment-method-label">
+                            <span class="payment-icon">💳</span>
+                            <span>Cartão de Crédito/Débito</span>
+                        </span>
+                    </label>
+                    <label class="payment-method-option">
+                        <input type="radio" name="payment_method" value="pix">
+                        <span class="payment-method-label">
+                            <span class="payment-icon">⚡</span>
+                            <span>PIX</span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Dados do Cartão -->
+            <div id="card-section" class="form-section">
+                <h3>💳 Dados do Cartão</h3>
+
+                <div class="form-group">
+                    <label for="form-checkout__cardNumber">Número do Cartão</label>
+                    <div id="form-checkout__cardNumber" class="card-container"></div>
+                </div>
+
+                <div class="two-columns">
+                    <div class="form-group">
+                        <label for="form-checkout__expirationDate">Data de Vencimento</label>
+                        <div id="form-checkout__expirationDate" class="card-container"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="form-checkout__securityCode">CVV</label>
+                        <div id="form-checkout__securityCode" class="card-container"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="form-checkout__cardholderName">Nome no Cartão</label>
+                    <input type="text" id="form-checkout__cardholderName" class="form-control"
+                        placeholder="Como está impresso no cartão">
+                </div>
+            </div>
+
+            <!-- PIX Section -->
+            <div id="pix-section" class="form-section hidden">
+                <h3>⚡ Pagamento PIX</h3>
+                <div class="pix-info">
+                    <p>📱 Com o PIX, você paga na hora e de forma segura</p>
+                    <p>🕐 O código PIX expira em 10 minutos</p>
+                    <div id="pix-qr-container" class="hidden">
+                        <div class="qr-code-display">
+                            <div id="pix-qr-code"></div>
+                            <p>📱 Escaneie o código QR com o seu app do banco</p>
+                        </div>
+                        <div class="pix-code-display">
+                            <p><strong>Ou copie o código PIX:</strong></p>
+                            <div class="pix-code-container">
+                                <input type="text" id="pix-code-input" readonly>
+                                <button type="button" id="copy-pix-code">📋 Copiar</button>
+                            </div>
+                        </div>
+                        <div class="pix-timer">
+                            <p id="pix-timer-text">⏰ Tempo restante: <span id="timer-countdown">10:00</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dados do Titular -->
+            <div id="payer-section" class="form-section">
+                <h3>👤 Dados do Pagador</h3>
+
+                <div class="two-columns" id="document-fields">
+                    <div class="form-group">
+                        <label for="form-checkout__identificationType">Tipo de Documento <span
+                                class="optional-label">(opcional para PIX)</span></label>
+                        <select id="form-checkout__identificationType" class="form-control">
+                            <option value="">Selecione...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="form-checkout__identificationNumber">CPF/CNPJ <span class="optional-label">(opcional
+                                para PIX)</span></label>
+                        <input type="text" id="form-checkout__identificationNumber" class="form-control"
+                            placeholder="000.000.000-00">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="form-checkout__cardholderEmail">E-mail</label>
+                    <input type="email" id="form-checkout__cardholderEmail" class="form-control"
+                        placeholder="seu@email.com" required>
+                </div>
+            </div>
+
+            <!-- Parcelas e Emissor -->
+            <div class="form-section">
+                <h3>💰 Opções de Pagamento</h3>
+
+                <div class="two-columns">
+                    <div class="form-group">
+                        <label for="form-checkout__issuer">Banco Emissor</label>
+                        <select id="form-checkout__issuer" class="form-control">
+                            <option value="">Carregando...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="form-checkout__installments">Parcelas</label>
+                        <select id="form-checkout__installments" class="form-control">
+                            <option value="">Carregando...</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Botão de Pagamento -->
+            <div class="loading" id="loading">
+                <p>Processando pagamento...</p>
+            </div>
+
+            <button type="submit" id="form-checkout__submit" class="payment-button">
+                🔒 Pagar com Segurança
+            </button>
+
+            <div class="progress-bar" id="progress-bar"></div>
+        </form>
+
+        <!-- Informações de Segurança -->
+        <div class="security-info">
+            <p>
+                🔒 Seus dados estão protegidos com criptografia SSL.<br>
+                Pagamento processado pelo Mercado Pago.
+            </p>
+        </div>
+    </div>
+
+    <!-- SDK do Mercado Pago -->
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
+    <!-- QR Code Library -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+
+    <script>
+        // Configuração inicial
+        const mp = new MercadoPago("TEST-8c043cc6-f2e4-4b8a-a282-dcdbcf0edcc9");
+
+        let cardForm;
+        let orderData = null;
+        let selectedPaymentMethod = 'card';
+        let pixTimer = null;
+
+        function getUrlParameter(name) {
+            name = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+            const regex = new RegExp('[\\?&]' + name + '=([^&#]*)');
+            const results = regex.exec(location.search);
+            return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
+        }
+
+        async function loadOrderData() {
+            const orderId = getUrlParameter('orderId');
+            if (!orderId) {
+                showError('ID do pedido não encontrado na URL');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/orders/${orderId}`);
+                if (!response.ok) throw new Error('Erro ao carregar dados do pedido');
+
+                orderData = await response.json();
+                updateOrderSummary();
+
+                return orderId;
+            } catch (error) {
+                console.error('Erro ao carregar pedido:', error);
+                showError('Erro ao carregar dados do pedido');
+            }
+        }
+
+        // Função para atualizar resumo do pedido
+        function updateOrderSummary() {
+            if (!orderData) return;
+
+            document.getElementById('subtotal').textContent = `R$ ${(orderData.total || 0).toFixed(2).replace('.', ',')}`;
+            document.getElementById('shipping').textContent = `R$ ${(orderData.shipping_price || 0).toFixed(2).replace('.', ',')}`;
+            document.getElementById('discount').textContent = `-R$ ${(orderData.discount || 0).toFixed(2).replace('.', ',')}`;
+            document.getElementById('total').textContent = `R$ ${(orderData.grand_total || 0).toFixed(2).replace('.', ',')}`;
+        }
+
+        // Função para alternar método de pagamento
+        function togglePaymentMethod(method) {
+            selectedPaymentMethod = method;
+
+            const cardSection = document.getElementById('card-section');
+            const pixSection = document.getElementById('pix-section');
+            const paymentOptions = document.querySelector('.form-section:has(#form-checkout__issuer)');
+            const documentFields = document.getElementById('document-fields');
+
+            if (method === 'pix') {
+                cardSection.classList.add('hidden');
+                pixSection.classList.remove('hidden');
+                if (paymentOptions) paymentOptions.classList.add('hidden');
+                // Esconder campos de documento para PIX (são opcionais)
+                if (documentFields) documentFields.style.display = 'none';
+
+                // Atualizar texto do botão
+                const submitButton = document.getElementById('form-checkout__submit');
+                submitButton.innerHTML = '⚡ Gerar PIX';
+            } else {
+                cardSection.classList.remove('hidden');
+                pixSection.classList.add('hidden');
+                if (paymentOptions) paymentOptions.classList.remove('hidden');
+                // Mostrar campos de documento para cartão (são obrigatórios)
+                if (documentFields) documentFields.style.display = 'grid';
+
+                // Atualizar texto do botão
+                const submitButton = document.getElementById('form-checkout__submit');
+                submitButton.innerHTML = '🔒 Pagar com Segurança';
+            }
+        }
+
+        // Função para mostrar erro
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            document.getElementById('success-message').style.display = 'none';
+
+            // Scroll para o topo
+            window.scrollTo(0, 0);
+        }
+
+        // Função para mostrar sucesso
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success-message');
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+            document.getElementById('error-message').style.display = 'none';
+
+            // Scroll para o topo
+            window.scrollTo(0, 0);
+        }
+
+        // Função para limpar mensagens
+        function clearMessages() {
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('success-message').style.display = 'none';
+        }
+
+        // Função para validar CPF
+        function validateCPF(cpf) {
+            cpf = cpf.replace(/[^\d]/g, '');
+            if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+
+            let sum = 0;
+            for (let i = 0; i < 9; i++) sum += parseInt(cpf.charAt(i)) * (10 - i);
+            let remainder = (sum * 10) % 11;
+            if (remainder === 10 || remainder === 11) remainder = 0;
+            if (remainder !== parseInt(cpf.charAt(9))) return false;
+
+            sum = 0;
+            for (let i = 0; i < 10; i++) sum += parseInt(cpf.charAt(i)) * (11 - i);
+            remainder = (sum * 10) % 11;
+            if (remainder === 10 || remainder === 11) remainder = 0;
+
+            return remainder === parseInt(cpf.charAt(10));
+        }
+
+        // Função para formatar CPF
+        function formatCPF(value) {
+            return value.replace(/\D/g, '').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+        }
+
+        // Função para processar pagamento com cartão
+        async function processCardPayment(formData) {
+            const orderId = getUrlParameter('orderId');
+
+            try {
+                const response = await fetch('/api/payment/transparent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        token: formData.token,
+                        payment_method_id: formData.paymentMethodId,
+                        issuer_id: formData.issuerId,
+                        installments: parseInt(formData.installments || 1),
+                        payer: {
+                            email: formData.email,
+                            identification: {
+                                type: formData.identificationType,
+                                number: formData.identificationNumber
+                            }
+                        }
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    if (result.status === 'approved') {
+                        showSuccess('✅ Pagamento aprovado! Redirecionando...');
+                        setTimeout(() => {
+                            window.location.href = `/payment/success?orderId=${orderId}&paymentId=${result.paymentId}`;
+                        }, 2000);
+                    } else if (result.status === 'pending') {
+                        showSuccess('⏳ Pagamento em processamento. Aguarde a confirmação...');
+                        setTimeout(() => {
+                            window.location.href = `/payment/pending?orderId=${orderId}&paymentId=${result.paymentId}`;
+                        }, 3000);
+                    } else {
+                        throw new Error(result.message || 'Pagamento recusado');
+                    }
+                } else {
+                    throw new Error(result.message || 'Erro no processamento do pagamento');
+                }
+            } catch (error) {
+                console.error('Erro ao processar pagamento:', error);
+                showError(error.message || 'Erro ao processar pagamento. Tente novamente.');
+            }
+        }
+
+        // Função para processar pagamento PIX
+        async function processPixPayment() {
+            const orderId = getUrlParameter('orderId');
+            const email = document.getElementById('form-checkout__cardholderEmail').value;
+
+            console.log('🔥 DEBUG: Iniciando processamento PIX');
+            console.log('🔥 DEBUG: OrderId:', orderId);
+            console.log('🔥 DEBUG: Email:', email);
+
+            if (!orderId) {
+                showError('ID do pedido não encontrado');
+                return;
+            }
+
+            if (!email || !email.includes('@')) {
+                showError('Por favor, informe um e-mail válido');
+                return;
+            }
+
+            try {
+                const requestData = {
+                    orderId: orderId,
+                    payment_method_id: 'pix',
+                    payer: {
+                        email: email
+                    }
+                };
+
+                console.log('🔥 DEBUG: Dados da requisição PIX:', requestData);
+
+                const response = await fetch('/api/payment/transparent', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                console.log('🔥 DEBUG: Response status:', response.status);
+                console.log('🔥 DEBUG: Response ok:', response.ok);
+
+                const result = await response.json();
+                console.log('🔥 DEBUG: Response completa:', result);
+
+                if (response.ok && result.success) {
+                    console.log('🔥 DEBUG: PIX criado com sucesso!');
+                    console.log('🔥 DEBUG: result.data:', result.data);
+                    // Mostrar QR Code e código PIX
+                    displayPixCode(result.data);
+                    startPixTimer();
+                } else {
+                    console.error('🔥 DEBUG: Erro na resposta:', result);
+                    throw new Error(result.message || 'Erro ao gerar PIX');
+                }
+            } catch (error) {
+                console.error('🔥 DEBUG: Erro ao processar PIX:', error);
+                showError(error.message || 'Erro ao gerar código PIX. Tente novamente.');
+            }
+        }
+
+        // Função para exibir código PIX
+        function displayPixCode(pixData) {
+            console.log('🔥 DEBUG: displayPixCode chamada com:', pixData);
+
+            const qrContainer = document.getElementById('pix-qr-container');
+            const qrCodeDiv = document.getElementById('pix-qr-code');
+            const pixCodeInput = document.getElementById('pix-code-input');
+
+            console.log('🔥 DEBUG: Elementos encontrados:');
+            console.log('🔥 DEBUG: qrContainer:', qrContainer);
+            console.log('🔥 DEBUG: qrCodeDiv:', qrCodeDiv);
+            console.log('🔥 DEBUG: pixCodeInput:', pixCodeInput);
+
+            if (!pixData) {
+                console.error('🔥 DEBUG: pixData está vazio ou undefined');
+                showError('Dados do PIX não recebidos');
+                return;
+            }
+
+            console.log('🔥 DEBUG: pixData.qr_code:', pixData.qr_code);
+            console.log('🔥 DEBUG: pixData.qr_code_base64:', pixData.qr_code_base64);
+            console.log('🔥 DEBUG: pixData.amount:', pixData.amount);
+            console.log('🔥 DEBUG: pixData.payment_id:', pixData.payment_id);
+
+            // Exibir QR Code
+            if (pixData && (pixData.qr_code || pixData.qr_code_base64)) {
+                console.log('🔥 DEBUG: Dados do QR encontrados, gerando imagem...');
+
+                // Se tiver base64, usar diretamente
+                if (pixData.qr_code_base64) {
+                    console.log('🔥 DEBUG: Usando QR code base64');
+                    qrCodeDiv.innerHTML = `<img src="data:image/png;base64,${pixData.qr_code_base64}" alt="QR Code PIX" style="max-width: 200px; height: auto;">`;
+                } else if (pixData.qr_code) {
+                    console.log('🔥 DEBUG: Gerando QR code com biblioteca');
+                    // Gerar QR Code usando a biblioteca
+                    const canvas = document.createElement('canvas');
+                    QRCode.toCanvas(canvas, pixData.qr_code, { width: 200 }, function (error) {
+                        if (error) {
+                            console.error('🔥 DEBUG: Erro ao gerar QR Code:', error);
+                            qrCodeDiv.innerHTML = `<p style="color: #666;">⚠️ Não foi possível gerar o QR Code. Use o código PIX abaixo.</p>`;
+                        } else {
+                            console.log('🔥 DEBUG: QR Code gerado com sucesso');
+                            qrCodeDiv.innerHTML = '';
+                            qrCodeDiv.appendChild(canvas);
+                        }
+                    });
+                }
+
+                // Exibir código PIX para cópia
+                if (pixData.qr_code) {
+                    console.log('🔥 DEBUG: Definindo valor do input PIX:', pixData.qr_code.substring(0, 50) + '...');
+                    pixCodeInput.value = pixData.qr_code;
+                }
+
+                // Adicionar informações do valor se disponível
+                if (pixData.amount) {
+                    const amountElement = document.createElement('p');
+                    amountElement.innerHTML = `<strong>💰 Valor: R$ ${pixData.amount}</strong>`;
+                    amountElement.style.textAlign = 'center';
+                    amountElement.style.fontSize = '18px';
+                    amountElement.style.color = '#d81b60';
+                    amountElement.style.marginBottom = '15px';
+                    qrCodeDiv.parentNode.insertBefore(amountElement, qrCodeDiv);
+                }
+
+            } else {
+                console.error('🔥 DEBUG: Nenhum dado de QR Code encontrado');
+                qrCodeDiv.innerHTML = `<p style="color: #666;">⚠️ Dados do PIX não disponíveis</p>`;
+            }
+
+            console.log('🔥 DEBUG: Mostrando container do QR');
+            qrContainer.classList.remove('hidden');
+
+            // Esconder formulário e mostrar sucesso
+            console.log('🔥 DEBUG: Escondendo formulário');
+            document.getElementById('form-checkout').style.display = 'none';
+
+            const successMessage = pixData.amount ?
+                `🎯 PIX de R$ ${pixData.amount} gerado com sucesso! Efetue o pagamento em até 10 minutos.` :
+                '🎯 PIX gerado com sucesso! Efetue o pagamento em até 10 minutos.';
+
+            showSuccess(successMessage);
+            console.log('🔥 DEBUG: displayPixCode concluída');
+        }
+
+        // Função para iniciar timer do PIX
+        function startPixTimer() {
+            let timeLeft = 10 * 60; // 10 minutos em segundos
+            const timerDisplay = document.getElementById('timer-countdown');
+
+            pixTimer = setInterval(() => {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+
+                timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+                if (timeLeft <= 0) {
+                    clearInterval(pixTimer);
+                    showError('⏰ Tempo para pagamento PIX expirado. Gere um novo código.');
+                    document.getElementById('pix-qr-container').classList.add('hidden');
+                    document.getElementById('form-checkout').style.display = 'block';
+                }
+
+                timeLeft--;
+            }, 1000);
+        }
+
+        // Função para copiar código PIX
+        function copyPixCode() {
+            const pixCodeInput = document.getElementById('pix-code-input');
+            pixCodeInput.select();
+            pixCodeInput.setSelectionRange(0, 99999);
+
+            navigator.clipboard.writeText(pixCodeInput.value).then(() => {
+                const copyButton = document.getElementById('copy-pix-code');
+                const originalText = copyButton.innerHTML;
+                copyButton.innerHTML = '✅ Copiado!';
+                copyButton.style.background = '#4caf50';
+
+                setTimeout(() => {
+                    copyButton.innerHTML = originalText;
+                    copyButton.style.background = '#d81b60';
+                }, 2000);
+            }).catch(() => {
+                showError('Erro ao copiar código. Copie manualmente.');
+            });
+        }
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', async function () {
+            const orderId = await loadOrderData();
+            if (!orderId) return;
+
+            // Event listeners para alternância de método de pagamento
+            const paymentMethodRadios = document.querySelectorAll('input[name="payment_method"]');
+            paymentMethodRadios.forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    // Atualizar visual dos botões
+                    document.querySelectorAll('.payment-method-option').forEach(option => {
+                        option.classList.remove('selected');
+                    });
+                    e.target.closest('.payment-method-option').classList.add('selected');
+
+                    // Alternar seções
+                    togglePaymentMethod(e.target.value);
+                });
+            });
+
+            // Event listener para copiar código PIX
+            document.getElementById('copy-pix-code').addEventListener('click', copyPixCode);
+
+            // Configurar CardForm apenas se método for cartão
+            cardForm = mp.cardForm({
+                amount: (orderData?.grand_total || 100).toString(),
+                iframe: true,
+                form: {
+                    id: "form-checkout",
+                    cardNumber: {
+                        id: "form-checkout__cardNumber",
+                        placeholder: "Número do cartão",
+                    },
+                    expirationDate: {
+                        id: "form-checkout__expirationDate",
+                        placeholder: "MM/YY",
+                    },
+                    securityCode: {
+                        id: "form-checkout__securityCode",
+                        placeholder: "CVV",
+                    },
+                    cardholderName: {
+                        id: "form-checkout__cardholderName",
+                        placeholder: "Titular do cartão",
+                    },
+                    issuer: {
+                        id: "form-checkout__issuer",
+                        placeholder: "Banco emissor",
+                    },
+                    installments: {
+                        id: "form-checkout__installments",
+                        placeholder: "Parcelas",
+                    },
+                    identificationType: {
+                        id: "form-checkout__identificationType",
+                        placeholder: "Tipo de documento",
+                    },
+                    identificationNumber: {
+                        id: "form-checkout__identificationNumber",
+                        placeholder: "Número do documento",
+                    },
+                    cardholderEmail: {
+                        id: "form-checkout__cardholderEmail",
+                        placeholder: "E-mail",
+                    },
+                },
+                callbacks: {
+                    onFormMounted: error => {
+                        if (error) {
+                            console.warn("Form Mounted handling error: ", error);
+                            showError("Erro ao carregar formulário de pagamento");
+                        } else {
+                            console.log("Form mounted");
+                        }
+                    },
+                    onSubmit: event => {
+                        event.preventDefault();
+                        console.log('🔥 DEBUG: Form submit interceptado');
+                        console.log('🔥 DEBUG: selectedPaymentMethod:', selectedPaymentMethod);
+                        clearMessages();
+
+                        // Verificar método de pagamento selecionado
+                        if (selectedPaymentMethod === 'pix') {
+                            console.log('🔥 DEBUG: Redirecionando para processPix');
+                            processPix();
+                            return;
+                        }
+
+                        console.log('🔥 DEBUG: Processando pagamento com cartão');
+
+                        // Processar pagamento com cartão
+                        const {
+                            paymentMethodId: payment_method_id,
+                            issuerId: issuer_id,
+                            cardholderEmail: email,
+                            amount,
+                            token,
+                            installments,
+                            identificationNumber,
+                            identificationType,
+                        } = cardForm.getCardFormData();
+
+                        // Validações
+                        if (!email || !email.includes('@')) {
+                            showError('Por favor, informe um e-mail válido');
+                            return;
+                        }
+
+                        if (!identificationNumber || identificationNumber.length < 11) {
+                            showError('Por favor, informe um CPF válido');
+                            return;
+                        }
+
+                        if (!validateCPF(identificationNumber)) {
+                            showError('CPF informado é inválido');
+                            return;
+                        }
+
+                        if (!token) {
+                            showError('Erro ao processar dados do cartão. Verifique as informações.');
+                            return;
+                        }
+
+                        // Mostrar loading
+                        document.getElementById('loading').classList.add('active');
+                        document.getElementById('form-checkout__submit').disabled = true;
+
+                        // Processar pagamento
+                        processCardPayment({
+                            token,
+                            paymentMethodId: payment_method_id,
+                            issuerId: issuer_id,
+                            installments,
+                            email,
+                            identificationType,
+                            identificationNumber
+                        }).finally(() => {
+                            document.getElementById('loading').classList.remove('active');
+                            document.getElementById('form-checkout__submit').disabled = false;
+                        });
+                    },
+                    onFetching: (resource) => {
+                        console.log("Fetching resource: ", resource);
+
+                        // Animar progress bar
+                        const progressBar = document.getElementById("progress-bar");
+                        progressBar.removeAttribute("value");
+
+                        return () => {
+                            progressBar.setAttribute("value", "0");
+                        };
+                    }
+                },
+            });
+
+            // Função para processar PIX
+            function processPix() {
+                console.log('🔥 DEBUG: processPix iniciada');
+                clearMessages();
+
+                const email = document.getElementById('form-checkout__cardholderEmail').value;
+                console.log('🔥 DEBUG: Email para PIX:', email);
+
+                // Validações PIX - apenas email é obrigatório
+                if (!email || !email.includes('@')) {
+                    console.log('🔥 DEBUG: Email inválido');
+                    showError('Por favor, informe um e-mail válido');
+                    return;
+                }
+
+                console.log('🔥 DEBUG: Mostrando loading');
+                // Mostrar loading
+                document.getElementById('loading').classList.add('active');
+                document.getElementById('form-checkout__submit').disabled = true;
+
+                // Processar PIX
+                processPixPayment().finally(() => {
+                    console.log('🔥 DEBUG: Removendo loading');
+                    document.getElementById('loading').classList.remove('active');
+                    document.getElementById('form-checkout__submit').disabled = false;
+                });
+            }
+
+            // Formatação do campo CPF
+            const cpfInput = document.getElementById('form-checkout__identificationNumber');
+            if (cpfInput) {
+                cpfInput.addEventListener('input', function (e) {
+                    e.target.value = formatCPF(e.target.value);
+                });
+            }
+
+            // Handler adicional para interceptar submit do formulário
+            document.getElementById('form-checkout').addEventListener('submit', function (e) {
+                console.log('🔥 DEBUG: Submit direto do form interceptado');
+                console.log('🔥 DEBUG: selectedPaymentMethod atual:', selectedPaymentMethod);
+
+                if (selectedPaymentMethod === 'pix') {
+                    console.log('🔥 DEBUG: Impedindo CardForm de processar PIX');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    processPix();
+                    return false;
+                }
+            });
+
+            // Inicializar com método selecionado
+            document.querySelector('.payment-method-option').classList.add('selected');
+        });
+    </script>
+</body>
+
+</html>

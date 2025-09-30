@@ -11,6 +11,7 @@ import typeController from "./controller/typeController";
 import authController from "./controller/authController";
 import PaymentController from "./controller/paymentController";
 import feedController from "./controller/feedController";
+import checkoutTransparenteRouter from "./routes/checkoutTransparente";
 import { upload, convertImagesToWebP } from "./config/multer";
 import {
   authenticateToken,
@@ -304,5 +305,8 @@ router.delete(
   requireAdmin,
   feedController.deleteSectionItem
 );
+
+// Checkout Transparente Routes
+router.use(checkoutTransparenteRouter);
 
 export default router;

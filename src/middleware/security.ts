@@ -257,7 +257,7 @@ export const validatePaymentData = (
   next: NextFunction
 ) => {
   try {
-    const { orderId, amount, payerEmail } = req.body;
+    const { orderId, amount, payerEmail, paymentMethodId } = req.body;
 
     if (!orderId || typeof orderId !== "string") {
       return res.status(400).json({
@@ -266,11 +266,21 @@ export const validatePaymentData = (
       });
     }
 
-    if (!amount || typeof amount !== "number" || amount <= 0) {
-      return res.status(400).json({
-        error: "Valor é obrigatório e deve ser um número positivo",
-        code: "INVALID_AMOUNT",
-      });
+    if (amount !== undefined) {
+      if (typeof amount !== "number" || Number.isNaN(amount) || amount <= 0) {
+        return res.status(400).json({
+          error: "Valor deve ser um número positivo",
+          code: "INVALID_AMOUNT",
+        });
+      }
+
+      const MAX_AMOUNT = 50000;
+      if (amount > MAX_AMOUNT) {
+        return res.status(400).json({
+          error: `Valor excede o limite máximo de R$ ${MAX_AMOUNT}`,
+          code: "AMOUNT_EXCEEDS_LIMIT",
+        });
+      }
     }
 
     if (!payerEmail || !isValidEmail(payerEmail)) {
@@ -280,11 +290,13 @@ export const validatePaymentData = (
       });
     }
 
-    const MAX_AMOUNT = 50000;
-    if (amount > MAX_AMOUNT) {
+    if (
+      paymentMethodId &&
+      !["pix", "credit_card", "debit_card"].includes(paymentMethodId)
+    ) {
       return res.status(400).json({
-        error: `Valor excede o limite máximo de R$ ${MAX_AMOUNT}`,
-        code: "AMOUNT_EXCEEDS_LIMIT",
+        error: "Forma de pagamento inválida",
+        code: "INVALID_PAYMENT_METHOD",
       });
     }
 

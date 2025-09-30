@@ -8,20 +8,19 @@ export class PaymentController {
    */
   static async createPreference(req: Request, res: Response) {
     try {
-      const { orderId, items, payerEmail, payerName, payerPhone } = req.body;
+      const { orderId, payerEmail, payerName, payerPhone } = req.body;
       const userId = (req as any).user?.id; // Assumindo middleware de autenticação
 
-      if (!orderId || !items || !payerEmail || !userId) {
+      if (!orderId || !payerEmail || !userId) {
         return res.status(400).json({
           error: "Dados obrigatórios não fornecidos",
-          required: ["orderId", "items", "payerEmail"],
+          required: ["orderId", "payerEmail"],
         });
       }
 
       const preference = await PaymentService.createPreference({
         orderId,
         userId,
-        items,
         payerEmail,
         payerName,
         payerPhone,
@@ -59,23 +58,27 @@ export class PaymentController {
 
       const userId = (req as any).user?.id;
 
-      if (!orderId || !amount || !payerEmail || !userId) {
+      if (!orderId || !payerEmail || !userId) {
         return res.status(400).json({
           error: "Dados obrigatórios não fornecidos",
-          required: ["orderId", "amount", "payerEmail"],
+          required: ["orderId", "payerEmail"],
         });
       }
 
       const payment = await PaymentService.createPayment({
         orderId,
         userId,
-        amount,
-        description: description || "Compra Cesto d'Amore",
+        amount:
+          amount !== undefined && amount !== null ? Number(amount) : undefined,
+        description,
         payerEmail,
         payerName,
         payerPhone,
         paymentMethodId,
-        installments,
+        installments:
+          installments !== undefined && installments !== null
+            ? Number(installments)
+            : undefined,
         token,
       });
 
@@ -158,7 +161,11 @@ export class PaymentController {
           approved_at: dbPayment.approved_at,
           order: {
             id: dbPayment.order.id,
-            total_price: dbPayment.order.total_price,
+            total: dbPayment.order.total,
+            shipping_price: dbPayment.order.shipping_price,
+            discount: dbPayment.order.discount,
+            grand_total: dbPayment.order.grand_total,
+            payment_method: dbPayment.order.payment_method,
             status: dbPayment.order.status,
           },
           mercado_pago_data: mercadoPagoData,

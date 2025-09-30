@@ -107,9 +107,12 @@ model Order {
   user_id          String
   status           OrderStatus @default(PENDING)
   discount         Float       @default(0)
-  total_price      Float
+  total            Float       @map("total_price")
   delivery_address String?
   delivery_date    DateTime?
+  shipping_price   Float?
+  payment_method   String?
+  grand_total      Float?
   created_at       DateTime    @default(now())
   updated_at       DateTime    @updatedAt
 

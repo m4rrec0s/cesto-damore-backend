@@ -139,9 +139,7 @@ class ProductService {
             const { additionals, categories, ...rest } = data;
             const normalized = { ...rest };
             // Validar categorias se fornecidas
-            if (categories &&
-                Array.isArray(categories) &&
-                categories.length > 0) {
+            if (categories && Array.isArray(categories) && categories.length > 0) {
                 await this.validateCategories(categories);
             }
             // Normalização de tipos apenas se fornecidos

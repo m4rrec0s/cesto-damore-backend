@@ -9,24 +9,19 @@ const crypto_js_1 = __importDefault(require("crypto-js"));
 const prisma_1 = __importDefault(require("../database/prisma"));
 const mercadopago_1 = require("../config/mercadopago");
 const firebase_1 = require("../config/firebase");
-/**
- * Middleware de autenticação JWT
- */
 const authenticateToken = async (req, res, next) => {
     try {
         const authHeader = req.headers["authorization"];
-        const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
+        const token = authHeader && authHeader.split(" ")[1];
         if (!token) {
             return res.status(401).json({
                 error: "Token de acesso não fornecido",
                 code: "MISSING_TOKEN",
             });
         }
-        // Verificar token - primeiro tentar JWT normal, depois Firebase
         let user;
         let decodedToken;
         try {
-            // Tentativa 1: JWT normal com JWT_SECRET
             const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
             decodedToken = jsonwebtoken_1.default.verify(token, jwtSecret);
             user = await prisma_1.default.user.findUnique({
@@ -35,12 +30,12 @@ const authenticateToken = async (req, res, next) => {
                     id: true,
                     email: true,
                     name: true,
+                    role: true,
                     firebaseUId: true,
                 },
             });
         }
         catch (jwtError) {
-            // Tentativa 2: Token Firebase
             try {
                 decodedToken = await firebase_1.auth.verifyIdToken(token);
                 user = await prisma_1.default.user.findUnique({
@@ -49,6 +44,7 @@ const authenticateToken = async (req, res, next) => {
                         id: true,
                         email: true,
                         name: true,
+                        role: true,
                         firebaseUId: true,
                     },
                 });
@@ -70,12 +66,11 @@ const authenticateToken = async (req, res, next) => {
                 code: "USER_NOT_FOUND",
             });
         }
-        // Adicionar usuário ao request
         req.user = {
             id: user.id,
             email: user.email,
             name: user.name,
-            role: "user", // Por enquanto todos são usuários normais
+            role: user.role,
         };
         next();
     }
@@ -100,9 +95,6 @@ const authenticateToken = async (req, res, next) => {
     }
 };
 exports.authenticateToken = authenticateToken;
-/**
- * Middleware de verificação de admin
- */
 const requireAdmin = (req, res, next) => {
     if (!req.user) {
         return res.status(401).json({
@@ -119,20 +111,14 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 exports.requireAdmin = requireAdmin;
-/**
- * Middleware para validar webhook do Mercado Pago
- */
 const validateMercadoPagoWebhook = (req, res, next) => {
     try {
-        // Verificar se a validação está habilitada
         if (!mercadopago_1.mercadoPagoConfig.security.enableWebhookValidation) {
             return next();
         }
-        // Verificar IP se habilitado
         if (mercadopago_1.mercadoPagoConfig.security.enableIPWhitelist) {
             const clientIP = req.ip || req.connection.remoteAddress || "";
             const isAllowedIP = mercadopago_1.mercadoPagoConfig.security.allowedIPs.some((allowedRange) => {
-                // Implementação básica - pode ser melhorada com biblioteca específica
                 return clientIP.includes(allowedRange.split("/")[0]);
             });
             if (!isAllowedIP) {
@@ -143,7 +129,6 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                 });
             }
         }
-        // Validar estrutura básica do webhook
         const { type, data } = req.body;
         if (!type || !data || !data.id) {
             return res.status(400).json({
@@ -151,7 +136,6 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                 code: "INVALID_WEBHOOK_STRUCTURE",
             });
         }
-        // Verificar assinatura se disponível
         const signature = req.headers["x-signature"];
         const requestId = req.headers["x-request-id"];
         if (signature && mercadopago_1.mercadoPagoConfig.webhookSecret) {
@@ -175,12 +159,8 @@ const validateMercadoPagoWebhook = (req, res, next) => {
     }
 };
 exports.validateMercadoPagoWebhook = validateMercadoPagoWebhook;
-/**
- * Validar assinatura do webhook
- */
 function validateWebhookSignature(payload, signature, secret) {
     try {
-        // Implementar validação de assinatura conforme documentação do Mercado Pago
         const payloadString = JSON.stringify(payload);
         const expectedSignature = crypto_js_1.default
             .HmacSHA256(payloadString, secret)
@@ -192,23 +172,18 @@ function validateWebhookSignature(payload, signature, secret) {
         return false;
     }
 }
-/**
- * Middleware de rate limiting para pagamentos
- */
 exports.paymentRateLimit = (() => {
     const requests = new Map();
-    const WINDOW_SIZE = 15 * 60 * 1000; // 15 minutos
-    const MAX_REQUESTS = 10; // 10 tentativas por IP por janela
+    const WINDOW_SIZE = 15 * 60 * 1000;
+    const MAX_REQUESTS = 10;
     return (req, res, next) => {
         const clientIP = req.ip || req.connection.remoteAddress || "unknown";
         const now = Date.now();
-        // Limpar entradas expiradas
         for (const [ip, data] of requests.entries()) {
             if (now > data.resetTime) {
                 requests.delete(ip);
             }
         }
-        // Verificar rate limit
         const current = requests.get(clientIP);
         if (!current) {
             requests.set(clientIP, { count: 1, resetTime: now + WINDOW_SIZE });
@@ -225,24 +200,29 @@ exports.paymentRateLimit = (() => {
         next();
     };
 })();
-/**
- * Middleware de validação de dados de pagamento
- */
 const validatePaymentData = (req, res, next) => {
     try {
-        const { orderId, amount, payerEmail } = req.body;
-        // Validações básicas
+        const { orderId, amount, payerEmail, paymentMethodId } = req.body;
         if (!orderId || typeof orderId !== "string") {
             return res.status(400).json({
                 error: "ID do pedido é obrigatório e deve ser uma string",
                 code: "INVALID_ORDER_ID",
             });
         }
-        if (!amount || typeof amount !== "number" || amount <= 0) {
-            return res.status(400).json({
-                error: "Valor é obrigatório e deve ser um número positivo",
-                code: "INVALID_AMOUNT",
-            });
+        if (amount !== undefined) {
+            if (typeof amount !== "number" || Number.isNaN(amount) || amount <= 0) {
+                return res.status(400).json({
+                    error: "Valor deve ser um número positivo",
+                    code: "INVALID_AMOUNT",
+                });
+            }
+            const MAX_AMOUNT = 50000;
+            if (amount > MAX_AMOUNT) {
+                return res.status(400).json({
+                    error: `Valor excede o limite máximo de R$ ${MAX_AMOUNT}`,
+                    code: "AMOUNT_EXCEEDS_LIMIT",
+                });
+            }
         }
         if (!payerEmail || !isValidEmail(payerEmail)) {
             return res.status(400).json({
@@ -250,12 +230,11 @@ const validatePaymentData = (req, res, next) => {
                 code: "INVALID_PAYER_EMAIL",
             });
         }
-        // Verificar se o valor não excede o limite
-        const MAX_AMOUNT = 50000; // R$ 50.000
-        if (amount > MAX_AMOUNT) {
+        if (paymentMethodId &&
+            !["pix", "credit_card", "debit_card"].includes(paymentMethodId)) {
             return res.status(400).json({
-                error: `Valor excede o limite máximo de R$ ${MAX_AMOUNT}`,
-                code: "AMOUNT_EXCEEDS_LIMIT",
+                error: "Forma de pagamento inválida",
+                code: "INVALID_PAYMENT_METHOD",
             });
         }
         next();
@@ -269,22 +248,14 @@ const validatePaymentData = (req, res, next) => {
     }
 };
 exports.validatePaymentData = validatePaymentData;
-/**
- * Validar formato de email
- */
 function isValidEmail(email) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
 }
-/**
- * Middleware para log de operações financeiras
- */
 const logFinancialOperation = (operation) => {
     return (req, res, next) => {
         const startTime = Date.now();
-        // Log da operação
         console.log(`[FINANCIAL_OP] ${operation} iniciada por usuário ${req.user?.id} - IP: ${req.ip}`);
-        // Interceptar resposta para log
         const originalSend = res.send;
         res.send = function (data) {
             const duration = Date.now() - startTime;

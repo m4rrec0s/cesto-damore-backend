@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
+const cepService_1 = __importDefault(require("./cepService"));
 class UserService {
     async getAllUsers() {
         try {
@@ -47,6 +48,12 @@ class UserService {
         if (!emailRegex.test(data.email)) {
             throw new Error("Formato de email inválido");
         }
+        // Validação de CEP se fornecido
+        if (data.zip_code && data.zip_code.trim() !== "") {
+            if (!cepService_1.default.validateCepFormat(data.zip_code)) {
+                throw new Error("Formato de CEP inválido. Use o formato 00000-000 ou 00000000");
+            }
+        }
         try {
             // Verifica se o email já existe
             const existingUser = await prisma_1.default.user.findFirst({
@@ -62,7 +69,12 @@ class UserService {
                     throw new Error("Usuário já registrado");
                 }
             }
-            return await prisma_1.default.user.create({ data });
+            // Formata CEP se fornecido
+            const userData = { ...data };
+            if (userData.zip_code && userData.zip_code.trim() !== "") {
+                userData.zip_code = cepService_1.default.formatCep(userData.zip_code);
+            }
+            return await prisma_1.default.user.create({ data: userData });
         }
         catch (error) {
             if (error.message.includes("obrigatório") ||
@@ -96,8 +108,19 @@ class UserService {
                 throw new Error("Email já está em uso por outro usuário");
             }
         }
+        // Validação de CEP se fornecido
+        if (data.zip_code && data.zip_code.trim() !== "") {
+            if (!cepService_1.default.validateCepFormat(data.zip_code)) {
+                throw new Error("Formato de CEP inválido. Use o formato 00000-000 ou 00000000");
+            }
+        }
         try {
-            return await prisma_1.default.user.update({ where: { id }, data });
+            // Formata CEP se fornecido
+            const userData = { ...data };
+            if (userData.zip_code && userData.zip_code.trim() !== "") {
+                userData.zip_code = cepService_1.default.formatCep(userData.zip_code);
+            }
+            return await prisma_1.default.user.update({ where: { id }, data: userData });
         }
         catch (error) {
             if (error.message.includes("não encontrado") ||
@@ -154,6 +177,26 @@ class UserService {
     }
     async remove(id) {
         return this.deleteUser(id);
+    }
+    // Novo método: consulta informações de endereço por CEP
+    async getAddressByZipCode(zipCode) {
+        try {
+            const addressInfo = await cepService_1.default.getAddressByCep(zipCode);
+            return {
+                zip_code: addressInfo.zip_code,
+                address: addressInfo.address,
+                neighborhood: addressInfo.neighborhood,
+                city: addressInfo.city,
+                state: addressInfo.state,
+                additional_info: {
+                    ibge_code: addressInfo.ibge_code,
+                    ddd: addressInfo.ddd,
+                },
+            };
+        }
+        catch (error) {
+            throw new Error(`Erro ao consultar CEP: ${error.message}`);
+        }
     }
 }
 exports.default = new UserService();

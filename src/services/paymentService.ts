@@ -1,18 +1,53 @@
 import { payment, preference, mercadoPagoConfig } from "../config/mercadopago";
 import prisma from "../database/prisma";
-import type { PaymentStatus } from "@prisma/client";
-import { v4 as uuidv4 } from "uuid";
+import type { PaymentStatus, Prisma } from "@prisma/client";
 import * as crypto from "crypto-js";
+import { mercadoPagoDirectService } from "./mercadoPagoDirectService";
+
+type OrderWithPaymentDetails = Prisma.OrderGetPayload<{
+  include: {
+    payment: true;
+    items: {
+      include: {
+        product: true;
+        additionals: {
+          include: { additional: true };
+        };
+      };
+    };
+  };
+}>;
+
+const roundCurrency = (value: number) =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+const normalizeOrderPaymentMethod = (
+  method?: string | null
+): "pix" | "card" | null => {
+  if (!method) return null;
+  const normalized = method.trim().toLowerCase();
+  if (normalized === "pix") {
+    return "pix";
+  }
+  if (
+    normalized === "card" ||
+    normalized === "credit_card" ||
+    normalized === "debit_card"
+  ) {
+    return "card";
+  }
+  return null;
+};
 
 export interface CreatePaymentData {
   orderId: string;
   userId: string;
-  amount: number;
-  description: string;
+  amount?: number;
+  description?: string;
   payerEmail: string;
   payerName?: string;
   payerPhone?: string;
-  paymentMethodId?: string;
+  paymentMethodId?: "pix" | "credit_card" | "debit_card";
   installments?: number;
   token?: string;
 }
@@ -20,12 +55,6 @@ export interface CreatePaymentData {
 export interface CreatePreferenceData {
   orderId: string;
   userId: string;
-  items: Array<{
-    title: string;
-    description?: string;
-    quantity: number;
-    unit_price: number;
-  }>;
   payerEmail: string;
   payerName?: string;
   payerPhone?: string;
@@ -33,29 +62,106 @@ export interface CreatePreferenceData {
 }
 
 export class PaymentService {
+  private static async loadOrderWithDetails(
+    orderId: string
+  ): Promise<OrderWithPaymentDetails | null> {
+    return prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        payment: true,
+        items: {
+          include: {
+            product: true,
+            additionals: {
+              include: { additional: true },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  private static calculateOrderSummary(order: OrderWithPaymentDetails) {
+    const itemsTotal = order.items.reduce((sum, item) => {
+      const baseTotal = Number(item.price) * item.quantity;
+      const additionalsTotal = item.additionals.reduce(
+        (acc, additional) =>
+          acc + Number(additional.price) * additional.quantity,
+        0
+      );
+      return sum + baseTotal + additionalsTotal;
+    }, 0);
+
+    const total = order.total ?? roundCurrency(itemsTotal);
+    const discount = roundCurrency(order.discount ?? 0);
+    const shipping = roundCurrency(order.shipping_price ?? 0);
+    const computedGrandTotal = roundCurrency(total - discount + shipping);
+    const grandTotal = roundCurrency(order.grand_total ?? computedGrandTotal);
+
+    return {
+      itemsTotal: roundCurrency(itemsTotal),
+      total: roundCurrency(total),
+      discount,
+      shipping,
+      grandTotal,
+    };
+  }
+
+  private static async ensureOrderTotalsUpToDate(
+    order: OrderWithPaymentDetails,
+    summary: ReturnType<typeof PaymentService.calculateOrderSummary>
+  ) {
+    const needsUpdate =
+      roundCurrency(order.total ?? 0) !== summary.total ||
+      roundCurrency(order.grand_total ?? 0) !== summary.grandTotal ||
+      roundCurrency(order.shipping_price ?? 0) !== summary.shipping;
+
+    if (needsUpdate) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          total: summary.total,
+          shipping_price: summary.shipping,
+          grand_total: summary.grandTotal,
+        },
+      });
+    }
+  }
+
   /**
    * Cria uma preferência de pagamento para Checkout Pro
    */
   static async createPreference(data: CreatePreferenceData) {
     try {
-      // Validar dados
-      if (
-        !data.orderId ||
-        !data.userId ||
-        !data.items ||
-        data.items.length === 0
-      ) {
+      if (!data.orderId || !data.userId || !data.payerEmail) {
         throw new Error("Dados obrigatórios não fornecidos");
       }
 
-      // Verificar se o pedido existe
-      const order = await prisma.order.findUnique({
-        where: { id: data.orderId },
-        include: { payment: true },
-      });
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(data.payerEmail)) {
+        throw new Error("Email do pagador inválido");
+      }
+
+      const order = await this.loadOrderWithDetails(data.orderId);
 
       if (!order) {
         throw new Error("Pedido não encontrado");
+      }
+
+      if (order.user_id !== data.userId) {
+        throw new Error("Pedido não pertence ao usuário informado");
+      }
+
+      if (!order.items.length) {
+        throw new Error("Pedido sem itens não pode gerar pagamento");
+      }
+
+      const orderPaymentMethod = normalizeOrderPaymentMethod(
+        order.payment_method
+      );
+
+      if (!orderPaymentMethod) {
+        throw new Error("Forma de pagamento do pedido não definida");
       }
 
       // Para desenvolvimento: permitir recriar preferência se pagamento não foi finalizado
@@ -82,25 +188,36 @@ export class PaymentService {
         }
       }
 
-      // Calcular total
-      const totalAmount = data.items.reduce(
-        (sum, item) => sum + item.unit_price * item.quantity,
-        0
-      );
+      const summary = this.calculateOrderSummary(order);
+      await this.ensureOrderTotalsUpToDate(order, summary);
 
       // Gerar referência externa única
       const externalReference =
         data.externalReference || `ORDER_${data.orderId}_${Date.now()}`;
 
+      const preferenceItems = [
+        {
+          id: order.id,
+          title: `Pedido ${order.id}`,
+          description: `Pagamento ${
+            orderPaymentMethod === "pix" ? "PIX" : "Cartão"
+          } - ${order.items.length} item(s)`,
+          quantity: 1,
+          unit_price: summary.grandTotal,
+        },
+      ];
+
+      const paymentMethodsConfig = {
+        default_payment_method_id:
+          orderPaymentMethod === "pix" ? "pix" : "credit_card",
+        excluded_payment_methods: [] as { id: string }[],
+        excluded_payment_types: [] as { id: string }[],
+        installments: orderPaymentMethod === "pix" ? 1 : 12,
+      };
+
       // Criar preferência no Mercado Pago
       const preferenceData = {
-        items: data.items.map((item, index) => ({
-          id: `item_${index}`,
-          title: item.title,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-        })),
+        items: preferenceItems,
         payer: {
           email: data.payerEmail,
           name: data.payerName,
@@ -121,17 +238,16 @@ export class PaymentService {
               },
               auto_return: "approved" as const,
             }),
-        payment_methods: {
-          excluded_payment_methods: [],
-          excluded_payment_types: [],
-          installments: 12,
-        },
+        payment_methods: paymentMethodsConfig,
         shipments: {
           mode: "not_specified" as const,
         },
         metadata: {
           order_id: data.orderId,
           user_id: data.userId,
+          shipping_price: summary.shipping,
+          discount: summary.discount,
+          payment_method: orderPaymentMethod,
         },
       };
 
@@ -145,7 +261,8 @@ export class PaymentService {
           order_id: data.orderId,
           preference_id: preferenceResponse.id,
           status: "PENDING",
-          transaction_amount: totalAmount,
+          transaction_amount: summary.grandTotal,
+          payment_method: orderPaymentMethod,
           external_reference: externalReference,
         },
       });
@@ -172,204 +289,265 @@ export class PaymentService {
    */
   static async createPayment(data: CreatePaymentData) {
     try {
-      // Validar dados obrigatórios
-      if (!data.orderId || !data.userId || !data.amount || !data.payerEmail) {
+      const { orderId, userId, payerEmail } = data;
+
+      if (!orderId || !userId || !payerEmail) {
         throw new Error("Dados obrigatórios não fornecidos");
       }
 
-      // Validar valor mínimo
-      if (data.amount <= 0) {
-        throw new Error("Valor do pagamento deve ser maior que zero");
+      if (
+        data.amount !== undefined &&
+        (typeof data.amount !== "number" || data.amount <= 0)
+      ) {
+        throw new Error("Valor informado deve ser um número positivo");
       }
 
-      // Validar email
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(data.payerEmail)) {
+      if (!emailRegex.test(payerEmail)) {
         throw new Error("Email do pagador inválido");
       }
 
-      // Validar método de pagamento
-      const validPaymentMethods = [
-        "pix",
-        "credit_card",
-        "debit_card",
-        "ticket",
-      ];
-      if (
-        data.paymentMethodId &&
-        !validPaymentMethods.includes(data.paymentMethodId)
-      ) {
-        throw new Error(
-          `Método de pagamento inválido. Use: ${validPaymentMethods.join(", ")}`
-        );
-      }
-
-      // Para cartão de crédito, token é obrigatório
-      if (
-        (data.paymentMethodId === "credit_card" ||
-          data.paymentMethodId === "debit_card") &&
-        !data.token
-      ) {
-        throw new Error(
-          "Token do cartão é obrigatório para pagamentos com cartão"
-        );
-      }
-
-      // Verificar se o pedido existe
-      const order = await prisma.order.findUnique({
-        where: { id: data.orderId },
-        include: { payment: true },
-      });
+      const order = await this.loadOrderWithDetails(orderId);
 
       if (!order) {
         throw new Error("Pedido não encontrado");
       }
 
-      // Para desenvolvimento: permitir recriar pagamento se anterior não foi finalizado
-      if (order.payment) {
-        const existingPayment = order.payment;
-        const isProduction = process.env.NODE_ENV === "production";
-        const paymentFinalized = ["APPROVED", "AUTHORIZED"].includes(
-          existingPayment.status
+      if (order.user_id !== userId) {
+        throw new Error("Pedido não pertence ao usuário informado");
+      }
+
+      if (!order.items.length) {
+        throw new Error("Pedido sem itens não pode ser pago");
+      }
+
+      const summary = this.calculateOrderSummary(order);
+      await this.ensureOrderTotalsUpToDate(order, summary);
+
+      const amount = roundCurrency(data.amount ?? summary.grandTotal);
+      if (amount <= 0) {
+        throw new Error("Valor total do pedido inválido");
+      }
+
+      const normalizedOrderMethod = normalizeOrderPaymentMethod(
+        order.payment_method
+      );
+      const resolvedMethod =
+        data.paymentMethodId ??
+        (normalizedOrderMethod === "pix" ? "pix" : "credit_card");
+
+      if (!["pix", "credit_card", "debit_card"].includes(resolvedMethod)) {
+        throw new Error(
+          "Método de pagamento inválido. Use: pix, credit_card ou debit_card"
         );
-
-        if (isProduction && paymentFinalized) {
-          throw new Error("Pedido já possui um pagamento finalizado");
-        }
-
-        // Em desenvolvimento ou se pagamento não finalizado, deletar o pagamento anterior
-        if (!paymentFinalized) {
-          console.log(
-            `[DEV] Removendo pagamento anterior não finalizado: ${existingPayment.id}`
-          );
-          await prisma.payment.delete({
-            where: { id: existingPayment.id },
-          });
-        }
       }
 
-      // Gerar referência externa única
-      const externalReference = `ORDER_${data.orderId}_${Date.now()}`;
+      const requiresToken =
+        resolvedMethod === "credit_card" || resolvedMethod === "debit_card";
 
-      // Criar pagamento no Mercado Pago
-      const paymentData = {
-        transaction_amount: data.amount,
-        description: data.description,
-        payment_method_id: data.paymentMethodId || "pix",
-        installments: data.installments || 1,
-        token: data.token,
-        payer: {
-          email: data.payerEmail,
-          first_name: data.payerName,
-          phone: {
-            number: data.payerPhone,
-          },
-        },
-        external_reference: externalReference,
-        // Configuração específica para desenvolvimento
-        ...(process.env.NODE_ENV === "production"
+      if (requiresToken && !data.token) {
+        throw new Error(
+          "Token do cartão é obrigatório para pagamentos com cartão"
+        );
+      }
+
+      const installments =
+        requiresToken && data.installments && data.installments > 0
+          ? Math.floor(data.installments)
+          : 1;
+
+      const mercadoPagoResult = await mercadoPagoDirectService.execute({
+        transaction_amount: amount,
+        token: requiresToken ? data.token! : undefined,
+        description: data.description ?? `Pedido ${order.id}`,
+        installments,
+        payment_method_id: resolvedMethod,
+        email: payerEmail,
+      });
+
+      if (mercadoPagoResult.httpStatus !== 201) {
+        throw new Error("Falha de pagamento!");
+      }
+
+      const paymentStatus = this.mapPaymentStatus(mercadoPagoResult.status);
+
+      const cardMetadata =
+        mercadoPagoResult.first_six_digits ||
+        mercadoPagoResult.last_four_digits ||
+        mercadoPagoResult.cardholder_name
           ? {
-              notification_url: `${mercadoPagoConfig.baseUrl}/webhook/mercadopago`,
+              card: {
+                first_six_digits: mercadoPagoResult.first_six_digits,
+                last_four_digits: mercadoPagoResult.last_four_digits,
+                cardholder_name: mercadoPagoResult.cardholder_name,
+              },
             }
-          : {
-              // Em desenvolvimento, não incluir notification_url para evitar erros
-            }),
-        metadata: {
-          order_id: data.orderId,
-          user_id: data.userId,
-          environment: process.env.NODE_ENV || "development",
+          : null;
+
+      const paymentRecord = await prisma.payment.upsert({
+        where: { order_id: order.id },
+        update: {
+          mercado_pago_id: mercadoPagoResult.id,
+          payment_method: mercadoPagoResult.payment_method_id ?? resolvedMethod,
+          payment_type: mercadoPagoResult.payment_type_id,
+          status: paymentStatus,
+          transaction_amount: amount,
+          external_reference: order.id,
+          fee_details: cardMetadata ? JSON.stringify(cardMetadata) : undefined,
+          net_received_amount:
+            (mercadoPagoResult.raw as any)?.transaction_details
+              ?.net_received_amount ?? undefined,
+          approved_at:
+            mercadoPagoResult.status === "approved" ? new Date() : null,
+          last_webhook_at: new Date(),
         },
-      };
+        create: {
+          order_id: order.id,
+          mercado_pago_id: mercadoPagoResult.id,
+          payment_method: mercadoPagoResult.payment_method_id ?? resolvedMethod,
+          payment_type: mercadoPagoResult.payment_type_id,
+          status: paymentStatus,
+          transaction_amount: amount,
+          external_reference: order.id,
+          fee_details: cardMetadata ? JSON.stringify(cardMetadata) : undefined,
+          net_received_amount:
+            (mercadoPagoResult.raw as any)?.transaction_details
+              ?.net_received_amount ?? undefined,
+          approved_at:
+            mercadoPagoResult.status === "approved" ? new Date() : null,
+        },
+      });
 
-      console.log(
-        "📤 Enviando dados para Mercado Pago:",
-        JSON.stringify(paymentData, null, 2)
-      );
-      console.log("🌍 Ambiente:", process.env.NODE_ENV);
-      console.log("🔑 Access Token presente:", !!mercadoPagoConfig.accessToken);
-
-      let paymentResponse;
-
-      // Verificar se deve usar mock (desenvolvimento ou forçado)
-      const useMock =
-        process.env.NODE_ENV !== "production" &&
-        process.env.USE_MOCK_PAYMENTS === "true";
-
-      if (useMock) {
-        console.log("🧪 Usando pagamento mock para desenvolvimento");
-        paymentResponse = this.createMockPayment(data);
-      } else {
-        try {
-          paymentResponse = await payment.create({ body: paymentData });
-        } catch (mercadoPagoError: any) {
-          // Se for erro de política e estiver em desenvolvimento, tentar usar mock
-          if (
-            mercadoPagoError.code === "PA_UNAUTHORIZED_RESULT_FROM_POLICIES" &&
-            process.env.NODE_ENV !== "production"
-          ) {
-            console.log("⚠️ Erro de política detectado. Tentando usar mock...");
-            paymentResponse = this.createMockPayment(data);
-          } else {
-            throw mercadoPagoError;
-          }
-        }
-      }
-
-      console.log(
-        "📥 Resposta do Mercado Pago:",
-        JSON.stringify(paymentResponse, null, 2)
-      );
-
-      // Criar registro de pagamento no banco
-      const paymentRecord = await prisma.payment.create({
+      await prisma.order.update({
+        where: { id: order.id },
         data: {
-          order_id: data.orderId,
-          mercado_pago_id: paymentResponse.id?.toString(),
-          payment_method: paymentResponse.payment_method_id,
-          payment_type: paymentResponse.payment_type_id,
-          status: this.mapPaymentStatus(paymentResponse.status as string),
-          transaction_amount: data.amount,
-          external_reference: externalReference,
+          payment_method: resolvedMethod === "pix" ? "pix" : "card",
+          status:
+            mercadoPagoResult.status === "approved" ? "PAID" : order.status,
+          grand_total: amount,
         },
       });
 
       return {
-        payment_id: paymentResponse.id,
-        status: paymentResponse.status,
-        payment_method: paymentResponse.payment_method_id,
-        qr_code:
-          paymentResponse.point_of_interaction?.transaction_data?.qr_code,
-        qr_code_base64:
-          paymentResponse.point_of_interaction?.transaction_data
-            ?.qr_code_base64,
-        external_reference: externalReference,
-        database_payment_id: paymentRecord.id,
+        payment_id: paymentRecord.id,
+        mercado_pago_id: mercadoPagoResult.id,
+        status: mercadoPagoResult.status,
+        status_detail: mercadoPagoResult.status_detail,
+        amount,
+        date_approved: mercadoPagoResult.date_approved,
+        payment_method_id:
+          mercadoPagoResult.payment_method_id ?? resolvedMethod,
+        payment_type_id: mercadoPagoResult.payment_type_id,
+        card: {
+          first_six_digits: mercadoPagoResult.first_six_digits,
+          last_four_digits: mercadoPagoResult.last_four_digits,
+          cardholder_name: mercadoPagoResult.cardholder_name,
+        },
+        raw: mercadoPagoResult.raw, // Incluir dados raw para PIX
       };
     } catch (error) {
       console.error("❌ Erro ao criar pagamento:", error);
-
-      // Log detalhado do erro
-      if (error && typeof error === "object") {
-        console.error("Detalhes do erro:", {
-          message: (error as any).message,
-          code: (error as any).code,
-          status: (error as any).status,
-          blocked_by: (error as any).blocked_by,
-          full_error: error,
-        });
-      }
-
-      // Tratamento específico para erros do Mercado Pago
-      if ((error as any).code === "PA_UNAUTHORIZED_RESULT_FROM_POLICIES") {
-        throw new Error(
-          `Pagamento bloqueado por política de segurança do Mercado Pago. ` +
-            `Verifique se o token de acesso está correto e se a conta está configurada para o ambiente atual. ` +
-            `Detalhes: ${(error as any).message}`
-        );
-      }
-
       throw new Error(
         `Falha ao criar pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
+        }`
+      );
+    }
+  }
+
+  /**
+   * Obtém métodos de pagamento disponíveis
+   */
+  static async getPaymentMethods() {
+    try {
+      // Para ambiente de teste, retorna métodos mock
+      if (process.env.NODE_ENV === "development") {
+        return {
+          results: [
+            {
+              id: "visa",
+              name: "Visa",
+              payment_type_id: "credit_card",
+              status: "active",
+              secure_thumbnail:
+                "https://www.mercadopago.com/org-img/MP3/API/logos/visa.gif",
+              thumbnail:
+                "https://www.mercadopago.com/org-img/MP3/API/logos/visa.gif",
+              deferred_capture: "supported",
+              settings: [],
+              additional_info_needed: [
+                "cardholder_name",
+                "cardholder_identification_number",
+              ],
+              min_allowed_amount: 0.5,
+              max_allowed_amount: 250000,
+              accreditation_time: 2880,
+              financial_institutions: [],
+              processing_modes: ["aggregator"],
+            },
+            {
+              id: "master",
+              name: "Mastercard",
+              payment_type_id: "credit_card",
+              status: "active",
+              secure_thumbnail:
+                "https://www.mercadopago.com/org-img/MP3/API/logos/master.gif",
+              thumbnail:
+                "https://www.mercadopago.com/org-img/MP3/API/logos/master.gif",
+              deferred_capture: "supported",
+              settings: [],
+              additional_info_needed: [
+                "cardholder_name",
+                "cardholder_identification_number",
+              ],
+              min_allowed_amount: 0.5,
+              max_allowed_amount: 250000,
+              accreditation_time: 2880,
+              financial_institutions: [],
+              processing_modes: ["aggregator"],
+            },
+            {
+              id: "pix",
+              name: "PIX",
+              payment_type_id: "bank_transfer",
+              status: "active",
+              secure_thumbnail:
+                "https://www.mercadopago.com/org-img/other/pix/logo-pix-color.png",
+              thumbnail:
+                "https://www.mercadopago.com/org-img/other/pix/logo-pix-color.png",
+              deferred_capture: "does_not_apply",
+              settings: [],
+              additional_info_needed: [],
+              min_allowed_amount: 0.01,
+              max_allowed_amount: 1000000,
+              accreditation_time: 0,
+              financial_institutions: [],
+              processing_modes: ["aggregator"],
+            },
+          ],
+        };
+      }
+
+      // Em produção, usar a API do Mercado Pago
+      const response = await fetch(
+        "https://api.mercadopago.com/v1/payment_methods",
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Erro ao buscar métodos de pagamento");
+      }
+
+      const paymentMethods = await response.json();
+      return paymentMethods;
+    } catch (error) {
+      console.error("Erro ao buscar métodos de pagamento:", error);
+      throw new Error(
+        `Falha ao buscar métodos de pagamento: ${
           error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
@@ -381,17 +559,6 @@ export class PaymentService {
    */
   static async getPayment(paymentId: string) {
     try {
-      // Verificar se há dados mock para teste local
-      const mockKey = `mock_payment_${paymentId}`;
-      const mockData = (global as any)[mockKey];
-
-      if (mockData) {
-        console.log(
-          `🧪 [MOCK] Usando dados simulados para pagamento ${paymentId}`
-        );
-        return mockData;
-      }
-
       const paymentInfo = await payment.get({ id: paymentId });
       return paymentInfo;
     } catch (error) {
@@ -546,19 +713,11 @@ export class PaymentService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Buscar dados do pedido
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          items: {
-            include: {
-              additionals: true,
-            },
-          },
-        },
-      });
+      const order = await this.loadOrderWithDetails(orderId);
 
       if (!order) return;
+
+      const summary = this.calculateOrderSummary(order);
 
       // Calcular totais
       const totalProductsSold = order.items.reduce(
@@ -575,15 +734,16 @@ export class PaymentService {
         0
       );
 
-      const netReceived =
-        paymentInfo.transaction_details?.net_received_amount || 0;
-      const totalFees = order.total_price - netReceived;
+      const netReceived = roundCurrency(
+        paymentInfo?.transaction_details?.net_received_amount ?? 0
+      );
+      const totalFees = roundCurrency(summary.grandTotal - netReceived);
 
       // Atualizar ou criar resumo do dia
       await prisma.financialSummary.upsert({
         where: { date: today },
         update: {
-          total_sales: { increment: order.total_price },
+          total_sales: { increment: summary.grandTotal },
           total_net_revenue: { increment: netReceived },
           total_fees: { increment: totalFees },
           total_orders: { increment: 1 },
@@ -593,7 +753,7 @@ export class PaymentService {
         },
         create: {
           date: today,
-          total_sales: order.total_price,
+          total_sales: summary.grandTotal,
           total_net_revenue: netReceived,
           total_fees: totalFees,
           total_orders: 1,
@@ -670,7 +830,6 @@ export class PaymentService {
    */
   static async healthCheck() {
     try {
-      // Tentar fazer uma chamada simples para verificar se o token está funcionando
       const testPayment = {
         transaction_amount: 1.0,
         description: "Health Check - Cesto d'Amore",
@@ -684,7 +843,6 @@ export class PaymentService {
       console.log("🔍 Fazendo health check do Mercado Pago...");
       const response = await payment.create({ body: testPayment });
 
-      // Se chegou aqui, a integração está funcionando
       console.log("✅ Health check do Mercado Pago: OK");
 
       return {
@@ -705,39 +863,6 @@ export class PaymentService {
         },
       };
     }
-  }
-
-  /**
-   * Cria um pagamento mock para desenvolvimento
-   */
-  static createMockPayment(data: CreatePaymentData) {
-    console.log("🧪 [MOCK] Criando pagamento simulado para desenvolvimento");
-
-    const mockPaymentId = `mock_${Date.now()}_${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
-
-    // Simular resposta do Mercado Pago
-    const mockResponse = {
-      id: mockPaymentId,
-      status: "pending",
-      payment_method_id: data.paymentMethodId || "pix",
-      payment_type_id: "pix",
-      transaction_amount: data.amount,
-      description: data.description,
-      external_reference: `ORDER_${data.orderId}_${Date.now()}`,
-      point_of_interaction: {
-        transaction_data: {
-          qr_code: "mock_qr_code_data",
-          qr_code_base64: "mock_qr_code_base64_data",
-        },
-      },
-    };
-
-    // Armazenar dados mock globalmente para simular webhook
-    (global as any)[`mock_payment_${mockPaymentId}`] = mockResponse;
-
-    return mockResponse;
   }
 }
 

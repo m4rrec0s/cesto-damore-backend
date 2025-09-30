@@ -151,5 +151,33 @@ class UserController {
             }
         }
     }
+    // Novo método: consultar informações de endereço por CEP
+    async getAddressByZipCode(req, res) {
+        try {
+            const { zipCode } = req.params;
+            if (!zipCode) {
+                return res.status(400).json({ error: "CEP é obrigatório" });
+            }
+            const addressInfo = await userService_1.default.getAddressByZipCode(zipCode);
+            res.json(addressInfo);
+        }
+        catch (error) {
+            console.error("Erro ao consultar CEP:", error);
+            if (error.message.includes("CEP deve ter 8 dígitos") ||
+                error.message.includes("Formato de CEP inválido")) {
+                res.status(400).json({ error: error.message });
+            }
+            else if (error.message.includes("CEP não encontrado")) {
+                res.status(404).json({ error: error.message });
+            }
+            else if (error.message.includes("Timeout") ||
+                error.message.includes("temporariamente indisponível")) {
+                res.status(503).json({ error: error.message });
+            }
+            else {
+                res.status(500).json({ error: "Erro interno do servidor" });
+            }
+        }
+    }
 }
 exports.default = new UserController();

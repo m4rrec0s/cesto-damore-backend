@@ -47,7 +47,11 @@ export const authenticateToken = async (
           firebaseUId: true,
         },
       });
-    } catch (jwtError) {
+    } catch (jwtError: any) {
+      console.log("❌ JWT inválido, tentando Firebase:", {
+        error: jwtError?.message || "JWT verification failed",
+      });
+
       try {
         decodedToken = await auth.verifyIdToken(token);
 
@@ -61,19 +65,38 @@ export const authenticateToken = async (
             firebaseUId: true,
           },
         });
-      } catch (firebaseError) {
-        console.error("Erro na verificação de token:", {
-          jwtError,
-          firebaseError,
+      } catch (firebaseError: any) {
+        console.error("❌ Ambos tokens falharam:", {
+          jwtError: jwtError?.message || "JWT verification failed",
+          firebaseError:
+            firebaseError?.message || "Firebase verification failed",
+          tokenInfo: {
+            prefix: token.substring(0, 20) + "...",
+            length: token.length,
+          },
         });
         return res.status(401).json({
           error: "Token inválido",
           code: "INVALID_TOKEN",
+          details: {
+            jwtError: jwtError?.message || "JWT verification failed",
+            firebaseError:
+              firebaseError?.message || "Firebase verification failed",
+          },
         });
       }
     }
 
     if (!user) {
+      console.error("❌ Usuário não encontrado no banco:", {
+        decodedToken: decodedToken
+          ? {
+              userId: decodedToken.userId,
+              uid: decodedToken.uid,
+              email: decodedToken.email,
+            }
+          : null,
+      });
       return res.status(401).json({
         error: "Usuário não encontrado",
         code: "USER_NOT_FOUND",
@@ -89,7 +112,7 @@ export const authenticateToken = async (
 
     next();
   } catch (error) {
-    console.error("Erro na autenticação:", error);
+    console.error("💥 Erro inesperado na autenticação:", error);
 
     if (error instanceof jwt.JsonWebTokenError) {
       return res.status(401).json({
@@ -128,6 +151,10 @@ export const requireAdmin = (
     return res.status(403).json({
       error: "Acesso negado - permissão de administrador necessária",
       code: "ADMIN_REQUIRED",
+      details: {
+        userRole: req.user.role,
+        requiredRole: "admin",
+      },
     });
   }
 

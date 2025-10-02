@@ -216,42 +216,28 @@ enum OrderStatus {
 // ================ FEED CONFIGURATION MODELS ================
 
 model FeedConfiguration {
-  id               String   @id @default(uuid())
-  name             String // Nome da configuração (ex: "Home Page Feed")
-  is_active        Boolean  @default(true)
-  show_banners     Boolean  @default(true)
-  show_recommended Boolean  @default(true)
-  show_discounted  Boolean  @default(true)
-  show_categories  Boolean  @default(true)
-  show_additionals Boolean  @default(true)
-  max_recommended  Int      @default(6) // Máximo de produtos recomendados
-  max_discounted   Int      @default(4) // Máximo de produtos com desconto
-  max_categories   Int      @default(8) // Máximo de categorias em destaque
-  max_additionals  Int      @default(6) // Máximo de adicionais em destaque
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
+  id         String   @id @default(uuid())
+  name       String // Nome da configuração (ex: "Home Page Feed")
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   banners  FeedBanner[]
   sections FeedSection[]
 }
 
 model FeedBanner {
-  id               String    @id @default(uuid())
-  feed_config_id   String
-  title            String
-  subtitle         String?
-  image_url        String
-  button_text      String?
-  button_url       String? // URL ou rota para onde o botão leva
-  background_color String?   @default("#FFFFFF")
-  text_color       String?   @default("#000000")
-  button_color     String?   @default("#007BFF")
-  is_active        Boolean   @default(true)
-  display_order    Int       @default(0) // Ordem de exibição
-  start_date       DateTime? // Data de início da exibição
-  end_date         DateTime? // Data de fim da exibição
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  id             String   @id @default(uuid())
+  feed_config_id String
+  title          String
+  subtitle       String?
+  image_url      String
+  link_url       String? // URL para onde o banner leva quando clicado
+  text_color     String?  @default("#FFFFFF") // Cor do texto
+  is_active      Boolean  @default(true)
+  display_order  Int      @default(0) // Ordem de exibição
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 
   feedConfiguration FeedConfiguration @relation(fields: [feed_config_id], references: [id], onDelete: Cascade)
 }
@@ -261,11 +247,9 @@ model FeedSection {
   feed_config_id String
   title          String // Título da seção (ex: "Produtos Recomendados")
   section_type   FeedSectionType // Tipo da seção
-  is_active      Boolean         @default(true)
-  display_order  Int             @default(0)
+  is_visible     Boolean         @default(true) // Se a seção está visível
+  display_order  Int             @default(0) // Ordem de exibição
   max_items      Int             @default(6) // Máximo de itens nesta seção
-  show_view_all  Boolean         @default(true) // Mostrar botão "Ver Todos"
-  view_all_url   String? // URL para "Ver Todos"
   created_at     DateTime        @default(now())
   updated_at     DateTime        @updatedAt
 

@@ -19,11 +19,24 @@ const authenticateToken = async (req, res, next) => {
                 code: "MISSING_TOKEN",
             });
         }
+        console.log("🔐 Tentando autenticar token:", {
+            hasAuthHeader: !!authHeader,
+            tokenPrefix: token ? token.substring(0, 20) + "..." : "NO_TOKEN",
+            tokenLength: token ? token.length : 0,
+            route: req.path,
+            method: req.method,
+        });
         let user;
         let decodedToken;
+        // 1. Primeiro tenta JWT da aplicação (appToken - 7 dias)
         try {
             const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
             decodedToken = jsonwebtoken_1.default.verify(token, jwtSecret);
+            console.log("✅ JWT válido detectado:", {
+                userId: decodedToken.userId,
+                type: decodedToken.type,
+                exp: new Date(decodedToken.exp * 1000).toISOString(),
+            });
             user = await prisma_1.default.user.findUnique({
                 where: { id: decodedToken.userId },
                 select: {
@@ -34,10 +47,25 @@ const authenticateToken = async (req, res, next) => {
                     firebaseUId: true,
                 },
             });
+            if (user) {
+                console.log("✅ Usuário encontrado via JWT:", {
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                });
+            }
         }
         catch (jwtError) {
+            console.log("❌ JWT inválido, tentando Firebase:", {
+                error: jwtError?.message || "JWT verification failed",
+            });
+            // 2. Se JWT falhou, tenta Firebase ID Token
             try {
                 decodedToken = await firebase_1.auth.verifyIdToken(token);
+                console.log("✅ Firebase token válido:", {
+                    uid: decodedToken.uid,
+                    email: decodedToken.email,
+                });
                 user = await prisma_1.default.user.findUnique({
                     where: { firebaseUId: decodedToken.uid },
                     select: {
@@ -48,24 +76,54 @@ const authenticateToken = async (req, res, next) => {
                         firebaseUId: true,
                     },
                 });
+                if (user) {
+                    console.log("✅ Usuário encontrado via Firebase:", {
+                        id: user.id,
+                        email: user.email,
+                        role: user.role,
+                    });
+                }
             }
             catch (firebaseError) {
-                console.error("Erro na verificação de token:", {
-                    jwtError,
-                    firebaseError,
+                console.error("❌ Ambos tokens falharam:", {
+                    jwtError: jwtError?.message || "JWT verification failed",
+                    firebaseError: firebaseError?.message || "Firebase verification failed",
+                    tokenInfo: {
+                        prefix: token.substring(0, 20) + "...",
+                        length: token.length,
+                    },
                 });
                 return res.status(401).json({
                     error: "Token inválido",
                     code: "INVALID_TOKEN",
+                    details: {
+                        jwtError: jwtError?.message || "JWT verification failed",
+                        firebaseError: firebaseError?.message || "Firebase verification failed",
+                    },
                 });
             }
         }
         if (!user) {
+            console.error("❌ Usuário não encontrado no banco:", {
+                decodedToken: decodedToken
+                    ? {
+                        userId: decodedToken.userId,
+                        uid: decodedToken.uid,
+                        email: decodedToken.email,
+                    }
+                    : null,
+            });
             return res.status(401).json({
                 error: "Usuário não encontrado",
                 code: "USER_NOT_FOUND",
             });
         }
+        console.log("✅ Autenticação bem-sucedida:", {
+            userId: user.id,
+            userEmail: user.email,
+            userRole: user.role,
+            route: req.path,
+        });
         req.user = {
             id: user.id,
             email: user.email,
@@ -75,7 +133,7 @@ const authenticateToken = async (req, res, next) => {
         next();
     }
     catch (error) {
-        console.error("Erro na autenticação:", error);
+        console.error("💥 Erro inesperado na autenticação:", error);
         if (error instanceof jsonwebtoken_1.default.JsonWebTokenError) {
             return res.status(401).json({
                 error: "Token inválido",
@@ -97,17 +155,44 @@ const authenticateToken = async (req, res, next) => {
 exports.authenticateToken = authenticateToken;
 const requireAdmin = (req, res, next) => {
     if (!req.user) {
+        console.error("❌ requireAdmin: Usuário não autenticado", {
+            route: req.path,
+            method: req.method,
+        });
         return res.status(401).json({
             error: "Usuário não autenticado",
             code: "NOT_AUTHENTICATED",
         });
     }
+    console.log("🔐 Verificando permissão admin:", {
+        userId: req.user.id,
+        userEmail: req.user.email,
+        userRole: req.user.role,
+        route: req.path,
+        method: req.method,
+    });
     if (req.user.role !== "admin") {
+        console.error("❌ requireAdmin: Acesso negado", {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userRole: req.user.role,
+            requiredRole: "admin",
+            route: req.path,
+        });
         return res.status(403).json({
             error: "Acesso negado - permissão de administrador necessária",
             code: "ADMIN_REQUIRED",
+            details: {
+                userRole: req.user.role,
+                requiredRole: "admin",
+            },
         });
     }
+    console.log("✅ Acesso admin autorizado:", {
+        userId: req.user.id,
+        userEmail: req.user.email,
+        route: req.path,
+    });
     next();
 };
 exports.requireAdmin = requireAdmin;

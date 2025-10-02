@@ -11,7 +11,7 @@ import typeController from "./controller/typeController";
 import authController from "./controller/authController";
 import PaymentController from "./controller/paymentController";
 import feedController from "./controller/feedController";
-import checkoutTransparenteRouter from "./routes/checkoutTransparente";
+import uploadController from "./controller/uploadController";
 import { upload, convertImagesToWebP } from "./config/multer";
 import {
   authenticateToken,
@@ -102,6 +102,14 @@ router.post("/auth/google", authController.google);
 router.post("/auth/login", authController.login);
 router.post("/auth/register", upload.single("image"), authController.register);
 router.post("/auth/refresh", authenticateToken, authController.refreshToken); // Novo: renovar token
+
+// Upload routes (public)
+router.post(
+  "/upload/image",
+  upload.single("image"),
+  convertImagesToWebP,
+  uploadController.uploadImage
+);
 
 // category routes
 router.get("/categories", categoryController.index);
@@ -305,8 +313,5 @@ router.delete(
   requireAdmin,
   feedController.deleteSectionItem
 );
-
-// Checkout Transparente Routes
-router.use(checkoutTransparenteRouter);
 
 export default router;

@@ -47,7 +47,7 @@ exports.checkoutTransparenteRouter.get("/checkout-transparente", (req, res) => {
 /**
  * Busca dados de um pedido específico
  */
-exports.checkoutTransparenteRouter.get("/api/orders/:orderId", async (req, res) => {
+exports.checkoutTransparenteRouter.get("/orders/:orderId", async (req, res) => {
     try {
         const { orderId } = req.params;
         if (!orderId) {
@@ -115,7 +115,7 @@ exports.checkoutTransparenteRouter.get("/api/orders/:orderId", async (req, res) 
 /**
  * Lista métodos de pagamento disponíveis
  */
-exports.checkoutTransparenteRouter.get("/api/payment-methods", async (req, res) => {
+exports.checkoutTransparenteRouter.get("/payment-methods", async (req, res) => {
     try {
         const paymentMethods = await paymentService_1.PaymentService.getPaymentMethods();
         res.json(paymentMethods);
@@ -130,7 +130,7 @@ exports.checkoutTransparenteRouter.get("/api/payment-methods", async (req, res) 
 /**
  * Processa pagamento via Checkout Transparente
  */
-exports.checkoutTransparenteRouter.post("/api/payment/transparent", async (req, res) => {
+exports.checkoutTransparenteRouter.post("/payment/transparent", async (req, res) => {
     try {
         const { orderId, token, payment_method_id, issuer_id, installments, payer, } = req.body;
         // Validações básicas
@@ -201,14 +201,36 @@ exports.checkoutTransparenteRouter.post("/api/payment/transparent", async (req, 
             // Extrair dados do PIX da estrutura point_of_interaction
             const pixTransactionData = pixData.point_of_interaction?.transaction_data;
             response.data = {
-                qr_code: pixTransactionData?.qr_code,
-                qr_code_base64: pixTransactionData?.qr_code_base64,
-                ticket_url: pixTransactionData?.ticket_url,
+                qr_code: pixTransactionData?.qr_code || pixData.qr_code,
+                qr_code_base64: pixTransactionData?.qr_code_base64 || pixData.qr_code_base64,
+                ticket_url: pixTransactionData?.ticket_url || pixData.ticket_url,
                 amount: paymentResult.amount,
                 expires_at: pixTransactionData?.expiration_date ||
                     pixTransactionData?.expiration_time ||
                     pixData.date_of_expiration,
                 payment_id: paymentResult.payment_id,
+                mercado_pago_id: paymentResult.mercado_pago_id,
+                status: paymentResult.status,
+                status_detail: paymentResult.status_detail,
+                // Informações bancárias se disponíveis
+                bank_info: pixData.point_of_interaction?.bank_info,
+                // Informações do pagador (usar dados do request quando disponível)
+                payer_info: {
+                    id: pixData.payer?.id,
+                    email: payer.email || pixData.payer?.email,
+                    first_name: payer.first_name || pixData.payer?.first_name,
+                    last_name: payer.last_name || pixData.payer?.last_name,
+                },
+                // Informações de taxas
+                fee_info: pixData.fee_details
+                    ? {
+                        total_fees: pixData.fee_details.reduce((sum, fee) => sum + (fee.amounts?.original || 0), 0),
+                        details: pixData.fee_details,
+                    }
+                    : null,
+                // Data de criação e aprovação
+                date_created: pixData.date_created,
+                date_approved: pixData.date_approved,
                 // Fallback para estrutura alternativa se necessário
                 ...(pixData.qr_code && { qr_code: pixData.qr_code }),
                 ...(pixData.qr_code_base64 && {

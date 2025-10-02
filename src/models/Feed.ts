@@ -1,29 +1,11 @@
 export interface CreateFeedConfigurationInput {
   name: string;
   is_active?: boolean;
-  show_banners?: boolean;
-  show_recommended?: boolean;
-  show_discounted?: boolean;
-  show_categories?: boolean;
-  show_additionals?: boolean;
-  max_recommended?: number;
-  max_discounted?: number;
-  max_categories?: number;
-  max_additionals?: number;
 }
 
 export interface UpdateFeedConfigurationInput {
   name?: string;
   is_active?: boolean;
-  show_banners?: boolean;
-  show_recommended?: boolean;
-  show_discounted?: boolean;
-  show_categories?: boolean;
-  show_additionals?: boolean;
-  max_recommended?: number;
-  max_discounted?: number;
-  max_categories?: number;
-  max_additionals?: number;
 }
 
 export interface CreateFeedBannerInput {
@@ -31,51 +13,37 @@ export interface CreateFeedBannerInput {
   title: string;
   subtitle?: string;
   image_url: string;
-  button_text?: string;
-  button_url?: string;
-  background_color?: string;
+  link_url?: string;
   text_color?: string;
-  button_color?: string;
   is_active?: boolean;
   display_order?: number;
-  start_date?: string | Date;
-  end_date?: string | Date;
 }
 
 export interface UpdateFeedBannerInput {
   title?: string;
   subtitle?: string;
   image_url?: string;
-  button_text?: string;
-  button_url?: string;
-  background_color?: string;
+  link_url?: string;
   text_color?: string;
-  button_color?: string;
   is_active?: boolean;
   display_order?: number;
-  start_date?: string | Date;
-  end_date?: string | Date;
 }
 
 export interface CreateFeedSectionInput {
   feed_config_id: string;
   title: string;
   section_type: FeedSectionType;
-  is_active?: boolean;
+  is_visible?: boolean;
   display_order?: number;
   max_items?: number;
-  show_view_all?: boolean;
-  view_all_url?: string;
 }
 
 export interface UpdateFeedSectionInput {
   title?: string;
   section_type?: FeedSectionType;
-  is_active?: boolean;
+  is_visible?: boolean;
   display_order?: number;
   max_items?: number;
-  show_view_all?: boolean;
-  view_all_url?: string;
 }
 
 export interface CreateFeedSectionItemInput {
@@ -113,17 +81,6 @@ export interface FeedResponse {
   is_active: boolean;
   banners: FeedBannerResponse[];
   sections: FeedSectionResponse[];
-  configuration: {
-    show_banners: boolean;
-    show_recommended: boolean;
-    show_discounted: boolean;
-    show_categories: boolean;
-    show_additionals: boolean;
-    max_recommended: number;
-    max_discounted: number;
-    max_categories: number;
-    max_additionals: number;
-  };
 }
 
 export interface FeedBannerResponse {
@@ -131,26 +88,19 @@ export interface FeedBannerResponse {
   title: string;
   subtitle?: string;
   image_url: string;
-  button_text?: string;
-  button_url?: string;
-  background_color?: string;
+  link_url?: string;
   text_color?: string;
-  button_color?: string;
   is_active: boolean;
   display_order: number;
-  start_date?: Date;
-  end_date?: Date;
 }
 
 export interface FeedSectionResponse {
   id: string;
   title: string;
   section_type: FeedSectionType;
-  is_active: boolean;
+  is_visible: boolean;
   display_order: number;
   max_items: number;
-  show_view_all: boolean;
-  view_all_url?: string;
   items: FeedItemResponse[];
 }
 

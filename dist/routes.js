@@ -15,6 +15,7 @@ const typeController_1 = __importDefault(require("./controller/typeController"))
 const authController_1 = __importDefault(require("./controller/authController"));
 const paymentController_1 = __importDefault(require("./controller/paymentController"));
 const feedController_1 = __importDefault(require("./controller/feedController"));
+const uploadController_1 = __importDefault(require("./controller/uploadController"));
 const checkoutTransparente_1 = __importDefault(require("./routes/checkoutTransparente"));
 const multer_1 = require("./config/multer");
 const security_1 = require("./middleware/security");
@@ -69,6 +70,8 @@ router.post("/auth/google", authController_1.default.google);
 router.post("/auth/login", authController_1.default.login);
 router.post("/auth/register", multer_1.upload.single("image"), authController_1.default.register);
 router.post("/auth/refresh", security_1.authenticateToken, authController_1.default.refreshToken); // Novo: renovar token
+// Upload routes (public)
+router.post("/upload/image", multer_1.upload.single("image"), multer_1.convertImagesToWebP, uploadController_1.default.uploadImage);
 // category routes
 router.get("/categories", categoryController_1.default.index);
 router.get("/categories/:id", categoryController_1.default.show);

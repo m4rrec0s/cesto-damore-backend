@@ -25,7 +25,7 @@ class FeedService {
             orderBy: { display_order: "asc" },
           },
           sections: {
-            where: { is_active: true },
+            where: { is_visible: true },
             orderBy: { display_order: "asc" },
             include: {
               items: {
@@ -91,15 +91,6 @@ class FeedService {
         data: {
           name: data.name.trim(),
           is_active: data.is_active ?? true,
-          show_banners: data.show_banners ?? true,
-          show_recommended: data.show_recommended ?? true,
-          show_discounted: data.show_discounted ?? true,
-          show_categories: data.show_categories ?? true,
-          show_additionals: data.show_additionals ?? true,
-          max_recommended: data.max_recommended ?? 6,
-          max_discounted: data.max_discounted ?? 4,
-          max_categories: data.max_categories ?? 8,
-          max_additionals: data.max_additionals ?? 6,
         },
       });
 
@@ -125,24 +116,6 @@ class FeedService {
 
       if (data.name !== undefined) updateData.name = data.name.trim();
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
-      if (data.show_banners !== undefined)
-        updateData.show_banners = data.show_banners;
-      if (data.show_recommended !== undefined)
-        updateData.show_recommended = data.show_recommended;
-      if (data.show_discounted !== undefined)
-        updateData.show_discounted = data.show_discounted;
-      if (data.show_categories !== undefined)
-        updateData.show_categories = data.show_categories;
-      if (data.show_additionals !== undefined)
-        updateData.show_additionals = data.show_additionals;
-      if (data.max_recommended !== undefined)
-        updateData.max_recommended = data.max_recommended;
-      if (data.max_discounted !== undefined)
-        updateData.max_discounted = data.max_discounted;
-      if (data.max_categories !== undefined)
-        updateData.max_categories = data.max_categories;
-      if (data.max_additionals !== undefined)
-        updateData.max_additionals = data.max_additionals;
 
       await prisma.feedConfiguration.update({
         where: { id },
@@ -205,15 +178,10 @@ class FeedService {
           title: data.title.trim(),
           subtitle: data.subtitle?.trim(),
           image_url: data.image_url,
-          button_text: data.button_text?.trim(),
-          button_url: data.button_url?.trim(),
-          background_color: data.background_color ?? "#FFFFFF",
-          text_color: data.text_color ?? "#000000",
-          button_color: data.button_color ?? "#007BFF",
+          link_url: data.link_url?.trim(),
+          text_color: data.text_color ?? "#FFFFFF",
           is_active: data.is_active ?? true,
           display_order: data.display_order ?? 0,
-          start_date: data.start_date ? new Date(data.start_date) : null,
-          end_date: data.end_date ? new Date(data.end_date) : null,
         },
       });
 
@@ -252,25 +220,13 @@ class FeedService {
         }
         updateData.image_url = data.image_url;
       }
-      if (data.button_text !== undefined)
-        updateData.button_text = data.button_text?.trim();
-      if (data.button_url !== undefined)
-        updateData.button_url = data.button_url?.trim();
-      if (data.background_color !== undefined)
-        updateData.background_color = data.background_color;
+      if (data.link_url !== undefined)
+        updateData.link_url = data.link_url?.trim();
       if (data.text_color !== undefined)
         updateData.text_color = data.text_color;
-      if (data.button_color !== undefined)
-        updateData.button_color = data.button_color;
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
       if (data.display_order !== undefined)
         updateData.display_order = data.display_order;
-      if (data.start_date !== undefined)
-        updateData.start_date = data.start_date
-          ? new Date(data.start_date)
-          : null;
-      if (data.end_date !== undefined)
-        updateData.end_date = data.end_date ? new Date(data.end_date) : null;
 
       const updatedBanner = await prisma.feedBanner.update({
         where: { id },
@@ -334,11 +290,9 @@ class FeedService {
           feed_config_id: data.feed_config_id,
           title: data.title.trim(),
           section_type: data.section_type,
-          is_active: data.is_active ?? true,
+          is_visible: data.is_visible ?? true,
           display_order: data.display_order ?? 0,
           max_items: data.max_items ?? 6,
-          show_view_all: data.show_view_all ?? true,
-          view_all_url: data.view_all_url?.trim(),
         },
       });
 
@@ -367,14 +321,11 @@ class FeedService {
       if (data.title !== undefined) updateData.title = data.title.trim();
       if (data.section_type !== undefined)
         updateData.section_type = data.section_type;
-      if (data.is_active !== undefined) updateData.is_active = data.is_active;
+      if (data.is_visible !== undefined)
+        updateData.is_visible = data.is_visible;
       if (data.display_order !== undefined)
         updateData.display_order = data.display_order;
       if (data.max_items !== undefined) updateData.max_items = data.max_items;
-      if (data.show_view_all !== undefined)
-        updateData.show_view_all = data.show_view_all;
-      if (data.view_all_url !== undefined)
-        updateData.view_all_url = data.view_all_url?.trim();
 
       const updatedSection = await prisma.feedSection.update({
         where: { id },
@@ -536,17 +487,11 @@ class FeedService {
             banners: {
               where: {
                 is_active: true,
-                OR: [{ start_date: null }, { start_date: { lte: new Date() } }],
-                AND: [
-                  {
-                    OR: [{ end_date: null }, { end_date: { gte: new Date() } }],
-                  },
-                ],
               },
               orderBy: { display_order: "asc" },
             },
             sections: {
-              where: { is_active: true },
+              where: { is_visible: true },
               orderBy: { display_order: "asc" },
               include: {
                 items: {
@@ -564,17 +509,11 @@ class FeedService {
             banners: {
               where: {
                 is_active: true,
-                OR: [{ start_date: null }, { start_date: { lte: new Date() } }],
-                AND: [
-                  {
-                    OR: [{ end_date: null }, { end_date: { gte: new Date() } }],
-                  },
-                ],
               },
               orderBy: { display_order: "asc" },
             },
             sections: {
-              where: { is_active: true },
+              where: { is_visible: true },
               orderBy: { display_order: "asc" },
               include: {
                 items: {
@@ -608,17 +547,6 @@ class FeedService {
         is_active: feedConfig.is_active,
         banners: feedConfig.banners,
         sections: enrichedSections,
-        configuration: {
-          show_banners: feedConfig.show_banners,
-          show_recommended: feedConfig.show_recommended,
-          show_discounted: feedConfig.show_discounted,
-          show_categories: feedConfig.show_categories,
-          show_additionals: feedConfig.show_additionals,
-          max_recommended: feedConfig.max_recommended,
-          max_discounted: feedConfig.max_discounted,
-          max_categories: feedConfig.max_categories,
-          max_additionals: feedConfig.max_additionals,
-        },
       };
     } catch (error: any) {
       throw new Error(`Erro ao buscar feed público: ${error.message}`);
@@ -634,17 +562,6 @@ class FeedService {
       is_active: config.is_active,
       banners: config.banners || [],
       sections: config.sections || [],
-      configuration: {
-        show_banners: config.show_banners,
-        show_recommended: config.show_recommended,
-        show_discounted: config.show_discounted,
-        show_categories: config.show_categories,
-        show_additionals: config.show_additionals,
-        max_recommended: config.max_recommended,
-        max_discounted: config.max_discounted,
-        max_categories: config.max_categories,
-        max_additionals: config.max_additionals,
-      },
     };
   }
 

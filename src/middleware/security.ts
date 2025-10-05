@@ -188,7 +188,7 @@ export const validateMercadoPagoWebhook = (
       }
     }
 
-    const { type, data } = req.body;
+    const { type, data, live_mode } = req.body;
 
     if (!type || !data || !data.id) {
       return res.status(400).json({
@@ -197,6 +197,15 @@ export const validateMercadoPagoWebhook = (
       });
     }
 
+    // Se for modo teste (live_mode: false), não validar assinatura
+    const isTestMode = live_mode === false;
+
+    if (isTestMode) {
+      console.log("✅ Webhook de teste aceito (live_mode: false)");
+      return next();
+    }
+
+    // Em produção (live_mode: true), validar assinatura
     const signature = req.headers["x-signature"] as string;
     const requestId = req.headers["x-request-id"] as string;
 

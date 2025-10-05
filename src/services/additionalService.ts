@@ -1,5 +1,6 @@
 import { deleteAdditionalImage } from "../config/localStorage";
 import prisma from "../database/prisma";
+import { withRetry } from "../database/prismaRetry";
 import { Additional as AdditionalModel } from "../models/Addtional";
 
 // DB shape for Additional as stored by Prisma
@@ -8,12 +9,22 @@ interface DBAdditional {
   name: string;
   description: string | null;
   price: number;
+  discount: number | null;
   image_url: string | null;
+  stock_quantity: number | null;
   created_at: Date;
   updated_at: Date;
 }
 
+interface AdditionalColorInfo {
+  color_id: string;
+  color_name: string;
+  color_hex_code: string;
+  stock_quantity: number;
+}
+
 interface ServiceAdditional extends DBAdditional {
+  colors?: AdditionalColorInfo[];
   compatible_products?: Array<{
     product_id: string;
     product_name: string;
@@ -26,7 +37,13 @@ type CreateAdditionalInput = {
   name: string;
   description?: string | null;
   price: number;
+  discount?: number;
   image_url?: string | null;
+  stock_quantity?: number;
+  colors?: Array<{
+    color_id: string;
+    stock_quantity: number;
+  }>;
   compatible_products?:
     | Array<{
         product_id: string;
@@ -42,23 +59,38 @@ class AdditionalService {
     includeProducts = false
   ): Promise<ServiceAdditional[]> {
     try {
-      const results = await prisma.additional.findMany({
-        include: includeProducts
-          ? {
-              products: {
-                include: {
-                  product: {
-                    select: { id: true, name: true },
-                  },
-                },
-                where: { is_active: true },
+      const results = await withRetry(() =>
+        prisma.additional.findMany({
+          include: {
+            colors: {
+              include: {
+                color: true,
               },
-            }
-          : undefined,
-      });
+            },
+            ...(includeProducts
+              ? {
+                  products: {
+                    include: {
+                      product: {
+                        select: { id: true, name: true },
+                      },
+                    },
+                    where: { is_active: true },
+                  },
+                }
+              : {}),
+          },
+        })
+      );
 
       return results.map((r: any) => ({
         ...r,
+        colors: r.colors?.map((c: any) => ({
+          color_id: c.color.id,
+          color_name: c.color.name,
+          color_hex_code: c.color.hex_code,
+          stock_quantity: c.stock_quantity,
+        })),
         compatible_products:
           r.products?.map((p: any) => ({
             product_id: p.product.id,
@@ -81,21 +113,30 @@ class AdditionalService {
     }
 
     try {
-      const r = await prisma.additional.findUnique({
-        where: { id },
-        include: includeProducts
-          ? {
-              products: {
-                include: {
-                  product: {
-                    select: { id: true, name: true },
-                  },
-                },
-                where: { is_active: true },
+      const r = await withRetry(() =>
+        prisma.additional.findUnique({
+          where: { id },
+          include: {
+            colors: {
+              include: {
+                color: true,
               },
-            }
-          : undefined,
-      });
+            },
+            ...(includeProducts
+              ? {
+                  products: {
+                    include: {
+                      product: {
+                        select: { id: true, name: true },
+                      },
+                    },
+                    where: { is_active: true },
+                  },
+                }
+              : {}),
+          },
+        })
+      );
 
       if (!r) {
         throw new Error("Adicional não encontrado");
@@ -103,6 +144,12 @@ class AdditionalService {
 
       return {
         ...r,
+        colors: (r as any).colors?.map((c: any) => ({
+          color_id: c.color.id,
+          color_name: c.color.name,
+          color_hex_code: c.color.hex_code,
+          stock_quantity: c.stock_quantity,
+        })),
         compatible_products:
           (r as any).products?.map((p: any) => ({
             product_id: p.product.id,
@@ -136,10 +183,19 @@ class AdditionalService {
         name: data.name,
         description: data.description,
         price: this.normalizePrice(data.price),
+        discount: data.discount || 0,
         image_url: data.image_url,
+        stock_quantity: data.stock_quantity || 0,
       };
 
-      const r = await prisma.additional.create({ data: payload });
+      const r = await withRetry(() =>
+        prisma.additional.create({ data: payload })
+      );
+
+      // Vincular cores se fornecido
+      if (data.colors && data.colors.length > 0) {
+        await this.linkColors(r.id, data.colors);
+      }
 
       // Vincular aos produtos se fornecido
       if (data.compatible_products && data.compatible_products.length > 0) {
@@ -178,17 +234,39 @@ class AdditionalService {
         payload.description = data.description;
       if (data.price !== undefined)
         payload.price = this.normalizePrice(data.price);
+      if (data.discount !== undefined) payload.discount = data.discount;
       if (data.image_url !== undefined) payload.image_url = data.image_url;
+      if (data.stock_quantity !== undefined)
+        payload.stock_quantity = data.stock_quantity;
 
-      const r = await prisma.additional.update({
-        where: { id },
-        data: payload,
-      });
+      const r = await withRetry(() =>
+        prisma.additional.update({
+          where: { id },
+          data: payload,
+        })
+      );
+
+      // Atualizar cores se fornecido
+      if (data.colors !== undefined) {
+        // Remove todas as cores atuais
+        await withRetry(() =>
+          prisma.additionalColor.deleteMany({
+            where: { additional_id: id },
+          })
+        );
+
+        // Adiciona as novas cores
+        if (data.colors.length > 0) {
+          await this.linkColors(id, data.colors);
+        }
+      }
 
       if (data.compatible_products !== undefined) {
-        await prisma.productAdditional.deleteMany({
-          where: { additional_id: id },
-        });
+        await withRetry(() =>
+          prisma.productAdditional.deleteMany({
+            where: { additional_id: id },
+          })
+        );
 
         if (data.compatible_products.length > 0) {
           const normalizedProducts = this.normalizeCompatibleProducts(
@@ -491,6 +569,38 @@ class AdditionalService {
       product_id: string;
       custom_price?: number | null;
     }>;
+  }
+
+  // Método para vincular cores ao adicional
+  private async linkColors(
+    additionalId: string,
+    colors: Array<{ color_id: string; stock_quantity: number }>
+  ) {
+    // Verificar se as cores existem
+    const validColors = await withRetry(() =>
+      prisma.colors.findMany({
+        where: { id: { in: colors.map((c) => c.color_id) } },
+        select: { id: true },
+      })
+    );
+
+    const validColorIds = new Set(validColors.map((c) => c.id));
+    const dataToInsert = colors
+      .filter((c) => validColorIds.has(c.color_id))
+      .map((c) => ({
+        additional_id: additionalId,
+        color_id: c.color_id,
+        stock_quantity: c.stock_quantity || 0,
+      }));
+
+    if (dataToInsert.length > 0) {
+      await withRetry(() =>
+        prisma.additionalColor.createMany({
+          data: dataToInsert,
+          skipDuplicates: true,
+        })
+      );
+    }
   }
 
   private normalizePrice(price: any): number {

@@ -5,12 +5,14 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -32,23 +34,25 @@ model User {
 }
 
 model Product {
-  id             String   @id @default(uuid())
-  name           String
-  description    String?
-  price          Float
-  discount       Float?   @default(0)
-  stock_quantity Int?
-  is_active      Boolean  @default(true)
-  image_url      String?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  name                 String
+  description          String?
+  price                Float
+  discount             Float?   @default(0)
+  stock_quantity       Int?
+  is_active            Boolean  @default(true)
+  image_url            String?
+  allows_customization Boolean  @default(false) // Se permite customização
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
 
   type_id String
   type    ProductType @relation(fields: [type_id], references: [id])
 
-  orderItems  OrderItem[]
-  additionals ProductAdditional[]
-  categories  ProductCategory[]
+  orderItems         OrderItem[]
+  additionals        ProductAdditional[]
+  categories         ProductCategory[]
+  customizationRules ProductCustomization[]
 }
 
 model ProductType {
@@ -74,18 +78,46 @@ model ProductCategory {
   @@id([product_id, category_id]) // PK composta
 }
 
-model Additional {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  price       Float // Preço base (venda separada)
-  discount    Float?   @default(0)
-  image_url   String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+model Colors {
+  id         String   @id @default(uuid())
+  name       String
+  hex_code   String   @unique
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  products   ProductAdditional[]
-  orderItems OrderItemAdditional[]
+  additionals AdditionalColor[]
+}
+
+model Additional {
+  id                   String  @id @default(uuid())
+  name                 String
+  description          String?
+  price                Float // Preço base (venda separada)
+  discount             Float?  @default(0)
+  image_url            String?
+  stock_quantity       Int?    @default(0) // Estoque total do adicional
+  allows_customization Boolean @default(false) // Se permite customização
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  colors             AdditionalColor[]
+  products           ProductAdditional[]
+  orderItems         OrderItemAdditional[]
+  customizationRules AdditionalCustomization[]
+}
+
+model AdditionalColor {
+  additional_id  String
+  color_id       String
+  stock_quantity Int      @default(0) // Estoque específico desta cor
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  additional Additional @relation(fields: [additional_id], references: [id], onDelete: Cascade)
+  color      Colors     @relation(fields: [color_id], references: [id], onDelete: Cascade)
+
+  @@id([additional_id, color_id]) // PK composta
 }
 
 model ProductAdditional {
@@ -131,7 +163,8 @@ model OrderItem {
   order   Order   @relation(fields: [order_id], references: [id])
   product Product @relation(fields: [product_id], references: [id])
 
-  additionals OrderItemAdditional[]
+  additionals    OrderItemAdditional[]
+  customizations OrderItemCustomization[]
 }
 
 model OrderItemAdditional {
@@ -280,4 +313,77 @@ enum FeedSectionType {
   CUSTOM_PRODUCTS // Produtos customizados pelo admin
   NEW_ARRIVALS // Novos produtos
   BEST_SELLERS // Mais vendidos
+}
+
+// ================ CUSTOMIZATION MODELS ================
+
+enum CustomizationType {
+  PHOTO_UPLOAD // Upload de fotos (ex: fotos para quadro)
+  ITEM_SUBSTITUTION // Substituição de item (ex: urso por chaveiro)
+  TEXT_INPUT // Texto personalizado (ex: frase no chocolate)
+  MULTIPLE_CHOICE // Escolha múltipla (ex: estilos de layout)
+}
+
+model ProductCustomization {
+  id                 String            @id @default(uuid())
+  product_id         String
+  customization_type CustomizationType
+  title              String // Ex: "Fotos do Quadro", "Escolha o Item"
+  description        String? // Descrição/instrução para o cliente
+  is_required        Boolean           @default(false) // Se é obrigatório customizar
+  max_items          Int?              @default(1) // Máximo de itens (fotos, textos, etc)
+  available_options  String? // JSON com opções disponíveis (para substitution/multiple_choice)
+  preview_image_url  String? // Imagem de preview do layout/item
+  display_order      Int               @default(0)
+  created_at         DateTime          @default(now())
+  updated_at         DateTime          @updatedAt
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+}
+
+model AdditionalCustomization {
+  id                 String            @id @default(uuid())
+  additional_id      String
+  customization_type CustomizationType
+  title              String
+  description        String?
+  is_required        Boolean           @default(false)
+  max_items          Int?              @default(1)
+  available_options  String? // JSON
+  preview_image_url  String?
+  display_order      Int               @default(0)
+  created_at         DateTime          @default(now())
+  updated_at         DateTime          @updatedAt
+
+  additional Additional @relation(fields: [additional_id], references: [id], onDelete: Cascade)
+}
+
+model OrderItemCustomization {
+  id                     String            @id @default(uuid())
+  order_item_id          String
+  customization_rule_id  String? // ID da regra de customização (ProductCustomization ou AdditionalCustomization)
+  customization_type     CustomizationType
+  title                  String // Título da customização
+  customization_data     String // JSON com dados da customização (URLs das imagens temp, texto, escolha, etc)
+  google_drive_folder_id String? // ID da pasta no Google Drive (preenchido após upload)
+  google_drive_url       String? // URL pública da pasta
+  created_at             DateTime          @default(now())
+  updated_at             DateTime          @updatedAt
+
+  orderItem OrderItem @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+}
+
+model TemporaryCustomizationFile {
+  id              String   @id @default(uuid())
+  session_id      String // ID da sessão do cliente (localStorage/cookie)
+  original_name   String
+  stored_filename String // Nome do arquivo salvo temporariamente
+  file_path       String // Caminho completo do arquivo temp
+  mime_type       String
+  size            Int // Tamanho em bytes
+  expires_at      DateTime // Data de expiração do arquivo temp
+  created_at      DateTime @default(now())
+
+  @@index([session_id])
+  @@index([expires_at])
 }

@@ -1,10 +1,16 @@
 import prisma from "../database/prisma";
+import stockService from "./stockService";
 
 type CreateOrderItem = {
   product_id: string;
   quantity: number;
   price: number;
-  additionals?: { additional_id: string; quantity: number; price: number }[];
+  additionals?: {
+    additional_id: string;
+    quantity: number;
+    price: number;
+    color_id?: string; // Cor selecionada
+  }[];
 };
 
 type CreateOrderInput = {
@@ -209,6 +215,19 @@ class OrderService {
       }
 
       const { items, ...orderData } = data;
+
+      // ========== VALIDAR E DECREMENTAR ESTOQUE ==========
+      console.log("🔍 Validando estoque antes de criar pedido...");
+      const stockValidation = await stockService.validateOrderStock(items);
+
+      if (!stockValidation.valid) {
+        throw new Error(
+          `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`
+        );
+      }
+
+      console.log("✅ Estoque validado! Criando pedido...");
+
       const created = await prisma.order.create({
         data: {
           user_id: orderData.user_id,
@@ -244,6 +263,17 @@ class OrderService {
             });
           }
         }
+      }
+
+      // ========== DECREMENTAR ESTOQUE ==========
+      console.log("📦 Decrementando estoque...");
+      try {
+        await stockService.decrementOrderStock(items);
+        console.log("✅ Estoque decrementado com sucesso!");
+      } catch (stockError: unknown) {
+        console.error("❌ Erro ao decrementar estoque:", stockError);
+        // Log o erro mas não falha o pedido, pois já foi criado
+        // Idealmente, deveria ter uma transação para reverter
       }
 
       return await this.getOrderById(created.id);

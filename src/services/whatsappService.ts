@@ -1,0 +1,549 @@
+import axios, { AxiosInstance } from "axios";
+import reportService from "./reportService";
+
+interface WhatsAppConfig {
+  apiUrl: string;
+  apiKey: string;
+  instanceName: string;
+  groupId: string;
+}
+
+interface SendMessagePayload {
+  number: string;
+  text: string;
+}
+
+class WhatsAppService {
+  private client: AxiosInstance;
+  private config: WhatsAppConfig;
+  private lastAlertTime: Map<string, number> = new Map();
+  private readonly ALERT_COOLDOWN = 3600000; // 1 hora em ms (evita spam)
+
+  constructor() {
+    if (
+      !process.env.EVOLUTION_API_URL ||
+      !process.env.EVOLUTION_API_KEY ||
+      !process.env.EVOLUTION_INSTANCE ||
+      !process.env.WHATSAPP_GROUP_ID
+    ) {
+      console.warn(
+        "⚠️ Variáveis de ambiente do WhatsApp não estão totalmente configuradas."
+      );
+    }
+
+    this.config = {
+      apiUrl: process.env.EVOLUTION_API_URL as string,
+      apiKey: process.env.EVOLUTION_API_KEY as string,
+      instanceName: process.env.EVOLUTION_INSTANCE as string,
+      groupId: process.env.WHATSAPP_GROUP_ID as string,
+    };
+
+    this.client = axios.create({
+      baseURL: this.config.apiUrl,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: this.config.apiKey,
+      },
+      timeout: 10000,
+    });
+  }
+
+  isConfigured(): boolean {
+    return !!(this.config.apiKey && this.config.apiUrl && this.config.groupId);
+  }
+
+  async sendMessage(text: string, phoneNumber?: string): Promise<boolean> {
+    if (!this.isConfigured()) {
+      console.warn(
+        "WhatsApp não configurado. Configure as variáveis de ambiente."
+      );
+      return false;
+    }
+
+    try {
+      const payload: SendMessagePayload = {
+        number: phoneNumber || this.config.groupId,
+        text,
+      };
+
+      const response = await this.client.post(
+        `/message/sendText/${this.config.instanceName}`,
+        payload
+      );
+
+      console.log("Mensagem WhatsApp enviada:", response.data);
+      return true;
+    } catch (error: any) {
+      console.error("Erro ao enviar mensagem WhatsApp:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      return false;
+    }
+  }
+
+  private canSendAlert(itemId: string): boolean {
+    const lastAlert = this.lastAlertTime.get(itemId);
+    if (!lastAlert) return true;
+
+    const elapsed = Date.now() - lastAlert;
+    return elapsed >= this.ALERT_COOLDOWN;
+  }
+
+  private markAlertSent(itemId: string): void {
+    this.lastAlertTime.set(itemId, Date.now());
+  }
+
+  async sendCriticalStockAlert(
+    itemId: string,
+    itemName: string,
+    itemType: "product" | "additional" | "color",
+    colorInfo?: { name: string; hex: string; additionalName: string }
+  ): Promise<boolean> {
+    if (!this.canSendAlert(`critical-${itemId}`)) {
+      console.log(
+        `Alerta de estoque crítico já enviado recentemente para ${itemId}`
+      );
+      return false;
+    }
+
+    let message = `🚨 *ESTOQUE CRÍTICO - SEM ESTOQUE* 🚨\n\n`;
+
+    if (itemType === "color" && colorInfo) {
+      message += `📦 Adicional: ${colorInfo.additionalName}\n`;
+      message += `🎨 Cor: ${colorInfo.name} (${colorInfo.hex})\n`;
+      message += `⚠️ Status: *SEM ESTOQUE*\n\n`;
+    } else if (itemType === "additional") {
+      message += `📦 Adicional: ${itemName}\n`;
+      message += `⚠️ Status: *SEM ESTOQUE*\n\n`;
+    } else {
+      message += `📦 Produto: ${itemName}\n`;
+      message += `⚠️ Status: *SEM ESTOQUE*\n\n`;
+    }
+
+    message += `⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+    message += `⚡ *Ação necessária:* Reabastecer imediatamente!`;
+
+    const sent = await this.sendMessage(message);
+    if (sent) {
+      this.markAlertSent(`critical-${itemId}`);
+    }
+    return sent;
+  }
+
+  async sendLowStockAlert(
+    itemId: string,
+    itemName: string,
+    currentStock: number,
+    threshold: number,
+    itemType: "product" | "additional" | "color",
+    colorInfo?: { name: string; hex: string; additionalName: string }
+  ): Promise<boolean> {
+    if (!this.canSendAlert(`low-${itemId}`)) {
+      console.log(
+        `Alerta de estoque baixo já enviado recentemente para ${itemId}`
+      );
+      return false;
+    }
+
+    let message = `⚠️ *ALERTA DE ESTOQUE BAIXO* ⚠️\n\n`;
+
+    if (itemType === "color" && colorInfo) {
+      message += `📦 Adicional: ${colorInfo.additionalName}\n`;
+      message += `🎨 Cor: ${colorInfo.name} (${colorInfo.hex})\n`;
+    } else if (itemType === "additional") {
+      message += `📦 Adicional: ${itemName}\n`;
+    } else {
+      message += `📦 Produto: ${itemName}\n`;
+    }
+
+    message += `📊 Estoque atual: *${currentStock} unidade(s)*\n`;
+    message += `🎯 Limite: ${threshold} unidades\n\n`;
+    message += `⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+
+    if (currentStock <= 2) {
+      message += `🔴 *Status: CRÍTICO* - Reabastecer urgente!`;
+    } else if (currentStock <= 10) {
+      message += `🟡 *Status: BAIXO* - Considere reabastecer em breve`;
+    } else {
+      message += `🟠 *Status: ATENÇÃO* - Monitorar estoque`;
+    }
+
+    const sent = await this.sendMessage(message);
+    if (sent) {
+      this.markAlertSent(`low-${itemId}`);
+    }
+    return sent;
+  }
+
+  async checkAndNotifyLowStock(threshold: number = 5): Promise<{
+    checked: boolean;
+    alerts_sent: number;
+    errors: number;
+  }> {
+    if (!this.isConfigured()) {
+      console.warn("WhatsApp não configurado. Pulando verificação de estoque.");
+      return { checked: false, alerts_sent: 0, errors: 0 };
+    }
+
+    try {
+      const result = await reportService.hasItemsBelowThreshold(threshold);
+
+      if (!result.has_critical || result.items.length === 0) {
+        console.log("Nenhum item com estoque baixo encontrado.");
+        return { checked: true, alerts_sent: 0, errors: 0 };
+      }
+
+      let alertsSent = 0;
+      let errors = 0;
+
+      for (const item of result.items) {
+        try {
+          let sent = false;
+
+          if (item.current_stock === 0) {
+            // Estoque crítico (zerado)
+            sent = await this.sendCriticalStockAlert(
+              item.id,
+              item.name,
+              item.type,
+              item.color_name
+                ? {
+                    name: item.color_name,
+                    hex: item.color_hex_code || "",
+                    additionalName: item.additional_name || "",
+                  }
+                : undefined
+            );
+          } else {
+            // Estoque baixo
+            sent = await this.sendLowStockAlert(
+              item.id,
+              item.name,
+              item.current_stock,
+              item.threshold,
+              item.type,
+              item.color_name
+                ? {
+                    name: item.color_name,
+                    hex: item.color_hex_code || "",
+                    additionalName: item.additional_name || "",
+                  }
+                : undefined
+            );
+          }
+
+          if (sent) alertsSent++;
+        } catch (error: any) {
+          console.error(
+            `Erro ao enviar alerta para ${item.name}:`,
+            error.message
+          );
+          errors++;
+        }
+      }
+
+      console.log(
+        `Verificação de estoque concluída: ${alertsSent} alertas enviados, ${errors} erros`
+      );
+      return { checked: true, alerts_sent: alertsSent, errors };
+    } catch (error: any) {
+      console.error(
+        "Erro ao verificar e notificar estoque baixo:",
+        error.message
+      );
+      return { checked: false, alerts_sent: 0, errors: 1 };
+    }
+  }
+
+  async sendStockSummary(): Promise<boolean> {
+    if (!this.isConfigured()) {
+      console.warn("WhatsApp não configurado.");
+      return false;
+    }
+
+    try {
+      const report = await reportService.getStockReport(5);
+
+      let message = `📊 *RELATÓRIO DE ESTOQUE* 📊\n\n`;
+      message += `📈 *Resumo Geral:*\n`;
+      message += `• Produtos: ${report.total_products} (${report.products_out_of_stock} sem estoque)\n`;
+      message += `• Adicionais: ${report.total_additionals} (${report.additionals_out_of_stock} sem estoque)\n`;
+      message += `• Cores: ${report.total_colors} (${report.colors_out_of_stock} sem estoque)\n\n`;
+
+      if (report.low_stock_items.length > 0) {
+        message += `⚠️ *Itens com Estoque Baixo:* ${report.low_stock_items.length}\n\n`;
+
+        const critical = report.low_stock_items.filter(
+          (i) => i.current_stock === 0
+        );
+        const low = report.low_stock_items.filter(
+          (i) => i.current_stock > 0 && i.current_stock <= 2
+        );
+        const warning = report.low_stock_items.filter(
+          (i) => i.current_stock > 2
+        );
+
+        if (critical.length > 0) {
+          message += `🔴 *Crítico (sem estoque):* ${critical.length} itens\n`;
+        }
+        if (low.length > 0) {
+          message += `🟠 *Baixo (≤2 un):* ${low.length} itens\n`;
+        }
+        if (warning.length > 0) {
+          message += `🟡 *Atenção (≤5 un):* ${warning.length} itens\n`;
+        }
+      } else {
+        message += `✅ *Todos os itens estão com estoque adequado!*\n`;
+      }
+
+      message += `\n⏰ ${new Date().toLocaleString("pt-BR")}`;
+
+      return await this.sendMessage(message);
+    } catch (error: any) {
+      console.error("Erro ao enviar resumo de estoque:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Envia notificação de pedido confirmado (após pagamento aprovado)
+   */
+  async sendOrderConfirmationNotification(orderData: {
+    orderId: string;
+    orderNumber?: string;
+    totalAmount: number;
+    paymentMethod: string;
+    items: Array<{
+      name: string;
+      quantity: number;
+      price: number;
+    }>;
+    customer: {
+      name: string;
+      email: string;
+      phone?: string;
+    };
+    delivery?: {
+      address: string;
+      city: string;
+      state: string;
+      zipCode: string;
+      date?: Date;
+    };
+    googleDriveUrl?: string;
+  }): Promise<boolean> {
+    if (!this.isConfigured()) {
+      console.warn("WhatsApp não configurado. Pulando notificação de pedido.");
+      return false;
+    }
+
+    try {
+      let message = `✅ *NOVO PEDIDO CONFIRMADO* ✅\n\n`;
+
+      message += `📦 *Pedido #${
+        orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase()
+      }*\n`;
+      message += `💰 Valor: R$ ${orderData.totalAmount
+        .toFixed(2)
+        .replace(".", ",")}\n`;
+      message += `💳 Pagamento: ${this.formatPaymentMethod(
+        orderData.paymentMethod
+      )}\n\n`;
+
+      message += `📝 *Itens:*\n`;
+      orderData.items.forEach((item) => {
+        const itemTotal = item.quantity * item.price;
+        message += `• ${item.quantity}x ${item.name} (R$ ${itemTotal
+          .toFixed(2)
+          .replace(".", ",")})\n`;
+      });
+
+      message += `\n👤 *Cliente:*\n`;
+      message += `• Nome: ${orderData.customer.name}\n`;
+      message += `• Email: ${orderData.customer.email}\n`;
+      if (orderData.customer.phone) {
+        message += `• Telefone: ${orderData.customer.phone}\n`;
+      }
+
+      if (orderData.delivery) {
+        message += `\n📍 *Entrega:*\n`;
+        message += `• ${orderData.delivery.address}\n`;
+        message += `• ${orderData.delivery.city} - ${orderData.delivery.state}\n`;
+        message += `• CEP: ${orderData.delivery.zipCode}\n`;
+        if (orderData.delivery.date) {
+          message += `• Data: ${new Date(
+            orderData.delivery.date
+          ).toLocaleDateString("pt-BR")}\n`;
+        }
+      }
+
+      // Adicionar link do Google Drive se houver customizações
+      if (orderData.googleDriveUrl) {
+        message += `\n🎨 *Customizações:*\n`;
+        message += `📸 ${orderData.googleDriveUrl}\n`;
+      }
+
+      message += `\n⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+      message += `🚀 *Preparar pedido para entrega!*`;
+
+      const sent = await this.sendMessage(message);
+      if (sent) {
+        console.log(
+          `✅ Notificação de pedido ${orderData.orderId} enviada com sucesso`
+        );
+      }
+      return sent;
+    } catch (error: any) {
+      console.error("Erro ao enviar notificação de pedido:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Envia notificação para o CLIENTE sobre confirmação do pedido
+   */
+  async sendCustomerOrderConfirmation(
+    customerPhone: string,
+    orderData: {
+      orderId: string;
+      orderNumber?: string;
+      totalAmount: number;
+      paymentMethod: string;
+      items: Array<{
+        name: string;
+        quantity: number;
+        price: number;
+      }>;
+      delivery?: {
+        address: string;
+        date?: Date;
+      };
+      googleDriveUrl?: string;
+    }
+  ): Promise<boolean> {
+    if (!this.isConfigured()) {
+      console.warn("WhatsApp não configurado. Pulando notificação ao cliente.");
+      return false;
+    }
+
+    try {
+      // Limpar e validar telefone
+      const cleanPhone = customerPhone.replace(/\D/g, "");
+
+      // Verificar se tem código do país
+      const phoneWithCountry = cleanPhone.startsWith("55")
+        ? cleanPhone
+        : `55${cleanPhone}`;
+
+      if (phoneWithCountry.length < 12) {
+        console.warn(`Telefone inválido: ${customerPhone}`);
+        return false;
+      }
+
+      let message = `🎉 *Pedido Confirmado!* 🎉\n\n`;
+      message += `Olá! Seu pagamento foi confirmado com sucesso!\n\n`;
+
+      message += `📦 *Pedido:* #${
+        orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase()
+      }\n`;
+      message += `💰 *Valor:* R$ ${orderData.totalAmount
+        .toFixed(2)
+        .replace(".", ",")}\n`;
+      message += `💳 *Pagamento:* ${this.formatPaymentMethod(
+        orderData.paymentMethod
+      )}\n\n`;
+
+      message += `📝 *Seu pedido contém:*\n`;
+      orderData.items.forEach((item) => {
+        message += `• ${item.quantity}x ${item.name}\n`;
+      });
+
+      if (orderData.delivery) {
+        message += `\n📍 *Entrega:*\n`;
+        message += `• ${orderData.delivery.address}\n`;
+        if (orderData.delivery.date) {
+          message += `• Data: ${new Date(
+            orderData.delivery.date
+          ).toLocaleDateString("pt-BR")}\n`;
+        }
+      }
+
+      // Adicionar link do Google Drive se houver customizações
+      if (orderData.googleDriveUrl) {
+        message += `\n🎨 *Suas Fotos de Customização:*\n`;
+        message += `📸 Acesse aqui: ${orderData.googleDriveUrl}\n`;
+        message += `\n_Suas fotos foram salvas no Google Drive e ficarão disponíveis para você!_\n`;
+      }
+
+      message += `\n✨ *Sua cesta está sendo preparada com muito carinho!*\n\n`;
+      message += `Agradecemos pela preferência! ❤️\n`;
+      message += `_Cesto d'Amore_`;
+
+      // Enviar para o cliente diretamente
+      const sent = await this.sendDirectMessage(phoneWithCountry, message);
+
+      if (sent) {
+        console.log(
+          `✅ Notificação enviada ao cliente ${phoneWithCountry} - Pedido ${orderData.orderId}`
+        );
+      }
+
+      return sent;
+    } catch (error: any) {
+      console.error("Erro ao enviar notificação ao cliente:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Envia mensagem direta para um número específico (não grupo)
+   */
+  private async sendDirectMessage(
+    phoneNumber: string,
+    message: string
+  ): Promise<boolean> {
+    try {
+      const url = `${this.config.apiUrl}/message/sendText/${this.config.instanceName}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: this.config.apiKey,
+        },
+        body: JSON.stringify({
+          number: phoneNumber,
+          text: message,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Erro ao enviar mensagem direta:", errorText);
+        return false;
+      }
+
+      return true;
+    } catch (error: any) {
+      console.error("Erro ao enviar mensagem direta:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Formata o nome do método de pagamento
+   */
+  private formatPaymentMethod(method: string): string {
+    const methods: Record<string, string> = {
+      pix: "PIX",
+      credit_card: "Cartão de Crédito",
+      debit_card: "Cartão de Débito",
+      card: "Cartão",
+    };
+    return methods[method.toLowerCase()] || method;
+  }
+}
+
+export default new WhatsAppService();

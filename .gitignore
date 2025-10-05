@@ -6,3 +6,4 @@ node_modules
 /tests
 
 credentials.json
+google-drive-credentials.json

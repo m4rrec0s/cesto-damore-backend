@@ -78,6 +78,20 @@ class AdditionalController {
         }
       }
 
+      // Processar cores se enviadas como string JSON
+      if (data.colors && typeof data.colors === "string") {
+        try {
+          data.colors = JSON.parse(data.colors);
+        } catch (e) {
+          return res.status(400).json({ error: "Formato de cores inválido" });
+        }
+      }
+
+      // Converter stock_quantity para número se for string
+      if (data.stock_quantity && typeof data.stock_quantity === "string") {
+        data.stock_quantity = parseInt(data.stock_quantity, 10);
+      }
+
       const additional = await additionalService.createAdditional(data);
       res.status(201).json(additional);
     } catch (error: any) {
@@ -114,6 +128,20 @@ class AdditionalController {
             details: imageError.message,
           });
         }
+      }
+
+      // Processar cores se enviadas como string JSON
+      if (data.colors && typeof data.colors === "string") {
+        try {
+          data.colors = JSON.parse(data.colors);
+        } catch (e) {
+          return res.status(400).json({ error: "Formato de cores inválido" });
+        }
+      }
+
+      // Converter stock_quantity para número se for string
+      if (data.stock_quantity && typeof data.stock_quantity === "string") {
+        data.stock_quantity = parseInt(data.stock_quantity, 10);
       }
 
       const additional = await additionalService.updateAdditional(id, data);

@@ -12,6 +12,10 @@ import authController from "./controller/authController";
 import PaymentController from "./controller/paymentController";
 import feedController from "./controller/feedController";
 import uploadController from "./controller/uploadController";
+import colorController from "./controller/colorController";
+import reportController from "./controller/reportController";
+import whatsappController from "./controller/whatsappController";
+import customizationController from "./controller/customizationController";
 import { upload, convertImagesToWebP } from "./config/multer";
 import {
   authenticateToken,
@@ -21,9 +25,14 @@ import {
   validatePaymentData,
   logFinancialOperation,
 } from "./middleware/security";
+import { healthCheckEndpoint } from "./middleware/healthCheck";
 
 const router = Router();
 
+// Health check endpoint
+router.get("/health", healthCheckEndpoint);
+
+// Servir imagens de produtos/adicionais
 router.get("/images/:filename", (req: Request, res: Response) => {
   try {
     const filename = req.params.filename;
@@ -46,6 +55,39 @@ router.get("/images/:filename", (req: Request, res: Response) => {
     });
   }
 });
+
+// Servir arquivos de customizações (subpastas)
+router.get(
+  "/images/customizations/:folderId/:filename",
+  (req: Request, res: Response) => {
+    try {
+      const { folderId, filename } = req.params;
+      const customizationsPath = path.join(
+        process.cwd(),
+        "images",
+        "customizations",
+        folderId
+      );
+      const filePath = path.join(customizationsPath, filename);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({
+          error: "Arquivo de customização não encontrado",
+          folderId,
+          filename,
+        });
+      }
+
+      res.sendFile(filePath);
+    } catch (error: any) {
+      console.error("Erro ao servir arquivo de customização:", error.message);
+      res.status(500).json({
+        error: "Erro interno do servidor",
+        message: error.message,
+      });
+    }
+  }
+);
 
 router.get("/additional", additionalController.index);
 router.get("/additional/:id", additionalController.show);
@@ -117,6 +159,24 @@ router.get("/categories/:id", categoryController.show);
 router.post("/categories", categoryController.create);
 router.put("/categories/:id", categoryController.update);
 router.delete("/categories/:id", categoryController.remove);
+
+// color routes
+router.get("/colors", colorController.index);
+router.get("/colors/:id", colorController.show);
+router.post("/colors", colorController.create);
+router.put("/colors/:id", colorController.update);
+router.delete("/colors/:id", colorController.remove);
+
+// report routes
+router.get("/reports/stock", reportController.getStockReport);
+router.get("/reports/stock/critical", reportController.getCriticalStock);
+router.get("/reports/stock/check", reportController.checkLowStock);
+
+// whatsapp routes
+router.get("/whatsapp/config", whatsappController.getConfig);
+router.post("/whatsapp/test", whatsappController.testMessage);
+router.post("/whatsapp/check-stock", whatsappController.checkStock);
+router.post("/whatsapp/stock-summary", whatsappController.sendStockSummary);
 
 // user routes
 router.get("/users/me", authenticateToken, userController.me); // Novo: obter usuário logado
@@ -312,6 +372,93 @@ router.delete(
   authenticateToken,
   requireAdmin,
   feedController.deleteSectionItem
+);
+
+// ========== CUSTOMIZATION ROUTES ==========
+
+// Public routes - buscar customizações disponíveis
+router.get(
+  "/products/:productId/customizations",
+  customizationController.getProductCustomizations
+);
+
+router.get(
+  "/additionals/:additionalId/customizations",
+  customizationController.getAdditionalCustomizations
+);
+
+// Upload de arquivo temporário (sem autenticação para não-logados)
+router.post(
+  "/customization/upload-temp",
+  upload.single("file"),
+  customizationController.uploadTemporaryFile
+);
+
+// Buscar arquivos da sessão
+router.get(
+  "/customization/session/:sessionId/files",
+  customizationController.getSessionFiles
+);
+
+// Deletar arquivo temporário
+router.delete(
+  "/customization/temp-file/:id",
+  customizationController.deleteTemporaryFile
+);
+
+// ============== ADMIN CUSTOMIZATION ROUTES ==============
+
+// Criar regras de customização
+router.post(
+  "/admin/customization/product",
+  authenticateToken,
+  requireAdmin,
+  customizationController.createProductCustomization
+);
+
+router.post(
+  "/admin/customization/additional",
+  authenticateToken,
+  requireAdmin,
+  customizationController.createAdditionalCustomization
+);
+
+// Atualizar regras de customização
+router.put(
+  "/admin/customization/product/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.updateProductCustomization
+);
+
+router.put(
+  "/admin/customization/additional/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.updateAdditionalCustomization
+);
+
+// Deletar regras de customização
+router.delete(
+  "/admin/customization/product/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.deleteProductCustomization
+);
+
+router.delete(
+  "/admin/customization/additional/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.deleteAdditionalCustomization
+);
+
+// Limpar arquivos temporários expirados (CRON)
+router.post(
+  "/admin/customization/cleanup",
+  authenticateToken,
+  requireAdmin,
+  customizationController.cleanupExpiredFiles
 );
 
 export default router;

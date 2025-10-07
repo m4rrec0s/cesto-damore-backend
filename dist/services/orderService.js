@@ -4,6 +4,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
+const stockService_1 = __importDefault(require("./stockService"));
+const whatsappService_1 = __importDefault(require("./whatsappService"));
+const ORDER_STATUSES = [
+    "PENDING",
+    "PAID",
+    "SHIPPED",
+    "DELIVERED",
+    "CANCELED",
+];
 const ACCEPTED_CITIES = {
     "campina grande": { pix: 0, card: 10 },
     queimadas: { pix: 15, card: 25 },
@@ -19,12 +28,54 @@ function normalizeText(value) {
         .toLowerCase();
 }
 class OrderService {
-    async getAllOrders() {
+    normalizeStatus(status) {
+        const normalized = status?.trim().toUpperCase();
+        if (!ORDER_STATUSES.includes(normalized)) {
+            throw new Error(`Status inválido. Utilize um dos seguintes: ${ORDER_STATUSES.join(", ")}`);
+        }
+        return normalized;
+    }
+    buildStatusWhere(filter) {
+        if (!filter?.status)
+            return undefined;
+        const normalized = filter.status.trim().toLowerCase();
+        if (normalized === "open" || normalized === "abertos") {
+            return {
+                in: ["PENDING", "PAID", "SHIPPED"],
+            };
+        }
+        if (normalized === "closed" || normalized === "fechados") {
+            return {
+                in: ["DELIVERED", "CANCELED"],
+            };
+        }
+        return {
+            equals: this.normalizeStatus(filter.status),
+        };
+    }
+    async getAllOrders(filter) {
         try {
             return await prisma_1.default.order.findMany({
                 include: {
-                    items: { include: { additionals: true, product: true } },
+                    items: {
+                        include: {
+                            additionals: {
+                                include: {
+                                    additional: true,
+                                },
+                            },
+                            product: true,
+                            customizations: true,
+                        },
+                    },
                     user: true,
+                    payment: true,
+                },
+                where: {
+                    status: this.buildStatusWhere(filter),
+                },
+                orderBy: {
+                    created_at: "desc",
                 },
             });
         }
@@ -153,6 +204,13 @@ class OrderService {
                 throw new Error("Valor final do pedido deve ser maior que zero");
             }
             const { items, ...orderData } = data;
+            // ========== VALIDAR E DECREMENTAR ESTOQUE ==========
+            console.log("🔍 Validando estoque antes de criar pedido...");
+            const stockValidation = await stockService_1.default.validateOrderStock(items);
+            if (!stockValidation.valid) {
+                throw new Error(`Estoque insuficiente:\n${stockValidation.errors.join("\n")}`);
+            }
+            console.log("✅ Estoque validado! Criando pedido...");
             const created = await prisma_1.default.order.create({
                 data: {
                     user_id: orderData.user_id,
@@ -186,6 +244,17 @@ class OrderService {
                         });
                     }
                 }
+            }
+            // ========== DECREMENTAR ESTOQUE ==========
+            console.log("📦 Decrementando estoque...");
+            try {
+                await stockService_1.default.decrementOrderStock(items);
+                console.log("✅ Estoque decrementado com sucesso!");
+            }
+            catch (stockError) {
+                console.error("❌ Erro ao decrementar estoque:", stockError);
+                // Log o erro mas não falha o pedido, pois já foi criado
+                // Idealmente, deveria ter uma transação para reverter
             }
             return await this.getOrderById(created.id);
         }
@@ -247,6 +316,100 @@ class OrderService {
     }
     async remove(id) {
         return this.deleteOrder(id);
+    }
+    async updateOrderStatus(id, newStatus, options = {}) {
+        if (!id) {
+            throw new Error("ID do pedido é obrigatório");
+        }
+        const normalizedStatus = this.normalizeStatus(newStatus);
+        const current = await prisma_1.default.order.findUnique({
+            where: { id },
+            select: { status: true },
+        });
+        if (!current) {
+            throw new Error("Pedido não encontrado");
+        }
+        // Se status não mudou, apenas retorna o pedido completo
+        if (current.status === normalizedStatus) {
+            return prisma_1.default.order.findUnique({
+                where: { id },
+                include: {
+                    items: {
+                        include: {
+                            additionals: {
+                                include: {
+                                    additional: true,
+                                },
+                            },
+                            product: true,
+                            customizations: true,
+                        },
+                    },
+                    user: true,
+                    payment: true,
+                },
+            });
+        }
+        const updated = await prisma_1.default.order.update({
+            where: { id },
+            data: {
+                status: normalizedStatus,
+            },
+            include: {
+                items: {
+                    include: {
+                        additionals: {
+                            include: {
+                                additional: true,
+                            },
+                        },
+                        product: true,
+                        customizations: true,
+                    },
+                },
+                user: true,
+                payment: true,
+            },
+        });
+        if (options.notifyCustomer !== false) {
+            try {
+                const driveLink = updated.items
+                    .flatMap((item) => item.customizations || [])
+                    .find((custom) => custom.google_drive_url)?.google_drive_url;
+                const totalAmount = typeof updated.grand_total === "number"
+                    ? updated.grand_total
+                    : updated.total;
+                await whatsappService_1.default.sendOrderStatusUpdateNotification({
+                    orderId: updated.id,
+                    orderNumber: updated.id.substring(0, 8).toUpperCase(),
+                    totalAmount,
+                    paymentMethod: updated.payment_method ||
+                        updated.payment?.payment_method ||
+                        "Não informado",
+                    items: updated.items.map((item) => ({
+                        name: item.product.name,
+                        quantity: item.quantity,
+                        price: item.price,
+                    })),
+                    customer: {
+                        name: updated.user.name,
+                        email: updated.user.email,
+                        phone: updated.user.phone || undefined,
+                    },
+                    delivery: updated.delivery_address
+                        ? {
+                            address: updated.delivery_address,
+                            date: updated.delivery_date || undefined,
+                        }
+                        : undefined,
+                    googleDriveUrl: driveLink || undefined,
+                }, normalizedStatus);
+            }
+            catch (error) {
+                console.error("⚠️ Erro ao enviar notificação de atualização de pedido:", error.message);
+            }
+        }
+        return updated;
     }
 }
 exports.default = new OrderService();

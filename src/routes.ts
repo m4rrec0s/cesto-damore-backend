@@ -16,6 +16,7 @@ import colorController from "./controller/colorController";
 import reportController from "./controller/reportController";
 import whatsappController from "./controller/whatsappController";
 import customizationController from "./controller/customizationController";
+import oauthController from "./controller/oauthController";
 import { upload, convertImagesToWebP } from "./config/multer";
 import {
   authenticateToken,
@@ -31,6 +32,18 @@ const router = Router();
 
 // Health check endpoint
 router.get("/health", healthCheckEndpoint);
+
+// ============================================
+// GOOGLE DRIVE OAUTH2
+// ============================================
+// GET /oauth/authorize - Gera URL de autenticação
+router.get("/oauth/authorize", oauthController.authorize);
+
+// GET /oauth/callback - Callback após autorização
+router.get("/oauth/callback", oauthController.callback);
+
+// GET /oauth/status - Verifica status da autenticação
+router.get("/oauth/status", oauthController.status);
 
 // Servir imagens de produtos/adicionais
 router.get("/images/:filename", (req: Request, res: Response) => {
@@ -191,6 +204,12 @@ router.delete("/users/:id", userController.remove);
 router.get("/orders", orderController.index);
 router.get("/orders/:id", orderController.show);
 router.post("/orders", orderController.create);
+router.patch(
+  "/orders/:id/status",
+  authenticateToken,
+  requireAdmin,
+  orderController.updateStatus
+);
 router.delete("/orders/:id", orderController.remove);
 
 // ========== PAYMENT ROUTES ==========
@@ -376,6 +395,34 @@ router.delete(
 
 // ========== CUSTOMIZATION ROUTES ==========
 
+// ============== NEW: UNIFIED ENDPOINTS ==============
+
+// Endpoint unificado para buscar customizações (produtos ou adicionais)
+router.get(
+  "/customizations/:referenceId",
+  customizationController.getCustomizationsByReference
+);
+
+// Gerar preview de customização
+router.post("/customization/preview", customizationController.generatePreview);
+
+// Servir arquivo temporário para preview
+router.get("/temp-files/:fileId", customizationController.serveTempFile);
+
+// Validar customizações
+router.post(
+  "/customization/validate",
+  customizationController.validateCustomizations
+);
+
+// Validar restrições do carrinho
+router.post(
+  "/constraints/validate",
+  customizationController.validateCartConstraints
+);
+
+// ============== LEGACY: OLD ENDPOINTS (Mantidos para retrocompatibilidade) ==============
+
 // Public routes - buscar customizações disponíveis
 router.get(
   "/products/:productId/customizations",
@@ -408,7 +455,51 @@ router.delete(
 
 // ============== ADMIN CUSTOMIZATION ROUTES ==============
 
-// Criar regras de customização
+// NEW: Product Rules (novo sistema)
+router.post(
+  "/admin/customization/rule",
+  authenticateToken,
+  requireAdmin,
+  customizationController.createProductRule
+);
+
+router.put(
+  "/admin/customization/rule/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.updateProductRule
+);
+
+router.delete(
+  "/admin/customization/rule/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.deleteProductRule
+);
+
+// NEW: Item Constraints
+router.post(
+  "/admin/constraints",
+  authenticateToken,
+  requireAdmin,
+  customizationController.createConstraint
+);
+
+router.get(
+  "/admin/constraints/:itemId",
+  authenticateToken,
+  requireAdmin,
+  customizationController.getItemConstraints
+);
+
+router.delete(
+  "/admin/constraints/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.deleteConstraint
+);
+
+// LEGACY: Old customization system (mantido para retrocompatibilidade)
 router.post(
   "/admin/customization/product",
   authenticateToken,

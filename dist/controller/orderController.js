@@ -7,7 +7,8 @@ const orderService_1 = __importDefault(require("../services/orderService"));
 class OrderController {
     async index(req, res) {
         try {
-            const orders = await orderService_1.default.getAllOrders();
+            const { status } = req.query;
+            const orders = await orderService_1.default.getAllOrders(status ? { status: String(status) } : undefined);
             res.json(orders);
         }
         catch (error) {
@@ -68,6 +69,31 @@ class OrderController {
             else {
                 res.status(500).json({ error: "Erro interno do servidor" });
             }
+        }
+    }
+    async updateStatus(req, res) {
+        try {
+            const { id } = req.params;
+            const { status, notifyCustomer = true } = req.body;
+            if (!status) {
+                return res
+                    .status(400)
+                    .json({ error: "Status do pedido é obrigatório" });
+            }
+            const updated = await orderService_1.default.updateOrderStatus(id, status, {
+                notifyCustomer,
+            });
+            res.json(updated);
+        }
+        catch (error) {
+            console.error("Erro ao atualizar status do pedido:", error);
+            if (error.message.includes("Status inválido")) {
+                return res.status(400).json({ error: error.message });
+            }
+            if (error.message.includes("Pedido não encontrado")) {
+                return res.status(404).json({ error: error.message });
+            }
+            res.status(500).json({ error: "Erro interno do servidor" });
         }
     }
 }

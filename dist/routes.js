@@ -16,10 +16,27 @@ const authController_1 = __importDefault(require("./controller/authController"))
 const paymentController_1 = __importDefault(require("./controller/paymentController"));
 const feedController_1 = __importDefault(require("./controller/feedController"));
 const uploadController_1 = __importDefault(require("./controller/uploadController"));
-const checkoutTransparente_1 = __importDefault(require("./routes/checkoutTransparente"));
+const colorController_1 = __importDefault(require("./controller/colorController"));
+const reportController_1 = __importDefault(require("./controller/reportController"));
+const whatsappController_1 = __importDefault(require("./controller/whatsappController"));
+const customizationController_1 = __importDefault(require("./controller/customizationController"));
+const oauthController_1 = __importDefault(require("./controller/oauthController"));
 const multer_1 = require("./config/multer");
 const security_1 = require("./middleware/security");
+const healthCheck_1 = require("./middleware/healthCheck");
 const router = (0, express_1.Router)();
+// Health check endpoint
+router.get("/health", healthCheck_1.healthCheckEndpoint);
+// ============================================
+// GOOGLE DRIVE OAUTH2
+// ============================================
+// GET /oauth/authorize - Gera URL de autenticação
+router.get("/oauth/authorize", oauthController_1.default.authorize);
+// GET /oauth/callback - Callback após autorização
+router.get("/oauth/callback", oauthController_1.default.callback);
+// GET /oauth/status - Verifica status da autenticação
+router.get("/oauth/status", oauthController_1.default.status);
+// Servir imagens de produtos/adicionais
 router.get("/images/:filename", (req, res) => {
     try {
         const filename = req.params.filename;
@@ -35,6 +52,29 @@ router.get("/images/:filename", (req, res) => {
     }
     catch (error) {
         console.error("Erro ao servir imagem:", error.message);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            message: error.message,
+        });
+    }
+});
+// Servir arquivos de customizações (subpastas)
+router.get("/images/customizations/:folderId/:filename", (req, res) => {
+    try {
+        const { folderId, filename } = req.params;
+        const customizationsPath = path_1.default.join(process.cwd(), "images", "customizations", folderId);
+        const filePath = path_1.default.join(customizationsPath, filename);
+        if (!fs_1.default.existsSync(filePath)) {
+            return res.status(404).json({
+                error: "Arquivo de customização não encontrado",
+                folderId,
+                filename,
+            });
+        }
+        res.sendFile(filePath);
+    }
+    catch (error) {
+        console.error("Erro ao servir arquivo de customização:", error.message);
         res.status(500).json({
             error: "Erro interno do servidor",
             message: error.message,
@@ -78,6 +118,21 @@ router.get("/categories/:id", categoryController_1.default.show);
 router.post("/categories", categoryController_1.default.create);
 router.put("/categories/:id", categoryController_1.default.update);
 router.delete("/categories/:id", categoryController_1.default.remove);
+// color routes
+router.get("/colors", colorController_1.default.index);
+router.get("/colors/:id", colorController_1.default.show);
+router.post("/colors", colorController_1.default.create);
+router.put("/colors/:id", colorController_1.default.update);
+router.delete("/colors/:id", colorController_1.default.remove);
+// report routes
+router.get("/reports/stock", reportController_1.default.getStockReport);
+router.get("/reports/stock/critical", reportController_1.default.getCriticalStock);
+router.get("/reports/stock/check", reportController_1.default.checkLowStock);
+// whatsapp routes
+router.get("/whatsapp/config", whatsappController_1.default.getConfig);
+router.post("/whatsapp/test", whatsappController_1.default.testMessage);
+router.post("/whatsapp/check-stock", whatsappController_1.default.checkStock);
+router.post("/whatsapp/stock-summary", whatsappController_1.default.sendStockSummary);
 // user routes
 router.get("/users/me", security_1.authenticateToken, userController_1.default.me); // Novo: obter usuário logado
 router.get("/users/cep/:zipCode", userController_1.default.getAddressByZipCode); // Novo: consultar CEP
@@ -90,6 +145,7 @@ router.delete("/users/:id", userController_1.default.remove);
 router.get("/orders", orderController_1.default.index);
 router.get("/orders/:id", orderController_1.default.show);
 router.post("/orders", orderController_1.default.create);
+router.patch("/orders/:id/status", security_1.authenticateToken, security_1.requireAdmin, orderController_1.default.updateStatus);
 router.delete("/orders/:id", orderController_1.default.remove);
 // ========== PAYMENT ROUTES ==========
 // Health check do Mercado Pago
@@ -132,6 +188,46 @@ router.delete("/admin/feed/sections/:id", security_1.authenticateToken, security
 router.post("/admin/feed/section-items", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.createSectionItem);
 router.put("/admin/feed/section-items/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.updateSectionItem);
 router.delete("/admin/feed/section-items/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.deleteSectionItem);
-// Checkout Transparente Routes
-router.use(checkoutTransparente_1.default);
+// ========== CUSTOMIZATION ROUTES ==========
+// ============== NEW: UNIFIED ENDPOINTS ==============
+// Endpoint unificado para buscar customizações (produtos ou adicionais)
+router.get("/customizations/:referenceId", customizationController_1.default.getCustomizationsByReference);
+// Gerar preview de customização
+router.post("/customization/preview", customizationController_1.default.generatePreview);
+// Servir arquivo temporário para preview
+router.get("/temp-files/:fileId", customizationController_1.default.serveTempFile);
+// Validar customizações
+router.post("/customization/validate", customizationController_1.default.validateCustomizations);
+// Validar restrições do carrinho
+router.post("/constraints/validate", customizationController_1.default.validateCartConstraints);
+// ============== LEGACY: OLD ENDPOINTS (Mantidos para retrocompatibilidade) ==============
+// Public routes - buscar customizações disponíveis
+router.get("/products/:productId/customizations", customizationController_1.default.getProductCustomizations);
+router.get("/additionals/:additionalId/customizations", customizationController_1.default.getAdditionalCustomizations);
+// Upload de arquivo temporário (sem autenticação para não-logados)
+router.post("/customization/upload-temp", multer_1.upload.single("file"), customizationController_1.default.uploadTemporaryFile);
+// Buscar arquivos da sessão
+router.get("/customization/session/:sessionId/files", customizationController_1.default.getSessionFiles);
+// Deletar arquivo temporário
+router.delete("/customization/temp-file/:id", customizationController_1.default.deleteTemporaryFile);
+// ============== ADMIN CUSTOMIZATION ROUTES ==============
+// NEW: Product Rules (novo sistema)
+router.post("/admin/customization/rule", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createProductRule);
+router.put("/admin/customization/rule/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.updateProductRule);
+router.delete("/admin/customization/rule/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteProductRule);
+// NEW: Item Constraints
+router.post("/admin/constraints", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createConstraint);
+router.get("/admin/constraints/:itemId", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.getItemConstraints);
+router.delete("/admin/constraints/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteConstraint);
+// LEGACY: Old customization system (mantido para retrocompatibilidade)
+router.post("/admin/customization/product", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createProductCustomization);
+router.post("/admin/customization/additional", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createAdditionalCustomization);
+// Atualizar regras de customização
+router.put("/admin/customization/product/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.updateProductCustomization);
+router.put("/admin/customization/additional/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.updateAdditionalCustomization);
+// Deletar regras de customização
+router.delete("/admin/customization/product/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteProductCustomization);
+router.delete("/admin/customization/additional/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteAdditionalCustomization);
+// Limpar arquivos temporários expirados (CRON)
+router.post("/admin/customization/cleanup", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.cleanupExpiredFiles);
 exports.default = router;

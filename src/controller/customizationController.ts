@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import customizationService from "../services/customizationService";
+import previewService from "../services/previewService";
+import constraintService from "../services/constraintService";
 
 class CustomizationController {
   /**
@@ -351,6 +353,291 @@ class CustomizationController {
       console.error("Erro ao limpar arquivos expirados:", error);
       res.status(500).json({
         error: "Erro ao limpar arquivos",
+        details: error.message,
+      });
+    }
+  }
+
+  // ================ NEW: UNIFIED ENDPOINTS ================
+
+  /**
+   * Buscar customizações por ID de referência (unificado)
+   * GET /api/customizations/:referenceId
+   */
+  async getCustomizationsByReference(req: Request, res: Response) {
+    try {
+      const { referenceId } = req.params;
+
+      const result = await customizationService.getCustomizationsByReference(
+        referenceId
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Erro ao buscar customizações:", error);
+      res.status(500).json({
+        error: "Erro ao buscar customizações",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Gerar preview de customização
+   * POST /api/customization/preview
+   */
+  async generatePreview(req: Request, res: Response) {
+    try {
+      const { productId, customizationData } = req.body;
+
+      // Validar dados
+      const validation = previewService.validatePreviewData({
+        productId,
+        customizationData,
+      });
+
+      if (!validation.valid) {
+        return res.status(400).json({
+          error: "Dados inválidos",
+          details: validation.errors,
+        });
+      }
+
+      const preview = await previewService.generatePreview({
+        productId,
+        customizationData,
+      });
+
+      res.json(preview);
+    } catch (error: any) {
+      console.error("Erro ao gerar preview:", error);
+      res.status(500).json({
+        error: "Erro ao gerar preview",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Servir arquivo temporário para preview
+   * GET /api/temp-files/:fileId
+   */
+  async serveTempFile(req: Request, res: Response) {
+    try {
+      const { fileId } = req.params;
+
+      const fileData = await previewService.serveTempFile(fileId);
+
+      if (!fileData) {
+        return res.status(404).json({
+          error: "Arquivo não encontrado ou expirado",
+        });
+      }
+
+      res.setHeader("Content-Type", fileData.mimeType);
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${fileData.fileName}"`
+      );
+      res.sendFile(fileData.filePath);
+    } catch (error: any) {
+      console.error("Erro ao servir arquivo temporário:", error);
+      res.status(500).json({
+        error: "Erro ao servir arquivo",
+        details: error.message,
+      });
+    }
+  }
+
+  // ================ NEW: PRODUCT RULE ADMIN ENDPOINTS ================
+
+  /**
+   * Criar regra de customização (novo sistema)
+   * POST /api/admin/customization/rule
+   */
+  async createProductRule(req: Request, res: Response) {
+    try {
+      const data = req.body;
+
+      const rule = await customizationService.createProductRule(data);
+
+      res.status(201).json(rule);
+    } catch (error: any) {
+      console.error("Erro ao criar regra de customização:", error);
+      res.status(500).json({
+        error: "Erro ao criar regra",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Atualizar regra de customização
+   * PUT /api/admin/customization/rule/:id
+   */
+  async updateProductRule(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const data = req.body;
+
+      const rule = await customizationService.updateProductRule(id, data);
+
+      res.json(rule);
+    } catch (error: any) {
+      console.error("Erro ao atualizar regra:", error);
+      res.status(500).json({
+        error: "Erro ao atualizar regra",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Deletar regra de customização
+   * DELETE /api/admin/customization/rule/:id
+   */
+  async deleteProductRule(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      await customizationService.deleteProductRule(id);
+
+      res.json({
+        message: "Regra deletada com sucesso",
+      });
+    } catch (error: any) {
+      console.error("Erro ao deletar regra:", error);
+      res.status(500).json({
+        error: "Erro ao deletar regra",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Validar regras de customização
+   * POST /api/customization/validate
+   */
+  async validateCustomizations(req: Request, res: Response) {
+    try {
+      const { productId, customizations } = req.body;
+
+      if (!productId) {
+        return res.status(400).json({
+          error: "ID do produto é obrigatório",
+        });
+      }
+
+      const validation = await customizationService.validateProductRules(
+        productId,
+        customizations || []
+      );
+
+      res.json(validation);
+    } catch (error: any) {
+      console.error("Erro ao validar customizações:", error);
+      res.status(500).json({
+        error: "Erro ao validar customizações",
+        details: error.message,
+      });
+    }
+  }
+
+  // ================ ITEM CONSTRAINTS ENDPOINTS ================
+
+  /**
+   * Criar restrição entre itens
+   * POST /api/admin/constraints
+   */
+  async createConstraint(req: Request, res: Response) {
+    try {
+      const data = req.body;
+
+      const constraint = await constraintService.createConstraint(data);
+
+      res.status(201).json(constraint);
+    } catch (error: any) {
+      console.error("Erro ao criar restrição:", error);
+      res.status(500).json({
+        error: "Erro ao criar restrição",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Listar restrições de um item
+   * GET /api/admin/constraints/:itemId
+   */
+  async getItemConstraints(req: Request, res: Response) {
+    try {
+      const { itemId } = req.params;
+      const { itemType } = req.query;
+
+      if (!itemType || (itemType !== "PRODUCT" && itemType !== "ADDITIONAL")) {
+        return res.status(400).json({
+          error: "itemType inválido. Use 'PRODUCT' ou 'ADDITIONAL'",
+        });
+      }
+
+      const constraints = await constraintService.getItemConstraints(
+        itemId,
+        itemType as "PRODUCT" | "ADDITIONAL"
+      );
+
+      res.json(constraints);
+    } catch (error: any) {
+      console.error("Erro ao buscar restrições:", error);
+      res.status(500).json({
+        error: "Erro ao buscar restrições",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Validar restrições do carrinho
+   * POST /api/constraints/validate
+   */
+  async validateCartConstraints(req: Request, res: Response) {
+    try {
+      const { items } = req.body;
+
+      if (!Array.isArray(items)) {
+        return res.status(400).json({
+          error: "Items deve ser um array",
+        });
+      }
+
+      const validation = await constraintService.validateItemConstraints(items);
+
+      res.json(validation);
+    } catch (error: any) {
+      console.error("Erro ao validar restrições:", error);
+      res.status(500).json({
+        error: "Erro ao validar restrições do carrinho",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * Deletar restrição
+   * DELETE /api/admin/constraints/:id
+   */
+  async deleteConstraint(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      await constraintService.deleteConstraint(id);
+
+      res.json({
+        message: "Restrição deletada com sucesso",
+      });
+    } catch (error: any) {
+      console.error("Erro ao deletar restrição:", error);
+      res.status(500).json({
+        error: "Erro ao deletar restrição",
         details: error.message,
       });
     }

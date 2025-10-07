@@ -5,25 +5,39 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const localStorage_1 = require("../config/localStorage");
 const prisma_1 = __importDefault(require("../database/prisma"));
+const prismaRetry_1 = require("../database/prismaRetry");
 class AdditionalService {
     async getAllAdditionals(includeProducts = false) {
         try {
-            const results = await prisma_1.default.additional.findMany({
-                include: includeProducts
-                    ? {
-                        products: {
-                            include: {
-                                product: {
-                                    select: { id: true, name: true },
-                                },
-                            },
-                            where: { is_active: true },
+            const results = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findMany({
+                include: {
+                    colors: {
+                        include: {
+                            color: true,
                         },
-                    }
-                    : undefined,
-            });
+                    },
+                    ...(includeProducts
+                        ? {
+                            products: {
+                                include: {
+                                    product: {
+                                        select: { id: true, name: true },
+                                    },
+                                },
+                                where: { is_active: true },
+                            },
+                        }
+                        : {}),
+                },
+            }));
             return results.map((r) => ({
                 ...r,
+                colors: r.colors?.map((c) => ({
+                    color_id: c.color.id,
+                    color_name: c.color.name,
+                    color_hex_code: c.color.hex_code,
+                    stock_quantity: c.stock_quantity,
+                })),
                 compatible_products: r.products?.map((p) => ({
                     product_id: p.product.id,
                     product_name: p.product.name,
@@ -41,26 +55,39 @@ class AdditionalService {
             throw new Error("ID do adicional é obrigatório");
         }
         try {
-            const r = await prisma_1.default.additional.findUnique({
+            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findUnique({
                 where: { id },
-                include: includeProducts
-                    ? {
-                        products: {
-                            include: {
-                                product: {
-                                    select: { id: true, name: true },
-                                },
-                            },
-                            where: { is_active: true },
+                include: {
+                    colors: {
+                        include: {
+                            color: true,
                         },
-                    }
-                    : undefined,
-            });
+                    },
+                    ...(includeProducts
+                        ? {
+                            products: {
+                                include: {
+                                    product: {
+                                        select: { id: true, name: true },
+                                    },
+                                },
+                                where: { is_active: true },
+                            },
+                        }
+                        : {}),
+                },
+            }));
             if (!r) {
                 throw new Error("Adicional não encontrado");
             }
             return {
                 ...r,
+                colors: r.colors?.map((c) => ({
+                    color_id: c.color.id,
+                    color_name: c.color.name,
+                    color_hex_code: c.color.hex_code,
+                    stock_quantity: c.stock_quantity,
+                })),
                 compatible_products: r.products?.map((p) => ({
                     product_id: p.product.id,
                     product_name: p.product.name,
@@ -88,9 +115,15 @@ class AdditionalService {
                 name: data.name,
                 description: data.description,
                 price: this.normalizePrice(data.price),
+                discount: data.discount || 0,
                 image_url: data.image_url,
+                stock_quantity: data.stock_quantity || 0,
             };
-            const r = await prisma_1.default.additional.create({ data: payload });
+            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.create({ data: payload }));
+            // Vincular cores se fornecido
+            if (data.colors && data.colors.length > 0) {
+                await this.linkColors(r.id, data.colors);
+            }
             // Vincular aos produtos se fornecido
             if (data.compatible_products && data.compatible_products.length > 0) {
                 const normalizedProducts = this.normalizeCompatibleProducts(data.compatible_products);
@@ -119,16 +152,31 @@ class AdditionalService {
                 payload.description = data.description;
             if (data.price !== undefined)
                 payload.price = this.normalizePrice(data.price);
+            if (data.discount !== undefined)
+                payload.discount = data.discount;
             if (data.image_url !== undefined)
                 payload.image_url = data.image_url;
-            const r = await prisma_1.default.additional.update({
+            if (data.stock_quantity !== undefined)
+                payload.stock_quantity = data.stock_quantity;
+            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.update({
                 where: { id },
                 data: payload,
-            });
-            if (data.compatible_products !== undefined) {
-                await prisma_1.default.productAdditional.deleteMany({
+            }));
+            // Atualizar cores se fornecido
+            if (data.colors !== undefined) {
+                // Remove todas as cores atuais
+                await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additionalColor.deleteMany({
                     where: { additional_id: id },
-                });
+                }));
+                // Adiciona as novas cores
+                if (data.colors.length > 0) {
+                    await this.linkColors(id, data.colors);
+                }
+            }
+            if (data.compatible_products !== undefined) {
+                await (0, prismaRetry_1.withRetry)(() => prisma_1.default.productAdditional.deleteMany({
+                    where: { additional_id: id },
+                }));
                 if (data.compatible_products.length > 0) {
                     const normalizedProducts = this.normalizeCompatibleProducts(data.compatible_products);
                     await this.linkToProducts(id, normalizedProducts);
@@ -369,6 +417,28 @@ class AdditionalService {
         }
         // Caso contrário, já está no formato correto
         return products;
+    }
+    // Método para vincular cores ao adicional
+    async linkColors(additionalId, colors) {
+        // Verificar se as cores existem
+        const validColors = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.colors.findMany({
+            where: { id: { in: colors.map((c) => c.color_id) } },
+            select: { id: true },
+        }));
+        const validColorIds = new Set(validColors.map((c) => c.id));
+        const dataToInsert = colors
+            .filter((c) => validColorIds.has(c.color_id))
+            .map((c) => ({
+            additional_id: additionalId,
+            color_id: c.color_id,
+            stock_quantity: c.stock_quantity || 0,
+        }));
+        if (dataToInsert.length > 0) {
+            await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additionalColor.createMany({
+                data: dataToInsert,
+                skipDuplicates: true,
+            }));
+        }
     }
     normalizePrice(price) {
         if (typeof price === "string") {

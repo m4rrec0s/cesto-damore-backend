@@ -56,9 +56,17 @@ model Product {
 }
 
 model ProductType {
-  id       String    @id @default(uuid())
-  name     String
+  id             String   @id @default(uuid())
+  name           String
+  category       String   @default("MODELO_PRONTO") // "PERSONALIZADA" ou "MODELO_PRONTO"
+  delivery_type  String   @default("PRONTA_ENTREGA") // "PRONTA_ENTREGA" ou "PRAZO_24H"
+  stock_quantity Int?
+  has_3d_preview Boolean  @default(false)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @default(now()) @updatedAt
+
   products Product[]
+  rules    ProductRule[]
 }
 
 model Category {
@@ -386,4 +394,42 @@ model TemporaryCustomizationFile {
 
   @@index([session_id])
   @@index([expires_at])
+}
+
+// ================ NEW REFACTORED CUSTOMIZATION MODELS ================
+
+model ProductRule {
+  id                String   @id @default(uuid())
+  product_type_id   String
+  rule_type         String // "PHOTO_UPLOAD", "TEXT_INPUT", "OPTION_SELECT", "ITEM_SUBSTITUTION"
+  title             String
+  description       String?
+  required          Boolean  @default(false)
+  max_items         Int?
+  conflict_with     String? // JSON array de IDs de regras conflitantes
+  dependencies      String? // JSON array de IDs de regras dependentes
+  available_options String? // JSON com opções disponíveis
+  preview_image_url String?
+  display_order     Int      @default(0)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  productType ProductType @relation(fields: [product_type_id], references: [id], onDelete: Cascade)
+
+  @@index([product_type_id])
+}
+
+model ItemConstraint {
+  id                String   @id @default(uuid())
+  target_item_id    String // ID do produto ou adicional principal
+  target_item_type  String // "PRODUCT" ou "ADDITIONAL"
+  constraint_type   String // "MUTUALLY_EXCLUSIVE" ou "REQUIRES"
+  related_item_id   String // ID do item relacionado
+  related_item_type String // "PRODUCT" ou "ADDITIONAL"
+  message           String? // Mensagem de erro/alerta
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@index([target_item_id])
+  @@index([related_item_id])
 }

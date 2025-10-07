@@ -7,6 +7,8 @@ exports.PaymentService = void 0;
 const mercadopago_1 = require("../config/mercadopago");
 const prisma_1 = __importDefault(require("../database/prisma"));
 const mercadoPagoDirectService_1 = require("./mercadoPagoDirectService");
+const whatsappService_1 = __importDefault(require("./whatsappService"));
+const customizationService_1 = __importDefault(require("./customizationService"));
 const roundCurrency = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 const normalizeOrderPaymentMethod = (method) => {
     if (!method)
@@ -426,6 +428,16 @@ class PaymentService {
      */
     static async processWebhookNotification(data, headers) {
         try {
+            // Detectar webhook de teste do Mercado Pago
+            const isTestWebhook = data.live_mode === false && data.data?.id === "123456";
+            if (isTestWebhook) {
+                console.log("✅ Webhook de teste do Mercado Pago recebido e aceito");
+                console.log("📝 Configuração de webhook validada com sucesso!");
+                return {
+                    success: true,
+                    message: "Test webhook received successfully",
+                };
+            }
             // Validar webhook (opcional mas recomendado)
             if (mercadopago_1.mercadoPagoConfig.security.enableWebhookValidation) {
                 const isValid = this.validateWebhook(data, headers);
@@ -519,6 +531,16 @@ class PaymentService {
                 });
                 // Atualizar resumo financeiro
                 await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
+                // � PROCESSAR CUSTOMIZAÇÕES (Upload para Google Drive)
+                try {
+                    await customizationService_1.default.processOrderCustomizations(dbPayment.order_id);
+                }
+                catch (error) {
+                    console.error("⚠️ Erro ao processar customizações, mas pedido foi aprovado:", error);
+                    // Não bloquear o fluxo se houver erro nas customizações
+                }
+                // �🎉 ENVIAR NOTIFICAÇÃO WHATSAPP DE PEDIDO CONFIRMADO
+                await this.sendOrderConfirmationNotification(dbPayment.order_id);
             }
             // Atualizar status do pedido se pagamento cancelado/rejeitado
             if (["cancelled", "rejected"].includes(paymentInfo.status)) {
@@ -539,6 +561,123 @@ class PaymentService {
     static async processMerchantOrderNotification(merchantOrderId) {
         // Implementar se necessário
         console.log("Processando merchant order:", merchantOrderId);
+    }
+    /**
+     * Envia notificação WhatsApp de pedido confirmado
+     */
+    static async sendOrderConfirmationNotification(orderId) {
+        try {
+            // Buscar dados completos do pedido
+            const order = await prisma_1.default.order.findUnique({
+                where: { id: orderId },
+                include: {
+                    user: true,
+                    items: {
+                        include: {
+                            product: true,
+                            additionals: {
+                                include: {
+                                    additional: true,
+                                },
+                            },
+                        },
+                    },
+                    payment: true,
+                },
+            });
+            if (!order) {
+                console.error("Pedido não encontrado:", orderId);
+                return;
+            }
+            // Preparar lista de itens
+            const items = [];
+            // 🎨 BUSCAR CUSTOMIZAÇÕES COM GOOGLE DRIVE (se existirem)
+            let googleDriveUrl;
+            try {
+                const customizations = await prisma_1.default.orderItemCustomization.findFirst({
+                    where: {
+                        order_item_id: {
+                            in: order.items.map((item) => item.id),
+                        },
+                        google_drive_url: {
+                            not: null,
+                        },
+                    },
+                    select: {
+                        google_drive_url: true,
+                    },
+                });
+                if (customizations?.google_drive_url) {
+                    googleDriveUrl = customizations.google_drive_url;
+                }
+            }
+            catch (error) {
+                // Se tabela não existe ainda (migration não rodada), ignorar
+                console.log("⚠️ Tabela de customizações ainda não existe");
+            }
+            order.items.forEach((item) => {
+                // Adicionar produto
+                items.push({
+                    name: item.product.name,
+                    quantity: item.quantity,
+                    price: Number(item.price),
+                });
+                // Adicionar adicionais
+                item.additionals.forEach((additional) => {
+                    items.push({
+                        name: additional.additional.name,
+                        quantity: additional.quantity,
+                        price: Number(additional.price),
+                    });
+                });
+            });
+            // Preparar dados para notificação
+            const orderData = {
+                orderId: order.id,
+                orderNumber: order.id.substring(0, 8).toUpperCase(),
+                totalAmount: Number(order.grand_total || order.total || 0),
+                paymentMethod: order.payment_method || "Não informado",
+                items,
+                googleDriveUrl, // 🎨 ADICIONAR LINK DO GOOGLE DRIVE
+                customer: {
+                    name: order.user.name,
+                    email: order.user.email,
+                    phone: order.user.phone || undefined,
+                },
+                delivery: order.delivery_address
+                    ? {
+                        address: order.delivery_address,
+                        city: order.user.city || "",
+                        state: order.user.state || "",
+                        zipCode: order.user.zip_code || "",
+                        date: order.delivery_date || undefined,
+                    }
+                    : undefined,
+            };
+            // Enviar notificação para o GRUPO (admin)
+            await whatsappService_1.default.sendOrderConfirmationNotification(orderData);
+            // Enviar notificação para o CLIENTE (se tiver telefone)
+            if (order.user.phone) {
+                await whatsappService_1.default.sendCustomerOrderConfirmation(order.user.phone, {
+                    orderId: order.id,
+                    orderNumber: order.id.substring(0, 8).toUpperCase(),
+                    totalAmount: Number(order.grand_total || order.total || 0),
+                    paymentMethod: order.payment_method || "Não informado",
+                    items,
+                    googleDriveUrl, // 🎨 ADICIONAR LINK DO GOOGLE DRIVE
+                    delivery: order.delivery_address
+                        ? {
+                            address: order.delivery_address,
+                            date: order.delivery_date || undefined,
+                        }
+                        : undefined,
+                });
+            }
+        }
+        catch (error) {
+            console.error("Erro ao enviar notificação de pedido confirmado:", error.message);
+            // Não interrompe o fluxo se notificação falhar
+        }
     }
     /**
      * Atualiza resumo financeiro diário

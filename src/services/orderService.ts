@@ -1,5 +1,24 @@
 import prisma from "../database/prisma";
 import stockService from "./stockService";
+import whatsappService from "./whatsappService";
+
+const ORDER_STATUSES = [
+  "PENDING",
+  "PAID",
+  "SHIPPED",
+  "DELIVERED",
+  "CANCELED",
+] as const;
+
+type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+interface OrderFilter {
+  status?: string;
+}
+
+interface UpdateStatusOptions {
+  notifyCustomer?: boolean;
+}
 
 type CreateOrderItem = {
   product_id: string;
@@ -41,12 +60,63 @@ function normalizeText(value: string) {
 }
 
 class OrderService {
-  async getAllOrders() {
+  private normalizeStatus(status: string): OrderStatus {
+    const normalized = status?.trim().toUpperCase();
+    if (!ORDER_STATUSES.includes(normalized as OrderStatus)) {
+      throw new Error(
+        `Status inválido. Utilize um dos seguintes: ${ORDER_STATUSES.join(
+          ", "
+        )}`
+      );
+    }
+    return normalized as OrderStatus;
+  }
+
+  private buildStatusWhere(filter?: OrderFilter) {
+    if (!filter?.status) return undefined;
+
+    const normalized = filter.status.trim().toLowerCase();
+
+    if (normalized === "open" || normalized === "abertos") {
+      return {
+        in: ["PENDING", "PAID", "SHIPPED"] as OrderStatus[],
+      };
+    }
+
+    if (normalized === "closed" || normalized === "fechados") {
+      return {
+        in: ["DELIVERED", "CANCELED"] as OrderStatus[],
+      };
+    }
+
+    return {
+      equals: this.normalizeStatus(filter.status),
+    };
+  }
+
+  async getAllOrders(filter?: OrderFilter) {
     try {
       return await prisma.order.findMany({
         include: {
-          items: { include: { additionals: true, product: true } },
+          items: {
+            include: {
+              additionals: {
+                include: {
+                  additional: true,
+                },
+              },
+              product: true,
+              customizations: true,
+            },
+          },
           user: true,
+          payment: true,
+        },
+        where: {
+          status: this.buildStatusWhere(filter),
+        },
+        orderBy: {
+          created_at: "desc",
         },
       });
     } catch (error: any) {
@@ -343,6 +413,121 @@ class OrderService {
 
   async remove(id: string) {
     return this.deleteOrder(id);
+  }
+
+  async updateOrderStatus(
+    id: string,
+    newStatus: string,
+    options: UpdateStatusOptions = {}
+  ) {
+    if (!id) {
+      throw new Error("ID do pedido é obrigatório");
+    }
+
+    const normalizedStatus = this.normalizeStatus(newStatus);
+
+    const current = await prisma.order.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+
+    if (!current) {
+      throw new Error("Pedido não encontrado");
+    }
+
+    // Se status não mudou, apenas retorna o pedido completo
+    if (current.status === normalizedStatus) {
+      return prisma.order.findUnique({
+        where: { id },
+        include: {
+          items: {
+            include: {
+              additionals: {
+                include: {
+                  additional: true,
+                },
+              },
+              product: true,
+              customizations: true,
+            },
+          },
+          user: true,
+          payment: true,
+        },
+      });
+    }
+
+    const updated = await prisma.order.update({
+      where: { id },
+      data: {
+        status: normalizedStatus,
+      },
+      include: {
+        items: {
+          include: {
+            additionals: {
+              include: {
+                additional: true,
+              },
+            },
+            product: true,
+            customizations: true,
+          },
+        },
+        user: true,
+        payment: true,
+      },
+    });
+
+    if (options.notifyCustomer !== false) {
+      try {
+        const driveLink = updated.items
+          .flatMap((item) => item.customizations || [])
+          .find((custom) => custom.google_drive_url)?.google_drive_url;
+
+        const totalAmount =
+          typeof updated.grand_total === "number"
+            ? updated.grand_total
+            : updated.total;
+
+        await whatsappService.sendOrderStatusUpdateNotification(
+          {
+            orderId: updated.id,
+            orderNumber: updated.id.substring(0, 8).toUpperCase(),
+            totalAmount,
+            paymentMethod:
+              updated.payment_method ||
+              updated.payment?.payment_method ||
+              "Não informado",
+            items: updated.items.map((item) => ({
+              name: item.product.name,
+              quantity: item.quantity,
+              price: item.price,
+            })),
+            customer: {
+              name: updated.user.name,
+              email: updated.user.email,
+              phone: updated.user.phone || undefined,
+            },
+            delivery: updated.delivery_address
+              ? {
+                  address: updated.delivery_address,
+                  date: updated.delivery_date || undefined,
+                }
+              : undefined,
+            googleDriveUrl: driveLink || undefined,
+          },
+          normalizedStatus
+        );
+      } catch (error) {
+        console.error(
+          "⚠️ Erro ao enviar notificação de atualização de pedido:",
+          (error as Error).message
+        );
+      }
+    }
+
+    return updated;
   }
 }
 

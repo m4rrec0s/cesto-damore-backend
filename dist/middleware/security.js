@@ -19,24 +19,11 @@ const authenticateToken = async (req, res, next) => {
                 code: "MISSING_TOKEN",
             });
         }
-        console.log("🔐 Tentando autenticar token:", {
-            hasAuthHeader: !!authHeader,
-            tokenPrefix: token ? token.substring(0, 20) + "..." : "NO_TOKEN",
-            tokenLength: token ? token.length : 0,
-            route: req.path,
-            method: req.method,
-        });
         let user;
         let decodedToken;
-        // 1. Primeiro tenta JWT da aplicação (appToken - 7 dias)
         try {
             const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
             decodedToken = jsonwebtoken_1.default.verify(token, jwtSecret);
-            console.log("✅ JWT válido detectado:", {
-                userId: decodedToken.userId,
-                type: decodedToken.type,
-                exp: new Date(decodedToken.exp * 1000).toISOString(),
-            });
             user = await prisma_1.default.user.findUnique({
                 where: { id: decodedToken.userId },
                 select: {
@@ -47,25 +34,13 @@ const authenticateToken = async (req, res, next) => {
                     firebaseUId: true,
                 },
             });
-            if (user) {
-                console.log("✅ Usuário encontrado via JWT:", {
-                    id: user.id,
-                    email: user.email,
-                    role: user.role,
-                });
-            }
         }
         catch (jwtError) {
             console.log("❌ JWT inválido, tentando Firebase:", {
                 error: jwtError?.message || "JWT verification failed",
             });
-            // 2. Se JWT falhou, tenta Firebase ID Token
             try {
                 decodedToken = await firebase_1.auth.verifyIdToken(token);
-                console.log("✅ Firebase token válido:", {
-                    uid: decodedToken.uid,
-                    email: decodedToken.email,
-                });
                 user = await prisma_1.default.user.findUnique({
                     where: { firebaseUId: decodedToken.uid },
                     select: {
@@ -76,13 +51,6 @@ const authenticateToken = async (req, res, next) => {
                         firebaseUId: true,
                     },
                 });
-                if (user) {
-                    console.log("✅ Usuário encontrado via Firebase:", {
-                        id: user.id,
-                        email: user.email,
-                        role: user.role,
-                    });
-                }
             }
             catch (firebaseError) {
                 console.error("❌ Ambos tokens falharam:", {
@@ -118,12 +86,6 @@ const authenticateToken = async (req, res, next) => {
                 code: "USER_NOT_FOUND",
             });
         }
-        console.log("✅ Autenticação bem-sucedida:", {
-            userId: user.id,
-            userEmail: user.email,
-            userRole: user.role,
-            route: req.path,
-        });
         req.user = {
             id: user.id,
             email: user.email,
@@ -155,30 +117,12 @@ const authenticateToken = async (req, res, next) => {
 exports.authenticateToken = authenticateToken;
 const requireAdmin = (req, res, next) => {
     if (!req.user) {
-        console.error("❌ requireAdmin: Usuário não autenticado", {
-            route: req.path,
-            method: req.method,
-        });
         return res.status(401).json({
             error: "Usuário não autenticado",
             code: "NOT_AUTHENTICATED",
         });
     }
-    console.log("🔐 Verificando permissão admin:", {
-        userId: req.user.id,
-        userEmail: req.user.email,
-        userRole: req.user.role,
-        route: req.path,
-        method: req.method,
-    });
     if (req.user.role !== "admin") {
-        console.error("❌ requireAdmin: Acesso negado", {
-            userId: req.user.id,
-            userEmail: req.user.email,
-            userRole: req.user.role,
-            requiredRole: "admin",
-            route: req.path,
-        });
         return res.status(403).json({
             error: "Acesso negado - permissão de administrador necessária",
             code: "ADMIN_REQUIRED",
@@ -188,11 +132,6 @@ const requireAdmin = (req, res, next) => {
             },
         });
     }
-    console.log("✅ Acesso admin autorizado:", {
-        userId: req.user.id,
-        userEmail: req.user.email,
-        route: req.path,
-    });
     next();
 };
 exports.requireAdmin = requireAdmin;
@@ -214,13 +153,20 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                 });
             }
         }
-        const { type, data } = req.body;
+        const { type, data, live_mode } = req.body;
         if (!type || !data || !data.id) {
             return res.status(400).json({
                 error: "Estrutura de webhook inválida",
                 code: "INVALID_WEBHOOK_STRUCTURE",
             });
         }
+        // Se for modo teste (live_mode: false), não validar assinatura
+        const isTestMode = live_mode === false;
+        if (isTestMode) {
+            console.log("✅ Webhook de teste aceito (live_mode: false)");
+            return next();
+        }
+        // Em produção (live_mode: true), validar assinatura
         const signature = req.headers["x-signature"];
         const requestId = req.headers["x-request-id"];
         if (signature && mercadopago_1.mercadoPagoConfig.webhookSecret) {

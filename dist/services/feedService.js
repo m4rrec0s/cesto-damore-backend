@@ -4,20 +4,21 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
+const prismaRetry_1 = require("../database/prismaRetry");
 const Feed_1 = require("../models/Feed");
 const localStorage_1 = require("../config/localStorage");
 class FeedService {
     // ============== FEED CONFIGURATION METHODS ==============
     async getAllFeedConfigurations() {
         try {
-            const configurations = await prisma_1.default.feedConfiguration.findMany({
+            const configurations = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.feedConfiguration.findMany({
                 include: {
                     banners: {
                         where: { is_active: true },
                         orderBy: { display_order: "asc" },
                     },
                     sections: {
-                        where: { is_active: true },
+                        where: { is_visible: true },
                         orderBy: { display_order: "asc" },
                         include: {
                             items: {
@@ -27,7 +28,7 @@ class FeedService {
                     },
                 },
                 orderBy: { created_at: "desc" },
-            });
+            }));
             return configurations.map((config) => this.formatFeedConfigurationResponse(config));
         }
         catch (error) {
@@ -39,7 +40,7 @@ class FeedService {
             throw new Error("ID da configuração de feed é obrigatório");
         }
         try {
-            const configuration = await prisma_1.default.feedConfiguration.findUnique({
+            const configuration = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.feedConfiguration.findUnique({
                 where: { id },
                 include: {
                     banners: {
@@ -54,7 +55,7 @@ class FeedService {
                         },
                     },
                 },
-            });
+            }));
             if (!configuration) {
                 throw new Error("Configuração de feed não encontrada");
             }
@@ -72,21 +73,12 @@ class FeedService {
             throw new Error("Nome da configuração é obrigatório");
         }
         try {
-            const configuration = await prisma_1.default.feedConfiguration.create({
+            const configuration = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.feedConfiguration.create({
                 data: {
                     name: data.name.trim(),
                     is_active: data.is_active ?? true,
-                    show_banners: data.show_banners ?? true,
-                    show_recommended: data.show_recommended ?? true,
-                    show_discounted: data.show_discounted ?? true,
-                    show_categories: data.show_categories ?? true,
-                    show_additionals: data.show_additionals ?? true,
-                    max_recommended: data.max_recommended ?? 6,
-                    max_discounted: data.max_discounted ?? 4,
-                    max_categories: data.max_categories ?? 8,
-                    max_additionals: data.max_additionals ?? 6,
                 },
-            });
+            }));
             return this.getFeedConfigurationById(configuration.id);
         }
         catch (error) {
@@ -105,24 +97,6 @@ class FeedService {
                 updateData.name = data.name.trim();
             if (data.is_active !== undefined)
                 updateData.is_active = data.is_active;
-            if (data.show_banners !== undefined)
-                updateData.show_banners = data.show_banners;
-            if (data.show_recommended !== undefined)
-                updateData.show_recommended = data.show_recommended;
-            if (data.show_discounted !== undefined)
-                updateData.show_discounted = data.show_discounted;
-            if (data.show_categories !== undefined)
-                updateData.show_categories = data.show_categories;
-            if (data.show_additionals !== undefined)
-                updateData.show_additionals = data.show_additionals;
-            if (data.max_recommended !== undefined)
-                updateData.max_recommended = data.max_recommended;
-            if (data.max_discounted !== undefined)
-                updateData.max_discounted = data.max_discounted;
-            if (data.max_categories !== undefined)
-                updateData.max_categories = data.max_categories;
-            if (data.max_additionals !== undefined)
-                updateData.max_additionals = data.max_additionals;
             await prisma_1.default.feedConfiguration.update({
                 where: { id },
                 data: updateData,
@@ -174,15 +148,10 @@ class FeedService {
                     title: data.title.trim(),
                     subtitle: data.subtitle?.trim(),
                     image_url: data.image_url,
-                    button_text: data.button_text?.trim(),
-                    button_url: data.button_url?.trim(),
-                    background_color: data.background_color ?? "#FFFFFF",
-                    text_color: data.text_color ?? "#000000",
-                    button_color: data.button_color ?? "#007BFF",
+                    link_url: data.link_url?.trim(),
+                    text_color: data.text_color ?? "#FFFFFF",
                     is_active: data.is_active ?? true,
                     display_order: data.display_order ?? 0,
-                    start_date: data.start_date ? new Date(data.start_date) : null,
-                    end_date: data.end_date ? new Date(data.end_date) : null,
                 },
             });
             return banner;
@@ -215,26 +184,14 @@ class FeedService {
                 }
                 updateData.image_url = data.image_url;
             }
-            if (data.button_text !== undefined)
-                updateData.button_text = data.button_text?.trim();
-            if (data.button_url !== undefined)
-                updateData.button_url = data.button_url?.trim();
-            if (data.background_color !== undefined)
-                updateData.background_color = data.background_color;
+            if (data.link_url !== undefined)
+                updateData.link_url = data.link_url?.trim();
             if (data.text_color !== undefined)
                 updateData.text_color = data.text_color;
-            if (data.button_color !== undefined)
-                updateData.button_color = data.button_color;
             if (data.is_active !== undefined)
                 updateData.is_active = data.is_active;
             if (data.display_order !== undefined)
                 updateData.display_order = data.display_order;
-            if (data.start_date !== undefined)
-                updateData.start_date = data.start_date
-                    ? new Date(data.start_date)
-                    : null;
-            if (data.end_date !== undefined)
-                updateData.end_date = data.end_date ? new Date(data.end_date) : null;
             const updatedBanner = await prisma_1.default.feedBanner.update({
                 where: { id },
                 data: updateData,
@@ -288,11 +245,9 @@ class FeedService {
                     feed_config_id: data.feed_config_id,
                     title: data.title.trim(),
                     section_type: data.section_type,
-                    is_active: data.is_active ?? true,
+                    is_visible: data.is_visible ?? true,
                     display_order: data.display_order ?? 0,
                     max_items: data.max_items ?? 6,
-                    show_view_all: data.show_view_all ?? true,
-                    view_all_url: data.view_all_url?.trim(),
                 },
             });
             return section;
@@ -317,16 +272,12 @@ class FeedService {
                 updateData.title = data.title.trim();
             if (data.section_type !== undefined)
                 updateData.section_type = data.section_type;
-            if (data.is_active !== undefined)
-                updateData.is_active = data.is_active;
+            if (data.is_visible !== undefined)
+                updateData.is_visible = data.is_visible;
             if (data.display_order !== undefined)
                 updateData.display_order = data.display_order;
             if (data.max_items !== undefined)
                 updateData.max_items = data.max_items;
-            if (data.show_view_all !== undefined)
-                updateData.show_view_all = data.show_view_all;
-            if (data.view_all_url !== undefined)
-                updateData.view_all_url = data.view_all_url?.trim();
             const updatedSection = await prisma_1.default.feedSection.update({
                 where: { id },
                 data: updateData,
@@ -458,23 +409,17 @@ class FeedService {
         try {
             let feedConfig;
             if (configId) {
-                feedConfig = await prisma_1.default.feedConfiguration.findUnique({
+                feedConfig = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.feedConfiguration.findUnique({
                     where: { id: configId, is_active: true },
                     include: {
                         banners: {
                             where: {
                                 is_active: true,
-                                OR: [{ start_date: null }, { start_date: { lte: new Date() } }],
-                                AND: [
-                                    {
-                                        OR: [{ end_date: null }, { end_date: { gte: new Date() } }],
-                                    },
-                                ],
                             },
                             orderBy: { display_order: "asc" },
                         },
                         sections: {
-                            where: { is_active: true },
+                            where: { is_visible: true },
                             orderBy: { display_order: "asc" },
                             include: {
                                 items: {
@@ -483,27 +428,21 @@ class FeedService {
                             },
                         },
                     },
-                });
+                }));
             }
             else {
                 // Pegar a primeira configuração ativa
-                feedConfig = await prisma_1.default.feedConfiguration.findFirst({
+                feedConfig = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.feedConfiguration.findFirst({
                     where: { is_active: true },
                     include: {
                         banners: {
                             where: {
                                 is_active: true,
-                                OR: [{ start_date: null }, { start_date: { lte: new Date() } }],
-                                AND: [
-                                    {
-                                        OR: [{ end_date: null }, { end_date: { gte: new Date() } }],
-                                    },
-                                ],
                             },
                             orderBy: { display_order: "asc" },
                         },
                         sections: {
-                            where: { is_active: true },
+                            where: { is_visible: true },
                             orderBy: { display_order: "asc" },
                             include: {
                                 items: {
@@ -513,7 +452,7 @@ class FeedService {
                         },
                     },
                     orderBy: { created_at: "desc" },
-                });
+                }));
             }
             if (!feedConfig) {
                 throw new Error("Nenhuma configuração de feed ativa encontrada");
@@ -532,17 +471,6 @@ class FeedService {
                 is_active: feedConfig.is_active,
                 banners: feedConfig.banners,
                 sections: enrichedSections,
-                configuration: {
-                    show_banners: feedConfig.show_banners,
-                    show_recommended: feedConfig.show_recommended,
-                    show_discounted: feedConfig.show_discounted,
-                    show_categories: feedConfig.show_categories,
-                    show_additionals: feedConfig.show_additionals,
-                    max_recommended: feedConfig.max_recommended,
-                    max_discounted: feedConfig.max_discounted,
-                    max_categories: feedConfig.max_categories,
-                    max_additionals: feedConfig.max_additionals,
-                },
             };
         }
         catch (error) {
@@ -557,17 +485,6 @@ class FeedService {
             is_active: config.is_active,
             banners: config.banners || [],
             sections: config.sections || [],
-            configuration: {
-                show_banners: config.show_banners,
-                show_recommended: config.show_recommended,
-                show_discounted: config.show_discounted,
-                show_categories: config.show_categories,
-                show_additionals: config.show_additionals,
-                max_recommended: config.max_recommended,
-                max_discounted: config.max_discounted,
-                max_categories: config.max_categories,
-                max_additionals: config.max_additionals,
-            },
         };
     }
     async validateItemExists(itemType, itemId) {
@@ -622,21 +539,21 @@ class FeedService {
     async getItemData(itemType, itemId) {
         switch (itemType) {
             case "product":
-                return await prisma_1.default.product.findUnique({
+                return await (0, prismaRetry_1.withRetry)(() => prisma_1.default.product.findUnique({
                     where: { id: itemId },
                     include: {
                         type: true,
                         categories: { include: { category: true } },
                     },
-                });
+                }));
             case "category":
-                return await prisma_1.default.category.findUnique({
+                return await (0, prismaRetry_1.withRetry)(() => prisma_1.default.category.findUnique({
                     where: { id: itemId },
-                });
+                }));
             case "additional":
-                return await prisma_1.default.additional.findUnique({
+                return await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findUnique({
                     where: { id: itemId },
-                });
+                }));
             default:
                 return null;
         }
@@ -645,7 +562,7 @@ class FeedService {
         const maxItems = section.max_items || 6;
         switch (section.section_type) {
             case Feed_1.FeedSectionType.RECOMMENDED_PRODUCTS:
-                const recommendedProducts = await prisma_1.default.product.findMany({
+                const recommendedProducts = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.product.findMany({
                     where: { is_active: true },
                     include: {
                         type: true,
@@ -653,7 +570,7 @@ class FeedService {
                     },
                     orderBy: { created_at: "desc" },
                     take: maxItems,
-                });
+                }));
                 return recommendedProducts.map((product, index) => ({
                     id: `auto_${product.id}`,
                     item_type: "product",
@@ -663,7 +580,7 @@ class FeedService {
                     item_data: product,
                 }));
             case Feed_1.FeedSectionType.DISCOUNTED_PRODUCTS:
-                const discountedProducts = await prisma_1.default.product.findMany({
+                const discountedProducts = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.product.findMany({
                     where: {
                         is_active: true,
                         discount: { gt: 0 },
@@ -674,7 +591,7 @@ class FeedService {
                     },
                     orderBy: { discount: "desc" },
                     take: maxItems,
-                });
+                }));
                 return discountedProducts.map((product, index) => ({
                     id: `auto_${product.id}`,
                     item_type: "product",
@@ -684,10 +601,10 @@ class FeedService {
                     item_data: product,
                 }));
             case Feed_1.FeedSectionType.FEATURED_CATEGORIES:
-                const categories = await prisma_1.default.category.findMany({
+                const categories = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.category.findMany({
                     take: maxItems,
                     orderBy: { name: "asc" },
-                });
+                }));
                 return categories.map((category, index) => ({
                     id: `auto_${category.id}`,
                     item_type: "category",
@@ -697,10 +614,10 @@ class FeedService {
                     item_data: category,
                 }));
             case Feed_1.FeedSectionType.FEATURED_ADDITIONALS:
-                const additionals = await prisma_1.default.additional.findMany({
+                const additionals = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findMany({
                     take: maxItems,
                     orderBy: { created_at: "desc" },
-                });
+                }));
                 return additionals.map((additional, index) => ({
                     id: `auto_${additional.id}`,
                     item_type: "additional",
@@ -710,7 +627,7 @@ class FeedService {
                     item_data: additional,
                 }));
             case Feed_1.FeedSectionType.NEW_ARRIVALS:
-                const newProducts = await prisma_1.default.product.findMany({
+                const newProducts = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.product.findMany({
                     where: { is_active: true },
                     include: {
                         type: true,
@@ -718,7 +635,7 @@ class FeedService {
                     },
                     orderBy: { created_at: "desc" },
                     take: maxItems,
-                });
+                }));
                 return newProducts.map((product, index) => ({
                     id: `auto_${product.id}`,
                     item_type: "product",

@@ -31,6 +31,20 @@ interface CustomizationData {
   [key: string]: any;
 }
 
+interface ProductRuleData {
+  product_type_id: string;
+  rule_type: string;
+  title: string;
+  description?: string;
+  required?: boolean;
+  max_items?: number | null;
+  conflict_with?: string[] | null;
+  dependencies?: string[] | null;
+  available_options?: string | null;
+  preview_image_url?: string | null;
+  display_order?: number;
+}
+
 class CustomizationService {
   private tempDir = path.join(process.cwd(), "temp_customizations");
 
@@ -46,6 +60,227 @@ class CustomizationService {
       console.log("📁 Diretório de customizações temporárias criado");
     }
   }
+
+  // ================ NEW: PRODUCT RULE METHODS ================
+
+  /**
+   * Cria uma nova regra de customização (novo sistema)
+   */
+  async createProductRule(data: ProductRuleData) {
+    return prisma.productRule.create({
+      data: {
+        ...data,
+        conflict_with: data.conflict_with
+          ? JSON.stringify(data.conflict_with)
+          : null,
+        dependencies: data.dependencies
+          ? JSON.stringify(data.dependencies)
+          : null,
+      },
+    });
+  }
+
+  /**
+   * Busca regras de customização por tipo de produto
+   */
+  async getProductRulesByType(productTypeId: string) {
+    const rules = await prisma.productRule.findMany({
+      where: { product_type_id: productTypeId },
+      orderBy: { display_order: "asc" },
+    });
+
+    return rules.map((rule) => ({
+      ...rule,
+      conflict_with: rule.conflict_with ? JSON.parse(rule.conflict_with) : null,
+      dependencies: rule.dependencies ? JSON.parse(rule.dependencies) : null,
+      available_options: rule.available_options
+        ? JSON.parse(rule.available_options)
+        : null,
+    }));
+  }
+
+  /**
+   * Busca regras de customização por ID de referência unificado
+   * (Pode ser productId ou additionalId)
+   */
+  async getCustomizationsByReference(referenceId: string) {
+    // Primeiro tenta buscar como produto
+    const product = await prisma.product.findUnique({
+      where: { id: referenceId },
+      include: { type: true },
+    });
+
+    if (product) {
+      // Buscar regras do tipo de produto
+      const productRules = await this.getProductRulesByType(product.type_id);
+
+      // Buscar regras antigas (retrocompatibilidade)
+      const oldRules = await this.getProductCustomizations(referenceId);
+
+      return {
+        type: "product" as const,
+        rules: productRules,
+        legacy_rules: oldRules,
+      };
+    }
+
+    // Se não for produto, tenta buscar como adicional
+    const additional = await prisma.additional.findUnique({
+      where: { id: referenceId },
+    });
+
+    if (additional) {
+      // Por enquanto adicionais ainda usam sistema antigo
+      const oldRules = await this.getAdditionalCustomizations(referenceId);
+      return {
+        type: "additional" as const,
+        rules: [],
+        legacy_rules: oldRules,
+      };
+    }
+
+    return {
+      type: null,
+      rules: [],
+      legacy_rules: [],
+    };
+  }
+
+  /**
+   * Atualiza uma regra de customização
+   */
+  async updateProductRule(id: string, data: Partial<ProductRuleData>) {
+    const updateData: any = { ...data };
+
+    if (data.conflict_with) {
+      updateData.conflict_with = JSON.stringify(data.conflict_with);
+    }
+    if (data.dependencies) {
+      updateData.dependencies = JSON.stringify(data.dependencies);
+    }
+
+    return prisma.productRule.update({
+      where: { id },
+      data: updateData,
+    });
+  }
+
+  /**
+   * Deleta uma regra de customização
+   */
+  async deleteProductRule(id: string) {
+    return prisma.productRule.delete({
+      where: { id },
+    });
+  }
+
+  /**
+   * Valida regras de customização aplicadas
+   */
+  async validateProductRules(
+    productId: string,
+    customizations: any[]
+  ): Promise<{ valid: boolean; errors: string[] }> {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      include: { type: true },
+    });
+
+    if (!product) {
+      return { valid: false, errors: ["Produto não encontrado"] };
+    }
+
+    const rules = await this.getProductRulesByType(product.type_id);
+    const errors: string[] = [];
+
+    // Validar campos obrigatórios
+    for (const rule of rules) {
+      if (rule.required) {
+        const hasCustomization = customizations.some(
+          (c) => c.rule_id === rule.id || c.customization_rule_id === rule.id
+        );
+
+        if (!hasCustomization) {
+          errors.push(`Campo obrigatório não preenchido: ${rule.title}`);
+        }
+      }
+    }
+
+    // Validar max_items
+    for (const customization of customizations) {
+      const rule = rules.find(
+        (r) =>
+          r.id === customization.rule_id ||
+          r.id === customization.customization_rule_id
+      );
+
+      if (rule && rule.max_items && customization.data) {
+        const dataObj =
+          typeof customization.data === "string"
+            ? JSON.parse(customization.data)
+            : customization.data;
+
+        if (dataObj.photos && dataObj.photos.length > rule.max_items) {
+          errors.push(
+            `${rule.title}: máximo de ${rule.max_items} itens permitidos`
+          );
+        }
+      }
+    }
+
+    // Validar conflitos
+    const appliedRuleIds = customizations.map(
+      (c) => c.rule_id || c.customization_rule_id
+    );
+
+    for (const customization of customizations) {
+      const rule = rules.find(
+        (r) =>
+          r.id === customization.rule_id ||
+          r.id === customization.customization_rule_id
+      );
+
+      if (rule && rule.conflict_with && Array.isArray(rule.conflict_with)) {
+        const conflictingRules = appliedRuleIds.filter((id: string) =>
+          rule.conflict_with!.includes(id)
+        );
+
+        if (conflictingRules.length > 0) {
+          errors.push(
+            `${rule.title}: conflita com outra customização selecionada`
+          );
+        }
+      }
+    }
+
+    // Validar dependências
+    for (const customization of customizations) {
+      const rule = rules.find(
+        (r) =>
+          r.id === customization.rule_id ||
+          r.id === customization.customization_rule_id
+      );
+
+      if (rule && rule.dependencies && Array.isArray(rule.dependencies)) {
+        const missingDeps = rule.dependencies.filter(
+          (depId: string) => !appliedRuleIds.includes(depId)
+        );
+
+        if (missingDeps.length > 0) {
+          errors.push(
+            `${rule.title}: requer outra customização que não foi selecionada`
+          );
+        }
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  // ================ EXISTING METHODS (Mantidos para retrocompatibilidade) ================
 
   /**
    * Salva arquivo temporariamente no servidor
@@ -276,13 +511,13 @@ class CustomizationService {
       return null;
     }
 
-    // Criar pasta principal localmente
+    // Criar pasta principal no Google Drive
     const folderName = `Pedido_${order.user.name.replace(
       /[^a-zA-Z0-9]/g,
       "_"
     )}_${new Date().toISOString().split("T")[0]}_${orderId.substring(0, 8)}`;
 
-    const mainFolder = await googleDriveService.createFolder(folderName);
+    const folderId = await googleDriveService.createFolder(folderName);
 
     // Processar cada item com customização
     for (const item of order.items) {
@@ -290,19 +525,26 @@ class CustomizationService {
 
       for (const customization of item.customizations) {
         if (customization.customization_type === "PHOTO_UPLOAD") {
-          await this.processPhotoUploadCustomization(
-            customization,
-            mainFolder.id
-          );
+          await this.processPhotoUploadCustomization(customization, folderId);
         }
       }
     }
+
+    // Retornar informações da pasta
+    return {
+      id: folderId,
+      url: googleDriveService.getFolderUrl(folderId),
+    };
 
     console.log(
       `✅ Customizações do pedido ${orderId} processadas com sucesso`
     );
 
-    return mainFolder;
+    // Retornar informações da pasta
+    return {
+      id: folderId,
+      url: googleDriveService.getFolderUrl(folderId),
+    };
   }
 
   /**
@@ -338,11 +580,11 @@ class CustomizationService {
       return;
     }
 
-    // Upload para armazenamento local
+    // Upload para Google Drive
     const uploadedFiles = await googleDriveService.uploadMultipleFiles(
       validFiles.map((tf) => ({
-        filePath: tf!.file_path,
-        fileName: tf!.original_name,
+        path: tf!.file_path,
+        name: tf!.original_name,
       })),
       folderId
     );
@@ -367,7 +609,7 @@ class CustomizationService {
     }
 
     console.log(
-      `📤 ${uploadedFiles.length} foto(s) salva(s) localmente e URL pública gerada`
+      `📤 ${uploadedFiles.length} foto(s) enviada(s) para o Google Drive com sucesso`
     );
   }
 

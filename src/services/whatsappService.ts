@@ -1,6 +1,8 @@
 import axios, { AxiosInstance } from "axios";
 import reportService from "./reportService";
 
+type OrderStatus = "PENDING" | "PAID" | "SHIPPED" | "DELIVERED" | "CANCELED";
+
 interface WhatsAppConfig {
   apiUrl: string;
   apiKey: string;
@@ -543,6 +545,194 @@ class WhatsAppService {
       card: "Cartão",
     };
     return methods[method.toLowerCase()] || method;
+  }
+
+  private formatOrderStatus(status: OrderStatus) {
+    const map: Record<
+      OrderStatus,
+      {
+        label: string;
+        emoji: string;
+        description: string;
+        customerHint: string;
+      }
+    > = {
+      PENDING: {
+        label: "Pagamento Pendente",
+        emoji: "⏳",
+        description: "Pedido aguardando confirmação de pagamento.",
+        customerHint:
+          "Estamos aguardando a confirmação do pagamento para iniciar a preparação.",
+      },
+      PAID: {
+        label: "Pagamento Confirmado",
+        emoji: "✅",
+        description: "Pagamento aprovado, preparar pedido.",
+        customerHint:
+          "Recebemos seu pagamento! Em breve começaremos a montar sua cesta.",
+      },
+      SHIPPED: {
+        label: "Pedido em Rota de Entrega",
+        emoji: "🚚",
+        description: "Pedido saiu para entrega.",
+        customerHint:
+          "Seu pedido está a caminho! Avisaremos assim que a entrega for concluída.",
+      },
+      DELIVERED: {
+        label: "Pedido Entregue",
+        emoji: "🎁",
+        description: "Pedido entregue ao cliente.",
+        customerHint:
+          "Pedido entregue com sucesso! Esperamos que tenha gostado da experiência.",
+      },
+      CANCELED: {
+        label: "Pedido Cancelado",
+        emoji: "❌",
+        description: "Pedido cancelado.",
+        customerHint:
+          "O pedido foi cancelado. Caso tenha dúvidas, estamos à disposição para ajudar.",
+      },
+    };
+
+    return map[status] || map.PENDING;
+  }
+
+  async sendOrderStatusUpdateNotification(
+    orderData: {
+      orderId: string;
+      orderNumber?: string;
+      totalAmount: number;
+      paymentMethod: string;
+      items: Array<{ name: string; quantity: number; price: number }>;
+      customer: {
+        name: string;
+        email: string;
+        phone?: string;
+      };
+      delivery?: {
+        address: string;
+        city?: string;
+        state?: string;
+        date?: Date | string | null;
+      };
+      googleDriveUrl?: string;
+    },
+    newStatus: OrderStatus,
+    options: { notifyCustomer?: boolean; notifyTeam?: boolean } = {}
+  ): Promise<void> {
+    const { notifyCustomer = true, notifyTeam = true } = options;
+
+    if (!notifyCustomer && !notifyTeam) {
+      return;
+    }
+
+    const statusInfo = this.formatOrderStatus(newStatus);
+    const orderLabel =
+      orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase();
+    const totalFormatted = orderData.totalAmount.toFixed(2).replace(".", ",");
+
+    if (notifyTeam && this.isConfigured()) {
+      let message = `${statusInfo.emoji} *Atualização de Pedido* ${statusInfo.emoji}\n\n`;
+      message += `📦 *Pedido:* #${orderLabel}\n`;
+      message += `📊 *Status:* ${statusInfo.label}\n`;
+      message += `💰 *Valor:* R$ ${totalFormatted}\n`;
+      message += `💳 *Pagamento:* ${this.formatPaymentMethod(
+        orderData.paymentMethod
+      )}\n\n`;
+      message += `👤 *Cliente:* ${orderData.customer.name} (${orderData.customer.email})\n`;
+      if (orderData.customer.phone) {
+        message += `📞 ${orderData.customer.phone}\n`;
+      }
+
+      if (orderData.delivery) {
+        message += `\n📍 *Entrega:* ${orderData.delivery.address}`;
+        if (orderData.delivery.city || orderData.delivery.state) {
+          const locationParts = [
+            orderData.delivery.city,
+            orderData.delivery.state,
+          ]
+            .filter(Boolean)
+            .join(" - ");
+          if (locationParts) {
+            message += ` (${locationParts})`;
+          }
+        }
+        if (orderData.delivery.date) {
+          const deliveryDate = new Date(orderData.delivery.date);
+          if (!isNaN(deliveryDate.getTime())) {
+            message += `\n🗓️ ${deliveryDate.toLocaleDateString("pt-BR")}`;
+          }
+        }
+        message += "\n";
+      }
+
+      message += `\n📝 *Itens:*\n`;
+      orderData.items.forEach((item) => {
+        const lineTotal = (item.price * item.quantity)
+          .toFixed(2)
+          .replace(".", ",");
+        message += `• ${item.quantity}x ${item.name} (R$ ${lineTotal})\n`;
+      });
+
+      if (orderData.googleDriveUrl) {
+        message += `\n🎨 *Customizações:* ${orderData.googleDriveUrl}\n`;
+      }
+
+      message += `\n${statusInfo.description}\n`;
+      message += `\n⏰ ${new Date().toLocaleString("pt-BR")}`;
+
+      await this.sendMessage(message);
+    }
+
+    if (notifyCustomer && orderData.customer.phone) {
+      const cleanPhone = orderData.customer.phone.replace(/\D/g, "");
+      const customerPhone = cleanPhone.startsWith("55")
+        ? cleanPhone
+        : `55${cleanPhone}`;
+
+      if (customerPhone.length >= 12) {
+        let message = `${statusInfo.emoji} *Atualização do seu pedido* ${statusInfo.emoji}\n\n`;
+        message += `Olá, ${orderData.customer.name}!\n`;
+        message += `O status do seu pedido #${orderLabel} agora é *${statusInfo.label}*.\n\n`;
+        message += `${statusInfo.customerHint}\n`;
+
+        if (orderData.googleDriveUrl) {
+          message += `\n🎨 Acesse suas customizações: ${orderData.googleDriveUrl}\n`;
+        }
+
+        if (orderData.delivery) {
+          message += `\n📍 Entrega: ${orderData.delivery.address}`;
+          if (orderData.delivery.city || orderData.delivery.state) {
+            const locationParts = [
+              orderData.delivery.city,
+              orderData.delivery.state,
+            ]
+              .filter(Boolean)
+              .join(" - ");
+            if (locationParts) {
+              message += ` (${locationParts})`;
+            }
+          }
+          if (orderData.delivery.date) {
+            const deliveryDate = new Date(orderData.delivery.date);
+            if (!isNaN(deliveryDate.getTime())) {
+              message += `\n🗓️ Data prevista: ${deliveryDate.toLocaleDateString(
+                "pt-BR"
+              )}`;
+            }
+          }
+        }
+
+        message += `\n\nQualquer dúvida, estamos por aqui! ❤️\n`;
+        message += `_Equipe Cesto d'Amore_`;
+
+        await this.sendDirectMessage(customerPhone, message);
+      } else {
+        console.warn(
+          `Telefone do cliente inválido para notificação: ${orderData.customer.phone}`
+        );
+      }
+    }
   }
 }
 

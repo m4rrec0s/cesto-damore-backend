@@ -67,10 +67,45 @@ class GoogleDriveService {
     this.loadSavedTokens();
   }
 
+  private getTokensFromEnv(): OAuth2Credentials | null {
+    const accessToken = process.env.GOOGLE_OAUTH_ACCESS_TOKEN;
+    const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+    const scope = process.env.GOOGLE_OAUTH_SCOPE;
+    const tokenType = process.env.GOOGLE_OAUTH_TOKEN_TYPE;
+    const expiryDateRaw = process.env.GOOGLE_OAUTH_EXPIRY_DATE;
+
+    if (!accessToken && !refreshToken) {
+      return null;
+    }
+
+    const tokens: OAuth2Credentials = {};
+
+    if (accessToken) tokens.access_token = accessToken;
+    if (refreshToken) tokens.refresh_token = refreshToken;
+    if (scope) tokens.scope = scope;
+    if (tokenType) tokens.token_type = tokenType;
+
+    if (expiryDateRaw) {
+      const expiryDateNumber = Number(expiryDateRaw);
+      if (!Number.isNaN(expiryDateNumber)) {
+        tokens.expiry_date = expiryDateNumber;
+      }
+    }
+
+    return tokens;
+  }
+
   /**
    * Carrega tokens OAuth2 salvos do arquivo
    */
   private async loadSavedTokens(): Promise<void> {
+    const envTokens = this.getTokensFromEnv();
+    if (envTokens) {
+      this.oauth2Client.setCredentials(envTokens);
+      console.log("✅ Tokens OAuth2 carregados das variáveis de ambiente");
+      return;
+    }
+
     try {
       const tokenFile = await fs.readFile(this.tokenPath, "utf-8");
       const tokens = JSON.parse(tokenFile);

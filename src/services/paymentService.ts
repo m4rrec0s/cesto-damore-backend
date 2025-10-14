@@ -2,9 +2,10 @@ import { payment, preference, mercadoPagoConfig } from "../config/mercadopago";
 import prisma from "../database/prisma";
 import type { PaymentStatus, Prisma } from "@prisma/client";
 import * as crypto from "crypto-js";
+import { randomUUID } from "crypto";
 import { mercadoPagoDirectService } from "./mercadoPagoDirectService";
 import whatsappService from "./whatsappService";
-import customizationService from "./customizationService";
+import orderCustomizationService from "./orderCustomizationService";
 
 type OrderWithPaymentDetails = Prisma.OrderGetPayload<{
   include: {
@@ -52,6 +53,12 @@ export interface CreatePaymentData {
   paymentMethodId?: "pix" | "credit_card" | "debit_card";
   installments?: number;
   token?: string;
+  // Checkout Transparente - dados do cartão tokenizados
+  cardToken?: string;
+  issuer_id?: string;
+  // Dados do pagador para PIX
+  payerDocument?: string;
+  payerDocumentType?: "CPF" | "CNPJ";
 }
 
 export interface CreatePreferenceData {
@@ -61,6 +68,20 @@ export interface CreatePreferenceData {
   payerName?: string;
   payerPhone?: string;
   externalReference?: string;
+}
+
+export interface ProcessTransparentCheckoutData {
+  orderId: string;
+  userId: string;
+  payerEmail: string;
+  payerName: string;
+  payerDocument: string;
+  payerDocumentType: "CPF" | "CNPJ";
+  paymentMethodId: "pix" | "credit_card" | "debit_card";
+  // Para cartão
+  cardToken?: string;
+  installments?: number;
+  issuer_id?: string;
 }
 
 export class PaymentService {
@@ -209,13 +230,28 @@ export class PaymentService {
         },
       ];
 
-      const paymentMethodsConfig = {
-        default_payment_method_id:
-          orderPaymentMethod === "pix" ? "pix" : "credit_card",
+      // Configurar meios de pagamento aceitos baseado na escolha do pedido
+      const paymentMethodsConfig: any = {
         excluded_payment_methods: [] as { id: string }[],
         excluded_payment_types: [] as { id: string }[],
         installments: orderPaymentMethod === "pix" ? 1 : 12,
       };
+
+      // Excluir meios que não são o escolhido
+      if (orderPaymentMethod === "pix") {
+        // Se escolheu PIX, excluir cartões
+        paymentMethodsConfig.excluded_payment_types.push(
+          { id: "credit_card" },
+          { id: "debit_card" },
+          { id: "ticket" }
+        );
+      } else {
+        // Se escolheu cartão, excluir PIX e outros
+        paymentMethodsConfig.excluded_payment_types.push(
+          { id: "bank_transfer" }, // Exclui PIX
+          { id: "ticket" }
+        );
+      }
 
       // Criar preferência no Mercado Pago
       const preferenceData = {
@@ -283,6 +319,271 @@ export class PaymentService {
           error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
+    }
+  }
+
+  /**
+   * Processa pagamento via Checkout Transparente (pagamento direto)
+   * Usado para processar cartões ou PIX diretamente na aplicação
+   */
+  static async processTransparentCheckout(
+    data: ProcessTransparentCheckoutData
+  ) {
+    try {
+      if (!data.orderId || !data.userId || !data.payerEmail) {
+        throw new Error("Dados obrigatórios não fornecidos");
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(data.payerEmail)) {
+        throw new Error("Email do pagador inválido");
+      }
+
+      // Validar documento
+      if (!data.payerDocument || !data.payerDocumentType) {
+        throw new Error("Documento do pagador é obrigatório");
+      }
+
+      const order = await this.loadOrderWithDetails(data.orderId);
+
+      if (!order) {
+        throw new Error("Pedido não encontrado");
+      }
+
+      if (order.user_id !== data.userId) {
+        throw new Error("Pedido não pertence ao usuário informado");
+      }
+
+      if (!order.items.length) {
+        throw new Error("Pedido não possui itens");
+      }
+
+      const orderPaymentMethod = normalizeOrderPaymentMethod(
+        order.payment_method
+      );
+
+      if (!orderPaymentMethod) {
+        throw new Error("Método de pagamento do pedido inválido");
+      }
+
+      // Verificar se já existe pagamento aprovado
+      if (order.payment) {
+        if (order.payment.status === "APPROVED") {
+          throw new Error("Pedido já possui pagamento aprovado");
+        }
+        if (order.payment.status === "IN_PROCESS") {
+          throw new Error("Pedido já possui pagamento em processamento");
+        }
+      }
+
+      const summary = this.calculateOrderSummary(order);
+      await this.ensureOrderTotalsUpToDate(order, summary);
+
+      // Preparar dados do pagamento
+      const nameParts = (data.payerName || "")
+        .split(/\s+/)
+        .filter((part) => /[\p{L}\p{N}]/u.test(part));
+      const payerFirstName = nameParts[0] || "Cliente";
+      const payerLastName =
+        nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Teste";
+
+      const paymentData: any = {
+        transaction_amount: roundCurrency(summary.grandTotal),
+        description: `Pedido ${order.id.substring(0, 8)} - ${
+          order.items.length
+        } item(s)`,
+        payment_method_id: data.paymentMethodId,
+        payer: {
+          email: data.payerEmail,
+          first_name: payerFirstName,
+          last_name: payerLastName,
+          identification: {
+            type: data.payerDocumentType,
+            number: data.payerDocument.replace(/\D/g, ""),
+          },
+        },
+        external_reference: `ORDER_${data.orderId}_${Date.now()}`,
+        // Notification URL apenas se não for localhost
+        ...(mercadoPagoConfig.baseUrl.includes("localhost")
+          ? {}
+          : {
+              notification_url: `${mercadoPagoConfig.baseUrl}/api/webhook/mercadopago`,
+            }),
+        metadata: {
+          order_id: data.orderId,
+          user_id: data.userId,
+          shipping_price: summary.shipping,
+          discount: summary.discount,
+          payment_method: orderPaymentMethod,
+        },
+      };
+
+      console.log(
+        "📦 Payload preparado para Mercado Pago:",
+        JSON.stringify(paymentData, null, 2)
+      );
+
+      // Configurações específicas por método de pagamento
+      if (data.paymentMethodId === "pix") {
+        // PIX - não precisa de token
+        paymentData.payment_method_id = "pix";
+      } else {
+        // Cartão - necessita token
+        if (!data.cardToken) {
+          throw new Error(
+            "Token do cartão é obrigatório para pagamento com cartão"
+          );
+        }
+
+        // Campos obrigatórios para pagamento com cartão
+        paymentData.token = data.cardToken;
+        paymentData.installments = data.installments || 1;
+
+        // Emissor é obrigatório em alguns casos
+        if (data.issuer_id) {
+          paymentData.issuer_id = data.issuer_id;
+        }
+
+        // Configurar statement descriptor (nome que aparece na fatura)
+        paymentData.statement_descriptor = "CESTO D'AMORE";
+
+        // Log detalhado para debug de pagamento com cartão
+        console.log("💳 Dados do cartão recebidos:", {
+          hasToken: !!data.cardToken,
+          paymentMethodId: data.paymentMethodId,
+          installments: data.installments,
+          hasIssuer: !!data.issuer_id,
+        });
+      }
+
+      // Validações finais antes de enviar
+      console.log("🔍 Validando payload antes de enviar para Mercado Pago...");
+      console.log("Campos obrigatórios:", {
+        transaction_amount: paymentData.transaction_amount,
+        payment_method_id: paymentData.payment_method_id,
+        payer_email: paymentData.payer.email,
+        payer_document_type: paymentData.payer.identification.type,
+        payer_document_number: paymentData.payer.identification.number,
+        has_token: !!paymentData.token,
+        installments: paymentData.installments,
+      });
+
+      // Criar pagamento no Mercado Pago
+      console.log("🔄 Criando pagamento no Mercado Pago...");
+      const idempotencyKey = `${data.paymentMethodId}-${
+        data.orderId
+      }-${randomUUID()}`;
+
+      console.log("📤 Enviando requisição para Mercado Pago...");
+      const paymentResponse = await payment.create({
+        body: paymentData,
+        requestOptions: {
+          idempotencyKey,
+        },
+      });
+      console.log(
+        "✅ Resposta do Mercado Pago:",
+        JSON.stringify(paymentResponse, null, 2)
+      );
+
+      // Salvar pagamento no banco
+      const paymentRecord = await prisma.payment.upsert({
+        where: {
+          order_id: data.orderId,
+        },
+        update: {
+          mercado_pago_id: String(paymentResponse.id),
+          status: this.mapPaymentStatus(paymentResponse.status || "pending"),
+          transaction_amount: summary.grandTotal,
+          payment_method: orderPaymentMethod,
+          external_reference: paymentData.external_reference,
+        },
+        create: {
+          order_id: data.orderId,
+          mercado_pago_id: String(paymentResponse.id),
+          status: this.mapPaymentStatus(paymentResponse.status || "pending"),
+          transaction_amount: summary.grandTotal,
+          payment_method: orderPaymentMethod,
+          external_reference: paymentData.external_reference,
+        },
+      });
+
+      // Se pagamento foi aprovado, atualizar status do pedido
+      if (paymentResponse.status === "approved") {
+        await prisma.order.update({
+          where: { id: data.orderId },
+          data: { status: "PAID" },
+        });
+
+        // Enviar notificação WhatsApp
+        await this.sendOrderConfirmationNotification(data.orderId);
+      }
+
+      return {
+        payment_id: paymentResponse.id,
+        status: paymentResponse.status,
+        status_detail: paymentResponse.status_detail,
+        payment_record_id: paymentRecord.id,
+        external_reference: paymentData.external_reference,
+        // Para PIX, retornar dados do QR Code
+        ...(data.paymentMethodId === "pix" && {
+          qr_code:
+            paymentResponse.point_of_interaction?.transaction_data?.qr_code,
+          qr_code_base64:
+            paymentResponse.point_of_interaction?.transaction_data
+              ?.qr_code_base64,
+          ticket_url:
+            paymentResponse.point_of_interaction?.transaction_data?.ticket_url,
+        }),
+      };
+    } catch (error) {
+      console.error("Erro ao processar checkout transparente:", error);
+
+      // Captura detalhes específicos do erro do Mercado Pago
+      if (error && typeof error === "object") {
+        const serializedError = JSON.stringify(
+          error,
+          Object.getOwnPropertyNames(error),
+          2
+        );
+        console.error("📛 Detalhes completos do erro:", serializedError);
+
+        // Tenta extrair informações específicas da API do Mercado Pago
+        const mpError = error as any;
+        if (mpError.cause) {
+          console.error(
+            "📛 Causa do erro:",
+            JSON.stringify(mpError.cause, null, 2)
+          );
+        }
+        if (mpError.response) {
+          console.error(
+            "📛 Resposta da API:",
+            JSON.stringify(mpError.response, null, 2)
+          );
+        }
+        if (mpError.status || mpError.statusCode) {
+          console.error(
+            "📛 Status HTTP:",
+            mpError.status || mpError.statusCode
+          );
+        }
+      }
+
+      // Mensagem de erro mais detalhada
+      let errorMessage = "Erro desconhecido";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (error && typeof error === "object") {
+        const mpError = error as any;
+        if (mpError.cause && mpError.cause.message) {
+          errorMessage = mpError.cause.message;
+        } else if (mpError.message) {
+          errorMessage = mpError.message;
+        }
+      }
+
+      throw new Error(`Falha ao processar pagamento: ${errorMessage}`);
     }
   }
 
@@ -700,7 +1001,7 @@ export class PaymentService {
 
         // � PROCESSAR CUSTOMIZAÇÕES (Upload para Google Drive)
         try {
-          await customizationService.processOrderCustomizations(
+          await orderCustomizationService.finalizeOrderCustomizations(
             dbPayment.order_id
           );
         } catch (error) {

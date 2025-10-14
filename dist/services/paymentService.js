@@ -8,7 +8,7 @@ const mercadopago_1 = require("../config/mercadopago");
 const prisma_1 = __importDefault(require("../database/prisma"));
 const mercadoPagoDirectService_1 = require("./mercadoPagoDirectService");
 const whatsappService_1 = __importDefault(require("./whatsappService"));
-const customizationService_1 = __importDefault(require("./customizationService"));
+const orderCustomizationService_1 = __importDefault(require("./orderCustomizationService"));
 const roundCurrency = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 const normalizeOrderPaymentMethod = (method) => {
     if (!method)
@@ -533,7 +533,7 @@ class PaymentService {
                 await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
                 // � PROCESSAR CUSTOMIZAÇÕES (Upload para Google Drive)
                 try {
-                    await customizationService_1.default.processOrderCustomizations(dbPayment.order_id);
+                    await orderCustomizationService_1.default.finalizeOrderCustomizations(dbPayment.order_id);
                 }
                 catch (error) {
                     console.error("⚠️ Erro ao processar customizações, mas pedido foi aprovado:", error);

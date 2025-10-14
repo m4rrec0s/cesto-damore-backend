@@ -1,6 +1,7 @@
 import prisma from "../database/prisma";
 import { CreateProductInput } from "../models/Product";
 import { deleteProductImage } from "../config/localStorage";
+import productComponentService from "./productComponentService";
 
 class ProductService {
   async getAllProducts(
@@ -57,6 +58,16 @@ class ProductService {
             additionals: { include: { additional: true } },
             categories: { include: { category: true } },
             type: true,
+            components: {
+              include: {
+                item: {
+                  include: {
+                    additional: true,
+                    customizations: true,
+                  },
+                },
+              },
+            },
           },
         }),
         prisma.product.count({ where }),
@@ -90,11 +101,28 @@ class ProductService {
           additionals: { include: { additional: true } },
           categories: { include: { category: true } },
           type: true,
+          components: {
+            include: {
+              item: {
+                include: {
+                  additional: true,
+                  customizations: true,
+                },
+              },
+            },
+          },
         },
       });
 
       if (!product) {
         throw new Error("Produto não encontrado");
+      }
+
+      // Calcular estoque baseado nos componentes
+      if (product.components.length > 0) {
+        const availableStock =
+          await productComponentService.calculateProductStock(id);
+        (product as any).calculated_stock = availableStock;
       }
 
       return this.formatProductResponse(product);

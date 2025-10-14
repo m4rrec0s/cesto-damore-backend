@@ -8,6 +8,24 @@ const axios_1 = __importDefault(require("axios"));
 const prisma_1 = __importDefault(require("../database/prisma"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
+function ensureGoogleOAuthTokens() {
+    const requiredVars = [
+        "GOOGLE_OAUTH_ACCESS_TOKEN",
+        "GOOGLE_OAUTH_REFRESH_TOKEN",
+        "GOOGLE_OAUTH_TOKEN_TYPE",
+    ];
+    const missingVars = requiredVars.filter((envVar) => !process.env[envVar]);
+    if (missingVars.length > 0) {
+        throw new Error(`Configuração OAuth do Google incompleta. Defina as variáveis: ${missingVars.join(", ")}`);
+    }
+    const expiryRaw = process.env.GOOGLE_OAUTH_EXPIRY_DATE;
+    if (expiryRaw) {
+        const expiryNumber = Number(expiryRaw);
+        if (!Number.isNaN(expiryNumber) && expiryNumber <= Date.now()) {
+            throw new Error("Token de acesso do Google expirado. Refaça a autenticação OAuth2 para gerar novos tokens.");
+        }
+    }
+}
 // Nova função para criar JWT interno da aplicação
 function createAppJWT(userId, email) {
     const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
@@ -57,6 +75,8 @@ class AuthService {
         return { firebaseUser, user };
     }
     async googleLogin({ idToken, firebaseUid, email, name, imageUrl, }) {
+        // Removi a verificação ensureGoogleOAuthTokens() porque ela é para Google Drive API
+        // A autenticação do Firebase não depende das credenciais OAuth do Drive
         const decoded = (await firebase_1.auth.verifyIdToken(idToken));
         const uid = decoded.uid;
         if (firebaseUid && firebaseUid !== uid)
@@ -84,7 +104,8 @@ class AuthService {
             data: updateData,
         });
         const sessionToken = await (0, firebase_1.createCustomToken)(uid);
-        return { idToken, firebaseUid: uid, user, sessionToken };
+        const appToken = createAppJWT(user.id, user.email); // Criar token da aplicação
+        return { idToken, firebaseUid: uid, user, sessionToken, appToken };
     }
     async login(email, password) {
         if (!FIREBASE_API_KEY)

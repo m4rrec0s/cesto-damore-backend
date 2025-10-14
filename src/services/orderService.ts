@@ -1,6 +1,7 @@
 import prisma from "../database/prisma";
 import stockService from "./stockService";
 import whatsappService from "./whatsappService";
+import productComponentService from "./productComponentService";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -229,11 +230,41 @@ class OrderService {
       const productIds = data.items.map((item) => item.product_id);
       const products = await prisma.product.findMany({
         where: { id: { in: productIds } },
+        include: {
+          components: {
+            include: {
+              item: true,
+            },
+          },
+        },
       });
 
       if (products.length !== productIds.length) {
         throw new Error("Um ou mais produtos não foram encontrados");
       }
+
+      // ========== VALIDAR ESTOQUE DOS PRODUCT COMPONENTS ==========
+      console.log("🔍 Validando estoque dos componentes dos produtos...");
+      for (const orderItem of data.items) {
+        const product = products.find((p) => p.id === orderItem.product_id);
+
+        if (product && product.components.length > 0) {
+          const validation =
+            await productComponentService.validateComponentsStock(
+              product.id,
+              orderItem.quantity
+            );
+
+          if (!validation.valid) {
+            throw new Error(
+              `Estoque insuficiente para ${
+                product.name
+              }:\n${validation.errors.join("\n")}`
+            );
+          }
+        }
+      }
+      console.log("✅ Estoque dos componentes validado!");
 
       const additionalsIds = data.items
         .flatMap(
@@ -481,9 +512,28 @@ class OrderService {
 
     if (options.notifyCustomer !== false) {
       try {
-        const driveLink = updated.items
-          .flatMap((item) => item.customizations || [])
-          .find((custom) => custom.google_drive_url)?.google_drive_url;
+        // Buscar customizações com google_drive_url se existir
+        let driveLink: string | undefined;
+        try {
+          const customizationWithDrive =
+            await prisma.orderItemCustomization.findFirst({
+              where: {
+                order_item_id: {
+                  in: updated.items.map((item) => item.id),
+                },
+                google_drive_url: {
+                  not: null,
+                },
+              },
+              select: {
+                google_drive_url: true,
+              },
+            });
+          driveLink = customizationWithDrive?.google_drive_url || undefined;
+        } catch (error) {
+          // Ignorar se a coluna ainda não existir
+          console.log("⚠️ Campo google_drive_url ainda não existe na tabela");
+        }
 
         const totalAmount =
           typeof updated.grand_total === "number"

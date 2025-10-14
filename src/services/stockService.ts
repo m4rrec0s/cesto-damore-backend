@@ -1,6 +1,7 @@
 import prisma from "../database/prisma";
 import { withRetry } from "../database/prismaRetry";
 import whatsappService from "./whatsappService";
+import productComponentService from "./productComponentService";
 
 interface OrderItemData {
   product_id: string;
@@ -19,7 +20,7 @@ class StockService {
   async decrementOrderStock(orderItems: OrderItemData[]): Promise<void> {
     try {
       for (const item of orderItems) {
-        // 1. Decrementar estoque do produto principal
+        // 1. Decrementar estoque dos componentes do produto (NOVA LÓGICA)
         await this.decrementProductStock(item.product_id, item.quantity);
 
         // 2. Decrementar estoque dos adicionais
@@ -41,7 +42,7 @@ class StockService {
   }
 
   /**
-   * Decrementa estoque de um produto
+   * Decrementa estoque de um produto através dos seus componentes
    */
   private async decrementProductStock(
     productId: string,
@@ -50,7 +51,16 @@ class StockService {
     const product = await withRetry(() =>
       prisma.product.findUnique({
         where: { id: productId },
-        select: { id: true, name: true, stock_quantity: true },
+        select: {
+          id: true,
+          name: true,
+          stock_quantity: true,
+          components: {
+            include: {
+              item: true,
+            },
+          },
+        },
       })
     );
 
@@ -58,7 +68,24 @@ class StockService {
       throw new Error(`Produto ${productId} não encontrado`);
     }
 
-    // Se não tem controle de estoque, apenas log e continua
+    // NOVA LÓGICA: Se o produto tem componentes, decrementar estoque dos items
+    if (product.components.length > 0) {
+      console.log(
+        `🔄 Produto ${product.name} possui ${product.components.length} componentes. Decrementando estoque dos items...`
+      );
+
+      await productComponentService.decrementComponentsStock(
+        productId,
+        quantity
+      );
+
+      console.log(
+        `✅ Estoque dos componentes do produto ${product.name} decrementado com sucesso`
+      );
+      return;
+    }
+
+    // LÓGICA LEGADA: Se não tem componentes, decrementar estoque direto do produto
     if (product.stock_quantity === null) {
       console.log(`Produto ${product.name} não possui controle de estoque`);
       return;
@@ -71,7 +98,7 @@ class StockService {
       );
     }
 
-    // Decrementa estoque
+    // Decrementa estoque direto
     await withRetry(() =>
       prisma.product.update({
         where: { id: productId },
@@ -84,7 +111,7 @@ class StockService {
     );
 
     console.log(
-      `✅ Estoque do produto ${product.name} decrementado em ${quantity} unidades`
+      `✅ Estoque do produto ${product.name} (sem componentes) decrementado em ${quantity} unidades`
     );
 
     // Verificar e enviar alerta se estoque ficou baixo

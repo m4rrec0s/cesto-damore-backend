@@ -1,647 +1,438 @@
+import { CustomizationType } from "@prisma/client";
 import prisma from "../database/prisma";
-import fs from "fs/promises";
-import path from "path";
-import { randomUUID } from "crypto";
-import googleDriveService from "./googleDriveService";
 
-interface TemporaryFile {
+interface CustomizationDTO {
   id: string;
-  session_id: string;
-  original_name: string;
-  stored_filename: string;
-  file_path: string;
-  mime_type: string;
-  size: number;
-  expires_at: Date;
+  item_id: string;
+  type: CustomizationType;
+  name: string;
+  description?: string | null;
+  isRequired: boolean;
+  customization_data: any;
+  price: number;
 }
 
-interface CustomizationData {
-  photos?: Array<{
-    temp_file_id: string;
-    original_name: string;
-    position: number;
+export interface CustomizationInput {
+  customization_id: string;
+  customization_type: CustomizationType;
+  data: Record<string, any>;
+}
+
+export interface PreviewPayload {
+  layout?: any;
+  photos: Array<{
+    source: string;
+    position?: any;
   }>;
-  text?: string;
-  selected_option?: string;
-  selected_item?: {
-    original_item: string;
-    selected_item: string;
-    price_adjustment: number;
-  };
-  [key: string]: any;
+  texts: Array<{
+    value: string;
+    position?: any;
+  }>;
+  metadata: Record<string, any>;
 }
 
-interface ProductRuleData {
-  product_type_id: string;
-  rule_type: string;
-  title: string;
-  description?: string;
-  required?: boolean;
-  max_items?: number | null;
-  conflict_with?: string[] | null;
-  dependencies?: string[] | null;
-  available_options?: string | null;
-  preview_image_url?: string | null;
-  display_order?: number;
+interface ItemCustomizationResponse {
+  item: {
+    id: string;
+    name: string;
+    allows_customization: boolean;
+  };
+  customizations: CustomizationDTO[];
 }
 
 class CustomizationService {
-  private tempDir = path.join(process.cwd(), "temp_customizations");
-
-  constructor() {
-    this.ensureTempDir();
-  }
-
-  private async ensureTempDir() {
-    try {
-      await fs.access(this.tempDir);
-    } catch {
-      await fs.mkdir(this.tempDir, { recursive: true });
-      console.log("📁 Diretório de customizações temporárias criado");
-    }
-  }
-
-  // ================ NEW: PRODUCT RULE METHODS ================
-
   /**
-   * Cria uma nova regra de customização (novo sistema)
+   * Busca customizações de um item
    */
-  async createProductRule(data: ProductRuleData) {
-    return prisma.productRule.create({
-      data: {
-        ...data,
-        conflict_with: data.conflict_with
-          ? JSON.stringify(data.conflict_with)
-          : null,
-        dependencies: data.dependencies
-          ? JSON.stringify(data.dependencies)
-          : null,
+  async getItemCustomizations(
+    itemId: string
+  ): Promise<ItemCustomizationResponse> {
+    const item = await prisma.item.findUnique({
+      where: { id: itemId },
+      include: {
+        customizations: {
+          orderBy: { created_at: "asc" },
+        },
       },
     });
-  }
 
-  /**
-   * Busca regras de customização por tipo de produto
-   */
-  async getProductRulesByType(productTypeId: string) {
-    const rules = await prisma.productRule.findMany({
-      where: { product_type_id: productTypeId },
-      orderBy: { display_order: "asc" },
-    });
-
-    return rules.map((rule) => ({
-      ...rule,
-      conflict_with: rule.conflict_with ? JSON.parse(rule.conflict_with) : null,
-      dependencies: rule.dependencies ? JSON.parse(rule.dependencies) : null,
-      available_options: rule.available_options
-        ? JSON.parse(rule.available_options)
-        : null,
-    }));
-  }
-
-  /**
-   * Busca regras de customização por ID de referência unificado
-   * (Pode ser productId ou additionalId)
-   */
-  async getCustomizationsByReference(referenceId: string) {
-    // Primeiro tenta buscar como produto
-    const product = await prisma.product.findUnique({
-      where: { id: referenceId },
-      include: { type: true },
-    });
-
-    if (product) {
-      // Buscar regras do tipo de produto
-      const productRules = await this.getProductRulesByType(product.type_id);
-
-      // Buscar regras antigas (retrocompatibilidade)
-      const oldRules = await this.getProductCustomizations(referenceId);
-
-      return {
-        type: "product" as const,
-        rules: productRules,
-        legacy_rules: oldRules,
-      };
-    }
-
-    // Se não for produto, tenta buscar como adicional
-    const additional = await prisma.additional.findUnique({
-      where: { id: referenceId },
-    });
-
-    if (additional) {
-      // Por enquanto adicionais ainda usam sistema antigo
-      const oldRules = await this.getAdditionalCustomizations(referenceId);
-      return {
-        type: "additional" as const,
-        rules: [],
-        legacy_rules: oldRules,
-      };
+    if (!item) {
+      throw new Error("Item não encontrado");
     }
 
     return {
-      type: null,
-      rules: [],
-      legacy_rules: [],
+      item: {
+        id: item.id,
+        name: item.name,
+        allows_customization: item.allows_customization,
+      },
+      customizations: item.customizations.map((c) => ({
+        id: c.id,
+        item_id: c.item_id,
+        type: c.type,
+        name: c.name,
+        description: c.description,
+        isRequired: c.isRequired,
+        customization_data: c.customization_data,
+        price: c.price,
+      })),
     };
   }
 
   /**
-   * Atualiza uma regra de customização
+   * Valida customizações de um item
    */
-  async updateProductRule(id: string, data: Partial<ProductRuleData>) {
-    const updateData: any = { ...data };
-
-    if (data.conflict_with) {
-      updateData.conflict_with = JSON.stringify(data.conflict_with);
-    }
-    if (data.dependencies) {
-      updateData.dependencies = JSON.stringify(data.dependencies);
-    }
-
-    return prisma.productRule.update({
-      where: { id },
-      data: updateData,
-    });
-  }
-
-  /**
-   * Deleta uma regra de customização
-   */
-  async deleteProductRule(id: string) {
-    return prisma.productRule.delete({
-      where: { id },
-    });
-  }
-
-  /**
-   * Valida regras de customização aplicadas
-   */
-  async validateProductRules(
-    productId: string,
-    customizations: any[]
-  ): Promise<{ valid: boolean; errors: string[] }> {
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-      include: { type: true },
-    });
-
-    if (!product) {
-      return { valid: false, errors: ["Produto não encontrado"] };
-    }
-
-    const rules = await this.getProductRulesByType(product.type_id);
+  async validateCustomizations(options: {
+    itemId: string;
+    inputs: CustomizationInput[];
+  }): Promise<{
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+  }> {
+    const { itemId, inputs } = options;
     const errors: string[] = [];
+    const warnings: string[] = [];
 
-    // Validar campos obrigatórios
-    for (const rule of rules) {
-      if (rule.required) {
-        const hasCustomization = customizations.some(
-          (c) => c.rule_id === rule.id || c.customization_rule_id === rule.id
+    // Buscar item e suas customizações
+    const item = await prisma.item.findUnique({
+      where: { id: itemId },
+      include: {
+        customizations: true,
+      },
+    });
+
+    if (!item) {
+      return { valid: false, errors: ["Item não encontrado"], warnings };
+    }
+
+    if (!item.allows_customization) {
+      return {
+        valid: false,
+        errors: ["Item não permite customização"],
+        warnings,
+      };
+    }
+
+    const customizationMap = new Map(
+      item.customizations.map((c: any) => [c.id, c])
+    );
+
+    // Verificar customizações obrigatórias
+    item.customizations
+      .filter((c: any) => c.isRequired)
+      .forEach((customization: any) => {
+        const hasCustomization = inputs.some(
+          (input) => input.customization_id === customization.id
         );
 
         if (!hasCustomization) {
-          errors.push(`Campo obrigatório não preenchido: ${rule.title}`);
-        }
-      }
-    }
-
-    // Validar max_items
-    for (const customization of customizations) {
-      const rule = rules.find(
-        (r) =>
-          r.id === customization.rule_id ||
-          r.id === customization.customization_rule_id
-      );
-
-      if (rule && rule.max_items && customization.data) {
-        const dataObj =
-          typeof customization.data === "string"
-            ? JSON.parse(customization.data)
-            : customization.data;
-
-        if (dataObj.photos && dataObj.photos.length > rule.max_items) {
           errors.push(
-            `${rule.title}: máximo de ${rule.max_items} itens permitidos`
+            `Customização obrigatória não preenchida: ${customization.name}`
           );
         }
+      });
+
+    // Validar cada input
+    for (const input of inputs) {
+      const customization = customizationMap.get(input.customization_id);
+
+      if (!customization) {
+        warnings.push(`Customização não encontrada: ${input.customization_id}`);
+        continue;
       }
-    }
 
-    // Validar conflitos
-    const appliedRuleIds = customizations.map(
-      (c) => c.rule_id || c.customization_rule_id
-    );
-
-    for (const customization of customizations) {
-      const rule = rules.find(
-        (r) =>
-          r.id === customization.rule_id ||
-          r.id === customization.customization_rule_id
-      );
-
-      if (rule && rule.conflict_with && Array.isArray(rule.conflict_with)) {
-        const conflictingRules = appliedRuleIds.filter((id: string) =>
-          rule.conflict_with!.includes(id)
-        );
-
-        if (conflictingRules.length > 0) {
-          errors.push(
-            `${rule.title}: conflita com outra customização selecionada`
-          );
-        }
-      }
-    }
-
-    // Validar dependências
-    for (const customization of customizations) {
-      const rule = rules.find(
-        (r) =>
-          r.id === customization.rule_id ||
-          r.id === customization.customization_rule_id
-      );
-
-      if (rule && rule.dependencies && Array.isArray(rule.dependencies)) {
-        const missingDeps = rule.dependencies.filter(
-          (depId: string) => !appliedRuleIds.includes(depId)
-        );
-
-        if (missingDeps.length > 0) {
-          errors.push(
-            `${rule.title}: requer outra customização que não foi selecionada`
-          );
-        }
-      }
+      // Validar por tipo
+      this.validateByType(customization, input, errors);
     }
 
     return {
       valid: errors.length === 0,
       errors,
+      warnings,
     };
   }
 
-  // ================ EXISTING METHODS (Mantidos para retrocompatibilidade) ================
+  /**
+   * Valida customização por tipo
+   */
+  private validateByType(
+    customization: any,
+    input: CustomizationInput,
+    errors: string[]
+  ) {
+    const data = customization.customization_data;
+
+    switch (customization.type) {
+      case "BASE_LAYOUT":
+        this.validateBaseLayout(customization, input, data, errors);
+        break;
+
+      case "TEXT":
+        this.validateText(customization, input, data, errors);
+        break;
+
+      case "IMAGES":
+        this.validateImages(customization, input, data, errors);
+        break;
+
+      case "MULTIPLE_CHOICE":
+        this.validateMultipleChoice(customization, input, data, errors);
+        break;
+
+      default:
+        errors.push(
+          `Tipo de customização não suportado: ${customization.type}`
+        );
+    }
+  }
 
   /**
-   * Salva arquivo temporariamente no servidor
+   * Valida BASE_LAYOUT
    */
-  async saveTemporaryFile(
-    sessionId: string,
-    file: Express.Multer.File
-  ): Promise<TemporaryFile> {
-    await this.ensureTempDir();
+  private validateBaseLayout(
+    customization: any,
+    input: CustomizationInput,
+    data: any,
+    errors: string[]
+  ) {
+    if (!input.data.layout_id) {
+      errors.push(`${customization.name}: Layout não selecionado`);
+      return;
+    }
 
-    const storedFilename = `${randomUUID()}_${file.originalname}`;
-    const filePath = path.join(this.tempDir, storedFilename);
+    // Verificar se o layout existe nos layouts disponíveis
+    const layouts = data?.layouts || [];
+    const layoutExists = layouts.some(
+      (l: any) => l.id === input.data.layout_id
+    );
 
-    try {
-      await fs.writeFile(filePath, file.buffer);
+    if (!layoutExists) {
+      errors.push(`${customization.name}: Layout inválido`);
+    }
+  }
 
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 48); // 48h de expiração
+  /**
+   * Valida TEXT
+   */
+  private validateText(
+    customization: any,
+    input: CustomizationInput,
+    data: any,
+    errors: string[]
+  ) {
+    const fields = data?.fields || [];
+    const providedFields = input.data.fields || [];
 
-      const tempFile = await prisma.temporaryCustomizationFile.create({
-        data: {
-          session_id: sessionId,
-          original_name: file.originalname,
-          stored_filename: storedFilename,
-          file_path: filePath,
-          mime_type: file.mimetype,
-          size: file.size,
-          expires_at: expiresAt,
-        },
+    // Verificar campos obrigatórios
+    fields
+      .filter((f: any) => f.required)
+      .forEach((field: any) => {
+        const providedField = providedFields.find(
+          (pf: any) => pf.field_id === field.id
+        );
+
+        if (!providedField || !providedField.value) {
+          errors.push(
+            `${customization.name}: Campo "${field.label}" é obrigatório`
+          );
+        }
       });
 
-      console.log(
-        `💾 Arquivo temporário salvo: ${
-          file.originalname
-        } (sessão: ${sessionId.substring(0, 8)}...)`
-      );
+    // Validar limites de caracteres
+    providedFields.forEach((providedField: any) => {
+      const field = fields.find((f: any) => f.id === providedField.field_id);
 
-      return tempFile as TemporaryFile;
-    } catch (error: any) {
-      // Se houver erro ao salvar no DB, deletar arquivo físico
-      try {
-        await fs.unlink(filePath);
-      } catch {}
-      throw new Error(`Erro ao salvar arquivo temporário: ${error.message}`);
-    }
-  }
-
-  /**
-   * Busca arquivo temporário por ID
-   */
-  async getTemporaryFile(fileId: string): Promise<TemporaryFile | null> {
-    return prisma.temporaryCustomizationFile.findUnique({
-      where: { id: fileId },
-    }) as Promise<TemporaryFile | null>;
-  }
-
-  /**
-   * Busca todos os arquivos de uma sessão
-   */
-  async getSessionFiles(sessionId: string): Promise<TemporaryFile[]> {
-    return prisma.temporaryCustomizationFile.findMany({
-      where: { session_id: sessionId },
-      orderBy: { created_at: "asc" },
-    }) as Promise<TemporaryFile[]>;
-  }
-
-  /**
-   * Deleta arquivo temporário
-   */
-  async deleteTemporaryFile(fileId: string): Promise<void> {
-    const file = await this.getTemporaryFile(fileId);
-    if (!file) return;
-
-    try {
-      await fs.unlink(file.file_path);
-    } catch (error: any) {
-      console.warn(
-        `⚠️ Arquivo físico não encontrado: ${file.file_path}`,
-        error.message
-      );
-    }
-
-    await prisma.temporaryCustomizationFile.delete({
-      where: { id: fileId },
-    });
-
-    console.log(`🗑️ Arquivo temporário deletado: ${file.original_name}`);
-  }
-
-  /**
-   * Limpa arquivos temporários expirados
-   */
-  async cleanupExpiredFiles(): Promise<number> {
-    const expiredFiles = await prisma.temporaryCustomizationFile.findMany({
-      where: {
-        expires_at: {
-          lt: new Date(),
-        },
-      },
-    });
-
-    let deletedCount = 0;
-
-    for (const file of expiredFiles) {
-      try {
-        await fs.unlink(file.file_path);
-        await prisma.temporaryCustomizationFile.delete({
-          where: { id: file.id },
-        });
-        deletedCount++;
-      } catch (error: any) {
-        console.error(`❌ Erro ao limpar arquivo ${file.id}:`, error.message);
-      }
-    }
-
-    if (deletedCount > 0) {
-      console.log(
-        `🧹 ${deletedCount} arquivo(s) temporário(s) expirado(s) limpo(s)`
-      );
-    }
-
-    return deletedCount;
-  }
-
-  /**
-   * Busca customizações de um produto
-   */
-  async getProductCustomizations(productId: string) {
-    return prisma.productCustomization.findMany({
-      where: { product_id: productId },
-      orderBy: { display_order: "asc" },
-    });
-  }
-
-  /**
-   * Busca customizações de um adicional
-   */
-  async getAdditionalCustomizations(additionalId: string) {
-    return prisma.additionalCustomization.findMany({
-      where: { additional_id: additionalId },
-      orderBy: { display_order: "asc" },
-    });
-  }
-
-  /**
-   * Cria regra de customização para produto
-   */
-  async createProductCustomization(data: any) {
-    return prisma.productCustomization.create({
-      data,
-    });
-  }
-
-  /**
-   * Cria regra de customização para adicional
-   */
-  async createAdditionalCustomization(data: any) {
-    return prisma.additionalCustomization.create({
-      data,
-    });
-  }
-
-  /**
-   * Atualiza regra de customização de produto
-   */
-  async updateProductCustomization(id: string, data: any) {
-    return prisma.productCustomization.update({
-      where: { id },
-      data,
-    });
-  }
-
-  /**
-   * Atualiza regra de customização de adicional
-   */
-  async updateAdditionalCustomization(id: string, data: any) {
-    return prisma.additionalCustomization.update({
-      where: { id },
-      data,
-    });
-  }
-
-  /**
-   * Deleta regra de customização de produto
-   */
-  async deleteProductCustomization(id: string) {
-    return prisma.productCustomization.delete({
-      where: { id },
-    });
-  }
-
-  /**
-   * Deleta regra de customização de adicional
-   */
-  async deleteAdditionalCustomization(id: string) {
-    return prisma.additionalCustomization.delete({
-      where: { id },
-    });
-  }
-
-  /**
-   * Processa customizações de um pedido (após pagamento aprovado)
-   */
-  async processOrderCustomizations(orderId: string) {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        items: {
-          include: {
-            customizations: true,
-          },
-        },
-        user: true,
-      },
-    });
-
-    if (!order) {
-      throw new Error("Pedido não encontrado");
-    }
-
-    // Verificar se há customizações para processar
-    const hasCustomizations = order.items.some(
-      (item) => item.customizations.length > 0
-    );
-
-    if (!hasCustomizations) {
-      console.log(`📦 Pedido ${orderId} não possui customizações`);
-      return null;
-    }
-
-    // Criar pasta principal no Google Drive
-    const folderName = `Pedido_${order.user.name.replace(
-      /[^a-zA-Z0-9]/g,
-      "_"
-    )}_${new Date().toISOString().split("T")[0]}_${orderId.substring(0, 8)}`;
-
-    const folderId = await googleDriveService.createFolder(folderName);
-
-    // Processar cada item com customização
-    for (const item of order.items) {
-      if (item.customizations.length === 0) continue;
-
-      for (const customization of item.customizations) {
-        if (customization.customization_type === "PHOTO_UPLOAD") {
-          await this.processPhotoUploadCustomization(customization, folderId);
+      if (field && field.max_length) {
+        if (
+          providedField.value &&
+          providedField.value.length > field.max_length
+        ) {
+          errors.push(
+            `${customization.name}: Campo "${field.label}" excede limite de ${field.max_length} caracteres`
+          );
         }
       }
-    }
-
-    // Retornar informações da pasta
-    return {
-      id: folderId,
-      url: googleDriveService.getFolderUrl(folderId),
-    };
-
-    console.log(
-      `✅ Customizações do pedido ${orderId} processadas com sucesso`
-    );
-
-    // Retornar informações da pasta
-    return {
-      id: folderId,
-      url: googleDriveService.getFolderUrl(folderId),
-    };
+    });
   }
 
   /**
-   * Processa customização do tipo PHOTO_UPLOAD
+   * Valida IMAGES
    */
-  private async processPhotoUploadCustomization(
+  private validateImages(
     customization: any,
-    folderId: string
+    input: CustomizationInput,
+    data: any,
+    errors: string[]
   ) {
-    const data: CustomizationData = JSON.parse(
-      customization.customization_data
-    );
-
-    if (!data.photos || data.photos.length === 0) {
-      console.warn(
-        `⚠️ Customização ${customization.id} não possui fotos para processar`
-      );
+    if (!input.data.base_layout_id) {
+      errors.push(`${customization.name}: Layout base não selecionado`);
       return;
     }
 
-    // Buscar arquivos temporários
-    const tempFiles = await Promise.all(
-      data.photos.map((photo) => this.getTemporaryFile(photo.temp_file_id))
-    );
-
-    // Filtrar arquivos válidos
-    const validFiles = tempFiles.filter((file) => file !== null);
-
-    if (validFiles.length === 0) {
-      console.warn(
-        `⚠️ Nenhum arquivo temporário encontrado para customização ${customization.id}`
-      );
+    const baseLayout = data?.base_layout;
+    if (!baseLayout) {
+      errors.push(`${customization.name}: Layout base não configurado`);
       return;
     }
 
-    // Upload para Google Drive
-    const uploadedFiles = await googleDriveService.uploadMultipleFiles(
-      validFiles.map((tf) => ({
-        path: tf!.file_path,
-        name: tf!.original_name,
-      })),
-      folderId
-    );
+    const images = input.data.images || [];
+    const maxImages = baseLayout.max_images || 10;
 
-    // Gerar URL pública da pasta
-    const folderUrl = googleDriveService.getFolderUrl(folderId);
+    if (images.length > maxImages) {
+      errors.push(
+        `${customization.name}: Máximo de ${maxImages} imagens permitidas`
+      );
+    }
 
-    // Atualizar customização com URL da pasta
-    await prisma.orderItemCustomization.update({
-      where: { id: customization.id },
-      data: {
-        google_drive_folder_id: folderId,
-        google_drive_url: folderUrl,
-      },
-    });
-
-    // Deletar arquivos temporários
-    for (const tempFile of validFiles) {
-      if (tempFile) {
-        await this.deleteTemporaryFile(tempFile.id);
+    // Validar posições das imagens
+    images.forEach((image: any, index: number) => {
+      if (!image.source) {
+        errors.push(`${customization.name}: Imagem ${index + 1} sem fonte`);
       }
-    }
 
-    console.log(
-      `📤 ${uploadedFiles.length} foto(s) enviada(s) para o Google Drive com sucesso`
-    );
+      if (image.slot === undefined) {
+        errors.push(
+          `${customization.name}: Imagem ${index + 1} sem slot definido`
+        );
+      }
+    });
   }
 
   /**
-   * Valida se customizações obrigatórias foram preenchidas
+   * Valida MULTIPLE_CHOICE
    */
-  async validateRequiredCustomizations(
-    productId: string,
-    customizations: any[]
-  ): Promise<{ valid: boolean; missing: string[] }> {
-    const requiredRules = await prisma.productCustomization.findMany({
-      where: {
-        product_id: productId,
-        is_required: true,
-      },
-    });
+  private validateMultipleChoice(
+    customization: any,
+    input: CustomizationInput,
+    data: any,
+    errors: string[]
+  ) {
+    const options = data?.options || [];
+    const selectedOptions = input.data.selected_options || [];
 
-    const missing: string[] = [];
+    if (selectedOptions.length === 0) {
+      errors.push(`${customization.name}: Nenhuma opção selecionada`);
+      return;
+    }
 
-    for (const rule of requiredRules) {
-      const hasCustomization = customizations.some(
-        (c) => c.customization_rule_id === rule.id
+    const minSelection = data?.min_selection || 1;
+    const maxSelection = data?.max_selection || options.length;
+
+    if (selectedOptions.length < minSelection) {
+      errors.push(
+        `${customization.name}: Selecione ao menos ${minSelection} opção(ões)`
       );
+    }
 
-      if (!hasCustomization) {
-        missing.push(rule.title);
+    if (selectedOptions.length > maxSelection) {
+      errors.push(
+        `${customization.name}: Selecione no máximo ${maxSelection} opção(ões)`
+      );
+    }
+
+    // Validar se as opções existem
+    selectedOptions.forEach((selectedOption: string) => {
+      const optionExists = options.some((o: any) => o.id === selectedOption);
+
+      if (!optionExists) {
+        errors.push(`${customization.name}: Opção inválida selecionada`);
+      }
+    });
+  }
+
+  /**
+   * Constrói payload de preview
+   */
+  async buildPreviewPayload(params: {
+    itemId: string;
+    customizations: CustomizationInput[];
+  }): Promise<PreviewPayload> {
+    const { itemId, customizations } = params;
+
+    const photos: PreviewPayload["photos"] = [];
+    const texts: PreviewPayload["texts"] = [];
+    let layout: any = null;
+
+    // Processar cada customização
+    for (const customization of customizations) {
+      const customizationRecord = await prisma.customization.findUnique({
+        where: { id: customization.customization_id },
+      });
+
+      if (!customizationRecord) continue;
+
+      // BASE_LAYOUT ou IMAGES
+      if (
+        customization.customization_type === "BASE_LAYOUT" ||
+        customization.customization_type === "IMAGES"
+      ) {
+        const layoutId =
+          customization.data.layout_id || customization.data.base_layout_id;
+
+        if (layoutId) {
+          layout = await prisma.layout.findUnique({
+            where: { id: layoutId },
+          });
+        }
+      }
+
+      // IMAGES
+      if (customization.customization_type === "IMAGES") {
+        const images = customization.data.images || [];
+        images.forEach((image: any) => {
+          if (image.source) {
+            photos.push({
+              source: image.source,
+              position: {
+                slot: image.slot,
+                x: image.x,
+                y: image.y,
+                width: image.width,
+                height: image.height,
+                z_index: image.z_index,
+                rotation: image.rotation,
+              },
+            });
+          }
+        });
+      }
+
+      // TEXT
+      if (customization.customization_type === "TEXT") {
+        const fields = customization.data.fields || [];
+        fields.forEach((field: any) => {
+          if (field.value) {
+            texts.push({
+              value: field.value,
+              position: field.position,
+            });
+          }
+        });
       }
     }
 
     return {
-      valid: missing.length === 0,
-      missing,
+      layout: layout ? this.mapLayoutResponse(layout) : null,
+      photos,
+      texts,
+      metadata: {
+        itemId,
+        generatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  /**
+   * Mapeia layout para resposta
+   */
+  private mapLayoutResponse(layout: any) {
+    return {
+      id: layout.id,
+      name: layout.name,
+      description: layout.description,
+      base_image_url: layout.base_image_url,
+      layout_data: layout.layout_data,
     };
   }
 }

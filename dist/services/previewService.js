@@ -76,8 +76,7 @@ class PreviewService {
         // 'caneca-id': '/models/caneca.glb',
         // 'quadro-id': '/models/quadro.glb',
         };
-        return (modelsMap[productTypeId] ||
-            `/models/default.glb?type=${productTypeId}`);
+        return (modelsMap[productTypeId] || `/models/default.glb?type=${productTypeId}`);
     }
     /**
      * Valida se os dados de customização estão completos para preview

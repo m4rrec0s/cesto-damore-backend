@@ -31,9 +31,6 @@ const client = new mercadopago_1.MercadoPagoConfig({
     accessToken,
     options: {
         timeout: 5000,
-        // IMPORTANTE: Para "credenciais de produção da conta de teste"
-        // NÃO usar sandbox: true, pois são credenciais de "produção" da conta de teste
-        // A conta de teste já está configurada no painel do MercadoPago
     },
 });
 // Instâncias dos serviços

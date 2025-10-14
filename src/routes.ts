@@ -16,7 +16,13 @@ import colorController from "./controller/colorController";
 import reportController from "./controller/reportController";
 import whatsappController from "./controller/whatsappController";
 import customizationController from "./controller/customizationController";
+import orderCustomizationController from "./controller/orderCustomizationController";
+import productRuleController from "./controller/productRuleController";
+import itemConstraintController from "./controller/itemConstraintController";
+import customizationUploadController from "./controller/customizationUploadController";
 import oauthController from "./controller/oauthController";
+import itemController from "./controller/itemController";
+import productComponentController from "./controller/productComponentController";
 import { upload, convertImagesToWebP } from "./config/multer";
 import {
   authenticateToken,
@@ -247,6 +253,15 @@ router.post(
   PaymentController.createPayment
 );
 
+// Checkout Transparente (pagamento direto na aplicação)
+router.post(
+  "/payment/transparent-checkout",
+  authenticateToken,
+  paymentRateLimit,
+  logFinancialOperation("TRANSPARENT_CHECKOUT"),
+  PaymentController.processTransparentCheckout
+);
+
 router.get(
   "/payment/:paymentId/status",
   authenticateToken,
@@ -395,161 +410,194 @@ router.delete(
 
 // ========== CUSTOMIZATION ROUTES ==========
 
-// ============== NEW: UNIFIED ENDPOINTS ==============
-
-// Endpoint unificado para buscar customizações (produtos ou adicionais)
+// Public customization routes (REFATORADO para usar Items)
 router.get(
-  "/customizations/:referenceId",
-  customizationController.getCustomizationsByReference
+  "/items/:itemId/customizations",
+  customizationController.getItemCustomizations
 );
 
-// Gerar preview de customização
-router.post("/customization/preview", customizationController.generatePreview);
-
-// Servir arquivo temporário para preview
-router.get("/temp-files/:fileId", customizationController.serveTempFile);
-
-// Validar customizações
 router.post(
-  "/customization/validate",
+  "/customizations/validate",
   customizationController.validateCustomizations
 );
 
-// Validar restrições do carrinho
+router.post("/customizations/preview", customizationController.buildPreview);
+
+// Order customization routes
+router.get(
+  "/orders/:orderId/customizations",
+  authenticateToken,
+  orderCustomizationController.listOrderCustomizations
+);
+
 router.post(
-  "/constraints/validate",
-  customizationController.validateCartConstraints
+  "/orders/:orderId/items/:itemId/customizations",
+  authenticateToken,
+  orderCustomizationController.saveOrderItemCustomization
 );
 
-// ============== LEGACY: OLD ENDPOINTS (Mantidos para retrocompatibilidade) ==============
-
-// Public routes - buscar customizações disponíveis
-router.get(
-  "/products/:productId/customizations",
-  customizationController.getProductCustomizations
+// ========== ITEMS ROUTES ==========
+router.get("/items", itemController.index);
+router.get("/items/available", itemController.getAvailable);
+router.get("/items/customizable", itemController.getWithCustomizations);
+router.get("/items/:id", itemController.show);
+router.post("/items", authenticateToken, requireAdmin, itemController.create);
+router.put(
+  "/items/:id",
+  authenticateToken,
+  requireAdmin,
+  itemController.update
 );
-
-router.get(
-  "/additionals/:additionalId/customizations",
-  customizationController.getAdditionalCustomizations
+router.put(
+  "/items/:id/stock",
+  authenticateToken,
+  requireAdmin,
+  itemController.updateStock
 );
-
-// Upload de arquivo temporário (sem autenticação para não-logados)
-router.post(
-  "/customization/upload-temp",
-  upload.single("file"),
-  customizationController.uploadTemporaryFile
-);
-
-// Buscar arquivos da sessão
-router.get(
-  "/customization/session/:sessionId/files",
-  customizationController.getSessionFiles
-);
-
-// Deletar arquivo temporário
 router.delete(
-  "/customization/temp-file/:id",
-  customizationController.deleteTemporaryFile
+  "/items/:id",
+  authenticateToken,
+  requireAdmin,
+  itemController.delete
 );
 
-// ============== ADMIN CUSTOMIZATION ROUTES ==============
+// ========== PRODUCT COMPONENTS ROUTES ==========
+router.get(
+  "/products/:productId/components",
+  productComponentController.getProductComponents
+);
+router.post(
+  "/products/:productId/components",
+  authenticateToken,
+  requireAdmin,
+  productComponentController.addComponent
+);
+router.put(
+  "/components/:componentId",
+  authenticateToken,
+  requireAdmin,
+  productComponentController.updateComponent
+);
+router.delete(
+  "/components/:componentId",
+  authenticateToken,
+  requireAdmin,
+  productComponentController.removeComponent
+);
+router.get(
+  "/products/:productId/stock/calculate",
+  productComponentController.calculateProductStock
+);
+router.post(
+  "/products/:productId/stock/validate",
+  productComponentController.validateComponentsStock
+);
+router.get(
+  "/items/:itemId/products",
+  productComponentController.getProductsUsingItem
+);
 
-// NEW: Product Rules (novo sistema)
+// ========== CUSTOMIZATION IMAGE UPLOAD ROUTES ==========
+
+// Upload de imagem para preview de customização (Admin)
+router.post(
+  "/customization/upload-image",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebP,
+  customizationUploadController.uploadImage
+);
+
+// Delete de imagem de customização (Admin)
+router.delete(
+  "/customization/image/:filename",
+  authenticateToken,
+  requireAdmin,
+  customizationUploadController.deleteImage
+);
+
+// Admin routes for ProductRule management
+router.get(
+  "/admin/customization/rule/type/:productTypeId",
+  authenticateToken,
+  requireAdmin,
+  productRuleController.getRulesByType
+);
+
 router.post(
   "/admin/customization/rule",
   authenticateToken,
   requireAdmin,
-  customizationController.createProductRule
+  upload.single("image"),
+  convertImagesToWebP,
+  productRuleController.createRule
 );
 
 router.put(
-  "/admin/customization/rule/:id",
+  "/admin/customization/rule/:ruleId",
   authenticateToken,
   requireAdmin,
-  customizationController.updateProductRule
+  upload.single("image"),
+  convertImagesToWebP,
+  productRuleController.updateRule
 );
 
 router.delete(
-  "/admin/customization/rule/:id",
+  "/admin/customization/rule/:ruleId",
   authenticateToken,
   requireAdmin,
-  customizationController.deleteProductRule
+  productRuleController.deleteRule
 );
 
-// NEW: Item Constraints
+// ========== ITEM CONSTRAINTS ROUTES ==========
+
+// Listar todos os constraints
+router.get(
+  "/admin/constraints",
+  authenticateToken,
+  requireAdmin,
+  itemConstraintController.listAll
+);
+
+// Buscar constraints de um item específico
+router.get(
+  "/admin/constraints/item/:itemType/:itemId",
+  authenticateToken,
+  requireAdmin,
+  itemConstraintController.getByItem
+);
+
+// Buscar produtos/adicionais para autocomplete
+router.get(
+  "/admin/constraints/search",
+  authenticateToken,
+  requireAdmin,
+  itemConstraintController.searchItems
+);
+
+// Criar constraint
 router.post(
   "/admin/constraints",
   authenticateToken,
   requireAdmin,
-  customizationController.createConstraint
+  itemConstraintController.create
 );
 
-router.get(
-  "/admin/constraints/:itemId",
-  authenticateToken,
-  requireAdmin,
-  customizationController.getItemConstraints
-);
-
-router.delete(
-  "/admin/constraints/:id",
-  authenticateToken,
-  requireAdmin,
-  customizationController.deleteConstraint
-);
-
-// LEGACY: Old customization system (mantido para retrocompatibilidade)
-router.post(
-  "/admin/customization/product",
-  authenticateToken,
-  requireAdmin,
-  customizationController.createProductCustomization
-);
-
-router.post(
-  "/admin/customization/additional",
-  authenticateToken,
-  requireAdmin,
-  customizationController.createAdditionalCustomization
-);
-
-// Atualizar regras de customização
+// Atualizar constraint
 router.put(
-  "/admin/customization/product/:id",
+  "/admin/constraints/:constraintId",
   authenticateToken,
   requireAdmin,
-  customizationController.updateProductCustomization
+  itemConstraintController.update
 );
 
-router.put(
-  "/admin/customization/additional/:id",
-  authenticateToken,
-  requireAdmin,
-  customizationController.updateAdditionalCustomization
-);
-
-// Deletar regras de customização
+// Deletar constraint
 router.delete(
-  "/admin/customization/product/:id",
+  "/admin/constraints/:constraintId",
   authenticateToken,
   requireAdmin,
-  customizationController.deleteProductCustomization
-);
-
-router.delete(
-  "/admin/customization/additional/:id",
-  authenticateToken,
-  requireAdmin,
-  customizationController.deleteAdditionalCustomization
-);
-
-// Limpar arquivos temporários expirados (CRON)
-router.post(
-  "/admin/customization/cleanup",
-  authenticateToken,
-  requireAdmin,
-  customizationController.cleanupExpiredFiles
+  itemConstraintController.delete
 );
 
 export default router;

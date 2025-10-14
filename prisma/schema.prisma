@@ -39,7 +39,7 @@ model Product {
   description          String?
   price                Float
   discount             Float?   @default(0)
-  stock_quantity       Int?
+  stock_quantity       Int? // Calculado automaticamente baseado nos componentes
   is_active            Boolean  @default(true)
   image_url            String?
   allows_customization Boolean  @default(false) // Se permite customização
@@ -49,10 +49,10 @@ model Product {
   type_id String
   type    ProductType @relation(fields: [type_id], references: [id])
 
-  orderItems         OrderItem[]
-  additionals        ProductAdditional[]
-  categories         ProductCategory[]
-  customizationRules ProductCustomization[]
+  orderItems  OrderItem[]
+  additionals ProductAdditional[]
+  categories  ProductCategory[]
+  components  ProductComponent[] // Itens que compõem este produto
 }
 
 model ProductType {
@@ -66,7 +66,6 @@ model ProductType {
   updated_at     DateTime @default(now()) @updatedAt
 
   products Product[]
-  rules    ProductRule[]
 }
 
 model Category {
@@ -109,10 +108,10 @@ model Additional {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  colors             AdditionalColor[]
-  products           ProductAdditional[]
-  orderItems         OrderItemAdditional[]
-  customizationRules AdditionalCustomization[]
+  colors     AdditionalColor[]
+  products   ProductAdditional[]
+  orderItems OrderItemAdditional[]
+  items      Item[] // Itens que referenciam este adicional
 }
 
 model AdditionalColor {
@@ -258,7 +257,7 @@ enum OrderStatus {
 
 model FeedConfiguration {
   id         String   @id @default(uuid())
-  name       String // Nome da configuração (ex: "Home Page Feed")
+  name       String
   is_active  Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -273,10 +272,10 @@ model FeedBanner {
   title          String
   subtitle       String?
   image_url      String
-  link_url       String? // URL para onde o banner leva quando clicado
-  text_color     String?  @default("#FFFFFF") // Cor do texto
+  link_url       String?
+  text_color     String?  @default("#FFFFFF")
   is_active      Boolean  @default(true)
-  display_order  Int      @default(0) // Ordem de exibição
+  display_order  Int      @default(0)
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
 
@@ -286,11 +285,10 @@ model FeedBanner {
 model FeedSection {
   id             String          @id @default(uuid())
   feed_config_id String
-  title          String // Título da seção (ex: "Produtos Recomendados")
-  section_type   FeedSectionType // Tipo da seção
-  is_visible     Boolean         @default(true) // Se a seção está visível
-  display_order  Int             @default(0) // Ordem de exibição
-  max_items      Int             @default(6) // Máximo de itens nesta seção
+  title          String
+  section_type   FeedSectionType
+  is_visible     Boolean         @default(true)
+  display_order  Int             @default(0)
   created_at     DateTime        @default(now())
   updated_at     DateTime        @updatedAt
 
@@ -301,12 +299,12 @@ model FeedSection {
 model FeedSectionItem {
   id              String   @id @default(uuid())
   feed_section_id String
-  item_type       String // "product", "category", "additional"
-  item_id         String // ID do produto, categoria ou adicional
+  item_type       String
+  item_id         String
   display_order   Int      @default(0)
-  is_featured     Boolean  @default(false) // Se é item em destaque
-  custom_title    String? // Título customizado para o item
-  custom_subtitle String? // Subtítulo customizado
+  is_featured     Boolean  @default(false)
+  custom_title    String?
+  custom_subtitle String?
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
@@ -314,122 +312,110 @@ model FeedSectionItem {
 }
 
 enum FeedSectionType {
-  RECOMMENDED_PRODUCTS // Produtos recomendados
-  DISCOUNTED_PRODUCTS // Produtos com desconto
-  FEATURED_CATEGORIES // Categorias em destaque
-  FEATURED_ADDITIONALS // Adicionais em destaque
-  CUSTOM_PRODUCTS // Produtos customizados pelo admin
-  NEW_ARRIVALS // Novos produtos
-  BEST_SELLERS // Mais vendidos
+  RECOMMENDED_PRODUCTS
+  DISCOUNTED_PRODUCTS
+  FEATURED_CATEGORIES
+  FEATURED_ADDITIONALS
+  CUSTOM_PRODUCTS
+  NEW_ARRIVALS
+  BEST_SELLERS
 }
 
-// ================ CUSTOMIZATION MODELS ================
+model Item {
+  id                   String  @id @default(uuid())
+  name                 String
+  description          String?
+  stock_quantity       Int     @default(0) // Estoque total do item
+  base_price           Float   @default(0) // Preço base do item
+  image_url            String?
+  allows_customization Boolean @default(false) // Se permite customização
+  additional_id        String? // Referência ao adicional (se aplicável)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  additional     Additional?        @relation(fields: [additional_id], references: [id], onDelete: Cascade)
+  customizations Customization[] // Customizações disponíveis para este item
+  components     ProductComponent[] // Produtos que usam este item
+}
+
+model Customization {
+  id                 String            @id @default(uuid())
+  name               String
+  description        String?
+  item_id            String
+  price              Float             @default(0) // Custo adicional da customização
+  isRequired         Boolean           @default(false) // Se a customização é obrigatória
+  type               CustomizationType
+  customization_data Json // Dados da customização em formato JSON
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  item                   Item                     @relation(fields: [item_id], references: [id], onDelete: Cascade)
+  OrderItemCustomization OrderItemCustomization[]
+}
 
 enum CustomizationType {
-  PHOTO_UPLOAD // Upload de fotos (ex: fotos para quadro)
-  ITEM_SUBSTITUTION // Substituição de item (ex: urso por chaveiro)
-  TEXT_INPUT // Texto personalizado (ex: frase no chocolate)
-  MULTIPLE_CHOICE // Escolha múltipla (ex: estilos de layout)
+  BASE_LAYOUT // Cliente escolhe um layout pronto
+  TEXT // Cliente modifica texto (datas, nomes, frases)
+  IMAGES // Cliente anexa imagens em posições específicas do layout
+  MULTIPLE_CHOICE // Cliente escolhe entre múltiplas opções
 }
 
-model ProductCustomization {
-  id                 String            @id @default(uuid())
-  product_id         String
-  customization_type CustomizationType
-  title              String // Ex: "Fotos do Quadro", "Escolha o Item"
-  description        String? // Descrição/instrução para o cliente
-  is_required        Boolean           @default(false) // Se é obrigatório customizar
-  max_items          Int?              @default(1) // Máximo de itens (fotos, textos, etc)
-  available_options  String? // JSON com opções disponíveis (para substitution/multiple_choice)
-  preview_image_url  String? // Imagem de preview do layout/item
-  display_order      Int               @default(0)
-  created_at         DateTime          @default(now())
-  updated_at         DateTime          @updatedAt
+model Layout {
+  id          String @id @default(uuid())
+  item_id     String
+  name        String
+  image_url   String
+  layout_data Json // Dados do layout em formato JSON
 
-  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
-}
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-model AdditionalCustomization {
-  id                 String            @id @default(uuid())
-  additional_id      String
-  customization_type CustomizationType
-  title              String
-  description        String?
-  is_required        Boolean           @default(false)
-  max_items          Int?              @default(1)
-  available_options  String? // JSON
-  preview_image_url  String?
-  display_order      Int               @default(0)
-  created_at         DateTime          @default(now())
-  updated_at         DateTime          @updatedAt
-
-  additional Additional @relation(fields: [additional_id], references: [id], onDelete: Cascade)
-}
-
-model OrderItemCustomization {
-  id                     String            @id @default(uuid())
-  order_item_id          String
-  customization_rule_id  String? // ID da regra de customização (ProductCustomization ou AdditionalCustomization)
-  customization_type     CustomizationType
-  title                  String // Título da customização
-  customization_data     String // JSON com dados da customização (URLs das imagens temp, texto, escolha, etc)
-  google_drive_folder_id String? // ID da pasta no Google Drive (preenchido após upload)
-  google_drive_url       String? // URL pública da pasta
-  created_at             DateTime          @default(now())
-  updated_at             DateTime          @updatedAt
-
-  orderItem OrderItem @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
-}
-
-model TemporaryCustomizationFile {
-  id              String   @id @default(uuid())
-  session_id      String // ID da sessão do cliente (localStorage/cookie)
-  original_name   String
-  stored_filename String // Nome do arquivo salvo temporariamente
-  file_path       String // Caminho completo do arquivo temp
-  mime_type       String
-  size            Int // Tamanho em bytes
-  expires_at      DateTime // Data de expiração do arquivo temp
-  created_at      DateTime @default(now())
-
-  @@index([session_id])
-  @@index([expires_at])
-}
-
-// ================ NEW REFACTORED CUSTOMIZATION MODELS ================
-
-model ProductRule {
-  id                String   @id @default(uuid())
-  product_type_id   String
-  rule_type         String // "PHOTO_UPLOAD", "TEXT_INPUT", "OPTION_SELECT", "ITEM_SUBSTITUTION"
-  title             String
-  description       String?
-  required          Boolean  @default(false)
-  max_items         Int?
-  conflict_with     String? // JSON array de IDs de regras conflitantes
-  dependencies      String? // JSON array de IDs de regras dependentes
-  available_options String? // JSON com opções disponíveis
-  preview_image_url String?
-  display_order     Int      @default(0)
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-
-  productType ProductType @relation(fields: [product_type_id], references: [id], onDelete: Cascade)
-
-  @@index([product_type_id])
+  @@index([item_id])
 }
 
 model ItemConstraint {
-  id                String   @id @default(uuid())
-  target_item_id    String // ID do produto ou adicional principal
-  target_item_type  String // "PRODUCT" ou "ADDITIONAL"
-  constraint_type   String // "MUTUALLY_EXCLUSIVE" ou "REQUIRES"
-  related_item_id   String // ID do item relacionado
-  related_item_type String // "PRODUCT" ou "ADDITIONAL"
-  message           String? // Mensagem de erro/alerta
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
+  id              String   @id @default(uuid())
+  target_item_id  String
+  related_item_id String
+  constraint_type String   @default("REQUIRES") // REQUIRES ou MUTUALLY_EXCLUSIVE
+  message         String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
 
   @@index([target_item_id])
   @@index([related_item_id])
+}
+
+model ProductComponent {
+  id         String   @id @default(uuid())
+  product_id String
+  item_id    String
+  quantity   Int      @default(1) // Quantidade deste item no produto
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  item    Item    @relation(fields: [item_id], references: [id], onDelete: Cascade)
+
+  @@unique([product_id, item_id])
+  @@index([product_id])
+  @@index([item_id])
+}
+
+model OrderItemCustomization {
+  id                     String  @id @default(uuid())
+  order_item_id          String
+  customization_id       String
+  value                  String // JSON com os detalhes da customização aplicada
+  google_drive_folder_id String? // ID da pasta no Google Drive com as artes
+  google_drive_url       String? // URL pública da pasta no Google Drive
+
+  orderItem     OrderItem     @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+  customization Customization @relation(fields: [customization_id], references: [id])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 }

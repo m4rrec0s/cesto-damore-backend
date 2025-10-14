@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const googleapis_1 = require("googleapis");
 const promises_1 = __importDefault(require("fs/promises"));
 const path_1 = __importDefault(require("path"));
+const stream_1 = require("stream");
 class GoogleDriveService {
     constructor() {
         this.rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
@@ -18,10 +19,42 @@ class GoogleDriveService {
         this.drive = googleapis_1.google.drive({ version: "v3", auth: this.oauth2Client });
         this.loadSavedTokens();
     }
+    getTokensFromEnv() {
+        const accessToken = process.env.GOOGLE_OAUTH_ACCESS_TOKEN;
+        const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+        const scope = process.env.GOOGLE_OAUTH_SCOPE;
+        const tokenType = process.env.GOOGLE_OAUTH_TOKEN_TYPE;
+        const expiryDateRaw = process.env.GOOGLE_OAUTH_EXPIRY_DATE;
+        if (!accessToken && !refreshToken) {
+            return null;
+        }
+        const tokens = {};
+        if (accessToken)
+            tokens.access_token = accessToken;
+        if (refreshToken)
+            tokens.refresh_token = refreshToken;
+        if (scope)
+            tokens.scope = scope;
+        if (tokenType)
+            tokens.token_type = tokenType;
+        if (expiryDateRaw) {
+            const expiryDateNumber = Number(expiryDateRaw);
+            if (!Number.isNaN(expiryDateNumber)) {
+                tokens.expiry_date = expiryDateNumber;
+            }
+        }
+        return tokens;
+    }
     /**
      * Carrega tokens OAuth2 salvos do arquivo
      */
     async loadSavedTokens() {
+        const envTokens = this.getTokensFromEnv();
+        if (envTokens) {
+            this.oauth2Client.setCredentials(envTokens);
+            console.log("✅ Tokens OAuth2 carregados das variáveis de ambiente");
+            return;
+        }
         try {
             const tokenFile = await promises_1.default.readFile(this.tokenPath, "utf-8");
             const tokens = JSON.parse(tokenFile);
@@ -174,6 +207,43 @@ class GoogleDriveService {
         const results = await Promise.all(uploadPromises);
         console.log(`✅ ${results.length} arquivo(s) enviado(s) para o Google Drive`);
         return results;
+    }
+    async uploadBuffer(buffer, fileName, folderId, mimeType) {
+        try {
+            await this.ensureValidToken();
+            const fileMetadata = {
+                name: fileName,
+                parents: [folderId],
+            };
+            const media = {
+                mimeType: mimeType || "application/octet-stream",
+                body: stream_1.Readable.from(buffer),
+            };
+            const response = await this.drive.files.create({
+                requestBody: fileMetadata,
+                media,
+                fields: "id, name, webViewLink, webContentLink",
+            });
+            await this.drive.permissions.create({
+                fileId: response.data.id,
+                requestBody: {
+                    role: "reader",
+                    type: "anyone",
+                },
+            });
+            console.log(`📤 Arquivo (buffer) enviado para Google Drive: ${fileName}`);
+            const directDownloadUrl = `https://drive.google.com/uc?id=${response.data.id}&export=download`;
+            return {
+                id: response.data.id,
+                name: response.data.name,
+                webViewLink: response.data.webViewLink,
+                webContentLink: directDownloadUrl,
+            };
+        }
+        catch (error) {
+            console.error("❌ Erro ao fazer upload via buffer:", error.message);
+            throw new Error("Falha ao fazer upload do arquivo para o Google Drive");
+        }
     }
     /**
      * Obtém URL da pasta no Google Drive

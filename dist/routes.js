@@ -20,6 +20,7 @@ const colorController_1 = __importDefault(require("./controller/colorController"
 const reportController_1 = __importDefault(require("./controller/reportController"));
 const whatsappController_1 = __importDefault(require("./controller/whatsappController"));
 const customizationController_1 = __importDefault(require("./controller/customizationController"));
+const orderCustomizationController_1 = __importDefault(require("./controller/orderCustomizationController"));
 const oauthController_1 = __importDefault(require("./controller/oauthController"));
 const multer_1 = require("./config/multer");
 const security_1 = require("./middleware/security");
@@ -189,45 +190,10 @@ router.post("/admin/feed/section-items", security_1.authenticateToken, security_
 router.put("/admin/feed/section-items/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.updateSectionItem);
 router.delete("/admin/feed/section-items/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.deleteSectionItem);
 // ========== CUSTOMIZATION ROUTES ==========
-// ============== NEW: UNIFIED ENDPOINTS ==============
-// Endpoint unificado para buscar customizações (produtos ou adicionais)
-router.get("/customizations/:referenceId", customizationController_1.default.getCustomizationsByReference);
-// Gerar preview de customização
-router.post("/customization/preview", customizationController_1.default.generatePreview);
-// Servir arquivo temporário para preview
-router.get("/temp-files/:fileId", customizationController_1.default.serveTempFile);
-// Validar customizações
-router.post("/customization/validate", customizationController_1.default.validateCustomizations);
-// Validar restrições do carrinho
-router.post("/constraints/validate", customizationController_1.default.validateCartConstraints);
-// ============== LEGACY: OLD ENDPOINTS (Mantidos para retrocompatibilidade) ==============
-// Public routes - buscar customizações disponíveis
-router.get("/products/:productId/customizations", customizationController_1.default.getProductCustomizations);
-router.get("/additionals/:additionalId/customizations", customizationController_1.default.getAdditionalCustomizations);
-// Upload de arquivo temporário (sem autenticação para não-logados)
-router.post("/customization/upload-temp", multer_1.upload.single("file"), customizationController_1.default.uploadTemporaryFile);
-// Buscar arquivos da sessão
-router.get("/customization/session/:sessionId/files", customizationController_1.default.getSessionFiles);
-// Deletar arquivo temporário
-router.delete("/customization/temp-file/:id", customizationController_1.default.deleteTemporaryFile);
-// ============== ADMIN CUSTOMIZATION ROUTES ==============
-// NEW: Product Rules (novo sistema)
-router.post("/admin/customization/rule", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createProductRule);
-router.put("/admin/customization/rule/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.updateProductRule);
-router.delete("/admin/customization/rule/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteProductRule);
-// NEW: Item Constraints
-router.post("/admin/constraints", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createConstraint);
-router.get("/admin/constraints/:itemId", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.getItemConstraints);
-router.delete("/admin/constraints/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteConstraint);
-// LEGACY: Old customization system (mantido para retrocompatibilidade)
-router.post("/admin/customization/product", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createProductCustomization);
-router.post("/admin/customization/additional", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.createAdditionalCustomization);
-// Atualizar regras de customização
-router.put("/admin/customization/product/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.updateProductCustomization);
-router.put("/admin/customization/additional/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.updateAdditionalCustomization);
-// Deletar regras de customização
-router.delete("/admin/customization/product/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteProductCustomization);
-router.delete("/admin/customization/additional/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.deleteAdditionalCustomization);
-// Limpar arquivos temporários expirados (CRON)
-router.post("/admin/customization/cleanup", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.cleanupExpiredFiles);
+router.get("/customizations/:itemType/:itemId", customizationController_1.default.getItemCustomizations);
+router.get("/customizations/reference/:referenceId", customizationController_1.default.getCustomizationsByReference);
+router.post("/customizations/validate", customizationController_1.default.validateCustomizations);
+router.post("/customizations/preview", customizationController_1.default.generatePreview);
+router.get("/orders/:orderId/customizations", security_1.authenticateToken, orderCustomizationController_1.default.listOrderCustomizations);
+router.post("/orders/:orderId/items/:itemId/customizations", security_1.authenticateToken, orderCustomizationController_1.default.saveOrderItemCustomization);
 exports.default = router;

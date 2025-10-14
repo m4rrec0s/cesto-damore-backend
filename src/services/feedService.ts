@@ -299,7 +299,6 @@ class FeedService {
           section_type: data.section_type,
           is_visible: data.is_visible ?? true,
           display_order: data.display_order ?? 0,
-          max_items: data.max_items ?? 6,
         },
       });
 

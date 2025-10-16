@@ -30,7 +30,7 @@ if (!webhookSecret) {
 const client = new mercadopago_1.MercadoPagoConfig({
     accessToken,
     options: {
-        timeout: 5000,
+        timeout: 10000, // Aumentar timeout para 10 segundos
     },
 });
 // Instâncias dos serviços
@@ -42,8 +42,8 @@ exports.mercadoPagoConfig = {
     publicKey,
     webhookSecret,
     client,
-    // URLs base para webhooks e notificações
-    baseUrl: process.env.BASE_URL || "http://localhost:8080",
+    // URLs base para webhooks e notificações (remover /api se existir)
+    baseUrl: (process.env.BASE_URL || "http://localhost:8080").replace(/\/api$/, ""),
     // Configurações de segurança
     security: {
         enableWebhookValidation: true,

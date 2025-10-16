@@ -15,9 +15,6 @@ class OrderCustomizationService {
             title: input.title,
             customization_data: JSON.stringify(input.customizationData ?? {}),
         };
-        if (input.selectedLayoutId !== undefined) {
-            payload.selected_layout_id = input.selectedLayoutId;
-        }
         return prisma_1.default.orderItemCustomization.create({
             data: payload,
         });
@@ -45,18 +42,13 @@ class OrderCustomizationService {
             throw new Error("Customização não encontrada");
         }
         const mergedData = {
-            ...JSON.parse(existing.customization_data || "{}"),
+            ...JSON.parse(existing.value || "{}"),
             ...(input.customizationData ?? {}),
         };
         const updateData = {
-            customization_rule_id: input.customizationRuleId ?? existing.customization_rule_id,
-            customization_type: input.customizationType ?? existing.customization_type,
-            title: input.title ?? existing.title,
-            customization_data: JSON.stringify(mergedData),
+            customization_id: input.customizationRuleId ?? existing.customization_id,
+            value: JSON.stringify(mergedData),
         };
-        if (input.selectedLayoutId !== undefined) {
-            updateData.selected_layout_id = input.selectedLayoutId;
-        }
         return prisma_1.default.orderItemCustomization.update({
             where: { id: customizationId },
             data: updateData,
@@ -86,28 +78,26 @@ class OrderCustomizationService {
             const safeCustomerName = (order.user?.name || "Cliente")
                 .replace(/[^a-zA-Z0-9]/g, "_")
                 .substring(0, 40);
-            const folderName = `Pedido_${safeCustomerName}_${new Date()
-                .toISOString()
-                .split("T")[0]}_${orderId.substring(0, 8)}`;
+            const folderName = `Pedido_${safeCustomerName}_${new Date().toISOString().split("T")[0]}_${orderId.substring(0, 8)}`;
             folderId = await googleDriveService_1.default.createFolder(folderName);
             await googleDriveService_1.default.makeFolderPublic(folderId);
             return folderId;
         };
         for (const item of order.items) {
             for (const customization of item.customizations) {
-                const data = this.parseCustomizationData(customization.customization_data);
+                const data = this.parseCustomizationData(customization.value);
                 const artworks = this.extractArtworkAssets(data);
                 if (artworks.length === 0) {
                     continue;
                 }
                 const targetFolder = await ensureFolder();
-                const uploads = await Promise.all(artworks.map((asset) => this.uploadArtwork(asset, customization, targetFolder)));
+                const uploads = await Promise.all(artworks.map((asset) => this.uploadArtwork(asset, { id: customization.id }, targetFolder)));
                 uploadedFiles += uploads.length;
                 const sanitizedData = this.removeBase64FromData(data, uploads);
                 await prisma_1.default.orderItemCustomization.update({
                     where: { id: customization.id },
                     data: {
-                        customization_data: JSON.stringify(sanitizedData),
+                        value: JSON.stringify(sanitizedData),
                         google_drive_folder_id: targetFolder,
                         google_drive_url: googleDriveService_1.default.getFolderUrl(targetFolder),
                     },
@@ -168,7 +158,7 @@ class OrderCustomizationService {
         const mimeType = asset.mimeType || "image/png";
         const extension = this.resolveExtension(mimeType);
         const fileName = asset.fileName ||
-            `${this.slugify(customization.title)}-${(0, crypto_1.randomUUID)().slice(0, 8)}.${extension}`;
+            `customization-${customization.id.slice(0, 8)}-${(0, crypto_1.randomUUID)().slice(0, 8)}.${extension}`;
         const upload = await googleDriveService_1.default.uploadBuffer(fileBuffer, fileName, folderId, mimeType);
         return {
             ...upload,

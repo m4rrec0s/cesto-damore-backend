@@ -7,9 +7,7 @@ const zod_1 = require("zod");
 const client_1 = require("@prisma/client");
 const prisma_1 = __importDefault(require("../database/prisma"));
 const orderCustomizationService_1 = __importDefault(require("../services/orderCustomizationService"));
-const uuidSchema = zod_1.z
-    .string()
-    .uuid({ message: "Identificador inválido" });
+const uuidSchema = zod_1.z.string().uuid({ message: "Identificador inválido" });
 const artworkSchema = zod_1.z.object({
     base64: zod_1.z.string().min(1, "Conteúdo base64 obrigatório"),
     mimeType: zod_1.z.string().optional(),

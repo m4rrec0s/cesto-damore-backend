@@ -21,7 +21,12 @@ const reportController_1 = __importDefault(require("./controller/reportControlle
 const whatsappController_1 = __importDefault(require("./controller/whatsappController"));
 const customizationController_1 = __importDefault(require("./controller/customizationController"));
 const orderCustomizationController_1 = __importDefault(require("./controller/orderCustomizationController"));
+const productRuleController_1 = __importDefault(require("./controller/productRuleController"));
+const itemConstraintController_1 = __importDefault(require("./controller/itemConstraintController"));
+const customizationUploadController_1 = __importDefault(require("./controller/customizationUploadController"));
 const oauthController_1 = __importDefault(require("./controller/oauthController"));
+const itemController_1 = __importDefault(require("./controller/itemController"));
+const productComponentController_1 = __importDefault(require("./controller/productComponentController"));
 const multer_1 = require("./config/multer");
 const security_1 = require("./middleware/security");
 const healthCheck_1 = require("./middleware/healthCheck");
@@ -160,6 +165,8 @@ router.get("/payment/pending", paymentController_1.default.paymentPending);
 // Rotas de pagamento protegidas
 router.post("/payment/preference", security_1.authenticateToken, security_1.paymentRateLimit, (0, security_1.logFinancialOperation)("CREATE_PREFERENCE"), paymentController_1.default.createPreference);
 router.post("/payment/create", security_1.authenticateToken, security_1.paymentRateLimit, security_1.validatePaymentData, (0, security_1.logFinancialOperation)("CREATE_PAYMENT"), paymentController_1.default.createPayment);
+// Checkout Transparente (pagamento direto na aplicação)
+router.post("/payment/transparent-checkout", security_1.authenticateToken, security_1.paymentRateLimit, (0, security_1.logFinancialOperation)("TRANSPARENT_CHECKOUT"), paymentController_1.default.processTransparentCheckout);
 router.get("/payment/:paymentId/status", security_1.authenticateToken, (0, security_1.logFinancialOperation)("GET_PAYMENT_STATUS"), paymentController_1.default.getPaymentStatus);
 router.post("/payment/:paymentId/cancel", security_1.authenticateToken, (0, security_1.logFinancialOperation)("CANCEL_PAYMENT"), paymentController_1.default.cancelPayment);
 router.get("/payments/user", security_1.authenticateToken, (0, security_1.logFinancialOperation)("GET_USER_PAYMENTS"), paymentController_1.default.getUserPayments);
@@ -190,10 +197,51 @@ router.post("/admin/feed/section-items", security_1.authenticateToken, security_
 router.put("/admin/feed/section-items/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.updateSectionItem);
 router.delete("/admin/feed/section-items/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.deleteSectionItem);
 // ========== CUSTOMIZATION ROUTES ==========
-router.get("/customizations/:itemType/:itemId", customizationController_1.default.getItemCustomizations);
-router.get("/customizations/reference/:referenceId", customizationController_1.default.getCustomizationsByReference);
+// Public customization routes (REFATORADO para usar Items)
+router.get("/items/:itemId/customizations", customizationController_1.default.getItemCustomizations);
 router.post("/customizations/validate", customizationController_1.default.validateCustomizations);
-router.post("/customizations/preview", customizationController_1.default.generatePreview);
+router.post("/customizations/preview", customizationController_1.default.buildPreview);
+// Order customization routes
 router.get("/orders/:orderId/customizations", security_1.authenticateToken, orderCustomizationController_1.default.listOrderCustomizations);
 router.post("/orders/:orderId/items/:itemId/customizations", security_1.authenticateToken, orderCustomizationController_1.default.saveOrderItemCustomization);
+// ========== ITEMS ROUTES ==========
+router.get("/items", itemController_1.default.index);
+router.get("/items/available", itemController_1.default.getAvailable);
+router.get("/items/customizable", itemController_1.default.getWithCustomizations);
+router.get("/items/:id", itemController_1.default.show);
+router.post("/items", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.create);
+router.put("/items/:id", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.update);
+router.put("/items/:id/stock", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.updateStock);
+router.delete("/items/:id", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.delete);
+// ========== PRODUCT COMPONENTS ROUTES ==========
+router.get("/products/:productId/components", productComponentController_1.default.getProductComponents);
+router.post("/products/:productId/components", security_1.authenticateToken, security_1.requireAdmin, productComponentController_1.default.addComponent);
+router.put("/components/:componentId", security_1.authenticateToken, security_1.requireAdmin, productComponentController_1.default.updateComponent);
+router.delete("/components/:componentId", security_1.authenticateToken, security_1.requireAdmin, productComponentController_1.default.removeComponent);
+router.get("/products/:productId/stock/calculate", productComponentController_1.default.calculateProductStock);
+router.post("/products/:productId/stock/validate", productComponentController_1.default.validateComponentsStock);
+router.get("/items/:itemId/products", productComponentController_1.default.getProductsUsingItem);
+// ========== CUSTOMIZATION IMAGE UPLOAD ROUTES ==========
+// Upload de imagem para preview de customização (Admin)
+router.post("/customization/upload-image", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, customizationUploadController_1.default.uploadImage);
+// Delete de imagem de customização (Admin)
+router.delete("/customization/image/:filename", security_1.authenticateToken, security_1.requireAdmin, customizationUploadController_1.default.deleteImage);
+// Admin routes for ProductRule management
+router.get("/admin/customization/rule/type/:productTypeId", security_1.authenticateToken, security_1.requireAdmin, productRuleController_1.default.getRulesByType);
+router.post("/admin/customization/rule", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, productRuleController_1.default.createRule);
+router.put("/admin/customization/rule/:ruleId", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, productRuleController_1.default.updateRule);
+router.delete("/admin/customization/rule/:ruleId", security_1.authenticateToken, security_1.requireAdmin, productRuleController_1.default.deleteRule);
+// ========== ITEM CONSTRAINTS ROUTES ==========
+// Listar todos os constraints
+router.get("/admin/constraints", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.listAll);
+// Buscar constraints de um item específico
+router.get("/admin/constraints/item/:itemType/:itemId", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.getByItem);
+// Buscar produtos/adicionais para autocomplete
+router.get("/admin/constraints/search", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.searchItems);
+// Criar constraint
+router.post("/admin/constraints", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.create);
+// Atualizar constraint
+router.put("/admin/constraints/:constraintId", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.update);
+// Deletar constraint
+router.delete("/admin/constraints/:constraintId", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.delete);
 exports.default = router;

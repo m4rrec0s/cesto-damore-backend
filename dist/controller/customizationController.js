@@ -6,28 +6,23 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const zod_1 = require("zod");
 const client_1 = require("@prisma/client");
 const customizationService_1 = __importDefault(require("../services/customizationService"));
-const itemTypeSchema = zod_1.z.enum(["PRODUCT", "ADDITIONAL"]);
 const customizationInputSchema = zod_1.z.object({
-    ruleId: zod_1.z.string().optional().nullable(),
-    customizationRuleId: zod_1.z.string().optional().nullable(),
-    customizationType: zod_1.z.nativeEnum(client_1.CustomizationType),
+    customization_id: zod_1.z.string().uuid(),
+    customization_type: zod_1.z.nativeEnum(client_1.CustomizationType),
     data: zod_1.z.record(zod_1.z.any()),
-    selectedLayoutId: zod_1.z.string().optional().nullable(),
 });
 class CustomizationController {
+    /**
+     * Busca customizações disponíveis para um item
+     */
     async getItemCustomizations(req, res) {
         try {
             const paramsSchema = zod_1.z.object({
-                itemType: itemTypeSchema,
                 itemId: zod_1.z.string().uuid({ message: "itemId inválido" }),
             });
-            const { itemType, itemId } = paramsSchema.parse(req.params);
-            const config = await customizationService_1.default.getCustomizationConfig(itemType, itemId);
-            return res.json({
-                itemType,
-                itemId,
-                ...config,
-            });
+            const { itemId } = paramsSchema.parse(req.params);
+            const config = await customizationService_1.default.getItemCustomizations(itemId);
+            return res.json(config);
         }
         catch (error) {
             if (error instanceof zod_1.z.ZodError) {
@@ -43,38 +38,12 @@ class CustomizationController {
             });
         }
     }
-    async getCustomizationsByReference(req, res) {
-        try {
-            const paramsSchema = zod_1.z.object({
-                referenceId: zod_1.z.string().uuid({ message: "ID inválido" }),
-            });
-            const { referenceId } = paramsSchema.parse(req.params);
-            const result = await customizationService_1.default.getCustomizationsByReference(referenceId);
-            if (!result.config) {
-                return res.status(404).json({
-                    error: "Item não encontrado",
-                });
-            }
-            return res.json(result);
-        }
-        catch (error) {
-            if (error instanceof zod_1.z.ZodError) {
-                return res.status(400).json({
-                    error: "Parâmetros inválidos",
-                    details: error.issues,
-                });
-            }
-            console.error("Erro ao buscar customizações:", error);
-            return res.status(500).json({
-                error: "Erro ao buscar customizações",
-                details: error.message,
-            });
-        }
-    }
+    /**
+     * Valida customizações de um item
+     */
     async validateCustomizations(req, res) {
         try {
             const bodySchema = zod_1.z.object({
-                itemType: itemTypeSchema,
                 itemId: zod_1.z.string().uuid({ message: "itemId inválido" }),
                 inputs: zod_1.z.array(customizationInputSchema).default([]),
             });
@@ -96,10 +65,13 @@ class CustomizationController {
             });
         }
     }
-    async generatePreview(req, res) {
+    /**
+     * Gera preview de customizações
+     */
+    async buildPreview(req, res) {
         try {
             const bodySchema = zod_1.z.object({
-                layoutId: zod_1.z.string().uuid({ message: "layoutId inválido" }),
+                itemId: zod_1.z.string().uuid({ message: "itemId inválido" }),
                 customizations: zod_1.z
                     .array(customizationInputSchema)
                     .min(1, "Forneça ao menos uma customização"),

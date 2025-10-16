@@ -66,15 +66,62 @@ class GoogleDriveService {
         }
     }
     /**
-     * Salva tokens OAuth2 no arquivo
+     * Salva tokens OAuth2 no arquivo e atualiza .env
      */
     async saveTokens(tokens) {
         try {
+            // Salvar no google-drive-token.json
             await promises_1.default.writeFile(this.tokenPath, JSON.stringify(tokens, null, 2));
-            console.log("✅ Tokens OAuth2 salvos com sucesso em:", this.tokenPath);
+            console.log("✅ Tokens OAuth2 salvos em:", this.tokenPath);
+            // Atualizar .env
+            await this.updateEnvFile(tokens);
+            console.log("✅ Arquivo .env atualizado com novos tokens");
         }
         catch (error) {
             console.error("❌ Erro ao salvar tokens:", error);
+        }
+    }
+    /**
+     * Atualiza variáveis de ambiente no arquivo .env
+     */
+    async updateEnvFile(tokens) {
+        try {
+            const envPath = path_1.default.join(process.cwd(), ".env");
+            let envContent = await promises_1.default.readFile(envPath, "utf-8");
+            // Atualizar ou adicionar cada token
+            if (tokens.access_token) {
+                envContent = this.updateEnvVariable(envContent, "GOOGLE_OAUTH_ACCESS_TOKEN", tokens.access_token);
+            }
+            if (tokens.refresh_token) {
+                envContent = this.updateEnvVariable(envContent, "GOOGLE_OAUTH_REFRESH_TOKEN", tokens.refresh_token);
+            }
+            if (tokens.expiry_date) {
+                envContent = this.updateEnvVariable(envContent, "GOOGLE_OAUTH_EXPIRY_DATE", tokens.expiry_date.toString());
+            }
+            if (tokens.scope) {
+                envContent = this.updateEnvVariable(envContent, "GOOGLE_OAUTH_SCOPE", `"${tokens.scope}"`);
+            }
+            if (tokens.token_type) {
+                envContent = this.updateEnvVariable(envContent, "GOOGLE_OAUTH_TOKEN_TYPE", tokens.token_type);
+            }
+            await promises_1.default.writeFile(envPath, envContent, "utf-8");
+        }
+        catch (error) {
+            console.error("❌ Erro ao atualizar .env:", error);
+        }
+    }
+    /**
+     * Atualiza ou adiciona uma variável no conteúdo do .env
+     */
+    updateEnvVariable(content, key, value) {
+        const regex = new RegExp(`^${key}=.*$`, "m");
+        if (regex.test(content)) {
+            // Atualizar valor existente
+            return content.replace(regex, `${key}=${value}`);
+        }
+        else {
+            // Adicionar nova variável
+            return content + `\n${key}=${value}`;
         }
     }
     /**
@@ -113,10 +160,17 @@ class GoogleDriveService {
      */
     async refreshAccessToken() {
         try {
+            console.log("🔄 Renovando access token...");
             const { credentials } = await this.oauth2Client.refreshAccessToken();
-            this.oauth2Client.setCredentials(credentials);
-            await this.saveTokens(credentials);
+            // Mesclar com credenciais existentes (preservar refresh_token)
+            const updatedTokens = {
+                ...this.oauth2Client.credentials,
+                ...credentials,
+            };
+            this.oauth2Client.setCredentials(updatedTokens);
+            await this.saveTokens(updatedTokens);
             console.log("✅ Access token renovado automaticamente");
+            console.log(`   📅 Nova expiração: ${new Date(updatedTokens.expiry_date || 0).toLocaleString()}`);
         }
         catch (error) {
             console.error("❌ Erro ao renovar access token:", error.message);
@@ -128,11 +182,26 @@ class GoogleDriveService {
      */
     async ensureValidToken() {
         if (!this.oauth2Client.credentials) {
-            throw new Error("Não autenticado. Execute o fluxo OAuth2.");
+            throw new Error("Não autenticado. Execute o fluxo OAuth2 via GET /oauth/authorize");
         }
-        const { expiry_date } = this.oauth2Client.credentials;
-        if (!expiry_date || expiry_date < Date.now() + 60000) {
-            console.log("🔄 Token expirado ou próximo de expirar, renovando...");
+        const { expiry_date, refresh_token } = this.oauth2Client.credentials;
+        // Se não há data de expiração, tentar usar o token atual
+        if (!expiry_date) {
+            if (!refresh_token) {
+                throw new Error("Token inválido. Execute o fluxo OAuth2 via GET /oauth/authorize");
+            }
+            // Forçar renovação se não sabemos quando expira
+            await this.refreshAccessToken();
+            return;
+        }
+        // Renovar se expirou ou expira em menos de 5 minutos
+        const expiresIn = expiry_date - Date.now();
+        const fiveMinutes = 5 * 60 * 1000;
+        if (expiresIn < fiveMinutes) {
+            if (!refresh_token) {
+                throw new Error("Refresh token ausente. Execute o fluxo OAuth2 via GET /oauth/authorize");
+            }
+            console.log(`🔄 Token expira em ${Math.round(expiresIn / 1000 / 60)} minuto(s), renovando...`);
             await this.refreshAccessToken();
         }
     }

@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
 const prismaRetry_1 = require("../database/prismaRetry");
 const whatsappService_1 = __importDefault(require("./whatsappService"));
+const productComponentService_1 = __importDefault(require("./productComponentService"));
 class StockService {
     /**
      * Decrementa o estoque dos produtos e adicionais de um pedido
@@ -13,7 +14,7 @@ class StockService {
     async decrementOrderStock(orderItems) {
         try {
             for (const item of orderItems) {
-                // 1. Decrementar estoque do produto principal
+                // 1. Decrementar estoque dos componentes do produto (NOVA LÓGICA)
                 await this.decrementProductStock(item.product_id, item.quantity);
                 // 2. Decrementar estoque dos adicionais
                 if (item.additionals && item.additionals.length > 0) {
@@ -29,17 +30,33 @@ class StockService {
         }
     }
     /**
-     * Decrementa estoque de um produto
+     * Decrementa estoque de um produto através dos seus componentes
      */
     async decrementProductStock(productId, quantity) {
         const product = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.product.findUnique({
             where: { id: productId },
-            select: { id: true, name: true, stock_quantity: true },
+            select: {
+                id: true,
+                name: true,
+                stock_quantity: true,
+                components: {
+                    include: {
+                        item: true,
+                    },
+                },
+            },
         }));
         if (!product) {
             throw new Error(`Produto ${productId} não encontrado`);
         }
-        // Se não tem controle de estoque, apenas log e continua
+        // NOVA LÓGICA: Se o produto tem componentes, decrementar estoque dos items
+        if (product.components.length > 0) {
+            console.log(`🔄 Produto ${product.name} possui ${product.components.length} componentes. Decrementando estoque dos items...`);
+            await productComponentService_1.default.decrementComponentsStock(productId, quantity);
+            console.log(`✅ Estoque dos componentes do produto ${product.name} decrementado com sucesso`);
+            return;
+        }
+        // LÓGICA LEGADA: Se não tem componentes, decrementar estoque direto do produto
         if (product.stock_quantity === null) {
             console.log(`Produto ${product.name} não possui controle de estoque`);
             return;
@@ -48,7 +65,7 @@ class StockService {
         if (product.stock_quantity < quantity) {
             throw new Error(`Estoque insuficiente para ${product.name}. Disponível: ${product.stock_quantity}, Solicitado: ${quantity}`);
         }
-        // Decrementa estoque
+        // Decrementa estoque direto
         await (0, prismaRetry_1.withRetry)(() => prisma_1.default.product.update({
             where: { id: productId },
             data: {
@@ -57,7 +74,7 @@ class StockService {
                 },
             },
         }));
-        console.log(`✅ Estoque do produto ${product.name} decrementado em ${quantity} unidades`);
+        console.log(`✅ Estoque do produto ${product.name} (sem componentes) decrementado em ${quantity} unidades`);
         // Verificar e enviar alerta se estoque ficou baixo
         const newStock = (product.stock_quantity || 0) - quantity;
         await this.checkAndNotifyLowStock(productId, product.name, newStock, "product");

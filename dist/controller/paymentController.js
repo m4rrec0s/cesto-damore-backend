@@ -81,6 +81,71 @@ class PaymentController {
         }
     }
     /**
+     * Processa pagamento via Checkout Transparente
+     * Endpoint para processar pagamentos diretamente na aplicação
+     */
+    static async processTransparentCheckout(req, res) {
+        try {
+            const { orderId, payerEmail, payerName, payerDocument, payerDocumentType, paymentMethodId, cardToken, installments, issuer_id, } = req.body;
+            const userId = req.user?.id;
+            // Validações
+            if (!orderId || !payerEmail || !payerName || !userId) {
+                return res.status(400).json({
+                    error: "Dados obrigatórios não fornecidos",
+                    required: ["orderId", "payerEmail", "payerName"],
+                });
+            }
+            if (!payerDocument || !payerDocumentType) {
+                return res.status(400).json({
+                    error: "Documento do pagador é obrigatório",
+                    required: ["payerDocument", "payerDocumentType"],
+                });
+            }
+            if (!paymentMethodId ||
+                !["pix", "credit_card", "debit_card"].includes(paymentMethodId)) {
+                return res.status(400).json({
+                    error: "Método de pagamento inválido",
+                    allowed: ["pix", "credit_card", "debit_card"],
+                });
+            }
+            // Se for cartão, exigir token
+            if ((paymentMethodId === "credit_card" ||
+                paymentMethodId === "debit_card") &&
+                !cardToken) {
+                return res.status(400).json({
+                    error: "Token do cartão é obrigatório para pagamentos com cartão",
+                    required: ["cardToken"],
+                });
+            }
+            const payment = await paymentService_1.default.processTransparentCheckout({
+                orderId,
+                userId,
+                payerEmail,
+                payerName,
+                payerDocument,
+                payerDocumentType,
+                paymentMethodId,
+                cardToken,
+                installments: installments ? Number(installments) : 1,
+                issuer_id,
+            });
+            res.status(201).json({
+                success: true,
+                data: payment,
+                message: paymentMethodId === "pix"
+                    ? "Pagamento PIX gerado. Escaneie o QR Code para pagar."
+                    : "Pagamento processado com sucesso!",
+            });
+        }
+        catch (error) {
+            console.error("Erro ao processar checkout transparente:", error);
+            res.status(500).json({
+                error: "Falha ao processar pagamento",
+                details: error instanceof Error ? error.message : "Erro desconhecido",
+            });
+        }
+    }
+    /**
      * Consulta status de um pagamento
      */
     static async getPaymentStatus(req, res) {

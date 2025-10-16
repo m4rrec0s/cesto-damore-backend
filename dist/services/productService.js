@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
 const localStorage_1 = require("../config/localStorage");
+const productComponentService_1 = __importDefault(require("./productComponentService"));
 class ProductService {
     async getAllProducts(options = {}) {
         const { page = 1, perPage = 15, sort = "name", search, category_id, type_id, } = options;
@@ -41,6 +42,16 @@ class ProductService {
                         additionals: { include: { additional: true } },
                         categories: { include: { category: true } },
                         type: true,
+                        components: {
+                            include: {
+                                item: {
+                                    include: {
+                                        additional: true,
+                                        customizations: true,
+                                    },
+                                },
+                            },
+                        },
                     },
                 }),
                 prisma_1.default.product.count({ where }),
@@ -70,10 +81,25 @@ class ProductService {
                     additionals: { include: { additional: true } },
                     categories: { include: { category: true } },
                     type: true,
+                    components: {
+                        include: {
+                            item: {
+                                include: {
+                                    additional: true,
+                                    customizations: true,
+                                },
+                            },
+                        },
+                    },
                 },
             });
             if (!product) {
                 throw new Error("Produto não encontrado");
+            }
+            // Calcular estoque baseado nos componentes
+            if (product.components.length > 0) {
+                const availableStock = await productComponentService_1.default.calculateProductStock(id);
+                product.calculated_stock = availableStock;
             }
             return this.formatProductResponse(product);
         }
@@ -105,6 +131,7 @@ class ProductService {
             const { additionals, categories, ...rest } = data;
             const normalized = { ...rest };
             normalized.price = this.normalizePrice(normalized.price);
+            normalized.discount = this.normalizeDiscount(normalized.discount);
             normalized.stock_quantity = this.normalizeStockQuantity(normalized.stock_quantity);
             normalized.is_active = this.normalizeBoolean(normalized.is_active, true);
             const created = await prisma_1.default.product.create({ data: { ...normalized } });
@@ -145,6 +172,9 @@ class ProductService {
             // Normalização de tipos apenas se fornecidos
             if (normalized.price !== undefined) {
                 normalized.price = this.normalizePrice(normalized.price);
+            }
+            if (normalized.discount !== undefined) {
+                normalized.discount = this.normalizeDiscount(normalized.discount);
             }
             if (normalized.stock_quantity !== undefined) {
                 normalized.stock_quantity = this.normalizeStockQuantity(normalized.stock_quantity);
@@ -294,6 +324,36 @@ class ProductService {
             return price;
         }
         throw new Error("Preço deve ser um número positivo");
+    }
+    normalizeDiscount(discount) {
+        if (discount === null || discount === undefined || discount === "") {
+            return 0;
+        }
+        if (typeof discount === "string") {
+            let cleanDiscount = discount;
+            const pointCount = (cleanDiscount.match(/\./g) || []).length;
+            const commaCount = (cleanDiscount.match(/,/g) || []).length;
+            if (commaCount === 1 && pointCount === 0) {
+                cleanDiscount = cleanDiscount.replace(",", ".");
+            }
+            else if (commaCount === 1 && pointCount >= 1) {
+                cleanDiscount = cleanDiscount.replace(/\./g, "").replace(",", ".");
+            }
+            const normalizedDiscount = parseFloat(cleanDiscount);
+            if (isNaN(normalizedDiscount) ||
+                normalizedDiscount < 0 ||
+                normalizedDiscount > 100) {
+                throw new Error("Desconto inválido. Deve ser entre 0 e 100%");
+            }
+            return normalizedDiscount;
+        }
+        if (typeof discount === "number") {
+            if (discount < 0 || discount > 100) {
+                throw new Error("Desconto deve estar entre 0 e 100%");
+            }
+            return discount;
+        }
+        throw new Error("Desconto deve ser um número entre 0 e 100");
     }
     normalizeStockQuantity(stock) {
         if (stock === null || stock === undefined || stock === "") {

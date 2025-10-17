@@ -162,6 +162,7 @@ class ProductService {
       const normalized: any = { ...rest };
 
       normalized.price = this.normalizePrice(normalized.price);
+      normalized.discount = this.normalizeDiscount(normalized.discount);
       normalized.stock_quantity = this.normalizeStockQuantity(
         normalized.stock_quantity
       );
@@ -222,6 +223,9 @@ class ProductService {
       // Normalização de tipos apenas se fornecidos
       if (normalized.price !== undefined) {
         normalized.price = this.normalizePrice(normalized.price);
+      }
+      if (normalized.discount !== undefined) {
+        normalized.discount = this.normalizeDiscount(normalized.discount);
       }
       if (normalized.stock_quantity !== undefined) {
         normalized.stock_quantity = this.normalizeStockQuantity(
@@ -408,6 +412,43 @@ class ProductService {
     }
 
     throw new Error("Preço deve ser um número positivo");
+  }
+
+  private normalizeDiscount(discount: any): number {
+    if (discount === null || discount === undefined || discount === "") {
+      return 0;
+    }
+
+    if (typeof discount === "string") {
+      let cleanDiscount = discount;
+      const pointCount = (cleanDiscount.match(/\./g) || []).length;
+      const commaCount = (cleanDiscount.match(/,/g) || []).length;
+
+      if (commaCount === 1 && pointCount === 0) {
+        cleanDiscount = cleanDiscount.replace(",", ".");
+      } else if (commaCount === 1 && pointCount >= 1) {
+        cleanDiscount = cleanDiscount.replace(/\./g, "").replace(",", ".");
+      }
+
+      const normalizedDiscount = parseFloat(cleanDiscount);
+      if (
+        isNaN(normalizedDiscount) ||
+        normalizedDiscount < 0 ||
+        normalizedDiscount > 100
+      ) {
+        throw new Error("Desconto inválido. Deve ser entre 0 e 100%");
+      }
+      return normalizedDiscount;
+    }
+
+    if (typeof discount === "number") {
+      if (discount < 0 || discount > 100) {
+        throw new Error("Desconto deve estar entre 0 e 100%");
+      }
+      return discount;
+    }
+
+    throw new Error("Desconto deve ser um número entre 0 e 100");
   }
 
   private normalizeStockQuantity(stock: any): number | null {

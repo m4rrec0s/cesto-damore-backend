@@ -31,6 +31,35 @@ export const uploadAny = multer({
   limits: { fileSize: 8 * 1024 * 1024 },
 });
 
+// Upload para modelos 3D (.glb, .gltf)
+const storage3D = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "public/3d-models/");
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = file.originalname.split(".").pop();
+    cb(null, `model-${uniqueSuffix}.${ext}`);
+  },
+});
+
+export const upload3D = multer({
+  storage: storage3D,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (req, file, cb) => {
+    const allowedExtensions = [".glb", ".gltf"];
+    const ext = file.originalname
+      .toLowerCase()
+      .slice(file.originalname.lastIndexOf("."));
+
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Apenas arquivos .glb e .gltf são permitidos"));
+    }
+  },
+});
+
 // Middleware que converte imagens para WebP e atualiza req.file / req.files
 export const convertImagesToWebP = async (req: any, res: any, next: any) => {
   try {

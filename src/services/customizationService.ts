@@ -435,6 +435,225 @@ class CustomizationService {
       layout_data: layout.layout_data,
     };
   }
+
+  /**
+   * Lista todas as customizações
+   */
+  async listAll(itemId?: string): Promise<CustomizationDTO[]> {
+    const customizations = await prisma.customization.findMany({
+      where: itemId ? { item_id: itemId } : undefined,
+      include: {
+        item: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: { created_at: "desc" },
+    });
+
+    return customizations.map((c) => ({
+      id: c.id,
+      item_id: c.item_id,
+      type: c.type,
+      name: c.name,
+      description: c.description,
+      isRequired: c.isRequired,
+      customization_data: c.customization_data,
+      price: c.price,
+    }));
+  }
+
+  /**
+   * Busca uma customização por ID
+   */
+  async getById(id: string): Promise<CustomizationDTO> {
+    const customization = await prisma.customization.findUnique({
+      where: { id },
+      include: {
+        item: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!customization) {
+      throw new Error("Customização não encontrada");
+    }
+
+    return {
+      id: customization.id,
+      item_id: customization.item_id,
+      type: customization.type,
+      name: customization.name,
+      description: customization.description,
+      isRequired: customization.isRequired,
+      customization_data: customization.customization_data,
+      price: customization.price,
+    };
+  }
+
+  /**
+   * Cria uma nova customização
+   */
+  async create(data: {
+    item_id: string;
+    type: CustomizationType;
+    name: string;
+    description?: string;
+    isRequired: boolean;
+    customization_data: any;
+    price: number;
+  }): Promise<CustomizationDTO> {
+    // Verificar se o item existe
+    const item = await prisma.item.findUnique({
+      where: { id: data.item_id },
+    });
+
+    if (!item) {
+      throw new Error("Item não encontrado");
+    }
+
+    // Validar customization_data baseado no tipo
+    this.validateCustomizationData(data.type, data.customization_data);
+
+    const customization = await prisma.customization.create({
+      data: {
+        item_id: data.item_id,
+        type: data.type,
+        name: data.name,
+        description: data.description,
+        isRequired: data.isRequired,
+        customization_data: data.customization_data,
+        price: data.price,
+      },
+    });
+
+    return {
+      id: customization.id,
+      item_id: customization.item_id,
+      type: customization.type,
+      name: customization.name,
+      description: customization.description,
+      isRequired: customization.isRequired,
+      customization_data: customization.customization_data,
+      price: customization.price,
+    };
+  }
+
+  /**
+   * Atualiza uma customização existente
+   */
+  async update(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      isRequired?: boolean;
+      customization_data?: any;
+      price?: number;
+    }
+  ): Promise<CustomizationDTO> {
+    const existing = await prisma.customization.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw new Error("Customização não encontrada");
+    }
+
+    // Validar customization_data se fornecido
+    if (data.customization_data) {
+      this.validateCustomizationData(existing.type, data.customization_data);
+    }
+
+    const customization = await prisma.customization.update({
+      where: { id },
+      data: {
+        name: data.name,
+        description: data.description,
+        isRequired: data.isRequired,
+        customization_data: data.customization_data,
+        price: data.price,
+      },
+    });
+
+    return {
+      id: customization.id,
+      item_id: customization.item_id,
+      type: customization.type,
+      name: customization.name,
+      description: customization.description,
+      isRequired: customization.isRequired,
+      customization_data: customization.customization_data,
+      price: customization.price,
+    };
+  }
+
+  /**
+   * Remove uma customização
+   */
+  async delete(id: string): Promise<void> {
+    const customization = await prisma.customization.findUnique({
+      where: { id },
+    });
+
+    if (!customization) {
+      throw new Error("Customização não encontrada");
+    }
+
+    await prisma.customization.delete({
+      where: { id },
+    });
+  }
+
+  /**
+   * Valida customization_data baseado no tipo
+   */
+  private validateCustomizationData(type: CustomizationType, data: any): void {
+    switch (type) {
+      case "BASE_LAYOUT":
+        if (!data.layouts || !Array.isArray(data.layouts)) {
+          throw new Error("BASE_LAYOUT requer array de layouts");
+        }
+        break;
+
+      case "TEXT":
+        if (!data.fields || !Array.isArray(data.fields)) {
+          throw new Error("TEXT requer array de fields");
+        }
+        break;
+
+      case "IMAGES":
+        if (!data.base_layout) {
+          throw new Error("IMAGES requer base_layout");
+        }
+        break;
+
+      case "MULTIPLE_CHOICE":
+        if (!data.options || !Array.isArray(data.options)) {
+          throw new Error("MULTIPLE_CHOICE requer array de options");
+        }
+        if (
+          data.min_selection !== undefined &&
+          data.max_selection !== undefined
+        ) {
+          if (data.min_selection > data.max_selection) {
+            throw new Error(
+              "min_selection não pode ser maior que max_selection"
+            );
+          }
+        }
+        break;
+
+      default:
+        throw new Error(`Tipo de customização não suportado: ${type}`);
+    }
+  }
 }
 
 export default new CustomizationService();

@@ -23,7 +23,8 @@ import customizationUploadController from "./controller/customizationUploadContr
 import oauthController from "./controller/oauthController";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
-import { upload, convertImagesToWebP } from "./config/multer";
+import layoutController from "./controller/layoutController";
+import { upload, convertImagesToWebP, upload3D } from "./config/multer";
 import {
   authenticateToken,
   requireAdmin,
@@ -441,11 +442,20 @@ router.get("/items", itemController.index);
 router.get("/items/available", itemController.getAvailable);
 router.get("/items/customizable", itemController.getWithCustomizations);
 router.get("/items/:id", itemController.show);
-router.post("/items", authenticateToken, requireAdmin, itemController.create);
+router.post(
+  "/items",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebP,
+  itemController.create
+);
 router.put(
   "/items/:id",
   authenticateToken,
   requireAdmin,
+  upload.single("image"),
+  convertImagesToWebP,
   itemController.update
 );
 router.put(
@@ -599,5 +609,120 @@ router.delete(
   requireAdmin,
   itemConstraintController.delete
 );
+
+// ========== CUSTOMIZATION ROUTES ==========
+
+// Listar todas as customizações (com filtro opcional por item)
+router.get(
+  "/customizations",
+  authenticateToken,
+  requireAdmin,
+  customizationController.index
+);
+
+// Buscar customização por ID
+router.get(
+  "/customizations/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.show
+);
+
+// Criar customização
+router.post(
+  "/customizations",
+  authenticateToken,
+  requireAdmin,
+  customizationController.create
+);
+
+// Atualizar customização
+router.put(
+  "/customizations/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.update
+);
+
+// Deletar customização
+router.delete(
+  "/customizations/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.remove
+);
+
+// Buscar customizações de um item (público - para clientes)
+router.get(
+  "/items/:itemId/customizations",
+  customizationController.getItemCustomizations
+);
+
+// Validar customizações (público - para clientes)
+router.post(
+  "/customizations/validate",
+  customizationController.validateCustomizations
+);
+
+// Gerar preview de customizações (público - para clientes)
+router.post("/customizations/preview", customizationController.buildPreview);
+
+// ========== LAYOUT 3D ROUTES ==========
+
+// Listar layouts (com filtro opcional por item)
+router.get("/layouts", authenticateToken, requireAdmin, layoutController.index);
+
+// Buscar layout por ID
+router.get(
+  "/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutController.show
+);
+
+// Criar layout 3D
+router.post(
+  "/layouts",
+  authenticateToken,
+  requireAdmin,
+  layoutController.create
+);
+
+// Atualizar layout 3D
+router.put(
+  "/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutController.update
+);
+
+// Deletar layout 3D
+router.delete(
+  "/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutController.remove
+);
+
+// Upload de modelo 3D (.glb, .gltf)
+router.post(
+  "/layouts/upload-3d",
+  authenticateToken,
+  requireAdmin,
+  upload3D.single("model"),
+  layoutController.upload3DModel
+);
+
+// Servir modelos 3D
+router.get("/3d-models/:filename", (req: Request, res: Response) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, "../public/3d-models", filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Arquivo não encontrado" });
+  }
+
+  res.sendFile(filePath);
+});
 
 export default router;

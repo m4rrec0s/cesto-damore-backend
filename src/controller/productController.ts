@@ -49,6 +49,32 @@ class ProductController {
     try {
       const data = { ...req.body };
 
+      // Converter categories se vier como string (multipart/form-data)
+      if (typeof data.categories === "string") {
+        try {
+          data.categories = JSON.parse(data.categories);
+        } catch (e) {
+          // Se não for JSON válido, tentar dividir por vírgula
+          data.categories = data.categories
+            .split(",")
+            .map((c: string) => c.trim())
+            .filter(Boolean);
+        }
+      }
+
+      // Garantir que categories é um array
+      if (!Array.isArray(data.categories)) {
+        data.categories = [];
+      }
+
+      console.log("📦 [ProductController] Dados recebidos:", {
+        name: data.name,
+        categories: data.categories,
+        categoriesType: typeof data.categories,
+        categoriesIsArray: Array.isArray(data.categories),
+        categoriesLength: data.categories?.length,
+      });
+
       // Processar imagem se existir
       let fileToProcess = null;
 

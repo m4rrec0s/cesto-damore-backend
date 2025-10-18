@@ -60,6 +60,41 @@ export const upload3D = multer({
   },
 });
 
+// Upload temporário para imagens de customização
+const storageTemp = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const { sessionId } = req.body;
+    const tempDir = `storage/temp/${sessionId || "default"}`;
+
+    // Criar diretório se não existir
+    const fs = require("fs");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    cb(null, tempDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const ext = file.originalname.split(".").pop();
+    cb(null, `temp-${uniqueSuffix}.${ext}`);
+  },
+});
+
+export const uploadTemp = multer({
+  storage: storageTemp,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Apenas imagens JPEG, PNG, WebP e GIF são permitidas"));
+    }
+  },
+});
+
 // Middleware que converte imagens para WebP e atualiza req.file / req.files
 export const convertImagesToWebP = async (req: any, res: any, next: any) => {
   try {

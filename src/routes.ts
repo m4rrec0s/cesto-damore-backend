@@ -24,7 +24,15 @@ import oauthController from "./controller/oauthController";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
 import layoutController from "./controller/layoutController";
-import { upload, convertImagesToWebP, upload3D } from "./config/multer";
+import layoutBaseController from "./controller/layoutBaseController";
+import tempUploadController from "./controller/tempUploadController";
+import personalizationController from "./controller/personalizationController";
+import {
+  upload,
+  convertImagesToWebP,
+  upload3D,
+  uploadTemp,
+} from "./config/multer";
 import {
   authenticateToken,
   requireAdmin,
@@ -724,5 +732,90 @@ router.get("/3d-models/:filename", (req: Request, res: Response) => {
 
   res.sendFile(filePath);
 });
+
+// ========== LAYOUT BASE ROUTES (ADMIN) ==========
+
+// Listar layouts base
+router.get(
+  "/admin/layouts",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.list
+);
+
+// Buscar layout base por ID
+router.get(
+  "/admin/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.show
+);
+
+// Criar layout base (SEM conversão WebP - mantém formato original)
+router.post(
+  "/admin/layouts",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  layoutBaseController.create
+);
+
+// Atualizar layout base (SEM conversão WebP - mantém formato original)
+router.put(
+  "/admin/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  layoutBaseController.update
+);
+
+// Deletar layout base
+router.delete(
+  "/admin/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.delete
+);
+
+// ========== TEMP UPLOAD ROUTES ==========
+
+// Upload temporário de imagem
+router.post(
+  "/uploads/temp",
+  uploadTemp.single("file"),
+  tempUploadController.uploadTemp
+);
+
+// Listar arquivos temporários de uma sessão
+router.get("/uploads/temp/:sessionId", tempUploadController.listBySession);
+
+// Deletar arquivo temporário
+router.delete("/uploads/temp/:id", tempUploadController.deleteTemp);
+
+// ========== PERSONALIZATION ROUTES ==========
+
+// Gerar preview da composição (público - para preview no cliente)
+router.post("/preview/compose", personalizationController.preview);
+
+// Commit de personalização (requer autenticação)
+router.post(
+  "/orders/:orderId/items/:itemId/personalize/commit",
+  authenticateToken,
+  personalizationController.commit
+);
+
+// Buscar personalização por ID
+router.get(
+  "/personalizations/:id",
+  authenticateToken,
+  personalizationController.show
+);
+
+// Listar personalizações de um pedido
+router.get(
+  "/orders/:orderId/personalizations",
+  authenticateToken,
+  personalizationController.listByOrder
+);
 
 export default router;

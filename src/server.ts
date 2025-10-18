@@ -8,6 +8,8 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import routes from "./routes";
+import tempFileCleanupService from "./services/tempFileCleanupService";
+
 const app = express();
 
 app.use(cors());
@@ -20,6 +22,10 @@ app.get("/", async (req, res) => {
 
 app.use("/api", routes);
 
+// Iniciar job de limpeza de arquivos temporários
+tempFileCleanupService.startCleanupJob();
+
 app.listen(8080, () => {
   console.log("🚀 Server running on http://localhost:8080");
+  console.log("🧹 Temp file cleanup job started");
 });

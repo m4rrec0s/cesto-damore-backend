@@ -65,7 +65,8 @@ model ProductType {
   created_at     DateTime @default(now())
   updated_at     DateTime @default(now()) @updatedAt
 
-  products Product[]
+  products      Product[]
+  product_rules ProductRule[]
 }
 
 model Category {
@@ -155,9 +156,10 @@ model Order {
   created_at       DateTime    @default(now())
   updated_at       DateTime    @updatedAt
 
-  user    User        @relation(fields: [user_id], references: [id])
-  items   OrderItem[]
-  payment Payment?
+  user             User              @relation(fields: [user_id], references: [id])
+  items            OrderItem[]
+  payment          Payment?
+  personalizations Personalization[] // Personalizações deste pedido
 }
 
 model OrderItem {
@@ -321,22 +323,65 @@ enum FeedSectionType {
   BEST_SELLERS
 }
 
+// ================ LAYOUT BASE & PERSONALIZATION MODELS ================
+
+model LayoutBase {
+  id        String @id @default(uuid())
+  name      String
+  item_type String // "caneca" | "quadro" | ...
+  image_url String // URL da imagem base (PNG com transparência/espaço)
+  width     Int // px reais da imagem base
+  height    Int
+  slots     Json // array de SlotDef (posições em percentual)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  items            Item[]
+  personalizations Personalization[]
+}
+
+model Personalization {
+  id              String  @id @default(uuid())
+  order_id        String
+  item_id         String
+  layout_base_id  String
+  config_json     Json // cores, variações, metadata de texto
+  images          Json // [{ slotId, tempUrl, width, height, originalName }]
+  final_image_url String? // URL do PNG composto salvo no Drive
+
+  created_at DateTime @default(now())
+
+  order       Order      @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  item        Item       @relation(fields: [item_id], references: [id])
+  layout_base LayoutBase @relation(fields: [layout_base_id], references: [id])
+
+  @@index([order_id])
+  @@index([item_id])
+}
+
+// ================ ITEM MODEL ================
+
 model Item {
   id                   String  @id @default(uuid())
   name                 String
   description          String?
+  type                 String  @default("caneca")
   stock_quantity       Int     @default(0) // Estoque total do item
   base_price           Float   @default(0) // Preço base do item
   image_url            String?
   allows_customization Boolean @default(false) // Se permite customização
+  layout_base_id       String? // FK opcional para LayoutBase
   additional_id        String? // Referência ao adicional (se aplicável)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  additional     Additional?        @relation(fields: [additional_id], references: [id], onDelete: Cascade)
-  customizations Customization[] // Customizações disponíveis para este item
-  components     ProductComponent[] // Produtos que usam este item
+  additional       Additional?        @relation(fields: [additional_id], references: [id], onDelete: Cascade)
+  layout_base      LayoutBase?        @relation(fields: [layout_base_id], references: [id])
+  customizations   Customization[] // Customizações disponíveis para este item
+  components       ProductComponent[] // Produtos que usam este item
+  personalizations Personalization[] // Personalizações feitas neste item
 }
 
 model Customization {
@@ -377,16 +422,41 @@ model Layout {
 }
 
 model ItemConstraint {
-  id              String   @id @default(uuid())
-  target_item_id  String
-  related_item_id String
-  constraint_type String   @default("REQUIRES") // REQUIRES ou MUTUALLY_EXCLUSIVE
-  message         String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  id                String   @id @default(uuid())
+  target_item_id    String
+  target_item_type  String
+  target_item_name  String?
+  related_item_id   String
+  related_item_type String
+  related_item_name String?
+  constraint_type   String   @default("REQUIRES") // REQUIRES ou MUTUALLY_EXCLUSIVE
+  message           String?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
 
   @@index([target_item_id])
   @@index([related_item_id])
+}
+
+model ProductRule {
+  id                String   @id @default(uuid())
+  product_type_id   String
+  rule_type         String
+  title             String
+  description       String?
+  required          Boolean  @default(false)
+  max_items         Int?
+  conflict_with     String?
+  dependencies      String?
+  available_options String?
+  preview_image_url String?
+  display_order     Int      @default(0)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  product_type ProductType @relation(fields: [product_type_id], references: [id], onDelete: Cascade)
+
+  @@index([product_type_id])
 }
 
 model ProductComponent {
@@ -418,4 +488,21 @@ model OrderItemCustomization {
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+}
+
+model TemporaryCustomizationFile {
+  id            String   @id @default(uuid())
+  session_id    String // ID da sessão do cliente
+  slot_id       String? // ID do slot onde a imagem foi upada
+  file_path     String
+  mime_type     String
+  original_name String
+  file_size     Int // tamanho em bytes
+  width         Int?
+  height        Int?
+  created_at    DateTime @default(now())
+  expires_at    DateTime // data de expiração (24h depois do upload)
+
+  @@index([session_id])
+  @@index([expires_at])
 }

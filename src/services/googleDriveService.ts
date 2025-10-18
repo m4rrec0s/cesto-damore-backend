@@ -456,13 +456,14 @@ class GoogleDriveService {
 
       console.log(`📤 Arquivo (buffer) enviado para Google Drive: ${fileName}`);
 
-      const directDownloadUrl = `https://drive.google.com/uc?id=${response.data.id}&export=download`;
+      // URL de visualização direta (formato que funciona com <img>)
+      const directImageUrl = `https://drive.google.com/uc?id=${response.data.id}`;
 
       return {
         id: response.data.id,
         name: response.data.name,
-        webViewLink: response.data.webViewLink,
-        webContentLink: directDownloadUrl,
+        webViewLink: directImageUrl, // Usar formato direto no webViewLink
+        webContentLink: directImageUrl, // Manter consistência
       };
     } catch (error: any) {
       console.error("❌ Erro ao fazer upload via buffer:", error.message);

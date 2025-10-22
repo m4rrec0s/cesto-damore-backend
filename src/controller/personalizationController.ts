@@ -51,32 +51,13 @@ class PersonalizationController {
 
   /**
    * POST /preview/compose
-   * Gerar preview da composição
+   * Gerar preview da composição (REMOVIDO - sistema temporário desabilitado)
    */
   async preview(req: Request, res: Response) {
     try {
-      const { layoutBaseId, images, width } = req.body;
-
-      if (!layoutBaseId || !images || !Array.isArray(images)) {
-        return res.status(400).json({
-          error: "Campos obrigatórios: layoutBaseId, images (array)",
-        });
-      }
-
-      const maxWidth = width ? parseInt(width) : 800;
-
-      const previewBuffer = await personalizationService.generatePreview(
-        layoutBaseId,
-        images,
-        maxWidth
-      );
-
-      // Retornar imagem como base64
-      const base64 = previewBuffer.toString("base64");
-      const dataUrl = `data:image/png;base64,${base64}`;
-
-      return res.json({
-        previewUrl: dataUrl,
+      return res.status(501).json({
+        error:
+          "Preview de composição não está mais disponível. Use upload direto.",
       });
     } catch (error) {
       console.error("Erro ao gerar preview:", error);

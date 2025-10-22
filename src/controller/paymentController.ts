@@ -109,11 +109,24 @@ export class PaymentController {
         payerDocumentType,
         paymentMethodId,
         cardToken,
+        cardholderName,
         installments,
         issuer_id,
+        payment_method_id,
       } = req.body;
 
       const userId = (req as any).user?.id;
+
+      console.log("📝 Dados recebidos no controller:", {
+        orderId,
+        payerEmail,
+        payerName,
+        cardholderName,
+        hasCardToken: !!cardToken,
+        paymentMethodId,
+        issuer_id,
+        payment_method_id,
+      });
 
       // Validações
       if (!orderId || !payerEmail || !payerName || !userId) {
@@ -161,8 +174,10 @@ export class PaymentController {
         payerDocumentType,
         paymentMethodId,
         cardToken,
+        cardholderName,
         installments: installments ? Number(installments) : 1,
         issuer_id,
+        payment_method_id,
       });
 
       res.status(201).json({

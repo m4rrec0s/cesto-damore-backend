@@ -10,9 +10,10 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgcrypto, uuid_ossp]
 }
 
 model User {
@@ -153,6 +154,7 @@ model Order {
   shipping_price   Float?
   payment_method   String?
   grand_total      Float?
+  recipient_phone  String? // Número do destinatário da cesta
   created_at       DateTime    @default(now())
   updated_at       DateTime    @updatedAt
 
@@ -488,21 +490,4 @@ model OrderItemCustomization {
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
-}
-
-model TemporaryCustomizationFile {
-  id            String   @id @default(uuid())
-  session_id    String // ID da sessão do cliente
-  slot_id       String? // ID do slot onde a imagem foi upada
-  file_path     String
-  mime_type     String
-  original_name String
-  file_size     Int // tamanho em bytes
-  width         Int?
-  height        Int?
-  created_at    DateTime @default(now())
-  expires_at    DateTime // data de expiração (24h depois do upload)
-
-  @@index([session_id])
-  @@index([expires_at])
 }

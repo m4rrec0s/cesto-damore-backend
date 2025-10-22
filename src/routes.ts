@@ -25,7 +25,6 @@ import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
 import layoutController from "./controller/layoutController";
 import layoutBaseController from "./controller/layoutBaseController";
-import tempUploadController from "./controller/tempUploadController";
 import personalizationController from "./controller/personalizationController";
 import {
   upload,
@@ -260,6 +259,32 @@ router.post(
   validatePaymentData,
   logFinancialOperation("CREATE_PAYMENT"),
   PaymentController.createPayment
+);
+
+// Criar token de cartão (para Checkout Transparente)
+router.post(
+  "/mercadopago/create-token",
+  authenticateToken,
+  paymentRateLimit,
+  async (req: Request, res: Response) => {
+    const { createCardToken } = await import(
+      "./controller/mercadopagoController"
+    );
+    return createCardToken(req, res);
+  }
+);
+
+// Buscar issuer do cartão (banco emissor)
+router.post(
+  "/mercadopago/get-issuers",
+  authenticateToken,
+  paymentRateLimit,
+  async (req: Request, res: Response) => {
+    const { getCardIssuers } = await import(
+      "./controller/mercadopagoController"
+    );
+    return getCardIssuers(req, res);
+  }
 );
 
 // Checkout Transparente (pagamento direto na aplicação)
@@ -776,21 +801,6 @@ router.delete(
   requireAdmin,
   layoutBaseController.delete
 );
-
-// ========== TEMP UPLOAD ROUTES ==========
-
-// Upload temporário de imagem
-router.post(
-  "/uploads/temp",
-  uploadTemp.single("file"),
-  tempUploadController.uploadTemp
-);
-
-// Listar arquivos temporários de uma sessão
-router.get("/uploads/temp/:sessionId", tempUploadController.listBySession);
-
-// Deletar arquivo temporário
-router.delete("/uploads/temp/:id", tempUploadController.deleteTemp);
 
 // ========== PERSONALIZATION ROUTES ==========
 

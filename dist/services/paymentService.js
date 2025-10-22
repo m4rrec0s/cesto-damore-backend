@@ -146,7 +146,7 @@ class PaymentService {
             else {
                 // Se escolheu cartão, excluir PIX e outros
                 paymentMethodsConfig.excluded_payment_types.push({ id: "bank_transfer" }, // Exclui PIX
-                { id: "ticket" });
+                    { id: "ticket" });
             }
             // Criar preferência no Mercado Pago
             const preferenceData = {

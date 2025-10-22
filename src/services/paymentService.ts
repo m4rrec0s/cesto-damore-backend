@@ -53,10 +53,8 @@ export interface CreatePaymentData {
   paymentMethodId?: "pix" | "credit_card" | "debit_card";
   installments?: number;
   token?: string;
-  // Checkout Transparente - dados do cartão tokenizados
   cardToken?: string;
   issuer_id?: string;
-  // Dados do pagador para PIX
   payerDocument?: string;
   payerDocumentType?: "CPF" | "CNPJ";
 }
@@ -78,10 +76,11 @@ export interface ProcessTransparentCheckoutData {
   payerDocument: string;
   payerDocumentType: "CPF" | "CNPJ";
   paymentMethodId: "pix" | "credit_card" | "debit_card";
-  // Para cartão
   cardToken?: string;
+  cardholderName?: string;
   installments?: number;
   issuer_id?: string;
+  payment_method_id?: string;
 }
 
 export class PaymentService {
@@ -151,9 +150,6 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Cria uma preferência de pagamento para Checkout Pro
-   */
   static async createPreference(data: CreatePreferenceData) {
     try {
       if (!data.orderId || !data.userId || !data.payerEmail) {
@@ -187,8 +183,6 @@ export class PaymentService {
         throw new Error("Forma de pagamento do pedido não definida");
       }
 
-      // Para desenvolvimento: permitir recriar preferência se pagamento não foi finalizado
-      // Em produção: só permitir se não há pagamento ou se pagamento falhou
       if (order.payment) {
         const existingPayment = order.payment;
         const isProduction = process.env.NODE_ENV === "production";
@@ -200,7 +194,6 @@ export class PaymentService {
           throw new Error("Pedido já possui um pagamento finalizado");
         }
 
-        // Em desenvolvimento ou se pagamento não finalizado, deletar o pagamento anterior
         if (!paymentFinalized) {
           console.log(
             `[DEV] Removendo pagamento anterior não finalizado: ${existingPayment.id}`
@@ -214,7 +207,6 @@ export class PaymentService {
       const summary = this.calculateOrderSummary(order);
       await this.ensureOrderTotalsUpToDate(order, summary);
 
-      // Gerar referência externa única
       const externalReference =
         data.externalReference || `ORDER_${data.orderId}_${Date.now()}`;
 
@@ -230,30 +222,25 @@ export class PaymentService {
         },
       ];
 
-      // Configurar meios de pagamento aceitos baseado na escolha do pedido
       const paymentMethodsConfig: any = {
         excluded_payment_methods: [] as { id: string }[],
         excluded_payment_types: [] as { id: string }[],
         installments: orderPaymentMethod === "pix" ? 1 : 12,
       };
 
-      // Excluir meios que não são o escolhido
       if (orderPaymentMethod === "pix") {
-        // Se escolheu PIX, excluir cartões
         paymentMethodsConfig.excluded_payment_types.push(
           { id: "credit_card" },
           { id: "debit_card" },
           { id: "ticket" }
         );
       } else {
-        // Se escolheu cartão, excluir PIX e outros
         paymentMethodsConfig.excluded_payment_types.push(
-          { id: "bank_transfer" }, // Exclui PIX
+          { id: "bank_transfer" },
           { id: "ticket" }
         );
       }
 
-      // Criar preferência no Mercado Pago
       const preferenceData = {
         items: preferenceItems,
         payer: {
@@ -265,7 +252,6 @@ export class PaymentService {
         },
         external_reference: externalReference,
         notification_url: `${mercadoPagoConfig.baseUrl}/webhook/mercadopago`,
-        // Configurar back_urls apenas se não for desenvolvimento local
         ...(mercadoPagoConfig.baseUrl.includes("localhost")
           ? {}
           : {
@@ -293,7 +279,6 @@ export class PaymentService {
         body: preferenceData,
       });
 
-      // Criar registro de pagamento no banco
       const paymentRecord = await prisma.payment.create({
         data: {
           order_id: data.orderId,
@@ -322,10 +307,6 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Processa pagamento via Checkout Transparente (pagamento direto)
-   * Usado para processar cartões ou PIX diretamente na aplicação
-   */
   static async processTransparentCheckout(
     data: ProcessTransparentCheckoutData
   ) {
@@ -339,7 +320,6 @@ export class PaymentService {
         throw new Error("Email do pagador inválido");
       }
 
-      // Validar documento
       if (!data.payerDocument || !data.payerDocumentType) {
         throw new Error("Documento do pagador é obrigatório");
       }
@@ -366,7 +346,6 @@ export class PaymentService {
         throw new Error("Método de pagamento do pedido inválido");
       }
 
-      // Verificar se já existe pagamento aprovado
       if (order.payment) {
         if (order.payment.status === "APPROVED") {
           throw new Error("Pedido já possui pagamento aprovado");
@@ -379,13 +358,13 @@ export class PaymentService {
       const summary = this.calculateOrderSummary(order);
       await this.ensureOrderTotalsUpToDate(order, summary);
 
-      // Preparar dados do pagamento
       const nameParts = (data.payerName || "")
         .split(/\s+/)
         .filter((part) => /[\p{L}\p{N}]/u.test(part));
+
       const payerFirstName = nameParts[0] || "Cliente";
       const payerLastName =
-        nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Teste";
+        nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Sem Sobrenome";
 
       const paymentData: any = {
         transaction_amount: roundCurrency(summary.grandTotal),
@@ -403,7 +382,6 @@ export class PaymentService {
           },
         },
         external_reference: `ORDER_${data.orderId}_${Date.now()}`,
-        // Notification URL apenas se não for localhost
         ...(mercadoPagoConfig.baseUrl.includes("localhost")
           ? {}
           : {
@@ -418,75 +396,37 @@ export class PaymentService {
         },
       };
 
-      console.log(
-        "📦 Payload preparado para Mercado Pago:",
-        JSON.stringify(paymentData, null, 2)
-      );
-
-      // Configurações específicas por método de pagamento
       if (data.paymentMethodId === "pix") {
-        // PIX - não precisa de token
         paymentData.payment_method_id = "pix";
       } else {
-        // Cartão - necessita token
         if (!data.cardToken) {
           throw new Error(
             "Token do cartão é obrigatório para pagamento com cartão"
           );
         }
 
-        // Campos obrigatórios para pagamento com cartão
+        paymentData.payment_method_id = data.payment_method_id || "master";
         paymentData.token = data.cardToken;
         paymentData.installments = data.installments || 1;
 
-        // Emissor é obrigatório em alguns casos
         if (data.issuer_id) {
           paymentData.issuer_id = data.issuer_id;
         }
 
-        // Configurar statement descriptor (nome que aparece na fatura)
         paymentData.statement_descriptor = "CESTO D'AMORE";
-
-        // Log detalhado para debug de pagamento com cartão
-        console.log("💳 Dados do cartão recebidos:", {
-          hasToken: !!data.cardToken,
-          paymentMethodId: data.paymentMethodId,
-          installments: data.installments,
-          hasIssuer: !!data.issuer_id,
-        });
       }
 
-      // Validações finais antes de enviar
-      console.log("🔍 Validando payload antes de enviar para Mercado Pago...");
-      console.log("Campos obrigatórios:", {
-        transaction_amount: paymentData.transaction_amount,
-        payment_method_id: paymentData.payment_method_id,
-        payer_email: paymentData.payer.email,
-        payer_document_type: paymentData.payer.identification.type,
-        payer_document_number: paymentData.payer.identification.number,
-        has_token: !!paymentData.token,
-        installments: paymentData.installments,
-      });
-
-      // Criar pagamento no Mercado Pago
-      console.log("🔄 Criando pagamento no Mercado Pago...");
       const idempotencyKey = `${data.paymentMethodId}-${
         data.orderId
       }-${randomUUID()}`;
 
-      console.log("📤 Enviando requisição para Mercado Pago...");
       const paymentResponse = await payment.create({
         body: paymentData,
         requestOptions: {
           idempotencyKey,
         },
       });
-      console.log(
-        "✅ Resposta do Mercado Pago:",
-        JSON.stringify(paymentResponse, null, 2)
-      );
 
-      // Salvar pagamento no banco
       const paymentRecord = await prisma.payment.upsert({
         where: {
           order_id: data.orderId,
@@ -508,14 +448,12 @@ export class PaymentService {
         },
       });
 
-      // Se pagamento foi aprovado, atualizar status do pedido
       if (paymentResponse.status === "approved") {
         await prisma.order.update({
           where: { id: data.orderId },
           data: { status: "PAID" },
         });
 
-        // Enviar notificação WhatsApp
         await this.sendOrderConfirmationNotification(data.orderId);
       }
 
@@ -525,7 +463,6 @@ export class PaymentService {
         status_detail: paymentResponse.status_detail,
         payment_record_id: paymentRecord.id,
         external_reference: paymentData.external_reference,
-        // Para PIX, retornar dados do QR Code
         ...(data.paymentMethodId === "pix" && {
           qr_code:
             paymentResponse.point_of_interaction?.transaction_data?.qr_code,
@@ -539,7 +476,6 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao processar checkout transparente:", error);
 
-      // Captura detalhes específicos do erro do Mercado Pago
       if (error && typeof error === "object") {
         const serializedError = JSON.stringify(
           error,
@@ -548,7 +484,6 @@ export class PaymentService {
         );
         console.error("📛 Detalhes completos do erro:", serializedError);
 
-        // Tenta extrair informações específicas da API do Mercado Pago
         const mpError = error as any;
         if (mpError.cause) {
           console.error(
@@ -570,7 +505,6 @@ export class PaymentService {
         }
       }
 
-      // Mensagem de erro mais detalhada
       let errorMessage = "Erro desconhecido";
       if (error instanceof Error) {
         errorMessage = error.message;
@@ -587,9 +521,6 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Cria um pagamento direto (Checkout API)
-   */
   static async createPayment(data: CreatePaymentData) {
     try {
       const { orderId, userId, payerEmail } = data;
@@ -746,7 +677,7 @@ export class PaymentService {
           last_four_digits: mercadoPagoResult.last_four_digits,
           cardholder_name: mercadoPagoResult.cardholder_name,
         },
-        raw: mercadoPagoResult.raw, // Incluir dados raw para PIX
+        raw: mercadoPagoResult.raw,
       };
     } catch (error) {
       console.error("❌ Erro ao criar pagamento:", error);
@@ -758,12 +689,8 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Obtém métodos de pagamento disponíveis
-   */
   static async getPaymentMethods() {
     try {
-      // Para ambiente de teste, retorna métodos mock
       if (process.env.NODE_ENV === "development") {
         return {
           results: [
@@ -831,7 +758,6 @@ export class PaymentService {
         };
       }
 
-      // Em produção, usar a API do Mercado Pago
       const response = await fetch(
         "https://api.mercadopago.com/v1/payment_methods",
         {
@@ -857,9 +783,6 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Busca informações de um pagamento
-   */
   static async getPayment(paymentId: string) {
     try {
       const paymentInfo = await payment.get({ id: paymentId });
@@ -874,12 +797,8 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Processa notificação de webhook
-   */
   static async processWebhookNotification(data: any, headers: any) {
     try {
-      // Detectar webhook de teste do Mercado Pago
       const isTestWebhook =
         data.live_mode === false && data.data?.id === "123456";
 
@@ -892,7 +811,6 @@ export class PaymentService {
         };
       }
 
-      // Validar webhook (opcional mas recomendado)
       if (mercadoPagoConfig.security.enableWebhookValidation) {
         const isValid = this.validateWebhook(data, headers);
         if (!isValid) {
@@ -900,7 +818,6 @@ export class PaymentService {
         }
       }
 
-      // Log do webhook
       await prisma.webhookLog.create({
         data: {
           payment_id: data.data?.id?.toString(),
@@ -911,7 +828,6 @@ export class PaymentService {
         },
       });
 
-      // Processar por tipo
       switch (data.type) {
         case "payment":
           await this.processPaymentNotification(data.data.id);
@@ -923,7 +839,6 @@ export class PaymentService {
           console.log("Tipo de notificação não tratado:", data.type);
       }
 
-      // Marcar webhook como processado
       await prisma.webhookLog.updateMany({
         where: {
           resource_id: data.data?.id?.toString(),
@@ -936,7 +851,6 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao processar webhook:", error);
 
-      // Log do erro
       await prisma.webhookLog.updateMany({
         where: {
           resource_id: data.data?.id?.toString(),
@@ -952,15 +866,10 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Processa notificação de pagamento
-   */
   static async processPaymentNotification(paymentId: string) {
     try {
-      // Buscar dados do pagamento no Mercado Pago
       const paymentInfo = await this.getPayment(paymentId);
 
-      // Buscar pagamento no banco
       const dbPayment = await prisma.payment.findFirst({
         where: { mercado_pago_id: paymentId.toString() },
         include: { order: { include: { user: true } } },
@@ -971,7 +880,6 @@ export class PaymentService {
         return;
       }
 
-      // Atualizar status do pagamento
       const newStatus = this.mapPaymentStatus(paymentInfo.status as string);
 
       await prisma.payment.update({
@@ -989,17 +897,14 @@ export class PaymentService {
         },
       });
 
-      // Atualizar status do pedido se pagamento aprovado
       if (paymentInfo.status === "approved") {
         await prisma.order.update({
           where: { id: dbPayment.order_id },
           data: { status: "PAID" },
         });
 
-        // Atualizar resumo financeiro
         await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
 
-        // � PROCESSAR CUSTOMIZAÇÕES (Upload para Google Drive)
         try {
           await orderCustomizationService.finalizeOrderCustomizations(
             dbPayment.order_id
@@ -1009,14 +914,11 @@ export class PaymentService {
             "⚠️ Erro ao processar customizações, mas pedido foi aprovado:",
             error
           );
-          // Não bloquear o fluxo se houver erro nas customizações
         }
 
-        // �🎉 ENVIAR NOTIFICAÇÃO WHATSAPP DE PEDIDO CONFIRMADO
         await this.sendOrderConfirmationNotification(dbPayment.order_id);
       }
 
-      // Atualizar status do pedido se pagamento cancelado/rejeitado
       if (["cancelled", "rejected"].includes(paymentInfo.status as string)) {
         await prisma.order.update({
           where: { id: dbPayment.order_id },
@@ -1029,20 +931,12 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Processa notificação de merchant order
-   */
   static async processMerchantOrderNotification(merchantOrderId: string) {
-    // Implementar se necessário
     console.log("Processando merchant order:", merchantOrderId);
   }
 
-  /**
-   * Envia notificação WhatsApp de pedido confirmado
-   */
   static async sendOrderConfirmationNotification(orderId: string) {
     try {
-      // Buscar dados completos do pedido
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
@@ -1066,11 +960,9 @@ export class PaymentService {
         return;
       }
 
-      // Preparar lista de itens
       const items: Array<{ name: string; quantity: number; price: number }> =
         [];
 
-      // 🎨 BUSCAR CUSTOMIZAÇÕES COM GOOGLE DRIVE (se existirem)
       let googleDriveUrl: string | undefined;
       try {
         const customizations = await prisma.orderItemCustomization.findFirst({
@@ -1091,19 +983,16 @@ export class PaymentService {
           googleDriveUrl = customizations.google_drive_url;
         }
       } catch (error) {
-        // Se tabela não existe ainda (migration não rodada), ignorar
         console.log("⚠️ Tabela de customizações ainda não existe");
       }
 
       order.items.forEach((item) => {
-        // Adicionar produto
         items.push({
           name: item.product.name,
           quantity: item.quantity,
           price: Number(item.price),
         });
 
-        // Adicionar adicionais
         item.additionals.forEach((additional) => {
           items.push({
             name: additional.additional.name,
@@ -1113,14 +1002,13 @@ export class PaymentService {
         });
       });
 
-      // Preparar dados para notificação
       const orderData = {
         orderId: order.id,
         orderNumber: order.id.substring(0, 8).toUpperCase(),
         totalAmount: Number(order.grand_total || order.total || 0),
         paymentMethod: order.payment_method || "Não informado",
         items,
-        googleDriveUrl, // 🎨 ADICIONAR LINK DO GOOGLE DRIVE
+        googleDriveUrl,
         customer: {
           name: order.user.name,
           email: order.user.email,
@@ -1137,10 +1025,8 @@ export class PaymentService {
           : undefined,
       };
 
-      // Enviar notificação para o GRUPO (admin)
       await whatsappService.sendOrderConfirmationNotification(orderData);
 
-      // Enviar notificação para o CLIENTE (se tiver telefone)
       if (order.user.phone) {
         await whatsappService.sendCustomerOrderConfirmation(order.user.phone, {
           orderId: order.id,
@@ -1148,7 +1034,7 @@ export class PaymentService {
           totalAmount: Number(order.grand_total || order.total || 0),
           paymentMethod: order.payment_method || "Não informado",
           items,
-          googleDriveUrl, // 🎨 ADICIONAR LINK DO GOOGLE DRIVE
+          googleDriveUrl,
           delivery: order.delivery_address
             ? {
                 address: order.delivery_address,
@@ -1162,13 +1048,9 @@ export class PaymentService {
         "Erro ao enviar notificação de pedido confirmado:",
         error.message
       );
-      // Não interrompe o fluxo se notificação falhar
     }
   }
 
-  /**
-   * Atualiza resumo financeiro diário
-   */
   static async updateFinancialSummary(orderId: string, paymentInfo: any) {
     try {
       const today = new Date();
@@ -1180,7 +1062,6 @@ export class PaymentService {
 
       const summary = this.calculateOrderSummary(order);
 
-      // Calcular totais
       const totalProductsSold = order.items.reduce(
         (sum: number, item: any) => sum + item.quantity,
         0
@@ -1200,7 +1081,6 @@ export class PaymentService {
       );
       const totalFees = roundCurrency(summary.grandTotal - netReceived);
 
-      // Atualizar ou criar resumo do dia
       await prisma.financialSummary.upsert({
         where: { date: today },
         update: {
@@ -1230,22 +1110,15 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Valida webhook do Mercado Pago
-   */
   static validateWebhook(data: any, headers: any): boolean {
     try {
-      // Implementar validação de assinatura se necessário
-      // Por ora, validação básica
       return data && data.type && data.data && data.data.id;
     } catch (error) {
       console.error("Erro na validação do webhook:", error);
       return false;
     }
   }
-  /**
-   * Mapeia status do Mercado Pago para nosso enum
-   */
+
   static mapPaymentStatus(status: string): PaymentStatus {
     const statusMap: Record<string, PaymentStatus> = {
       pending: "PENDING",
@@ -1262,14 +1135,10 @@ export class PaymentService {
     return statusMap[status] ?? "PENDING";
   }
 
-  /**
-   * Cancela um pagamento
-   */
   static async cancelPayment(paymentId: string, reason?: string) {
     try {
       const cancelResponse = await payment.cancel({ id: paymentId });
 
-      // Atualizar no banco
       await prisma.payment.updateMany({
         where: { mercado_pago_id: paymentId },
         data: { status: "CANCELLED" },
@@ -1286,9 +1155,6 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Verifica saúde da integração com Mercado Pago
-   */
   static async healthCheck() {
     try {
       const testPayment = {

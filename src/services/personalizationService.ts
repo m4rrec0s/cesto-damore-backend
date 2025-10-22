@@ -19,8 +19,8 @@ interface SlotDef {
 
 interface ImageData {
   slotId: string;
-  tempId: string; // ID do arquivo temporário
-  tempUrl: string;
+  imageBuffer: Buffer; // Buffer da imagem ao invés de ID temporário
+  mimeType: string;
   width: number;
   height: number;
   originalName: string;
@@ -84,26 +84,22 @@ class PersonalizationService {
 
     const slots = layoutBase.slots as unknown as SlotDef[];
 
-    // Preparar imagens temporárias
+    // Preparar imagens para composição
     const imageSlots: Array<{ slotId: string; imagePath: string }> = [];
+    const tempImagePaths: string[] = [];
 
     for (const img of data.images) {
-      // Buscar arquivo temporário
-      const tempFile = await prisma.temporaryCustomizationFile.findUnique({
-        where: { id: img.tempId },
-      });
+      // Criar arquivo temporário a partir do buffer
+      const tempFileName = `temp_${uuidv4()}.${
+        img.mimeType.split("/")[1] || "png"
+      }`;
+      const tempDir = path.join(process.cwd(), "storage", "temp_composition");
+      await fs.mkdir(tempDir, { recursive: true });
 
-      if (!tempFile) {
-        throw new Error(`Arquivo temporário não encontrado: ${img.tempId}`);
-      }
+      const tempFilePath = path.join(tempDir, tempFileName);
+      await fs.writeFile(tempFilePath, img.imageBuffer);
 
-      // Verificar se arquivo existe
-      const tempFilePath = path.join(process.cwd(), tempFile.file_path);
-      try {
-        await fs.access(tempFilePath);
-      } catch {
-        throw new Error(`Arquivo temporário não existe: ${tempFile.file_path}`);
-      }
+      tempImagePaths.push(tempFilePath);
 
       imageSlots.push({
         slotId: img.slotId,
@@ -160,25 +156,12 @@ class PersonalizationService {
       },
     });
 
-    // Limpar arquivos temporários
-    for (const img of data.images) {
+    // Limpar arquivos temporários de composição
+    for (const tempPath of tempImagePaths) {
       try {
-        const tempFile = await prisma.temporaryCustomizationFile.findUnique({
-          where: { id: img.tempId },
-        });
-
-        if (tempFile) {
-          // Deletar arquivo físico
-          const tempPath = path.join(process.cwd(), tempFile.file_path);
-          await fs.unlink(tempPath).catch(() => {});
-
-          // Deletar registro do banco
-          await prisma.temporaryCustomizationFile.delete({
-            where: { id: img.tempId },
-          });
-        }
+        await fs.unlink(tempPath).catch(() => {});
       } catch (error) {
-        console.warn(`Erro ao limpar arquivo temporário ${img.tempId}:`, error);
+        console.warn(`Erro ao limpar arquivo temporário ${tempPath}:`, error);
       }
     }
 
@@ -235,64 +218,6 @@ class PersonalizationService {
     });
 
     return personalizations;
-  }
-
-  /**
-   * Gerar preview da composição (sem salvar)
-   */
-  async generatePreview(
-    layoutBaseId: string,
-    images: ImageData[],
-    maxWidth: number = 800
-  ) {
-    const layoutBase = await prisma.layoutBase.findUnique({
-      where: { id: layoutBaseId },
-    });
-
-    if (!layoutBase) {
-      throw new Error("Layout base não encontrado");
-    }
-
-    const slots = layoutBase.slots as unknown as SlotDef[];
-
-    // Preparar imagens
-    const imageSlots: Array<{ slotId: string; imagePath: string }> = [];
-
-    for (const img of images) {
-      const tempFile = await prisma.temporaryCustomizationFile.findUnique({
-        where: { id: img.tempId },
-      });
-
-      if (!tempFile) continue;
-
-      const tempFilePath = path.join(process.cwd(), tempFile.file_path);
-      try {
-        await fs.access(tempFilePath);
-        imageSlots.push({
-          slotId: img.slotId,
-          imagePath: tempFilePath,
-        });
-      } catch {
-        continue;
-      }
-    }
-
-    const baseImagePath = path.join(
-      process.cwd(),
-      "public",
-      layoutBase.image_url.replace(/^\//, "")
-    );
-
-    const previewBuffer = await imageCompositionService.generatePreview(
-      baseImagePath,
-      layoutBase.width,
-      layoutBase.height,
-      slots,
-      imageSlots,
-      maxWidth
-    );
-
-    return previewBuffer;
   }
 }
 

@@ -86,8 +86,18 @@ class PaymentController {
      */
     static async processTransparentCheckout(req, res) {
         try {
-            const { orderId, payerEmail, payerName, payerDocument, payerDocumentType, paymentMethodId, cardToken, installments, issuer_id, } = req.body;
+            const { orderId, payerEmail, payerName, payerDocument, payerDocumentType, paymentMethodId, cardToken, cardholderName, installments, issuer_id, payment_method_id, } = req.body;
             const userId = req.user?.id;
+            console.log("📝 Dados recebidos no controller:", {
+                orderId,
+                payerEmail,
+                payerName,
+                cardholderName,
+                hasCardToken: !!cardToken,
+                paymentMethodId,
+                issuer_id,
+                payment_method_id,
+            });
             // Validações
             if (!orderId || !payerEmail || !payerName || !userId) {
                 return res.status(400).json({
@@ -126,8 +136,10 @@ class PaymentController {
                 payerDocumentType,
                 paymentMethodId,
                 cardToken,
+                cardholderName,
                 installments: installments ? Number(installments) : 1,
                 issuer_id,
+                payment_method_id,
             });
             res.status(201).json({
                 success: true,

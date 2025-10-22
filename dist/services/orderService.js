@@ -115,6 +115,15 @@ class OrderService {
         if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
             throw new Error("Pelo menos um item é obrigatório");
         }
+        // Validar recipient_phone
+        if (!data.recipient_phone || data.recipient_phone.trim() === "") {
+            throw new Error("Número do destinatário é obrigatório");
+        }
+        // Validar formato do telefone (deve conter apenas números e ter entre 10 e 11 dígitos)
+        const phoneDigits = data.recipient_phone.replace(/\D/g, "");
+        if (phoneDigits.length < 10 || phoneDigits.length > 11) {
+            throw new Error("Número do destinatário deve ter entre 10 e 11 dígitos");
+        }
         const paymentMethod = normalizeText(data.payment_method);
         if (paymentMethod !== "pix" && paymentMethod !== "card") {
             throw new Error("Forma de pagamento inválida. Utilize pix ou card");
@@ -241,6 +250,7 @@ class OrderService {
                     shipping_price,
                     payment_method: paymentMethod,
                     grand_total,
+                    recipient_phone: orderData.recipient_phone,
                 },
             });
             for (const item of items) {

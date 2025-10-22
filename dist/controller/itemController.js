@@ -39,7 +39,19 @@ class ItemController {
     }
     async create(req, res) {
         try {
-            const item = await itemService_1.default.createItem(req.body);
+            // Processar dados do FormData
+            const data = {
+                name: req.body.name,
+                description: req.body.description || undefined,
+                stock_quantity: parseInt(req.body.stock_quantity) || 0,
+                base_price: parseFloat(req.body.base_price) || 0,
+                allows_customization: req.body.allows_customization === "true",
+                additional_id: req.body.additional_id && req.body.additional_id !== ""
+                    ? req.body.additional_id
+                    : undefined,
+                image_url: req.file ? `/images/${req.file.filename}` : undefined,
+            };
+            const item = await itemService_1.default.createItem(data);
             res.status(201).json(item);
         }
         catch (error) {
@@ -59,7 +71,26 @@ class ItemController {
     async update(req, res) {
         try {
             const { id } = req.params;
-            const item = await itemService_1.default.updateItem(id, req.body);
+            // Processar dados do FormData
+            const data = {};
+            if (req.body.name !== undefined)
+                data.name = req.body.name;
+            if (req.body.description !== undefined)
+                data.description = req.body.description || undefined;
+            if (req.body.stock_quantity !== undefined)
+                data.stock_quantity = parseInt(req.body.stock_quantity);
+            if (req.body.base_price !== undefined)
+                data.base_price = parseFloat(req.body.base_price);
+            if (req.body.allows_customization !== undefined)
+                data.allows_customization = req.body.allows_customization === "true";
+            if (req.body.additional_id !== undefined)
+                data.additional_id =
+                    req.body.additional_id && req.body.additional_id !== ""
+                        ? req.body.additional_id
+                        : null;
+            if (req.file)
+                data.image_url = `/images/${req.file.filename}`;
+            const item = await itemService_1.default.updateItem(id, data);
             res.json(item);
         }
         catch (error) {

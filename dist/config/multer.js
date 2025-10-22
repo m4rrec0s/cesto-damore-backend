@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.convertImagesToWebP = exports.uploadAny = exports.upload = void 0;
+exports.convertImagesToWebP = exports.uploadTemp = exports.upload3D = exports.uploadAny = exports.upload = void 0;
 const multer_1 = __importDefault(require("multer"));
 const sharp_1 = __importDefault(require("sharp"));
 const storage = multer_1.default.memoryStorage();
@@ -32,6 +32,64 @@ exports.upload = (0, multer_1.default)({
 exports.uploadAny = (0, multer_1.default)({
     storage,
     limits: { fileSize: 8 * 1024 * 1024 },
+});
+// Upload para modelos 3D (.glb, .gltf)
+const storage3D = multer_1.default.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, "public/3d-models/");
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        const ext = file.originalname.split(".").pop();
+        cb(null, `model-${uniqueSuffix}.${ext}`);
+    },
+});
+exports.upload3D = (0, multer_1.default)({
+    storage: storage3D,
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+    fileFilter: (req, file, cb) => {
+        const allowedExtensions = [".glb", ".gltf"];
+        const ext = file.originalname
+            .toLowerCase()
+            .slice(file.originalname.lastIndexOf("."));
+        if (allowedExtensions.includes(ext)) {
+            cb(null, true);
+        }
+        else {
+            cb(new Error("Apenas arquivos .glb e .gltf são permitidos"));
+        }
+    },
+});
+// Upload temporário para imagens de customização
+const storageTemp = multer_1.default.diskStorage({
+    destination: (req, file, cb) => {
+        const { sessionId } = req.body;
+        const tempDir = `storage/temp/${sessionId || "default"}`;
+        // Criar diretório se não existir
+        const fs = require("fs");
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+        cb(null, tempDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        const ext = file.originalname.split(".").pop();
+        cb(null, `temp-${uniqueSuffix}.${ext}`);
+    },
+});
+exports.uploadTemp = (0, multer_1.default)({
+    storage: storageTemp,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+        const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+        if (allowedMimes.includes(file.mimetype)) {
+            cb(null, true);
+        }
+        else {
+            cb(new Error("Apenas imagens JPEG, PNG, WebP e GIF são permitidas"));
+        }
+    },
 });
 // Middleware que converte imagens para WebP e atualiza req.file / req.files
 const convertImagesToWebP = async (req, res, next) => {

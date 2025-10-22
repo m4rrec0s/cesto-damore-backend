@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -27,6 +60,9 @@ const customizationUploadController_1 = __importDefault(require("./controller/cu
 const oauthController_1 = __importDefault(require("./controller/oauthController"));
 const itemController_1 = __importDefault(require("./controller/itemController"));
 const productComponentController_1 = __importDefault(require("./controller/productComponentController"));
+const layoutController_1 = __importDefault(require("./controller/layoutController"));
+const layoutBaseController_1 = __importDefault(require("./controller/layoutBaseController"));
+const personalizationController_1 = __importDefault(require("./controller/personalizationController"));
 const multer_1 = require("./config/multer");
 const security_1 = require("./middleware/security");
 const healthCheck_1 = require("./middleware/healthCheck");
@@ -165,6 +201,16 @@ router.get("/payment/pending", paymentController_1.default.paymentPending);
 // Rotas de pagamento protegidas
 router.post("/payment/preference", security_1.authenticateToken, security_1.paymentRateLimit, (0, security_1.logFinancialOperation)("CREATE_PREFERENCE"), paymentController_1.default.createPreference);
 router.post("/payment/create", security_1.authenticateToken, security_1.paymentRateLimit, security_1.validatePaymentData, (0, security_1.logFinancialOperation)("CREATE_PAYMENT"), paymentController_1.default.createPayment);
+// Criar token de cartão (para Checkout Transparente)
+router.post("/mercadopago/create-token", security_1.authenticateToken, security_1.paymentRateLimit, async (req, res) => {
+    const { createCardToken } = await Promise.resolve().then(() => __importStar(require("./controller/mercadopagoController")));
+    return createCardToken(req, res);
+});
+// Buscar issuer do cartão (banco emissor)
+router.post("/mercadopago/get-issuers", security_1.authenticateToken, security_1.paymentRateLimit, async (req, res) => {
+    const { getCardIssuers } = await Promise.resolve().then(() => __importStar(require("./controller/mercadopagoController")));
+    return getCardIssuers(req, res);
+});
 // Checkout Transparente (pagamento direto na aplicação)
 router.post("/payment/transparent-checkout", security_1.authenticateToken, security_1.paymentRateLimit, (0, security_1.logFinancialOperation)("TRANSPARENT_CHECKOUT"), paymentController_1.default.processTransparentCheckout);
 router.get("/payment/:paymentId/status", security_1.authenticateToken, (0, security_1.logFinancialOperation)("GET_PAYMENT_STATUS"), paymentController_1.default.getPaymentStatus);
@@ -209,8 +255,8 @@ router.get("/items", itemController_1.default.index);
 router.get("/items/available", itemController_1.default.getAvailable);
 router.get("/items/customizable", itemController_1.default.getWithCustomizations);
 router.get("/items/:id", itemController_1.default.show);
-router.post("/items", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.create);
-router.put("/items/:id", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.update);
+router.post("/items", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, itemController_1.default.create);
+router.put("/items/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, itemController_1.default.update);
 router.put("/items/:id/stock", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.updateStock);
 router.delete("/items/:id", security_1.authenticateToken, security_1.requireAdmin, itemController_1.default.delete);
 // ========== PRODUCT COMPONENTS ROUTES ==========
@@ -244,4 +290,63 @@ router.post("/admin/constraints", security_1.authenticateToken, security_1.requi
 router.put("/admin/constraints/:constraintId", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.update);
 // Deletar constraint
 router.delete("/admin/constraints/:constraintId", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.delete);
+// ========== CUSTOMIZATION ROUTES ==========
+// Listar todas as customizações (com filtro opcional por item)
+router.get("/customizations", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.index);
+// Buscar customização por ID
+router.get("/customizations/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.show);
+// Criar customização
+router.post("/customizations", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.create);
+// Atualizar customização
+router.put("/customizations/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.update);
+// Deletar customização
+router.delete("/customizations/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.remove);
+// Buscar customizações de um item (público - para clientes)
+router.get("/items/:itemId/customizations", customizationController_1.default.getItemCustomizations);
+// Validar customizações (público - para clientes)
+router.post("/customizations/validate", customizationController_1.default.validateCustomizations);
+// Gerar preview de customizações (público - para clientes)
+router.post("/customizations/preview", customizationController_1.default.buildPreview);
+// ========== LAYOUT 3D ROUTES ==========
+// Listar layouts (com filtro opcional por item)
+router.get("/layouts", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.index);
+// Buscar layout por ID
+router.get("/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.show);
+// Criar layout 3D
+router.post("/layouts", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.create);
+// Atualizar layout 3D
+router.put("/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.update);
+// Deletar layout 3D
+router.delete("/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.remove);
+// Upload de modelo 3D (.glb, .gltf)
+router.post("/layouts/upload-3d", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload3D.single("model"), layoutController_1.default.upload3DModel);
+// Servir modelos 3D
+router.get("/3d-models/:filename", (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path_1.default.join(__dirname, "../public/3d-models", filename);
+    if (!fs_1.default.existsSync(filePath)) {
+        return res.status(404).json({ error: "Arquivo não encontrado" });
+    }
+    res.sendFile(filePath);
+});
+// ========== LAYOUT BASE ROUTES (ADMIN) ==========
+// Listar layouts base
+router.get("/admin/layouts", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.list);
+// Buscar layout base por ID
+router.get("/admin/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.show);
+// Criar layout base (SEM conversão WebP - mantém formato original)
+router.post("/admin/layouts", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), layoutBaseController_1.default.create);
+// Atualizar layout base (SEM conversão WebP - mantém formato original)
+router.put("/admin/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), layoutBaseController_1.default.update);
+// Deletar layout base
+router.delete("/admin/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.delete);
+// ========== PERSONALIZATION ROUTES ==========
+// Gerar preview da composição (público - para preview no cliente)
+router.post("/preview/compose", personalizationController_1.default.preview);
+// Commit de personalização (requer autenticação)
+router.post("/orders/:orderId/items/:itemId/personalize/commit", security_1.authenticateToken, personalizationController_1.default.commit);
+// Buscar personalização por ID
+router.get("/personalizations/:id", security_1.authenticateToken, personalizationController_1.default.show);
+// Listar personalizações de um pedido
+router.get("/orders/:orderId/personalizations", security_1.authenticateToken, personalizationController_1.default.listByOrder);
 exports.default = router;

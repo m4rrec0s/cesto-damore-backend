@@ -4,7 +4,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
-const promises_1 = __importDefault(require("fs/promises"));
 class PreviewService {
     /**
      * Gera preview dinâmico da customização
@@ -46,16 +45,6 @@ class PreviewService {
                 if (firstPhoto.preview_url) {
                     response.previewUrl = firstPhoto.preview_url;
                 }
-                else if (firstPhoto.temp_file_id) {
-                    // Buscar arquivo temporário
-                    const tempFile = await prisma_1.default.temporaryCustomizationFile.findUnique({
-                        where: { id: firstPhoto.temp_file_id },
-                    });
-                    if (tempFile) {
-                        // Retornar caminho relativo para o arquivo temporário
-                        response.previewUrl = `/api/temp-files/${tempFile.id}`;
-                    }
-                }
             }
             return response;
         }
@@ -93,35 +82,6 @@ class PreviewService {
             valid: errors.length === 0,
             errors,
         };
-    }
-    /**
-     * Servir arquivo temporário para preview
-     */
-    async serveTempFile(fileId) {
-        try {
-            const tempFile = await prisma_1.default.temporaryCustomizationFile.findUnique({
-                where: { id: fileId },
-            });
-            if (!tempFile) {
-                return null;
-            }
-            // Verificar se arquivo ainda existe
-            try {
-                await promises_1.default.access(tempFile.file_path);
-            }
-            catch {
-                return null;
-            }
-            return {
-                filePath: tempFile.file_path,
-                mimeType: tempFile.mime_type,
-                fileName: tempFile.original_name,
-            };
-        }
-        catch (error) {
-            console.error("Erro ao servir arquivo temporário:", error);
-            return null;
-        }
     }
 }
 exports.default = new PreviewService();

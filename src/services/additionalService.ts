@@ -183,7 +183,7 @@ class AdditionalService {
         name: data.name,
         description: data.description,
         price: this.normalizePrice(data.price),
-        discount: data.discount || 0,
+        discount: this.normalizeDiscount(data.discount),
         image_url: data.image_url,
         stock_quantity: data.stock_quantity || 0,
       };
@@ -234,7 +234,8 @@ class AdditionalService {
         payload.description = data.description;
       if (data.price !== undefined)
         payload.price = this.normalizePrice(data.price);
-      if (data.discount !== undefined) payload.discount = data.discount;
+      if (data.discount !== undefined)
+        payload.discount = this.normalizeDiscount(data.discount);
       if (data.image_url !== undefined) payload.image_url = data.image_url;
       if (data.stock_quantity !== undefined)
         payload.stock_quantity = data.stock_quantity;
@@ -627,6 +628,30 @@ class AdditionalService {
     }
 
     throw new Error("Preço deve ser um número positivo");
+  }
+
+  private normalizeDiscount(discount: any): number | null {
+    // Se for null ou undefined, retorna null
+    if (discount === null || discount === undefined || discount === "") {
+      return null;
+    }
+
+    // Se for string, converte para número
+    if (typeof discount === "string") {
+      const parsed = parseFloat(discount);
+      if (isNaN(parsed)) {
+        return null;
+      }
+      // Garante que está entre 0 e 100
+      return Math.max(0, Math.min(100, parsed));
+    }
+
+    // Se for número, garante que está entre 0 e 100
+    if (typeof discount === "number") {
+      return Math.max(0, Math.min(100, discount));
+    }
+
+    return null;
   }
 }
 

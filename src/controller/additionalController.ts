@@ -87,7 +87,15 @@ class AdditionalController {
         }
       }
 
-      // Converter stock_quantity para número se for string
+      // Converter campos numéricos de string para número se necessário
+      if (data.price && typeof data.price === "string") {
+        data.price = parseFloat(data.price);
+      }
+
+      if (data.discount !== undefined && typeof data.discount === "string") {
+        data.discount = data.discount === "" ? 0 : parseFloat(data.discount);
+      }
+
       if (data.stock_quantity && typeof data.stock_quantity === "string") {
         data.stock_quantity = parseInt(data.stock_quantity, 10);
       }
@@ -139,7 +147,15 @@ class AdditionalController {
         }
       }
 
-      // Converter stock_quantity para número se for string
+      // Converter campos numéricos de string para número se necessário
+      if (data.price && typeof data.price === "string") {
+        data.price = parseFloat(data.price);
+      }
+
+      if (data.discount !== undefined && typeof data.discount === "string") {
+        data.discount = data.discount === "" ? 0 : parseFloat(data.discount);
+      }
+
       if (data.stock_quantity && typeof data.stock_quantity === "string") {
         data.stock_quantity = parseInt(data.stock_quantity, 10);
       }

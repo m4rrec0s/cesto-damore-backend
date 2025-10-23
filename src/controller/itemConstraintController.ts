@@ -96,7 +96,7 @@ class ItemConstraintController {
         });
         targetItemName = product?.name || null;
       } else {
-        const additional = await prisma.additional.findUnique({
+        const additional = await prisma.item.findUnique({
           where: { id: payload.target_item_id },
           select: { name: true },
         });
@@ -110,7 +110,7 @@ class ItemConstraintController {
         });
         relatedItemName = product?.name || null;
       } else {
-        const additional = await prisma.additional.findUnique({
+        const additional = await prisma.item.findUnique({
           where: { id: payload.related_item_id },
           select: { name: true },
         });
@@ -203,7 +203,7 @@ class ItemConstraintController {
           });
           updateData.target_item_name = product?.name || null;
         } else {
-          const additional = await prisma.additional.findUnique({
+          const additional = await prisma.item.findUnique({
             where: { id: payload.target_item_id },
             select: { name: true },
           });
@@ -223,7 +223,7 @@ class ItemConstraintController {
           });
           updateData.related_item_name = product?.name || null;
         } else {
-          const additional = await prisma.additional.findUnique({
+          const additional = await prisma.item.findUnique({
             where: { id: payload.related_item_id },
             select: { name: true },
           });
@@ -331,7 +331,7 @@ class ItemConstraintController {
           },
           take: 10,
         }),
-        prisma.additional.findMany({
+        prisma.item.findMany({
           where: {
             name: {
               contains: q,

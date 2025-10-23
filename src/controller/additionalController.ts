@@ -78,14 +78,7 @@ class AdditionalController {
         }
       }
 
-      // Processar cores se enviadas como string JSON
-      if (data.colors && typeof data.colors === "string") {
-        try {
-          data.colors = JSON.parse(data.colors);
-        } catch (e) {
-          return res.status(400).json({ error: "Formato de cores inválido" });
-        }
-      }
+      // Notas: suporte a cores removido — campos relacionados serão ignorados
 
       // Converter campos numéricos de string para número se necessário
       if (data.price && typeof data.price === "string") {
@@ -138,14 +131,7 @@ class AdditionalController {
         }
       }
 
-      // Processar cores se enviadas como string JSON
-      if (data.colors && typeof data.colors === "string") {
-        try {
-          data.colors = JSON.parse(data.colors);
-        } catch (e) {
-          return res.status(400).json({ error: "Formato de cores inválido" });
-        }
-      }
+      // Notas: suporte a cores removido — campos relacionados serão ignorados
 
       // Converter campos numéricos de string para número se necessário
       if (data.price && typeof data.price === "string") {

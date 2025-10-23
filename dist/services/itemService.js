@@ -11,11 +11,11 @@ class ItemService {
     async listItems() {
         return prisma_1.default.item.findMany({
             include: {
-                additional: {
+                additionals: {
                     select: {
-                        id: true,
-                        name: true,
-                        image_url: true,
+                        custom_price: true,
+                        is_active: true,
+                        product: { select: { id: true, name: true, image_url: true } },
                     },
                 },
                 customizations: {
@@ -44,7 +44,7 @@ class ItemService {
         const item = await prisma_1.default.item.findUnique({
             where: { id: itemId },
             include: {
-                additional: true,
+                additionals: true,
                 customizations: {
                     orderBy: { created_at: "asc" },
                 },
@@ -80,15 +80,6 @@ class ItemService {
         if (data.stock_quantity < 0) {
             throw new Error("Quantidade em estoque não pode ser negativa");
         }
-        // Se tem additional_id, verificar se existe
-        if (data.additional_id) {
-            const additional = await prisma_1.default.additional.findUnique({
-                where: { id: data.additional_id },
-            });
-            if (!additional) {
-                throw new Error("Adicional não encontrado");
-            }
-        }
         return prisma_1.default.item.create({
             data: {
                 name: data.name,
@@ -97,10 +88,9 @@ class ItemService {
                 base_price: data.base_price,
                 image_url: data.image_url,
                 allows_customization: data.allows_customization ?? false,
-                additional_id: data.additional_id,
             },
             include: {
-                additional: true,
+                additionals: true,
                 customizations: true,
             },
         });
@@ -118,20 +108,11 @@ class ItemService {
         if (data.stock_quantity !== undefined && data.stock_quantity < 0) {
             throw new Error("Quantidade em estoque não pode ser negativa");
         }
-        // Se está atualizando additional_id, verificar se existe
-        if (data.additional_id) {
-            const additional = await prisma_1.default.additional.findUnique({
-                where: { id: data.additional_id },
-            });
-            if (!additional) {
-                throw new Error("Adicional não encontrado");
-            }
-        }
         return prisma_1.default.item.update({
             where: { id: itemId },
             data,
             include: {
-                additional: true,
+                additionals: true,
                 customizations: true,
             },
         });
@@ -193,11 +174,11 @@ class ItemService {
                 },
             },
             include: {
-                additional: {
+                additionals: {
                     select: {
-                        id: true,
-                        name: true,
-                        image_url: true,
+                        custom_price: true,
+                        is_active: true,
+                        product: { select: { id: true, name: true, image_url: true } },
                     },
                 },
             },

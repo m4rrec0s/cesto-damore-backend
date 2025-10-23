@@ -7,7 +7,6 @@ interface CreateItemInput {
   base_price: number;
   image_url?: string;
   allows_customization?: boolean;
-  additional_id?: string;
 }
 
 interface UpdateItemInput {
@@ -17,7 +16,6 @@ interface UpdateItemInput {
   base_price?: number;
   image_url?: string;
   allows_customization?: boolean;
-  additional_id?: string;
 }
 
 class ItemService {
@@ -27,11 +25,11 @@ class ItemService {
   async listItems() {
     return prisma.item.findMany({
       include: {
-        additional: {
+        additionals: {
           select: {
-            id: true,
-            name: true,
-            image_url: true,
+            custom_price: true,
+            is_active: true,
+            product: { select: { id: true, name: true, image_url: true } },
           },
         },
         customizations: {
@@ -61,7 +59,7 @@ class ItemService {
     const item = await prisma.item.findUnique({
       where: { id: itemId },
       include: {
-        additional: true,
+        additionals: true,
         customizations: {
           orderBy: { created_at: "asc" },
         },
@@ -103,17 +101,6 @@ class ItemService {
       throw new Error("Quantidade em estoque não pode ser negativa");
     }
 
-    // Se tem additional_id, verificar se existe
-    if (data.additional_id) {
-      const additional = await prisma.additional.findUnique({
-        where: { id: data.additional_id },
-      });
-
-      if (!additional) {
-        throw new Error("Adicional não encontrado");
-      }
-    }
-
     return prisma.item.create({
       data: {
         name: data.name,
@@ -122,10 +109,9 @@ class ItemService {
         base_price: data.base_price,
         image_url: data.image_url,
         allows_customization: data.allows_customization ?? false,
-        additional_id: data.additional_id,
       },
       include: {
-        additional: true,
+        additionals: true,
         customizations: true,
       },
     });
@@ -147,22 +133,11 @@ class ItemService {
       throw new Error("Quantidade em estoque não pode ser negativa");
     }
 
-    // Se está atualizando additional_id, verificar se existe
-    if (data.additional_id) {
-      const additional = await prisma.additional.findUnique({
-        where: { id: data.additional_id },
-      });
-
-      if (!additional) {
-        throw new Error("Adicional não encontrado");
-      }
-    }
-
     return prisma.item.update({
       where: { id: itemId },
       data,
       include: {
-        additional: true,
+        additionals: true,
         customizations: true,
       },
     });
@@ -238,11 +213,11 @@ class ItemService {
         },
       },
       include: {
-        additional: {
+        additionals: {
           select: {
-            id: true,
-            name: true,
-            image_url: true,
+            custom_price: true,
+            is_active: true,
+            product: { select: { id: true, name: true, image_url: true } },
           },
         },
       },

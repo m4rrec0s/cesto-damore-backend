@@ -72,16 +72,14 @@ class AdditionalController {
                     });
                 }
             }
-            // Processar cores se enviadas como string JSON
-            if (data.colors && typeof data.colors === "string") {
-                try {
-                    data.colors = JSON.parse(data.colors);
-                }
-                catch (e) {
-                    return res.status(400).json({ error: "Formato de cores inválido" });
-                }
+            // Notas: suporte a cores removido — campos relacionados serão ignorados
+            // Converter campos numéricos de string para número se necessário
+            if (data.price && typeof data.price === "string") {
+                data.price = parseFloat(data.price);
             }
-            // Converter stock_quantity para número se for string
+            if (data.discount !== undefined && typeof data.discount === "string") {
+                data.discount = data.discount === "" ? 0 : parseFloat(data.discount);
+            }
             if (data.stock_quantity && typeof data.stock_quantity === "string") {
                 data.stock_quantity = parseInt(data.stock_quantity, 10);
             }
@@ -116,16 +114,14 @@ class AdditionalController {
                     });
                 }
             }
-            // Processar cores se enviadas como string JSON
-            if (data.colors && typeof data.colors === "string") {
-                try {
-                    data.colors = JSON.parse(data.colors);
-                }
-                catch (e) {
-                    return res.status(400).json({ error: "Formato de cores inválido" });
-                }
+            // Notas: suporte a cores removido — campos relacionados serão ignorados
+            // Converter campos numéricos de string para número se necessário
+            if (data.price && typeof data.price === "string") {
+                data.price = parseFloat(data.price);
             }
-            // Converter stock_quantity para número se for string
+            if (data.discount !== undefined && typeof data.discount === "string") {
+                data.discount = data.discount === "" ? 0 : parseFloat(data.discount);
+            }
             if (data.stock_quantity && typeof data.stock_quantity === "string") {
                 data.stock_quantity = parseInt(data.stock_quantity, 10);
             }

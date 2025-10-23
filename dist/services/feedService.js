@@ -506,7 +506,7 @@ class FeedService {
                     }
                     break;
                 case "additional":
-                    const additional = await prisma_1.default.additional.findUnique({
+                    const additional = await prisma_1.default.item.findUnique({
                         where: { id: itemId },
                     });
                     if (!additional) {
@@ -550,7 +550,7 @@ class FeedService {
                     where: { id: itemId },
                 }));
             case "additional":
-                return await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findUnique({
+                return await (0, prismaRetry_1.withRetry)(() => prisma_1.default.item.findUnique({
                     where: { id: itemId },
                 }));
             default:
@@ -613,7 +613,8 @@ class FeedService {
                     item_data: category,
                 }));
             case Feed_1.FeedSectionType.FEATURED_ADDITIONALS:
-                const additionals = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findMany({
+                const additionals = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.item.findMany({
+                    where: { type: "additional" },
                     take: maxItems,
                     orderBy: { created_at: "desc" },
                 }));

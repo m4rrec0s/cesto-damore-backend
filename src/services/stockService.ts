@@ -9,7 +9,6 @@ interface OrderItemData {
   additionals?: {
     additional_id: string;
     quantity: number;
-    color_id?: string; // Cor selecionada para este adicional
   }[];
 }
 
@@ -28,8 +27,7 @@ class StockService {
           for (const additional of item.additionals) {
             await this.decrementAdditionalStock(
               additional.additional_id,
-              additional.quantity,
-              additional.color_id
+              additional.quantity
             );
           }
         }
@@ -70,24 +68,16 @@ class StockService {
 
     // NOVA LÓGICA: Se o produto tem componentes, decrementar estoque dos items
     if (product.components.length > 0) {
-      console.log(
-        `🔄 Produto ${product.name} possui ${product.components.length} componentes. Decrementando estoque dos items...`
-      );
-
       await productComponentService.decrementComponentsStock(
         productId,
         quantity
-      );
-
-      console.log(
-        `✅ Estoque dos componentes do produto ${product.name} decrementado com sucesso`
       );
       return;
     }
 
     // LÓGICA LEGADA: Se não tem componentes, decrementar estoque direto do produto
     if (product.stock_quantity === null) {
-      console.log(`Produto ${product.name} não possui controle de estoque`);
+      console.warn(`Produto ${product.name} não possui controle de estoque`);
       return;
     }
 
@@ -110,10 +100,6 @@ class StockService {
       })
     );
 
-    console.log(
-      `✅ Estoque do produto ${product.name} (sem componentes) decrementado em ${quantity} unidades`
-    );
-
     // Verificar e enviar alerta se estoque ficou baixo
     const newStock = (product.stock_quantity || 0) - quantity;
     await this.checkAndNotifyLowStock(
@@ -129,122 +115,52 @@ class StockService {
    */
   private async decrementAdditionalStock(
     additionalId: string,
-    quantity: number,
-    colorId?: string
+    quantity: number
   ): Promise<void> {
-    const additional = await withRetry(() =>
-      prisma.additional.findUnique({
+    // O schema atual unificou "additional" no modelo Item.
+    // Aqui tentamos ler como Item e, caso não exista uma tabela de cores
+    // (additionalColor) no schema atual, fazemos fallback para decrementar
+    // o estoque total do Item.
+    const item = await withRetry(() =>
+      prisma.item.findUnique({
         where: { id: additionalId },
         select: {
           id: true,
           name: true,
           stock_quantity: true,
-          colors: {
-            select: {
-              color_id: true,
-              stock_quantity: true,
-              color: { select: { name: true } },
-            },
-          },
         },
       })
     );
 
-    if (!additional) {
-      throw new Error(`Adicional ${additionalId} não encontrado`);
+    if (!item) {
+      throw new Error(`Adicional/Item ${additionalId} não encontrado`);
     }
 
-    // Caso 1: Adicional COM cor específica selecionada
-    if (colorId && additional.colors.length > 0) {
-      const colorStock = additional.colors.find((c) => c.color_id === colorId);
+    // Cores legadas removidas: decrementa sempre do estoque unificado do Item
 
-      if (!colorStock) {
-        throw new Error(
-          `Cor ${colorId} não encontrada para adicional ${additional.name}`
-        );
-      }
-
-      // Verifica estoque da cor
-      if (colorStock.stock_quantity < quantity) {
-        throw new Error(
-          `Estoque insuficiente da cor ${colorStock.color.name} para ${additional.name}. Disponível: ${colorStock.stock_quantity}, Solicitado: ${quantity}`
-        );
-      }
-
-      // Decrementa estoque da cor específica
-      await withRetry(() =>
-        prisma.additionalColor.update({
-          where: {
-            additional_id_color_id: {
-              additional_id: additionalId,
-              color_id: colorId,
-            },
-          },
-          data: {
-            stock_quantity: {
-              decrement: quantity,
-            },
-          },
-        })
-      );
-
-      console.log(
-        `✅ Estoque da cor ${colorStock.color.name} do adicional ${additional.name} decrementado em ${quantity} unidades`
-      );
-
-      // Verificar e enviar alerta se estoque da cor ficou baixo
-      const newStock = colorStock.stock_quantity - quantity;
-      await this.checkAndNotifyLowStock(
-        `${additionalId}-${colorId}`,
-        additional.name,
-        newStock,
-        "color",
-        {
-          name: colorStock.color.name,
-          hex: "", // Não temos o hex aqui, pode ser obtido se necessário
-          additionalName: additional.name,
-        }
-      );
-
+    // Valida estoque total do item
+    if (item.stock_quantity === null || item.stock_quantity === undefined) {
+      console.warn(`Item ${item.name} não possui controle de estoque`);
       return;
     }
 
-    // Caso 2: Adicional SEM cor (estoque total)
-    if (additional.stock_quantity === null) {
-      console.log(
-        `Adicional ${additional.name} não possui controle de estoque`
-      );
-      return;
-    }
-
-    // Verifica estoque total
-    if (additional.stock_quantity < quantity) {
+    if (item.stock_quantity < quantity) {
       throw new Error(
-        `Estoque insuficiente para ${additional.name}. Disponível: ${additional.stock_quantity}, Solicitado: ${quantity}`
+        `Estoque insuficiente para ${item.name}. Disponível: ${item.stock_quantity}, Solicitado: ${quantity}`
       );
     }
 
-    // Decrementa estoque total
     await withRetry(() =>
-      prisma.additional.update({
+      prisma.item.update({
         where: { id: additionalId },
-        data: {
-          stock_quantity: {
-            decrement: quantity,
-          },
-        },
+        data: { stock_quantity: { decrement: quantity } },
       })
     );
 
-    console.log(
-      `✅ Estoque do adicional ${additional.name} decrementado em ${quantity} unidades`
-    );
-
-    // Verificar e enviar alerta se estoque ficou baixo
-    const newStock = (additional.stock_quantity || 0) - quantity;
+    const newStock = (item.stock_quantity || 0) - quantity;
     await this.checkAndNotifyLowStock(
       additionalId,
-      additional.name,
+      item.name,
       newStock,
       "additional"
     );
@@ -322,41 +238,21 @@ class StockService {
       if (item.additionals) {
         for (const additional of item.additionals) {
           try {
-            const additionalData = await prisma.additional.findUnique({
+            const additionalData = await prisma.item.findUnique({
               where: { id: additional.additional_id },
-              select: {
-                name: true,
-                stock_quantity: true,
-                colors: {
-                  where: additional.color_id
-                    ? { color_id: additional.color_id }
-                    : undefined,
-                  select: {
-                    stock_quantity: true,
-                    color: { select: { name: true } },
-                  },
-                },
-              },
+              select: { name: true, stock_quantity: true },
             });
 
             if (!additionalData) continue;
 
-            // Se tem cor selecionada, validar estoque da cor
-            if (additional.color_id && additionalData.colors.length > 0) {
-              const colorStock = additionalData.colors[0];
-              if (colorStock.stock_quantity < additional.quantity) {
-                errors.push(
-                  `Adicional ${additionalData.name} (${colorStock.color.name}): estoque insuficiente (disponível: ${colorStock.stock_quantity})`
-                );
-              }
-            }
-            // Senão, validar estoque total
-            else if (additionalData.stock_quantity !== null) {
-              if (additionalData.stock_quantity < additional.quantity) {
-                errors.push(
-                  `Adicional ${additionalData.name}: estoque insuficiente (disponível: ${additionalData.stock_quantity})`
-                );
-              }
+            // Validar estoque total do item
+            if (
+              additionalData.stock_quantity !== null &&
+              additionalData.stock_quantity < additional.quantity
+            ) {
+              errors.push(
+                `Adicional ${additionalData.name}: estoque insuficiente (disponível: ${additionalData.stock_quantity})`
+              );
             }
           } catch (error) {
             errors.push(

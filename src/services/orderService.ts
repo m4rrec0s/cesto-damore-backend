@@ -29,7 +29,6 @@ type CreateOrderItem = {
     additional_id: string;
     quantity: number;
     price: number;
-    color_id?: string; // Cor selecionada
   }[];
 };
 
@@ -256,7 +255,6 @@ class OrderService {
       }
 
       // ========== VALIDAR ESTOQUE DOS PRODUCT COMPONENTS ==========
-      console.log("🔍 Validando estoque dos componentes dos produtos...");
       for (const orderItem of data.items) {
         const product = products.find((p) => p.id === orderItem.product_id);
 
@@ -276,7 +274,6 @@ class OrderService {
           }
         }
       }
-      console.log("✅ Estoque dos componentes validado!");
 
       const additionalsIds = data.items
         .flatMap(
@@ -285,7 +282,7 @@ class OrderService {
         .filter(Boolean);
 
       if (additionalsIds.length > 0) {
-        const additionals = await prisma.additional.findMany({
+        const additionals = await prisma.item.findMany({
           where: { id: { in: additionalsIds } },
         });
 
@@ -330,7 +327,6 @@ class OrderService {
       const { items, ...orderData } = data;
 
       // ========== VALIDAR E DECREMENTAR ESTOQUE ==========
-      console.log("🔍 Validando estoque antes de criar pedido...");
       const stockValidation = await stockService.validateOrderStock(items);
 
       if (!stockValidation.valid) {
@@ -338,8 +334,6 @@ class OrderService {
           `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`
         );
       }
-
-      console.log("✅ Estoque validado! Criando pedido...");
 
       const created = await prisma.order.create({
         data: {
@@ -380,10 +374,8 @@ class OrderService {
       }
 
       // ========== DECREMENTAR ESTOQUE ==========
-      console.log("📦 Decrementando estoque...");
       try {
         await stockService.decrementOrderStock(items);
-        console.log("✅ Estoque decrementado com sucesso!");
       } catch (stockError: unknown) {
         console.error("❌ Erro ao decrementar estoque:", stockError);
         // Log o erro mas não falha o pedido, pois já foi criado
@@ -545,7 +537,6 @@ class OrderService {
           driveLink = customizationWithDrive?.google_drive_url || undefined;
         } catch (error) {
           // Ignorar se a coluna ainda não existir
-          console.log("⚠️ Campo google_drive_url ainda não existe na tabela");
         }
 
         const totalAmount =

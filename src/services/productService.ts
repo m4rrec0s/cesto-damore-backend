@@ -62,7 +62,7 @@ class ProductService {
               include: {
                 item: {
                   include: {
-                    additional: true,
+                    additionals: true,
                     customizations: true,
                   },
                 },
@@ -105,7 +105,7 @@ class ProductService {
             include: {
               item: {
                 include: {
-                  additional: true,
+                  additionals: true,
                   customizations: true,
                 },
               },
@@ -146,14 +146,6 @@ class ProductService {
     if (!data.type_id || data.type_id.trim() === "") {
       throw new Error("Tipo do produto é obrigatório");
     }
-
-    console.log("📦 [ProductService] Validando categorias:", {
-      categories: data.categories,
-      type: typeof data.categories,
-      isArray: Array.isArray(data.categories),
-      length: data.categories?.length,
-      fullData: data,
-    });
 
     if (
       !data.categories ||

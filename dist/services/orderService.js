@@ -189,7 +189,6 @@ class OrderService {
                 throw new Error("Um ou mais produtos não foram encontrados");
             }
             // ========== VALIDAR ESTOQUE DOS PRODUCT COMPONENTS ==========
-            console.log("🔍 Validando estoque dos componentes dos produtos...");
             for (const orderItem of data.items) {
                 const product = products.find((p) => p.id === orderItem.product_id);
                 if (product && product.components.length > 0) {
@@ -199,12 +198,11 @@ class OrderService {
                     }
                 }
             }
-            console.log("✅ Estoque dos componentes validado!");
             const additionalsIds = data.items
                 .flatMap((item) => item.additionals?.map((ad) => ad.additional_id) || [])
                 .filter(Boolean);
             if (additionalsIds.length > 0) {
-                const additionals = await prisma_1.default.additional.findMany({
+                const additionals = await prisma_1.default.item.findMany({
                     where: { id: { in: additionalsIds } },
                 });
                 if (additionals.length !== additionalsIds.length) {
@@ -234,12 +232,10 @@ class OrderService {
             }
             const { items, ...orderData } = data;
             // ========== VALIDAR E DECREMENTAR ESTOQUE ==========
-            console.log("🔍 Validando estoque antes de criar pedido...");
             const stockValidation = await stockService_1.default.validateOrderStock(items);
             if (!stockValidation.valid) {
                 throw new Error(`Estoque insuficiente:\n${stockValidation.errors.join("\n")}`);
             }
-            console.log("✅ Estoque validado! Criando pedido...");
             const created = await prisma_1.default.order.create({
                 data: {
                     user_id: orderData.user_id,
@@ -276,10 +272,8 @@ class OrderService {
                 }
             }
             // ========== DECREMENTAR ESTOQUE ==========
-            console.log("📦 Decrementando estoque...");
             try {
                 await stockService_1.default.decrementOrderStock(items);
-                console.log("✅ Estoque decrementado com sucesso!");
             }
             catch (stockError) {
                 console.error("❌ Erro ao decrementar estoque:", stockError);
@@ -423,7 +417,6 @@ class OrderService {
                 }
                 catch (error) {
                     // Ignorar se a coluna ainda não existir
-                    console.log("⚠️ Campo google_drive_url ainda não existe na tabela");
                 }
                 const totalAmount = typeof updated.grand_total === "number"
                     ? updated.grand_total

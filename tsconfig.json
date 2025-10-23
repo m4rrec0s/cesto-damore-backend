@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "exclude": ["tests"]
+  "exclude": ["tests", "node_modules", "dist", "prisma/migration-scripts"]
 }

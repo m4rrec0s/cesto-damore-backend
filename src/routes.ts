@@ -12,7 +12,6 @@ import authController from "./controller/authController";
 import PaymentController from "./controller/paymentController";
 import feedController from "./controller/feedController";
 import uploadController from "./controller/uploadController";
-import colorController from "./controller/colorController";
 import reportController from "./controller/reportController";
 import whatsappController from "./controller/whatsappController";
 import customizationController from "./controller/customizationController";
@@ -28,6 +27,7 @@ import layoutBaseController from "./controller/layoutBaseController";
 import personalizationController from "./controller/personalizationController";
 import {
   upload,
+  uploadAny,
   convertImagesToWebP,
   upload3D,
   uploadTemp,
@@ -186,13 +186,6 @@ router.get("/categories/:id", categoryController.show);
 router.post("/categories", categoryController.create);
 router.put("/categories/:id", categoryController.update);
 router.delete("/categories/:id", categoryController.remove);
-
-// color routes
-router.get("/colors", colorController.index);
-router.get("/colors/:id", colorController.show);
-router.post("/colors", colorController.create);
-router.put("/colors/:id", colorController.update);
-router.delete("/colors/:id", colorController.remove);
 
 // report routes
 router.get("/reports/stock", reportController.getStockReport);
@@ -666,6 +659,8 @@ router.post(
   "/customizations",
   authenticateToken,
   requireAdmin,
+  uploadAny.any(),
+  convertImagesToWebP,
   customizationController.create
 );
 
@@ -674,6 +669,8 @@ router.put(
   "/customizations/:id",
   authenticateToken,
   requireAdmin,
+  uploadAny.any(),
+  convertImagesToWebP,
   customizationController.update
 );
 

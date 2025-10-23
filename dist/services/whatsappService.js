@@ -44,7 +44,6 @@ class WhatsAppService {
                 text,
             };
             const response = await this.client.post(`/message/sendText/${this.config.instanceName}`, payload);
-            console.log("Mensagem WhatsApp enviada:", response.data);
             return true;
         }
         catch (error) {
@@ -68,7 +67,6 @@ class WhatsAppService {
     }
     async sendCriticalStockAlert(itemId, itemName, itemType, colorInfo) {
         if (!this.canSendAlert(`critical-${itemId}`)) {
-            console.log(`Alerta de estoque crítico já enviado recentemente para ${itemId}`);
             return false;
         }
         let message = `🚨 *ESTOQUE CRÍTICO - SEM ESTOQUE* 🚨\n\n`;
@@ -95,7 +93,7 @@ class WhatsAppService {
     }
     async sendLowStockAlert(itemId, itemName, currentStock, threshold, itemType, colorInfo) {
         if (!this.canSendAlert(`low-${itemId}`)) {
-            console.log(`Alerta de estoque baixo já enviado recentemente para ${itemId}`);
+            console.warn(`Alerta de estoque baixo já enviado recentemente para ${itemId}`);
             return false;
         }
         let message = `⚠️ *ALERTA DE ESTOQUE BAIXO* ⚠️\n\n`;
@@ -135,7 +133,7 @@ class WhatsAppService {
         try {
             const result = await reportService_1.default.hasItemsBelowThreshold(threshold);
             if (!result.has_critical || result.items.length === 0) {
-                console.log("Nenhum item com estoque baixo encontrado.");
+                console.warn("Nenhum item com estoque baixo encontrado.");
                 return { checked: true, alerts_sent: 0, errors: 0 };
             }
             let alertsSent = 0;
@@ -171,7 +169,6 @@ class WhatsAppService {
                     errors++;
                 }
             }
-            console.log(`Verificação de estoque concluída: ${alertsSent} alertas enviados, ${errors} erros`);
             return { checked: true, alerts_sent: alertsSent, errors };
         }
         catch (error) {
@@ -190,7 +187,8 @@ class WhatsAppService {
             message += `📈 *Resumo Geral:*\n`;
             message += `• Produtos: ${report.total_products} (${report.products_out_of_stock} sem estoque)\n`;
             message += `• Adicionais: ${report.total_additionals} (${report.additionals_out_of_stock} sem estoque)\n`;
-            message += `• Cores: ${report.total_colors} (${report.colors_out_of_stock} sem estoque)\n\n`;
+            message += `⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+            message += `⚡ *Ação necessária:* Reabastecer imediatamente!`;
             if (report.low_stock_items.length > 0) {
                 message += `⚠️ *Itens com Estoque Baixo:* ${report.low_stock_items.length}\n\n`;
                 const critical = report.low_stock_items.filter((i) => i.current_stock === 0);
@@ -263,7 +261,7 @@ class WhatsAppService {
             message += `🚀 *Preparar pedido para entrega!*`;
             const sent = await this.sendMessage(message);
             if (sent) {
-                console.log(`✅ Notificação de pedido ${orderData.orderId} enviada com sucesso`);
+                console.info(`Notificação de pedido ${orderData.orderId} enviada com sucesso`);
             }
             return sent;
         }
@@ -272,9 +270,6 @@ class WhatsAppService {
             return false;
         }
     }
-    /**
-     * Envia notificação para o CLIENTE sobre confirmação do pedido
-     */
     async sendCustomerOrderConfirmation(customerPhone, orderData) {
         if (!this.isConfigured()) {
             console.warn("WhatsApp não configurado. Pulando notificação ao cliente.");
@@ -321,7 +316,7 @@ class WhatsAppService {
             // Enviar para o cliente diretamente
             const sent = await this.sendDirectMessage(phoneWithCountry, message);
             if (sent) {
-                console.log(`✅ Notificação enviada ao cliente ${phoneWithCountry} - Pedido ${orderData.orderId}`);
+                console.info(`Notificação enviada ao cliente ${phoneWithCountry} - Pedido ${orderData.orderId}`);
             }
             return sent;
         }

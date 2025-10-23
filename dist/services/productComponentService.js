@@ -51,7 +51,6 @@ class ProductComponentService {
             include: {
                 item: {
                     include: {
-                        additional: true,
                         customizations: true,
                     },
                 },
@@ -102,7 +101,6 @@ class ProductComponentService {
             include: {
                 item: {
                     include: {
-                        additional: true,
                         customizations: true,
                     },
                 },
@@ -129,7 +127,8 @@ class ProductComponentService {
         }
         // Fórmula: MIN(item1.stock / qty1, item2.stock / qty2, ..., itemN.stock / qtyN)
         const availableQuantities = components.map((component) => {
-            return Math.floor(component.item.stock_quantity / component.quantity);
+            const stock = component.item.stock_quantity ?? 0;
+            return Math.floor(stock / component.quantity);
         });
         return Math.min(...availableQuantities);
     }
@@ -152,7 +151,8 @@ class ProductComponentService {
         for (const component of components) {
             const itemQuantityNeeded = component.quantity * productQuantity;
             // Verificar se tem estoque suficiente
-            if (component.item.stock_quantity < itemQuantityNeeded) {
+            const stock = component.item.stock_quantity ?? 0;
+            if (stock < itemQuantityNeeded) {
                 throw new Error(`Estoque insuficiente para ${component.item.name}. ` +
                     `Disponível: ${component.item.stock_quantity}, ` +
                     `Necessário: ${itemQuantityNeeded}`);

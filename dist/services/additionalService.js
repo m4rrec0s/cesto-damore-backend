@@ -9,36 +9,29 @@ const prismaRetry_1 = require("../database/prismaRetry");
 class AdditionalService {
     async getAllAdditionals(includeProducts = false) {
         try {
-            const results = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findMany({
+            const results = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.item.findMany({
                 include: {
-                    colors: {
-                        include: {
-                            color: true,
-                        },
-                    },
                     ...(includeProducts
                         ? {
-                            products: {
-                                include: {
-                                    product: {
-                                        select: { id: true, name: true },
-                                    },
-                                },
+                            additionals: {
                                 where: { is_active: true },
+                                include: { product: { select: { id: true, name: true } } },
                             },
                         }
                         : {}),
                 },
             }));
             return results.map((r) => ({
-                ...r,
-                colors: r.colors?.map((c) => ({
-                    color_id: c.color.id,
-                    color_name: c.color.name,
-                    color_hex_code: c.color.hex_code,
-                    stock_quantity: c.stock_quantity,
-                })),
-                compatible_products: r.products?.map((p) => ({
+                id: r.id,
+                name: r.name,
+                description: r.description,
+                price: r.base_price,
+                discount: r.discount ?? null,
+                image_url: r.image_url,
+                stock_quantity: r.stock_quantity,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                compatible_products: r.additionals?.map((p) => ({
                     product_id: p.product.id,
                     product_name: p.product.name,
                     custom_price: p.custom_price,
@@ -55,40 +48,27 @@ class AdditionalService {
             throw new Error("ID do adicional é obrigatório");
         }
         try {
-            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.findUnique({
+            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.item.findUnique({
                 where: { id },
                 include: {
-                    colors: {
-                        include: {
-                            color: true,
-                        },
-                    },
-                    ...(includeProducts
-                        ? {
-                            products: {
-                                include: {
-                                    product: {
-                                        select: { id: true, name: true },
-                                    },
-                                },
-                                where: { is_active: true },
-                            },
-                        }
-                        : {}),
+                    additionals: includeProducts
+                        ? { include: { product: { select: { id: true, name: true } } } }
+                        : false,
                 },
             }));
-            if (!r) {
+            if (!r)
                 throw new Error("Adicional não encontrado");
-            }
             return {
-                ...r,
-                colors: r.colors?.map((c) => ({
-                    color_id: c.color.id,
-                    color_name: c.color.name,
-                    color_hex_code: c.color.hex_code,
-                    stock_quantity: c.stock_quantity,
-                })),
-                compatible_products: r.products?.map((p) => ({
+                id: r.id,
+                name: r.name,
+                description: r.description,
+                price: r.base_price,
+                discount: r.discount ?? null,
+                image_url: r.image_url,
+                stock_quantity: r.stock_quantity,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                compatible_products: r.additionals?.map((p) => ({
                     product_id: p.product.id,
                     product_name: p.product.name,
                     custom_price: p.custom_price,
@@ -114,21 +94,17 @@ class AdditionalService {
             const payload = {
                 name: data.name,
                 description: data.description,
-                price: this.normalizePrice(data.price),
-                discount: data.discount || 0,
+                base_price: this.normalizePrice(data.price),
+                discount: this.normalizeDiscount(data.discount),
                 image_url: data.image_url,
                 stock_quantity: data.stock_quantity || 0,
             };
-            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.create({ data: payload }));
-            // Vincular cores se fornecido
-            if (data.colors && data.colors.length > 0) {
-                await this.linkColors(r.id, data.colors);
-            }
-            // Vincular aos produtos se fornecido
+            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.item.create({ data: payload }));
             if (data.compatible_products && data.compatible_products.length > 0) {
                 const normalizedProducts = this.normalizeCompatibleProducts(data.compatible_products);
                 await this.linkToProducts(r.id, normalizedProducts);
             }
+            // cores legadas ignoradas até que o schema suporte
             return await this.getAdditionalById(r.id, true);
         }
         catch (error) {
@@ -151,32 +127,16 @@ class AdditionalService {
             if (data.description !== undefined)
                 payload.description = data.description;
             if (data.price !== undefined)
-                payload.price = this.normalizePrice(data.price);
+                payload.base_price = this.normalizePrice(data.price);
             if (data.discount !== undefined)
-                payload.discount = data.discount;
+                payload.discount = this.normalizeDiscount(data.discount);
             if (data.image_url !== undefined)
                 payload.image_url = data.image_url;
             if (data.stock_quantity !== undefined)
                 payload.stock_quantity = data.stock_quantity;
-            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additional.update({
-                where: { id },
-                data: payload,
-            }));
-            // Atualizar cores se fornecido
-            if (data.colors !== undefined) {
-                // Remove todas as cores atuais
-                await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additionalColor.deleteMany({
-                    where: { additional_id: id },
-                }));
-                // Adiciona as novas cores
-                if (data.colors.length > 0) {
-                    await this.linkColors(id, data.colors);
-                }
-            }
+            const r = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.item.update({ where: { id }, data: payload }));
             if (data.compatible_products !== undefined) {
-                await (0, prismaRetry_1.withRetry)(() => prisma_1.default.productAdditional.deleteMany({
-                    where: { additional_id: id },
-                }));
+                await (0, prismaRetry_1.withRetry)(() => prisma_1.default.productAdditional.deleteMany({ where: { additional_id: id } }));
                 if (data.compatible_products.length > 0) {
                     const normalizedProducts = this.normalizeCompatibleProducts(data.compatible_products);
                     await this.linkToProducts(id, normalizedProducts);
@@ -204,7 +164,7 @@ class AdditionalService {
             await prisma_1.default.productAdditional.deleteMany({
                 where: { additional_id: id },
             });
-            await prisma_1.default.additional.delete({ where: { id } });
+            await prisma_1.default.item.delete({ where: { id } });
             return { message: "Adicional deletado com sucesso" };
         }
         catch (error) {
@@ -219,7 +179,7 @@ class AdditionalService {
             throw new Error("ID do produto é obrigatório");
         }
         try {
-            // Verifica se o adicional existe
+            // Verifica se o item existe
             await this.getAdditionalById(additionalId);
             // Verifica se o produto existe
             const product = await prisma_1.default.product.findUnique({
@@ -291,14 +251,11 @@ class AdditionalService {
         }
     }
     async unlinkFromProduct(additionalId, productId) {
-        if (!additionalId) {
+        if (!additionalId)
             throw new Error("ID do adicional é obrigatório");
-        }
-        if (!productId) {
+        if (!productId)
             throw new Error("ID do produto é obrigatório");
-        }
         try {
-            // Primeiro verifica se o vínculo existe
             const existingLink = await prisma_1.default.productAdditional.findUnique({
                 where: {
                     product_id_additional_id: {
@@ -307,10 +264,8 @@ class AdditionalService {
                     },
                 },
             });
-            if (!existingLink) {
+            if (!existingLink)
                 throw new Error("Vínculo entre produto e adicional não encontrado");
-            }
-            // Se existe, então remove
             await prisma_1.default.productAdditional.delete({
                 where: {
                     product_id_additional_id: {
@@ -331,16 +286,16 @@ class AdditionalService {
             throw new Error("ID do adicional é obrigatório");
         }
         try {
-            const additional = await prisma_1.default.additional.findUnique({
+            // Busca o item unificado
+            const item = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.item.findUnique({
                 where: { id: additionalId },
-                select: { price: true },
-            });
-            if (!additional) {
+                select: { base_price: true },
+            }));
+            if (!item)
                 throw new Error("Adicional não encontrado");
-            }
-            // Se tem produto específico, busca o preço customizado
+            // Se tem produto específico, busca o preço customizado no vínculo
             if (productId) {
-                const productAdditional = await prisma_1.default.productAdditional.findUnique({
+                const productAdditional = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.productAdditional.findUnique({
                     where: {
                         product_id_additional_id: {
                             product_id: productId,
@@ -348,98 +303,74 @@ class AdditionalService {
                         },
                     },
                     select: { custom_price: true, is_active: true },
-                });
-                // Se existe vínculo ativo e tem preço customizado, usa ele
+                }));
                 if (productAdditional?.is_active &&
                     productAdditional.custom_price !== null) {
                     return productAdditional.custom_price;
                 }
             }
-            // Caso contrário, usa o preço base
-            return additional.price;
+            return item.base_price;
         }
         catch (error) {
             throw new Error(`Erro ao buscar preço do adicional: ${error.message}`);
         }
     }
-    // Método para buscar adicionais compatíveis com um produto
+    // Busca todos os adicionais vinculados a um produto
     async getAdditionalsByProduct(productId) {
-        if (!productId) {
+        if (!productId)
             throw new Error("ID do produto é obrigatório");
-        }
         try {
-            const results = await prisma_1.default.additional.findMany({
-                where: {
-                    products: {
-                        some: {
-                            product_id: productId,
-                            is_active: true,
-                        },
-                    },
-                },
+            const relations = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.productAdditional.findMany({
+                where: { product_id: productId, is_active: true },
                 include: {
-                    products: {
-                        where: { product_id: productId },
-                        select: {
-                            custom_price: true,
-                            is_active: true,
-                            product: {
-                                select: { id: true, name: true },
-                            },
-                        },
-                    },
+                    additional: true,
+                    product: { select: { id: true, name: true } },
                 },
-            });
-            return results.map((r) => ({
-                ...r,
-                compatible_products: r.products.map((p) => ({
-                    product_id: p.product.id,
-                    product_name: p.product.name,
-                    custom_price: p.custom_price,
-                    is_active: p.is_active,
-                })),
+            }));
+            return relations.map((r) => ({
+                id: r.additional.id,
+                name: r.additional.name,
+                description: r.additional.description,
+                price: r.custom_price ?? r.additional.base_price,
+                discount: r.additional.discount ?? null,
+                image_url: r.additional.image_url,
+                stock_quantity: r.additional.stock_quantity,
+                created_at: r.additional.created_at,
+                updated_at: r.additional.updated_at,
+                compatible_products: [
+                    {
+                        product_id: productId,
+                        product_name: r.product?.name,
+                        custom_price: r.custom_price,
+                        is_active: r.is_active,
+                    },
+                ],
             }));
         }
         catch (error) {
             throw new Error(`Erro ao buscar adicionais do produto: ${error.message}`);
         }
     }
-    // Função helper para normalizar compatible_products
+    // Normaliza entrada de produtos compatíveis para o formato esperado
     normalizeCompatibleProducts(products) {
-        if (!products || products.length === 0)
+        if (!products)
             return [];
-        // Se o primeiro elemento é string, todo o array é de strings
-        if (typeof products[0] === "string") {
-            return products.map((productId) => ({
-                product_id: productId,
+        // Se for array de strings
+        if (Array.isArray(products) &&
+            products.length > 0 &&
+            typeof products[0] === "string") {
+            return products.map((p) => ({
+                product_id: p,
                 custom_price: null,
             }));
         }
-        // Caso contrário, já está no formato correto
-        return products;
-    }
-    // Método para vincular cores ao adicional
-    async linkColors(additionalId, colors) {
-        // Verificar se as cores existem
-        const validColors = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.colors.findMany({
-            where: { id: { in: colors.map((c) => c.color_id) } },
-            select: { id: true },
+        // Caso já seja array de objetos
+        return products.map((p) => ({
+            product_id: p.product_id,
+            custom_price: p.custom_price ?? null,
         }));
-        const validColorIds = new Set(validColors.map((c) => c.id));
-        const dataToInsert = colors
-            .filter((c) => validColorIds.has(c.color_id))
-            .map((c) => ({
-            additional_id: additionalId,
-            color_id: c.color_id,
-            stock_quantity: c.stock_quantity || 0,
-        }));
-        if (dataToInsert.length > 0) {
-            await (0, prismaRetry_1.withRetry)(() => prisma_1.default.additionalColor.createMany({
-                data: dataToInsert,
-                skipDuplicates: true,
-            }));
-        }
     }
+    // cores legadas removidas — não há suporte a cores no novo modelo
     normalizePrice(price) {
         if (typeof price === "string") {
             let cleanPrice = price;
@@ -461,6 +392,26 @@ class AdditionalService {
             return price;
         }
         throw new Error("Preço deve ser um número positivo");
+    }
+    normalizeDiscount(discount) {
+        // Se for null ou undefined, retorna null
+        if (discount === null || discount === undefined || discount === "") {
+            return null;
+        }
+        // Se for string, converte para número
+        if (typeof discount === "string") {
+            const parsed = parseFloat(discount);
+            if (isNaN(parsed)) {
+                return null;
+            }
+            // Garante que está entre 0 e 100
+            return Math.max(0, Math.min(100, parsed));
+        }
+        // Se for número, garante que está entre 0 e 100
+        if (typeof discount === "number") {
+            return Math.max(0, Math.min(100, discount));
+        }
+        return null;
     }
 }
 exports.default = new AdditionalService();

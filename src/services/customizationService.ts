@@ -410,6 +410,32 @@ class CustomizationService {
           }
         });
       }
+
+      // MULTIPLE_CHOICE — permitir que opções tenham imagem opcional e incluí-las no preview
+      if (customization.customization_type === "MULTIPLE_CHOICE") {
+        const selectedOptions = customization.data.selected_options || [];
+
+        if (selectedOptions.length > 0) {
+          // A customização registrada contém os dados das opções (labels, imagens, etc.)
+          const options =
+            (customizationRecord.customization_data as any)?.options || [];
+
+          selectedOptions.forEach((selectedId: string) => {
+            const option = options.find((o: any) => o.id === selectedId);
+            if (option) {
+              const imageSource =
+                option.image_url || option.image || option.src;
+              if (imageSource) {
+                // Inserir imagem no preview. Se a opção fornecer posição, respeita-a.
+                photos.push({
+                  source: imageSource,
+                  position: option.position || undefined,
+                });
+              }
+            }
+          });
+        }
+      }
     }
 
     return {

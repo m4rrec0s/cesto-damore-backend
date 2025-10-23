@@ -49,7 +49,6 @@ const authController_1 = __importDefault(require("./controller/authController"))
 const paymentController_1 = __importDefault(require("./controller/paymentController"));
 const feedController_1 = __importDefault(require("./controller/feedController"));
 const uploadController_1 = __importDefault(require("./controller/uploadController"));
-const colorController_1 = __importDefault(require("./controller/colorController"));
 const reportController_1 = __importDefault(require("./controller/reportController"));
 const whatsappController_1 = __importDefault(require("./controller/whatsappController"));
 const customizationController_1 = __importDefault(require("./controller/customizationController"));
@@ -160,12 +159,6 @@ router.get("/categories/:id", categoryController_1.default.show);
 router.post("/categories", categoryController_1.default.create);
 router.put("/categories/:id", categoryController_1.default.update);
 router.delete("/categories/:id", categoryController_1.default.remove);
-// color routes
-router.get("/colors", colorController_1.default.index);
-router.get("/colors/:id", colorController_1.default.show);
-router.post("/colors", colorController_1.default.create);
-router.put("/colors/:id", colorController_1.default.update);
-router.delete("/colors/:id", colorController_1.default.remove);
 // report routes
 router.get("/reports/stock", reportController_1.default.getStockReport);
 router.get("/reports/stock/critical", reportController_1.default.getCriticalStock);
@@ -296,9 +289,9 @@ router.get("/customizations", security_1.authenticateToken, security_1.requireAd
 // Buscar customização por ID
 router.get("/customizations/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.show);
 // Criar customização
-router.post("/customizations", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.create);
+router.post("/customizations", security_1.authenticateToken, security_1.requireAdmin, multer_1.uploadAny.any(), multer_1.convertImagesToWebP, customizationController_1.default.create);
 // Atualizar customização
-router.put("/customizations/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.update);
+router.put("/customizations/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.uploadAny.any(), multer_1.convertImagesToWebP, customizationController_1.default.update);
 // Deletar customização
 router.delete("/customizations/:id", security_1.authenticateToken, security_1.requireAdmin, customizationController_1.default.remove);
 // Buscar customizações de um item (público - para clientes)

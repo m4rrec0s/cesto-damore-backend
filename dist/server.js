@@ -19,5 +19,4 @@ app.get("/", async (req, res) => {
 app.use("/api", routes_1.default);
 app.listen(8080, () => {
     console.log("🚀 Server running on http://localhost:8080");
-    console.log("🧹 Temp file cleanup job started");
 });

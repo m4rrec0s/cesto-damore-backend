@@ -4,6 +4,7 @@ import { CustomizationType } from "@prisma/client";
 import customizationService, {
   CustomizationInput,
 } from "../services/customizationService";
+import { saveImageLocally } from "../config/localStorage";
 
 const customizationInputSchema: z.ZodType<CustomizationInput> = z.object({
   customization_id: z.string().uuid(),
@@ -172,6 +173,8 @@ class CustomizationController {
    */
   async create(req: Request, res: Response) {
     try {
+      // Ao aceitar multipart/form-data, multer coloca arquivos em req.files e os campos em req.body como strings.
+      // Suportamos ainda envio JSON normal.
       const bodySchema = z.object({
         item_id: z.string().uuid({ message: "item_id inválido" }),
         type: z.nativeEnum(CustomizationType),
@@ -182,7 +185,54 @@ class CustomizationController {
         price: z.number().min(0).default(0),
       });
 
-      const payload = bodySchema.parse(req.body);
+      // Se o cliente enviou multipart, o campo customization_data pode ser string JSON
+      const rawBody: any = req.body || {};
+      if (
+        rawBody.customization_data &&
+        typeof rawBody.customization_data === "string"
+      ) {
+        try {
+          rawBody.customization_data = JSON.parse(rawBody.customization_data);
+        } catch (err) {
+          // manter como string — validacao abaixo irá falhar
+        }
+      }
+
+      const payload = bodySchema.parse(rawBody);
+
+      // Se houver arquivos enviados (uploadAny.any()), eles estarão em req.files.
+      // Convenção: nome do campo para cada imagem de opção -> option_<optionId>
+      const files: any = (req as any).files || [];
+
+      // Se customization_data tiver opções e existirem arquivos, associe as imagens
+      if (
+        payload.customization_data &&
+        payload.customization_data.options &&
+        Array.isArray(payload.customization_data.options)
+      ) {
+        const options = payload.customization_data.options as any[];
+
+        const filesArray: any[] = Array.isArray(files)
+          ? files
+          : Object.values(files).flat();
+
+        for (const opt of options) {
+          const expectedField = `option_${opt.id}`;
+          const matched = filesArray.find(
+            (f: any) => f.fieldname === expectedField
+          );
+          if (matched && matched.buffer) {
+            // Salvar localmente via helper e atribuir image_url
+            const url = await saveImageLocally(
+              matched.buffer,
+              matched.originalname,
+              matched.mimetype
+            );
+            opt.image_url = url;
+          }
+        }
+      }
+
       const customization = await customizationService.create(payload);
 
       return res.status(201).json(customization);
@@ -220,9 +270,54 @@ class CustomizationController {
       });
 
       const { id } = paramsSchema.parse(req.params);
-      const payload = bodySchema.parse(req.body);
 
-      const customization = await customizationService.update(id, payload);
+      // Se multipart, req.body.customization_data pode ser string
+      const rawBody: any = req.body || {};
+      if (
+        rawBody.customization_data &&
+        typeof rawBody.customization_data === "string"
+      ) {
+        try {
+          rawBody.customization_data = JSON.parse(rawBody.customization_data);
+        } catch (err) {
+          // manter como string — validação a seguir tratará
+        }
+      }
+
+      const payload = bodySchema.parse(rawBody);
+
+      // Associar imagens enviadas (convenção option_<optionId>) antes do update
+      const files: any = (req as any).files || [];
+      if (
+        payload.customization_data &&
+        payload.customization_data.options &&
+        Array.isArray(payload.customization_data.options)
+      ) {
+        const options = payload.customization_data.options as any[];
+        const filesArray: any[] = Array.isArray(files)
+          ? files
+          : Object.values(files).flat();
+
+        for (const opt of options) {
+          const expectedField = `option_${opt.id}`;
+          const matched = filesArray.find(
+            (f: any) => f.fieldname === expectedField
+          );
+          if (matched && matched.buffer) {
+            const url = await saveImageLocally(
+              matched.buffer,
+              matched.originalname,
+              matched.mimetype
+            );
+            opt.image_url = url;
+          }
+        }
+      }
+
+      const customization = await customizationService.update(
+        id,
+        payload as any
+      );
 
       return res.json(customization);
     } catch (error: any) {

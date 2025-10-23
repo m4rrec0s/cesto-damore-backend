@@ -73,7 +73,6 @@ class WhatsAppService {
         payload
       );
 
-      console.log("Mensagem WhatsApp enviada:", response.data);
       return true;
     } catch (error: any) {
       console.error("Erro ao enviar mensagem WhatsApp:", {
@@ -104,9 +103,6 @@ class WhatsAppService {
     colorInfo?: { name: string; hex: string; additionalName: string }
   ): Promise<boolean> {
     if (!this.canSendAlert(`critical-${itemId}`)) {
-      console.log(
-        `Alerta de estoque crítico já enviado recentemente para ${itemId}`
-      );
       return false;
     }
 
@@ -143,7 +139,7 @@ class WhatsAppService {
     colorInfo?: { name: string; hex: string; additionalName: string }
   ): Promise<boolean> {
     if (!this.canSendAlert(`low-${itemId}`)) {
-      console.log(
+      console.warn(
         `Alerta de estoque baixo já enviado recentemente para ${itemId}`
       );
       return false;
@@ -193,7 +189,7 @@ class WhatsAppService {
       const result = await reportService.hasItemsBelowThreshold(threshold);
 
       if (!result.has_critical || result.items.length === 0) {
-        console.log("Nenhum item com estoque baixo encontrado.");
+        console.warn("Nenhum item com estoque baixo encontrado.");
         return { checked: true, alerts_sent: 0, errors: 0 };
       }
 
@@ -246,9 +242,6 @@ class WhatsAppService {
         }
       }
 
-      console.log(
-        `Verificação de estoque concluída: ${alertsSent} alertas enviados, ${errors} erros`
-      );
       return { checked: true, alerts_sent: alertsSent, errors };
     } catch (error: any) {
       console.error(
@@ -272,7 +265,9 @@ class WhatsAppService {
       message += `📈 *Resumo Geral:*\n`;
       message += `• Produtos: ${report.total_products} (${report.products_out_of_stock} sem estoque)\n`;
       message += `• Adicionais: ${report.total_additionals} (${report.additionals_out_of_stock} sem estoque)\n`;
-      message += `• Cores: ${report.total_colors} (${report.colors_out_of_stock} sem estoque)\n\n`;
+
+      message += `⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+      message += `⚡ *Ação necessária:* Reabastecer imediatamente!`;
 
       if (report.low_stock_items.length > 0) {
         message += `⚠️ *Itens com Estoque Baixo:* ${report.low_stock_items.length}\n\n`;
@@ -392,8 +387,8 @@ class WhatsAppService {
 
       const sent = await this.sendMessage(message);
       if (sent) {
-        console.log(
-          `✅ Notificação de pedido ${orderData.orderId} enviada com sucesso`
+        console.info(
+          `Notificação de pedido ${orderData.orderId} enviada com sucesso`
         );
       }
       return sent;
@@ -403,9 +398,6 @@ class WhatsAppService {
     }
   }
 
-  /**
-   * Envia notificação para o CLIENTE sobre confirmação do pedido
-   */
   async sendCustomerOrderConfirmation(
     customerPhone: string,
     orderData: {
@@ -487,8 +479,8 @@ class WhatsAppService {
       const sent = await this.sendDirectMessage(phoneWithCountry, message);
 
       if (sent) {
-        console.log(
-          `✅ Notificação enviada ao cliente ${phoneWithCountry} - Pedido ${orderData.orderId}`
+        console.info(
+          `Notificação enviada ao cliente ${phoneWithCountry} - Pedido ${orderData.orderId}`
         );
       }
 

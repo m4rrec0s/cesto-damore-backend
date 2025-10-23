@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "migration:analyze": "ts-node prisma/migration-scripts/01-analyze-data.ts",
+    "migration:backup": "ts-node prisma/migration-scripts/backup-before-migration.ts",
+    "migration:restore": "ts-node prisma/migration-scripts/restore-backup.ts"
   },
   "author": "marrecos",
   "license": "ISC",

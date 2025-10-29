@@ -30,7 +30,7 @@ export const saveImageLocally = async (
 
     fs.writeFileSync(filePath, buffer);
 
-    const imageUrl = `${BASE_URL}/api/images/${fileName}`;
+    const imageUrl = `${BASE_URL}/images/${fileName}`;
 
     return imageUrl;
   } catch (error: any) {

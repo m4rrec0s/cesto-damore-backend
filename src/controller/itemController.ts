@@ -1,9 +1,18 @@
 import { Request, Response } from "express";
 import itemService from "../services/itemService";
+import { saveImageLocally } from "../config/localStorage";
 
 class ItemController {
   async index(req: Request, res: Response) {
     try {
+      // Suporte a filtro por productId via query string: /items?productId=...
+      const productId = (req.query.productId as string) || undefined;
+
+      if (productId) {
+        const items = await itemService.getItemsByProductId(productId);
+        return res.json(items);
+      }
+
       const items = await itemService.listItems();
       res.json(items);
     } catch (error: any) {
@@ -18,8 +27,23 @@ class ItemController {
   async show(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const item = await itemService.getItemById(id);
-      res.json(item);
+      // productId é passado como query param: /items?productId=...
+      const productId = (req.query.productId as string) || undefined;
+
+      if (productId) {
+        const items = await itemService.getItemsByProductId(productId);
+        return res.json(items);
+      }
+
+      if (id) {
+        const item = await itemService.getItemById(id);
+        return res.json(item);
+      }
+
+      // Se não recebeu nem id nem productId, retorna erro de cliente
+      return res
+        .status(400)
+        .json({ error: "Parâmetro 'id' ou 'productId' é obrigatório" });
     } catch (error: any) {
       console.error("Erro ao buscar item:", error);
       if (error.message.includes("não encontrado")) {
@@ -35,6 +59,16 @@ class ItemController {
 
   async create(req: Request, res: Response) {
     try {
+      // Processar imagem se enviada
+      let imageUrl: string | undefined;
+      if (req.file) {
+        imageUrl = await saveImageLocally(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype
+        );
+      }
+
       // Processar dados do FormData
       const data = {
         name: req.body.name,
@@ -46,7 +80,7 @@ class ItemController {
           req.body.additional_id && req.body.additional_id !== ""
             ? req.body.additional_id
             : undefined,
-        image_url: req.file ? `/images/${req.file.filename}` : undefined,
+        image_url: imageUrl,
       };
 
       const item = await itemService.createItem(data);
@@ -71,6 +105,16 @@ class ItemController {
     try {
       const { id } = req.params;
 
+      // Processar imagem se enviada
+      let imageUrl: string | undefined;
+      if (req.file) {
+        imageUrl = await saveImageLocally(
+          req.file.buffer,
+          req.file.originalname,
+          req.file.mimetype
+        );
+      }
+
       // Processar dados do FormData
       const data: any = {};
 
@@ -88,7 +132,7 @@ class ItemController {
           req.body.additional_id && req.body.additional_id !== ""
             ? req.body.additional_id
             : null;
-      if (req.file) data.image_url = `/images/${req.file.filename}`;
+      if (imageUrl) data.image_url = imageUrl;
 
       const item = await itemService.updateItem(id, data);
       res.json(item);

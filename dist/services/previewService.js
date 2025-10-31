@@ -27,18 +27,9 @@ class PreviewService {
                 where: { id: product.type_id },
             });
             const response = {};
-            // Se tem suporte a 3D, retornar URL do modelo
-            if (productType?.has_3d_preview) {
-                // Por enquanto, retornar URL estática baseada no tipo
-                // Futuramente pode ser gerado dinamicamente
-                response.model3d = this.get3DModelUrl(product.type_id);
-            }
-            // Gerar preview estático (pode ser expandido futuramente)
-            // Por enquanto retorna a imagem do produto
             if (product.image_url) {
                 response.previewUrl = product.image_url;
             }
-            // Se houver fotos personalizadas, usar a primeira como preview
             if (data.customizationData.photos &&
                 data.customizationData.photos.length > 0) {
                 const firstPhoto = data.customizationData.photos[0];

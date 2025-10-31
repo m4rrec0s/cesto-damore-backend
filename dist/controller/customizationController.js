@@ -168,7 +168,8 @@ class CustomizationController {
             });
             // Se o cliente enviou multipart, o campo customization_data pode ser string JSON
             const rawBody = req.body || {};
-            if (rawBody.customization_data && typeof rawBody.customization_data === "string") {
+            if (rawBody.customization_data &&
+                typeof rawBody.customization_data === "string") {
                 try {
                     rawBody.customization_data = JSON.parse(rawBody.customization_data);
                 }
@@ -185,7 +186,9 @@ class CustomizationController {
                 payload.customization_data.options &&
                 Array.isArray(payload.customization_data.options)) {
                 const options = payload.customization_data.options;
-                const filesArray = Array.isArray(files) ? files : Object.values(files).flat();
+                const filesArray = Array.isArray(files)
+                    ? files
+                    : Object.values(files).flat();
                 for (const opt of options) {
                     const expectedField = `option_${opt.id}`;
                     const matched = filesArray.find((f) => f.fieldname === expectedField);
@@ -231,7 +234,8 @@ class CustomizationController {
             const { id } = paramsSchema.parse(req.params);
             // Se multipart, req.body.customization_data pode ser string
             const rawBody = req.body || {};
-            if (rawBody.customization_data && typeof rawBody.customization_data === "string") {
+            if (rawBody.customization_data &&
+                typeof rawBody.customization_data === "string") {
                 try {
                     rawBody.customization_data = JSON.parse(rawBody.customization_data);
                 }
@@ -246,7 +250,9 @@ class CustomizationController {
                 payload.customization_data.options &&
                 Array.isArray(payload.customization_data.options)) {
                 const options = payload.customization_data.options;
-                const filesArray = Array.isArray(files) ? files : Object.values(files).flat();
+                const filesArray = Array.isArray(files)
+                    ? files
+                    : Object.values(files).flat();
                 for (const opt of options) {
                     const expectedField = `option_${opt.id}`;
                     const matched = filesArray.find((f) => f.fieldname === expectedField);

@@ -56,17 +56,12 @@ model Product {
 }
 
 model ProductType {
-  id             String   @id @default(uuid())
-  name           String
-  category       String   @default("MODELO_PRONTO") // "PERSONALIZADA" ou "MODELO_PRONTO"
-  delivery_type  String   @default("PRONTA_ENTREGA") // "PRONTA_ENTREGA" ou "PRAZO_24H"
-  stock_quantity Int?
-  has_3d_preview Boolean  @default(false)
-  created_at     DateTime @default(now())
-  updated_at     DateTime @default(now()) @updatedAt
+  id         String   @id @default(uuid())
+  name       String
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
 
-  products      Product[]
-  product_rules ProductRule[]
+  products Product[]
 }
 
 model Category {
@@ -396,27 +391,6 @@ model ItemConstraint {
 
   @@index([target_item_id])
   @@index([related_item_id])
-}
-
-model ProductRule {
-  id                String   @id @default(uuid())
-  product_type_id   String
-  rule_type         String
-  title             String
-  description       String?
-  required          Boolean  @default(false)
-  max_items         Int?
-  conflict_with     String?
-  dependencies      String?
-  available_options String?
-  preview_image_url String?
-  display_order     Int      @default(0)
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-
-  product_type ProductType @relation(fields: [product_type_id], references: [id], onDelete: Cascade)
-
-  @@index([product_type_id])
 }
 
 model ProductComponent {

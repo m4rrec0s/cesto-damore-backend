@@ -111,12 +111,14 @@ class FeedController {
             }
             if (fileToProcess) {
                 try {
-                    // Processar imagem para banner (tamanho maior)
+                    // Converter apenas para webp em modo lossless (sem reduzir resolução)
                     const processedImage = await (0, sharp_1.default)(fileToProcess.buffer)
-                        .resize(1920, 600, { fit: "cover", withoutEnlargement: false })
-                        .webp({ quality: 85 })
+                        .webp({ lossless: true })
                         .toBuffer();
-                    const imageUrl = await (0, localStorage_1.saveImageLocally)(processedImage, fileToProcess.originalname || `banner_${Date.now()}.webp`, "image/webp");
+                    // Garantir que o nome salvo termine com .webp
+                    const originalName = fileToProcess.originalname || `banner_${Date.now()}`;
+                    const filename = originalName.replace(/\.[^/.]+$/, "") + ".webp";
+                    const imageUrl = await (0, localStorage_1.saveImageLocally)(processedImage, filename, "image/webp");
                     data.image_url = imageUrl;
                 }
                 catch (imageError) {
@@ -159,11 +161,13 @@ class FeedController {
             })();
             if (file) {
                 try {
+                    // Converter apenas para webp em modo lossless (sem reduzir resolução)
                     const processedImage = await (0, sharp_1.default)(file.buffer)
-                        .resize(1920, 600, { fit: "cover", withoutEnlargement: false })
-                        .webp({ quality: 85 })
+                        .webp({ lossless: true })
                         .toBuffer();
-                    const imageUrl = await (0, localStorage_1.saveImageLocally)(processedImage, file.originalname || `banner_${Date.now()}.webp`, "image/webp");
+                    const originalName = file.originalname || `banner_${Date.now()}`;
+                    const filename = originalName.replace(/\.[^/.]+$/, "") + ".webp";
+                    const imageUrl = await (0, localStorage_1.saveImageLocally)(processedImage, filename, "image/webp");
                     data.image_url = imageUrl;
                 }
                 catch (imageError) {

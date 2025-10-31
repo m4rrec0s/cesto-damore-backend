@@ -53,7 +53,6 @@ const reportController_1 = __importDefault(require("./controller/reportControlle
 const whatsappController_1 = __importDefault(require("./controller/whatsappController"));
 const customizationController_1 = __importDefault(require("./controller/customizationController"));
 const orderCustomizationController_1 = __importDefault(require("./controller/orderCustomizationController"));
-const productRuleController_1 = __importDefault(require("./controller/productRuleController"));
 const itemConstraintController_1 = __importDefault(require("./controller/itemConstraintController"));
 const customizationUploadController_1 = __importDefault(require("./controller/customizationUploadController"));
 const oauthController_1 = __importDefault(require("./controller/oauthController"));
@@ -224,8 +223,8 @@ router.post("/admin/feed/configurations", security_1.authenticateToken, security
 router.put("/admin/feed/configurations/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.updateConfiguration);
 router.delete("/admin/feed/configurations/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.deleteConfiguration);
 // Feed Banner Routes (Admin only)
-router.post("/admin/feed/banners", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, feedController_1.default.createBanner);
-router.put("/admin/feed/banners/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, feedController_1.default.updateBanner);
+router.post("/admin/feed/banners", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebPLossless, feedController_1.default.createBanner);
+router.put("/admin/feed/banners/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebPLossless, feedController_1.default.updateBanner);
 router.delete("/admin/feed/banners/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.deleteBanner);
 // Feed Section Routes (Admin only)
 router.post("/admin/feed/sections", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.createSection);
@@ -265,11 +264,6 @@ router.get("/items/:itemId/products", productComponentController_1.default.getPr
 router.post("/customization/upload-image", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, customizationUploadController_1.default.uploadImage);
 // Delete de imagem de customização (Admin)
 router.delete("/customization/image/:filename", security_1.authenticateToken, security_1.requireAdmin, customizationUploadController_1.default.deleteImage);
-// Admin routes for ProductRule management
-router.get("/admin/customization/rule/type/:productTypeId", security_1.authenticateToken, security_1.requireAdmin, productRuleController_1.default.getRulesByType);
-router.post("/admin/customization/rule", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, productRuleController_1.default.createRule);
-router.put("/admin/customization/rule/:ruleId", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebP, productRuleController_1.default.updateRule);
-router.delete("/admin/customization/rule/:ruleId", security_1.authenticateToken, security_1.requireAdmin, productRuleController_1.default.deleteRule);
 // ========== ITEM CONSTRAINTS ROUTES ==========
 // Listar todos os constraints
 router.get("/admin/constraints", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.listAll);

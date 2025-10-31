@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.IMAGES_DIR = exports.listLocalImages = exports.deleteAdditionalImage = exports.deleteProductImage = exports.deleteImageLocally = exports.saveImageLocally = exports.ensureImagesDirectory = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const crypto_1 = __importDefault(require("crypto"));
 const IMAGES_DIR = path_1.default.join(process.cwd(), "images");
 exports.IMAGES_DIR = IMAGES_DIR;
 const BASE_URL = process.env.BASE_URL || "http://localhost:8080";
@@ -19,13 +20,25 @@ exports.ensureImagesDirectory = ensureImagesDirectory;
 const saveImageLocally = async (buffer, originalName, mimeType) => {
     try {
         (0, exports.ensureImagesDirectory)();
+        // Gerar hash curto do conteúdo para permitir deduplicação
+        const hash = crypto_1.default.createHash("sha256").update(buffer).digest("hex");
+        const shortHash = hash.slice(0, 12);
         const timestamp = Date.now();
         const baseFileName = path_1.default.parse(originalName).name;
         const extension = path_1.default.extname(originalName) || getExtensionFromMimeType(mimeType);
-        const fileName = `${timestamp}-${sanitizeFileName(baseFileName)}${extension}`;
+        // Procura por arquivo já existente com mesmo hash (evita múltiplas cópias)
+        const existing = fs_1.default
+            .readdirSync(IMAGES_DIR)
+            .find((f) => f.includes(`-${shortHash}-`) ||
+            f.includes(`-${shortHash}${extension}`));
+        if (existing) {
+            // já existe um arquivo com este hash — retorna a URL sem regravar
+            return `${BASE_URL}/images/${existing}`;
+        }
+        const fileName = `${timestamp}-${shortHash}-${sanitizeFileName(baseFileName)}${extension}`;
         const filePath = path_1.default.join(IMAGES_DIR, fileName);
         fs_1.default.writeFileSync(filePath, buffer);
-        const imageUrl = `${BASE_URL}/api/images/${fileName}`;
+        const imageUrl = `${BASE_URL}/images/${fileName}`;
         return imageUrl;
     }
     catch (error) {

@@ -101,7 +101,33 @@ class ProductService {
                 const availableStock = await productComponentService_1.default.calculateProductStock(id);
                 product.calculated_stock = availableStock;
             }
-            return this.formatProductResponse(product);
+            // Buscar produtos relacionados (mesmo tipo e categorias semelhantes) - no máximo 6
+            const categoryIds = (product.categories || []).map((pc) => pc.category.id) || [];
+            const relatedWhere = { id: { not: id } };
+            if (product.type_id) {
+                relatedWhere.type_id = product.type_id;
+            }
+            if (categoryIds.length > 0) {
+                relatedWhere.categories = {
+                    some: {
+                        category_id: { in: categoryIds },
+                    },
+                };
+            }
+            const relatedProducts = await prisma_1.default.product.findMany({
+                where: relatedWhere,
+                take: 6,
+                orderBy: { updated_at: "desc" },
+                include: {
+                    categories: { include: { category: true } },
+                    type: true,
+                },
+            });
+            const formatted = this.formatProductResponse(product);
+            return {
+                ...formatted,
+                related_products: relatedProducts.map((p) => this.formatProductResponse(p)),
+            };
         }
         catch (error) {
             if (error.message.includes("não encontrado")) {

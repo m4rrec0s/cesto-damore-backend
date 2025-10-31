@@ -20,9 +20,6 @@ async function main() {
     productType = await prisma.productType.create({
       data: {
         name: "TEST_TYPE",
-        category: "MODELO_PRONTO",
-        delivery_type: "PRONTA_ENTREGA",
-        stock_quantity: 0,
       },
     });
   }

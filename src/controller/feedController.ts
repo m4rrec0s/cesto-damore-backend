@@ -106,15 +106,54 @@ class FeedController {
 
       if (fileToProcess) {
         try {
-          // Processar imagem para banner (tamanho maior)
-          const processedImage = await sharp(fileToProcess.buffer)
-            .resize(1920, 600, { fit: "cover", withoutEnlargement: false })
-            .webp({ quality: 85 })
-            .toBuffer();
+          // Se o arquivo já foi convertido para webp pelo middleware, evitar
+          // re-encodar novamente (isso pode degradar a imagem). Detectamos
+          // por mimetype ou extensão.
+          const origName = fileToProcess.originalname || `banner_${Date.now()}`;
+          const alreadyWebP =
+            (fileToProcess.mimetype &&
+              fileToProcess.mimetype === "image/webp") ||
+            /\.webp$/i.test(origName);
+
+          let bufferToSave: Buffer;
+
+          if (alreadyWebP) {
+            // usado buffer diretamente (já em webp)
+            bufferToSave = fileToProcess.buffer;
+            try {
+              const meta = await sharp(bufferToSave).metadata();
+              console.log("[feed.createBanner] already webp, meta:", meta);
+            } catch (e) {
+              /* ignore */
+            }
+          } else {
+            // converter para webp lossless apenas uma vez e preservar metadata
+            bufferToSave = await sharp(fileToProcess.buffer)
+              .withMetadata()
+              .webp({ lossless: true })
+              .toBuffer();
+
+            try {
+              const origMeta = await sharp(fileToProcess.buffer).metadata();
+              const newMeta = await sharp(bufferToSave).metadata();
+              console.log("[feed.createBanner] converted meta:", {
+                origMeta,
+                newMeta,
+              });
+            } catch (e) {
+              /* ignore */
+            }
+          }
+
+          // criar nome padronizado para banners (prefixo banner_) para evitar
+          // dependência do originalname que pode ser alterado por middlewares
+          const baseName = (origName || "banner").replace(/\.[^/.]+$/, "");
+          const safeBase = baseName.replace(/[^a-zA-Z0-9-_]/g, "_");
+          const filename = `banner_${Date.now()}-${safeBase}.webp`;
 
           const imageUrl = await saveImageLocally(
-            processedImage,
-            fileToProcess.originalname || `banner_${Date.now()}.webp`,
+            bufferToSave,
+            filename,
             "image/webp"
           );
           data.image_url = imageUrl;
@@ -157,14 +196,41 @@ class FeedController {
 
       if (file) {
         try {
-          const processedImage = await sharp(file.buffer)
-            .resize(1920, 600, { fit: "cover", withoutEnlargement: false })
-            .webp({ quality: 85 })
-            .toBuffer();
+          const origName = file.originalname || `banner_${Date.now()}`;
+          const alreadyWebP =
+            (file.mimetype && file.mimetype === "image/webp") ||
+            /\.webp$/i.test(origName);
+
+          let bufferToSave: Buffer;
+
+          if (alreadyWebP) {
+            bufferToSave = file.buffer;
+            try {
+              const meta = await sharp(bufferToSave).metadata();
+              console.log("[feed.updateBanner] already webp, meta:", meta);
+            } catch (e) {}
+          } else {
+            bufferToSave = await sharp(file.buffer)
+              .withMetadata()
+              .webp({ lossless: true })
+              .toBuffer();
+            try {
+              const origMeta = await sharp(file.buffer).metadata();
+              const newMeta = await sharp(bufferToSave).metadata();
+              console.log("[feed.updateBanner] converted meta:", {
+                origMeta,
+                newMeta,
+              });
+            } catch (e) {}
+          }
+
+          const baseName = (origName || "banner").replace(/\.[^/.]+$/, "");
+          const safeBase = baseName.replace(/[^a-zA-Z0-9-_]/g, "_");
+          const filename = `banner_${Date.now()}-${safeBase}.webp`;
 
           const imageUrl = await saveImageLocally(
-            processedImage,
-            file.originalname || `banner_${Date.now()}.webp`,
+            bufferToSave,
+            filename,
             "image/webp"
           );
           data.image_url = imageUrl;

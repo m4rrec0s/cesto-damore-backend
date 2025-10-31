@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.convertImagesToWebP = exports.uploadTemp = exports.upload3D = exports.uploadAny = exports.upload = void 0;
+exports.convertImagesToWebPLossless = exports.convertImagesToWebP = exports.uploadTemp = exports.upload3D = exports.uploadAny = exports.upload = void 0;
 const multer_1 = __importDefault(require("multer"));
 const sharp_1 = __importDefault(require("sharp"));
 const storage = multer_1.default.memoryStorage();
@@ -139,3 +139,51 @@ const convertImagesToWebP = async (req, res, next) => {
     }
 };
 exports.convertImagesToWebP = convertImagesToWebP;
+// Variante lossless do middleware: converte para WebP sem perda (lossless)
+const convertImagesToWebPLossless = async (req, res, next) => {
+    try {
+        const convert = async (file) => {
+            if (!file || !file.buffer)
+                return file;
+            const isImageMime = file.mimetype && file.mimetype.startsWith("image/");
+            const isImageName = isImageByName(file.originalname);
+            if (!isImageMime && !isImageName)
+                return file;
+            const webpBuffer = await (0, sharp_1.default)(file.buffer)
+                .webp({ lossless: true })
+                .toBuffer();
+            // Atualiza propriedades para refletir o novo arquivo WebP
+            const originalName = file.originalname || `file_${Date.now()}`;
+            const baseName = originalName.replace(/\.[^.]+$/, "");
+            file.buffer = webpBuffer;
+            file.mimetype = "image/webp";
+            file.originalname = `${baseName}.webp`;
+            file.size = webpBuffer.length;
+            return file;
+        };
+        if (req.file) {
+            req.file = await convert(req.file);
+        }
+        if (Array.isArray(req.files)) {
+            for (let i = 0; i < req.files.length; i++) {
+                req.files[i] = await convert(req.files[i]);
+            }
+        }
+        else if (req.files && typeof req.files === "object") {
+            // Quando multer usa fields(), req.files é um objeto com arrays
+            for (const key of Object.keys(req.files)) {
+                const arr = req.files[key];
+                if (Array.isArray(arr)) {
+                    for (let i = 0; i < arr.length; i++) {
+                        arr[i] = await convert(arr[i]);
+                    }
+                }
+            }
+        }
+        next();
+    }
+    catch (err) {
+        next(err);
+    }
+};
+exports.convertImagesToWebPLossless = convertImagesToWebPLossless;

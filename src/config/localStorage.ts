@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 
 const IMAGES_DIR = path.join(process.cwd(), "images");
 const BASE_URL = process.env.BASE_URL || "http://localhost:8080";
@@ -19,11 +20,30 @@ export const saveImageLocally = async (
   try {
     ensureImagesDirectory();
 
+    // Gerar hash curto do conteúdo para permitir deduplicação
+    const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+    const shortHash = hash.slice(0, 12);
+
     const timestamp = Date.now();
     const baseFileName = path.parse(originalName).name;
     const extension =
       path.extname(originalName) || getExtensionFromMimeType(mimeType);
-    const fileName = `${timestamp}-${sanitizeFileName(
+
+    // Procura por arquivo já existente com mesmo hash (evita múltiplas cópias)
+    const existing = fs
+      .readdirSync(IMAGES_DIR)
+      .find(
+        (f) =>
+          f.includes(`-${shortHash}-`) ||
+          f.includes(`-${shortHash}${extension}`)
+      );
+
+    if (existing) {
+      // já existe um arquivo com este hash — retorna a URL sem regravar
+      return `${BASE_URL}/images/${existing}`;
+    }
+
+    const fileName = `${timestamp}-${shortHash}-${sanitizeFileName(
       baseFileName
     )}${extension}`;
     const filePath = path.join(IMAGES_DIR, fileName);

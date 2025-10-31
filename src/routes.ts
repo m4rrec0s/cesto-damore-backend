@@ -16,7 +16,6 @@ import reportController from "./controller/reportController";
 import whatsappController from "./controller/whatsappController";
 import customizationController from "./controller/customizationController";
 import orderCustomizationController from "./controller/orderCustomizationController";
-import productRuleController from "./controller/productRuleController";
 import itemConstraintController from "./controller/itemConstraintController";
 import customizationUploadController from "./controller/customizationUploadController";
 import oauthController from "./controller/oauthController";
@@ -29,8 +28,7 @@ import {
   upload,
   uploadAny,
   convertImagesToWebP,
-  upload3D,
-  uploadTemp,
+  convertImagesToWebPLossless,
 } from "./config/multer";
 import {
   authenticateToken,
@@ -46,7 +44,6 @@ const router = Router();
 
 // Health check endpoint
 router.get("/health", healthCheckEndpoint);
-
 // ============================================
 // GOOGLE DRIVE OAUTH2
 // ============================================
@@ -371,7 +368,6 @@ router.post(
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  convertImagesToWebP,
   feedController.createBanner
 );
 
@@ -380,7 +376,6 @@ router.put(
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  convertImagesToWebP,
   feedController.updateBanner
 );
 
@@ -553,39 +548,6 @@ router.delete(
   customizationUploadController.deleteImage
 );
 
-// Admin routes for ProductRule management
-router.get(
-  "/admin/customization/rule/type/:productTypeId",
-  authenticateToken,
-  requireAdmin,
-  productRuleController.getRulesByType
-);
-
-router.post(
-  "/admin/customization/rule",
-  authenticateToken,
-  requireAdmin,
-  upload.single("image"),
-  convertImagesToWebP,
-  productRuleController.createRule
-);
-
-router.put(
-  "/admin/customization/rule/:ruleId",
-  authenticateToken,
-  requireAdmin,
-  upload.single("image"),
-  convertImagesToWebP,
-  productRuleController.updateRule
-);
-
-router.delete(
-  "/admin/customization/rule/:ruleId",
-  authenticateToken,
-  requireAdmin,
-  productRuleController.deleteRule
-);
-
 // ========== ITEM CONSTRAINTS ROUTES ==========
 
 // Listar todos os constraints
@@ -733,27 +695,6 @@ router.delete(
   requireAdmin,
   layoutController.remove
 );
-
-// Upload de modelo 3D (.glb, .gltf)
-router.post(
-  "/layouts/upload-3d",
-  authenticateToken,
-  requireAdmin,
-  upload3D.single("model"),
-  layoutController.upload3DModel
-);
-
-// Servir modelos 3D
-router.get("/3d-models/:filename", (req: Request, res: Response) => {
-  const filename = req.params.filename;
-  const filePath = path.join(__dirname, "../public/3d-models", filename);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "Arquivo não encontrado" });
-  }
-
-  res.sendFile(filePath);
-});
 
 // ========== LAYOUT BASE ROUTES (ADMIN) ==========
 

@@ -4,9 +4,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const itemService_1 = __importDefault(require("../services/itemService"));
+const localStorage_1 = require("../config/localStorage");
 class ItemController {
     async index(req, res) {
         try {
+            // Suporte a filtro por productId via query string: /items?productId=...
+            const productId = req.query.productId || undefined;
+            if (productId) {
+                const items = await itemService_1.default.getItemsByProductId(productId);
+                return res.json(items);
+            }
             const items = await itemService_1.default.listItems();
             res.json(items);
         }
@@ -21,8 +28,20 @@ class ItemController {
     async show(req, res) {
         try {
             const { id } = req.params;
-            const item = await itemService_1.default.getItemById(id);
-            res.json(item);
+            // productId é passado como query param: /items?productId=...
+            const productId = req.query.productId || undefined;
+            if (productId) {
+                const items = await itemService_1.default.getItemsByProductId(productId);
+                return res.json(items);
+            }
+            if (id) {
+                const item = await itemService_1.default.getItemById(id);
+                return res.json(item);
+            }
+            // Se não recebeu nem id nem productId, retorna erro de cliente
+            return res
+                .status(400)
+                .json({ error: "Parâmetro 'id' ou 'productId' é obrigatório" });
         }
         catch (error) {
             console.error("Erro ao buscar item:", error);
@@ -39,6 +58,11 @@ class ItemController {
     }
     async create(req, res) {
         try {
+            // Processar imagem se enviada
+            let imageUrl;
+            if (req.file) {
+                imageUrl = await (0, localStorage_1.saveImageLocally)(req.file.buffer, req.file.originalname, req.file.mimetype);
+            }
             // Processar dados do FormData
             const data = {
                 name: req.body.name,
@@ -49,7 +73,7 @@ class ItemController {
                 additional_id: req.body.additional_id && req.body.additional_id !== ""
                     ? req.body.additional_id
                     : undefined,
-                image_url: req.file ? `/images/${req.file.filename}` : undefined,
+                image_url: imageUrl,
             };
             const item = await itemService_1.default.createItem(data);
             res.status(201).json(item);
@@ -71,6 +95,11 @@ class ItemController {
     async update(req, res) {
         try {
             const { id } = req.params;
+            // Processar imagem se enviada
+            let imageUrl;
+            if (req.file) {
+                imageUrl = await (0, localStorage_1.saveImageLocally)(req.file.buffer, req.file.originalname, req.file.mimetype);
+            }
             // Processar dados do FormData
             const data = {};
             if (req.body.name !== undefined)
@@ -88,8 +117,8 @@ class ItemController {
                     req.body.additional_id && req.body.additional_id !== ""
                         ? req.body.additional_id
                         : null;
-            if (req.file)
-                data.image_url = `/images/${req.file.filename}`;
+            if (imageUrl)
+                data.image_url = imageUrl;
             const item = await itemService_1.default.updateItem(id, data);
             res.json(item);
         }

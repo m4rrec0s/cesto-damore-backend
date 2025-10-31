@@ -66,6 +66,36 @@ class ItemService {
         }
         return item;
     }
+    async getItemsByProductId(productId) {
+        return prisma_1.default.item.findMany({
+            where: {
+                components: {
+                    some: {
+                        product_id: productId,
+                    },
+                },
+            },
+            include: {
+                customizations: {
+                    orderBy: { created_at: "asc" },
+                },
+                additionals: {
+                    select: {
+                        custom_price: true,
+                        is_active: true,
+                        product: { select: { id: true, name: true, image_url: true } },
+                    },
+                },
+                components: {
+                    select: {
+                        product_id: true,
+                        quantity: true,
+                    },
+                },
+                personalizations: true,
+            },
+        });
+    }
     /**
      * Cria novo item
      */

@@ -20,6 +20,12 @@ export const saveImageLocally = async (
   try {
     ensureImagesDirectory();
 
+    console.log("[localStorage.saveImageLocally] Recebendo arquivo:", {
+      originalName,
+      mimeType,
+      bufferSize: buffer.length,
+    });
+
     // Gerar hash curto do conteúdo para permitir deduplicação
     const hash = crypto.createHash("sha256").update(buffer).digest("hex");
     const shortHash = hash.slice(0, 12);
@@ -28,6 +34,13 @@ export const saveImageLocally = async (
     const baseFileName = path.parse(originalName).name;
     const extension =
       path.extname(originalName) || getExtensionFromMimeType(mimeType);
+
+    console.log("[localStorage.saveImageLocally] Processando extensão:", {
+      originalName,
+      pathExtname: path.extname(originalName),
+      mimeTypeExtension: getExtensionFromMimeType(mimeType),
+      finalExtension: extension,
+    });
 
     // Procura por arquivo já existente com mesmo hash (evita múltiplas cópias)
     const existing = fs
@@ -40,6 +53,10 @@ export const saveImageLocally = async (
 
     if (existing) {
       // já existe um arquivo com este hash — retorna a URL sem regravar
+      console.log(
+        "[localStorage.saveImageLocally] Arquivo já existe:",
+        existing
+      );
       return `${BASE_URL}/images/${existing}`;
     }
 
@@ -48,9 +65,19 @@ export const saveImageLocally = async (
     )}${extension}`;
     const filePath = path.join(IMAGES_DIR, fileName);
 
+    console.log("[localStorage.saveImageLocally] Salvando arquivo:", {
+      fileName,
+      filePath,
+    });
+
     fs.writeFileSync(filePath, buffer);
 
     const imageUrl = `${BASE_URL}/images/${fileName}`;
+
+    console.log("[localStorage.saveImageLocally] Arquivo salvo com sucesso:", {
+      imageUrl,
+      fileSize: buffer.length,
+    });
 
     return imageUrl;
   } catch (error: any) {

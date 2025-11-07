@@ -1,5 +1,4 @@
 import { Request, Response } from "express";
-import sharp from "sharp";
 import feedService from "../services/feedService";
 import { saveImageLocally } from "../config/localStorage";
 
@@ -82,10 +81,20 @@ class FeedController {
   // ============== FEED BANNER ENDPOINTS ==============
 
   async createBanner(req: Request, res: Response) {
+    console.log("🎯 [feed.createBanner] INÍCIO - Controller chamado!");
+
     try {
       const data = { ...req.body };
 
-      // Processar imagem se existir
+      // Converter tipos que vêm como string do FormData
+      if (typeof data.is_active === "string") {
+        data.is_active = data.is_active === "true";
+      }
+      if (typeof data.display_order === "string") {
+        data.display_order = parseInt(data.display_order, 10);
+      }
+
+      // Processar imagem se existir (mantém formato original)
       let fileToProcess = null;
 
       if (req.file) {
@@ -106,57 +115,31 @@ class FeedController {
 
       if (fileToProcess) {
         try {
-          // Se o arquivo já foi convertido para webp pelo middleware, evitar
-          // re-encodar novamente (isso pode degradar a imagem). Detectamos
-          // por mimetype ou extensão.
+          // O arquivo já foi convertido para WebP lossless pelo middleware
+          console.log("[feed.createBanner] Arquivo recebido:", {
+            originalname: fileToProcess.originalname,
+            mimetype: fileToProcess.mimetype,
+            size: fileToProcess.size,
+          });
+
+          // Salvar imagem (já está em WebP lossless)
           const origName = fileToProcess.originalname || `banner_${Date.now()}`;
-          const alreadyWebP =
-            (fileToProcess.mimetype &&
-              fileToProcess.mimetype === "image/webp") ||
-            /\.webp$/i.test(origName);
-
-          let bufferToSave: Buffer;
-
-          if (alreadyWebP) {
-            // usado buffer diretamente (já em webp)
-            bufferToSave = fileToProcess.buffer;
-            try {
-              const meta = await sharp(bufferToSave).metadata();
-              console.log("[feed.createBanner] already webp, meta:", meta);
-            } catch (e) {
-              /* ignore */
-            }
-          } else {
-            // converter para webp lossless apenas uma vez e preservar metadata
-            bufferToSave = await sharp(fileToProcess.buffer)
-              .withMetadata()
-              .webp({ lossless: true })
-              .toBuffer();
-
-            try {
-              const origMeta = await sharp(fileToProcess.buffer).metadata();
-              const newMeta = await sharp(bufferToSave).metadata();
-              console.log("[feed.createBanner] converted meta:", {
-                origMeta,
-                newMeta,
-              });
-            } catch (e) {
-              /* ignore */
-            }
-          }
-
-          // criar nome padronizado para banners (prefixo banner_) para evitar
-          // dependência do originalname que pode ser alterado por middlewares
-          const baseName = (origName || "banner").replace(/\.[^/.]+$/, "");
+          const extension = origName.substring(origName.lastIndexOf("."));
+          const baseName = origName.replace(/\.[^/.]+$/, "");
           const safeBase = baseName.replace(/[^a-zA-Z0-9-_]/g, "_");
-          const filename = `banner_${Date.now()}-${safeBase}.webp`;
+          const filename = `banner_${Date.now()}-${safeBase}${extension}`;
 
           const imageUrl = await saveImageLocally(
-            bufferToSave,
+            fileToProcess.buffer,
             filename,
-            "image/webp"
+            fileToProcess.mimetype
           );
           data.image_url = imageUrl;
+
+          console.log("[feed.createBanner] Banner salvo com sucesso:", {
+            imageUrl,
+            filename,
+          });
         } catch (imageError: any) {
           console.error("Erro ao processar imagem:", imageError);
           return res.status(500).json({
@@ -183,7 +166,15 @@ class FeedController {
       const { id } = req.params;
       const data = { ...req.body };
 
-      // Processar imagem se existir
+      // Converter tipos que vêm como string do FormData
+      if (typeof data.is_active === "string") {
+        data.is_active = data.is_active === "true";
+      }
+      if (typeof data.display_order === "string") {
+        data.display_order = parseInt(data.display_order, 10);
+      }
+
+      // Processar imagem se existir (mantém formato original)
       const file = ((): any => {
         if (req.file) return req.file;
         if (Array.isArray(req.files) && req.files.length) return req.files[0];
@@ -196,44 +187,31 @@ class FeedController {
 
       if (file) {
         try {
+          // O arquivo já foi convertido para WebP lossless pelo middleware
+          console.log("[feed.updateBanner] Arquivo recebido:", {
+            originalname: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size,
+          });
+
+          // Salvar imagem (já está em WebP lossless)
           const origName = file.originalname || `banner_${Date.now()}`;
-          const alreadyWebP =
-            (file.mimetype && file.mimetype === "image/webp") ||
-            /\.webp$/i.test(origName);
-
-          let bufferToSave: Buffer;
-
-          if (alreadyWebP) {
-            bufferToSave = file.buffer;
-            try {
-              const meta = await sharp(bufferToSave).metadata();
-              console.log("[feed.updateBanner] already webp, meta:", meta);
-            } catch (e) {}
-          } else {
-            bufferToSave = await sharp(file.buffer)
-              .withMetadata()
-              .webp({ lossless: true })
-              .toBuffer();
-            try {
-              const origMeta = await sharp(file.buffer).metadata();
-              const newMeta = await sharp(bufferToSave).metadata();
-              console.log("[feed.updateBanner] converted meta:", {
-                origMeta,
-                newMeta,
-              });
-            } catch (e) {}
-          }
-
-          const baseName = (origName || "banner").replace(/\.[^/.]+$/, "");
+          const extension = origName.substring(origName.lastIndexOf("."));
+          const baseName = origName.replace(/\.[^/.]+$/, "");
           const safeBase = baseName.replace(/[^a-zA-Z0-9-_]/g, "_");
-          const filename = `banner_${Date.now()}-${safeBase}.webp`;
+          const filename = `banner_${Date.now()}-${safeBase}${extension}`;
 
           const imageUrl = await saveImageLocally(
-            bufferToSave,
+            file.buffer,
             filename,
-            "image/webp"
+            file.mimetype
           );
           data.image_url = imageUrl;
+
+          console.log("[feed.updateBanner] Banner atualizado com sucesso:", {
+            imageUrl,
+            filename,
+          });
         } catch (imageError: any) {
           console.error("Erro ao processar imagem:", imageError);
           return res.status(500).json({

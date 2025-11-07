@@ -320,7 +320,7 @@ model Item {
   id                   String  @id @default(uuid())
   name                 String
   description          String?
-  type                 String  @default("caneca")
+  type                 String  @default("outros")
   stock_quantity       Int     @default(0) // Estoque total do item
   base_price           Float   @default(0) // Preço base do item
   discount             Float?  @default(0) // NOVO: Desconto quando vendido como adicional

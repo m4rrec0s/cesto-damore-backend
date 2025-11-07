@@ -277,8 +277,18 @@ class AdditionalService {
         throw new Error("Produto não encontrado");
       }
 
-      return await prisma.productAdditional.create({
-        data: {
+      // Usar upsert para criar ou atualizar o vínculo
+      return await prisma.productAdditional.upsert({
+        where: {
+          product_id_additional_id: {
+            product_id: productId,
+            additional_id: additionalId,
+          },
+        },
+        update: {
+          custom_price: customPrice || null,
+        },
+        create: {
           additional_id: additionalId,
           product_id: productId,
           custom_price: customPrice || null,

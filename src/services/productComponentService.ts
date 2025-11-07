@@ -42,18 +42,16 @@ class ProductComponentService {
       throw new Error("Item não encontrado");
     }
 
-    // Verificar se já existe esse componente
-    const existing = await prisma.productComponent.findUnique({
+    // Verificar se já existe esse componente no produto
+    const existing = await prisma.productComponent.findFirst({
       where: {
-        product_id_item_id: {
-          product_id: data.product_id,
-          item_id: data.item_id,
-        },
+        product_id: data.product_id,
+        item_id: data.item_id,
       },
     });
 
     if (existing) {
-      throw new Error("Este item já foi adicionado ao produto");
+      return existing;
     }
 
     return prisma.productComponent.create({

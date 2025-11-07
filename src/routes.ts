@@ -21,9 +21,7 @@ import customizationUploadController from "./controller/customizationUploadContr
 import oauthController from "./controller/oauthController";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
-import layoutController from "./controller/layoutController";
 import layoutBaseController from "./controller/layoutBaseController";
-import personalizationController from "./controller/personalizationController";
 import {
   upload,
   uploadAny,
@@ -80,7 +78,38 @@ router.get("/images/:filename", (req: Request, res: Response) => {
   }
 });
 
-// Servir arquivos de customizações (subpastas)
+// Servir arquivos de customizações (diretamente da pasta customizations)
+router.get(
+  "/images/customizations/:filename",
+  (req: Request, res: Response) => {
+    try {
+      const { filename } = req.params;
+      const customizationsPath = path.join(
+        process.cwd(),
+        "images",
+        "customizations"
+      );
+      const filePath = path.join(customizationsPath, filename);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({
+          error: "Arquivo de customização não encontrado",
+          filename,
+        });
+      }
+
+      res.sendFile(filePath);
+    } catch (error: any) {
+      console.error("Erro ao servir arquivo de customização:", error.message);
+      res.status(500).json({
+        error: "Erro interno do servidor",
+        message: error.message,
+      });
+    }
+  }
+);
+
+// Servir arquivos de customizações (subpastas - mantido para compatibilidade)
 router.get(
   "/images/customizations/:folderId/:filename",
   (req: Request, res: Response) => {
@@ -367,7 +396,8 @@ router.post(
   "/admin/feed/banners",
   authenticateToken,
   requireAdmin,
-  upload.single("image"),
+  uploadAny.single("image"),
+  convertImagesToWebPLossless,
   feedController.createBanner
 );
 
@@ -375,7 +405,8 @@ router.put(
   "/admin/feed/banners/:id",
   authenticateToken,
   requireAdmin,
-  upload.single("image"),
+  uploadAny.single("image"),
+  convertImagesToWebPLossless,
   feedController.updateBanner
 );
 
@@ -550,7 +581,13 @@ router.delete(
 
 // ========== ITEM CONSTRAINTS ROUTES ==========
 
-// Listar todos os constraints
+// Rota pública para buscar constraints de um item (usada no frontend do cliente)
+router.get(
+  "/constraints/item/:itemType/:itemId",
+  itemConstraintController.getByItem
+);
+
+// Listar todos os constraints (Admin)
 router.get(
   "/admin/constraints",
   authenticateToken,
@@ -558,7 +595,7 @@ router.get(
   itemConstraintController.listAll
 );
 
-// Buscar constraints de um item específico
+// Buscar constraints de um item específico (Admin - duplicado para manter compatibilidade)
 router.get(
   "/admin/constraints/item/:itemType/:itemId",
   authenticateToken,
@@ -659,60 +696,11 @@ router.post(
 // Gerar preview de customizações (público - para clientes)
 router.post("/customizations/preview", customizationController.buildPreview);
 
-// ========== LAYOUT 3D ROUTES ==========
-
-// Listar layouts (com filtro opcional por item)
-router.get("/layouts", authenticateToken, requireAdmin, layoutController.index);
-
-// Buscar layout por ID
-router.get(
-  "/layouts/:id",
-  authenticateToken,
-  requireAdmin,
-  layoutController.show
-);
-
-// Criar layout 3D
-router.post(
-  "/layouts",
-  authenticateToken,
-  requireAdmin,
-  layoutController.create
-);
-
-// Atualizar layout 3D
-router.put(
-  "/layouts/:id",
-  authenticateToken,
-  requireAdmin,
-  layoutController.update
-);
-
-// Deletar layout 3D
-router.delete(
-  "/layouts/:id",
-  authenticateToken,
-  requireAdmin,
-  layoutController.remove
-);
-
-// ========== LAYOUT BASE ROUTES (ADMIN) ==========
-
 // Listar layouts base
-router.get(
-  "/admin/layouts",
-  authenticateToken,
-  requireAdmin,
-  layoutBaseController.list
-);
+router.get("/layouts", layoutBaseController.list);
 
 // Buscar layout base por ID
-router.get(
-  "/admin/layouts/:id",
-  authenticateToken,
-  requireAdmin,
-  layoutBaseController.show
-);
+router.get("/layouts/:id", layoutBaseController.show);
 
 // Criar layout base (SEM conversão WebP - mantém formato original)
 router.post(
@@ -738,32 +726,6 @@ router.delete(
   authenticateToken,
   requireAdmin,
   layoutBaseController.delete
-);
-
-// ========== PERSONALIZATION ROUTES ==========
-
-// Gerar preview da composição (público - para preview no cliente)
-router.post("/preview/compose", personalizationController.preview);
-
-// Commit de personalização (requer autenticação)
-router.post(
-  "/orders/:orderId/items/:itemId/personalize/commit",
-  authenticateToken,
-  personalizationController.commit
-);
-
-// Buscar personalização por ID
-router.get(
-  "/personalizations/:id",
-  authenticateToken,
-  personalizationController.show
-);
-
-// Listar personalizações de um pedido
-router.get(
-  "/orders/:orderId/personalizations",
-  authenticateToken,
-  personalizationController.listByOrder
 );
 
 export default router;

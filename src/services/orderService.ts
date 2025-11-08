@@ -2,6 +2,7 @@ import prisma from "../database/prisma";
 import stockService from "./stockService";
 import whatsappService from "./whatsappService";
 import productComponentService from "./productComponentService";
+import customerManagementService from "./customerManagementService";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -165,10 +166,11 @@ class OrderService {
       throw new Error("Número do destinatário é obrigatório");
     }
 
-    // Validar formato do telefone (deve conter apenas números e ter entre 10 e 11 dígitos)
+    // Validar formato do telefone (deve conter apenas números e ter entre 10 e 13 dígitos)
+    // Aceita: 10 (fixo sem 9), 11 (celular), 12 (55 + fixo), 13 (55 + celular)
     const phoneDigits = data.recipient_phone.replace(/\D/g, "");
-    if (phoneDigits.length < 10 || phoneDigits.length > 11) {
-      throw new Error("Número do destinatário deve ter entre 10 e 11 dígitos");
+    if (phoneDigits.length < 10 || phoneDigits.length > 13) {
+      throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
     }
 
     const paymentMethod = normalizeText(data.payment_method);
@@ -380,6 +382,23 @@ class OrderService {
         console.error("❌ Erro ao decrementar estoque:", stockError);
         // Log o erro mas não falha o pedido, pois já foi criado
         // Idealmente, deveria ter uma transação para reverter
+      }
+
+      // Sincronizar cliente com n8n (não bloqueia o pedido se falhar)
+      try {
+        const orderWithUser = await this.getOrderById(created.id);
+        if (orderWithUser?.user?.phone) {
+          await customerManagementService.syncAppUserToN8N(data.user_id);
+          console.info(
+            `✅ Cliente sincronizado com n8n: ${orderWithUser.user.phone}`
+          );
+        }
+      } catch (syncError: any) {
+        console.error(
+          "⚠️ Erro ao sincronizar cliente com n8n:",
+          syncError.message
+        );
+        // Não falha o pedido se a sincronização falhar
       }
 
       return await this.getOrderById(created.id);

@@ -492,6 +492,32 @@ class WhatsAppService {
   }
 
   /**
+   * Normaliza número de telefone para formato WhatsApp
+   * Remove caracteres não numéricos e garante formato correto
+   * Formato esperado: 5583988887777 (código país + DDD + número)
+   */
+  private normalizePhoneForWhatsApp(phone: string): string {
+    // Remove tudo que não é número
+    let digits = phone.replace(/\D/g, "");
+
+    // Se já tem código do país (55), retorna como está
+    if (
+      digits.startsWith("55") &&
+      (digits.length === 12 || digits.length === 13)
+    ) {
+      return digits;
+    }
+
+    // Se tem 10 ou 11 dígitos (DDD + número), adiciona o código do país
+    if (digits.length === 10 || digits.length === 11) {
+      return `55${digits}`;
+    }
+
+    // Para qualquer outro caso, tenta adicionar 55 no início
+    return `55${digits}`;
+  }
+
+  /**
    * Envia mensagem direta para um número específico (não grupo)
    */
   private async sendDirectMessage(
@@ -499,6 +525,9 @@ class WhatsAppService {
     message: string
   ): Promise<boolean> {
     try {
+      // Normaliza o número antes de enviar
+      const normalizedPhone = this.normalizePhoneForWhatsApp(phoneNumber);
+
       const url = `${this.config.apiUrl}/message/sendText/${this.config.instanceName}`;
 
       const response = await fetch(url, {
@@ -508,7 +537,7 @@ class WhatsAppService {
           apikey: this.config.apiKey,
         },
         body: JSON.stringify({
-          number: phoneNumber,
+          number: normalizedPhone,
           text: message,
         }),
       });

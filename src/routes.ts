@@ -22,6 +22,8 @@ import oauthController from "./controller/oauthController";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
 import layoutBaseController from "./controller/layoutBaseController";
+import customerManagementController from "./controller/customerManagementController";
+import aiProductController from "./controller/aiProductController";
 import {
   upload,
   uploadAny,
@@ -42,6 +44,21 @@ const router = Router();
 
 // Health check endpoint
 router.get("/health", healthCheckEndpoint);
+
+// ============================================
+// AI PRODUCT ROUTES (Consultas otimizadas para IA)
+// ============================================
+
+// Endpoint principal para consulta de produtos pela IA
+// Exemplos:
+// - GET /ai/products (catálogo por prioridade)
+// - GET /ai/products?keywords=aniversário romântico
+// - GET /ai/products?keywords=barato caneca
+router.get("/ai/products", aiProductController.searchProducts);
+
+// Documentação do endpoint AI
+router.get("/ai/products/info", aiProductController.getEndpointInfo);
+
 // ============================================
 // GOOGLE DRIVE OAUTH2
 // ============================================
@@ -726,6 +743,88 @@ router.delete(
   authenticateToken,
   requireAdmin,
   layoutBaseController.delete
+);
+
+// ========== CUSTOMER MANAGEMENT ROUTES (N8N INTEGRATION) ==========
+
+// Listar clientes para follow-up (deve vir antes de /:phone)
+router.get(
+  "/customers/follow-up",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.getFollowUpCustomers
+);
+
+// Listar todos os clientes
+router.get(
+  "/customers",
+  // authenticateToken,
+  // requireAdmin,
+  customerManagementController.listCustomers
+);
+
+// Criar ou atualizar cliente
+router.post(
+  "/customers",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.upsertCustomer
+);
+
+// Sincronizar usuário do app para n8n
+router.post(
+  "/customers/sync/:userId",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.syncAppUser
+);
+
+// Buscar informações completas do cliente
+router.get(
+  "/customers/:phone",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.getCustomerInfo
+);
+
+// Atualizar follow-up
+router.patch(
+  "/customers/:phone/follow-up",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateFollowUp
+);
+
+// Enviar mensagem ao cliente
+router.post(
+  "/customers/:phone/send-message",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.sendMessage
+);
+
+// Atualizar status de serviço
+router.patch(
+  "/customers/:phone/service-status",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateServiceStatus
+);
+
+// Atualizar status de cliente (already_a_customer)
+router.patch(
+  "/customers/:phone/customer-status",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateCustomerStatus
+);
+
+// Atualizar nome do cliente
+router.patch(
+  "/customers/:phone/name",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateName
 );
 
 export default router;

@@ -90,7 +90,15 @@ async function main() {
     where: { id: product.id },
     include: {
       components: { include: { item: true } },
-      additionals: { include: { additional: true } },
+      additionals: {
+        include: {
+          additional: {
+            include: {
+              customizations: true,
+            },
+          },
+        },
+      },
     },
   });
 

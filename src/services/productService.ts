@@ -55,15 +55,23 @@ class ProductService {
           orderBy,
           where,
           include: {
-            additionals: { include: { additional: true } },
+            additionals: {
+              include: {
+                additional: {
+                  include: {
+                    customizations: true, // Incluir customizações dos adicionais
+                  },
+                },
+              },
+            },
             categories: { include: { category: true } },
             type: true,
             components: {
               include: {
                 item: {
                   include: {
-                    additionals: true,
-                    customizations: true,
+                    // Não incluir additionals dos items
+                    customizations: true, // Incluir apenas customizações dos items
                   },
                 },
               },
@@ -98,15 +106,23 @@ class ProductService {
       const product = await prisma.product.findUnique({
         where: { id },
         include: {
-          additionals: { include: { additional: true } },
+          additionals: {
+            include: {
+              additional: {
+                include: {
+                  customizations: true, // Incluir customizações dos adicionais
+                },
+              },
+            },
+          },
           categories: { include: { category: true } },
           type: true,
           components: {
             include: {
               item: {
                 include: {
-                  additionals: true,
-                  customizations: true,
+                  // Não incluir additionals dos items (não é necessário na página do produto)
+                  customizations: true, // Incluir apenas customizações dos items
                 },
               },
             },

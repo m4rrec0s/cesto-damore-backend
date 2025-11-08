@@ -30,6 +30,7 @@
     "mercadopago": "^2.8.0",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
+    "postgres": "^3.4.7",
     "prisma": "^6.15.0",
     "sharp": "^0.32.6",
     "uuid": "^9.0.1",

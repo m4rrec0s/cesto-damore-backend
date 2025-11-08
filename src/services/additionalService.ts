@@ -17,6 +17,8 @@ interface DBAdditional {
 }
 
 interface ServiceAdditional extends DBAdditional {
+  allows_customization?: boolean;
+  customizations?: any[];
   compatible_products?: Array<{
     product_id: string;
     product_name: string;
@@ -457,7 +459,11 @@ class AdditionalService {
         prisma.productAdditional.findMany({
           where: { product_id: productId, is_active: true },
           include: {
-            additional: true,
+            additional: {
+              include: {
+                customizations: true, // Incluir customizações dos adicionais
+              },
+            },
             product: { select: { id: true, name: true } },
           },
         })
@@ -475,6 +481,8 @@ class AdditionalService {
             stock_quantity: r.additional.stock_quantity,
             created_at: r.additional.created_at,
             updated_at: r.additional.updated_at,
+            allows_customization: r.additional.allows_customization,
+            customizations: r.additional.customizations || [],
             compatible_products: [
               {
                 product_id: productId,

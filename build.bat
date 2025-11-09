@@ -24,10 +24,6 @@ if not exist "dist\server.js" (
     echo ERROR: Build failed - dist\server.js not found
     exit /b 1
 )
-if not exist "dist\index.html" (
-    echo ERROR: Build failed - dist\index.html not found
-    exit /b 1
-)
 echo Build verified successfully
 
 echo.

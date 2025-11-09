@@ -7,22 +7,21 @@ const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
-const path_1 = __importDefault(require("path"));
 const routes_1 = __importDefault(require("./routes"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: "50mb" }));
 app.use(express_1.default.urlencoded({ extended: true, limit: "50mb" }));
 app.get("/", async (req, res) => {
-    res.sendFile(path_1.default.join(__dirname, "index.html"));
+    return res.json({ message: "Cesto d'Amore Backend is running!" });
 });
 app.use(routes_1.default);
 const PORT = process.env.PORT || 3333;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = process.env.BASE_URL;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on ${BASE_URL}`);
     console.log(`📡 PORT: ${PORT}`);
     console.log(`🔗 BASE_URL: ${BASE_URL}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
-    console.log(`💳 Mercado Pago Webhook: ${BASE_URL}/api/webhook/mercadopago`);
+    console.log(`💳 Mercado Pago Webhook: ${BASE_URL}/webhook/mercadopago`);
 });

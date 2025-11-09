@@ -363,14 +363,9 @@ class AIProductService {
      * Formata URL da imagem, removendo duplicações
      */
     formatImageUrl(imageUrl, baseUrl) {
-        // Se já é uma URL completa
         if (imageUrl.startsWith("http")) {
-            // Remover duplicações de /api/ ou /images/
-            return imageUrl
-                .replace(/\/api\/api\//g, "/api/")
-                .replace(/\/images\/images\//g, "/images/");
+            return imageUrl.replace(/\/images\/images\//g, "/images/");
         }
-        // Construir URL completa
         return `${baseUrl}/images/${imageUrl}`;
     }
     /**

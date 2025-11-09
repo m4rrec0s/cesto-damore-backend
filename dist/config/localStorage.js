@@ -98,7 +98,7 @@ const listLocalImages = () => {
             const stats = fs_1.default.statSync(filePath);
             return {
                 fileName: file,
-                url: `${BASE_URL}/api/images/${file}`,
+                url: `${BASE_URL}/images/${file}`,
                 size: stats.size,
             };
         });

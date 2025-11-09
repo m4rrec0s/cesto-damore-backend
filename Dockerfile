@@ -54,9 +54,6 @@ RUN npx prisma generate
 # Copiar código compilado do estágio de build
 COPY --from=builder /app/dist ./dist
 
-# Copiar arquivo HTML
-COPY --from=builder /app/src/index.html ./dist/index.html
-
 # Criar diretórios necessários
 RUN mkdir -p /app/images/customizations /app/customizations/models
 

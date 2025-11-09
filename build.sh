@@ -28,6 +28,18 @@ echo "=== Building Application ==="
 npm run build
 
 echo ""
+echo "=== Verifying Build Output ==="
+if [ ! -f "dist/server.js" ]; then
+    echo "ERROR: Build failed - dist/server.js not found"
+    exit 1
+fi
+if [ ! -f "dist/index.html" ]; then
+    echo "ERROR: Build failed - dist/index.html not found"
+    exit 1
+fi
+echo "✅ Build verified successfully"
+
+echo ""
 echo "=== Running Migrations ==="
 npx prisma migrate deploy
 

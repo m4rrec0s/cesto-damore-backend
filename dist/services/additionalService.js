@@ -189,8 +189,18 @@ class AdditionalService {
             if (!product) {
                 throw new Error("Produto não encontrado");
             }
-            return await prisma_1.default.productAdditional.create({
-                data: {
+            // Usar upsert para criar ou atualizar o vínculo
+            return await prisma_1.default.productAdditional.upsert({
+                where: {
+                    product_id_additional_id: {
+                        product_id: productId,
+                        additional_id: additionalId,
+                    },
+                },
+                update: {
+                    custom_price: customPrice || null,
+                },
+                create: {
                     additional_id: additionalId,
                     product_id: productId,
                     custom_price: customPrice || null,
@@ -323,7 +333,11 @@ class AdditionalService {
             const relations = await (0, prismaRetry_1.withRetry)(() => prisma_1.default.productAdditional.findMany({
                 where: { product_id: productId, is_active: true },
                 include: {
-                    additional: true,
+                    additional: {
+                        include: {
+                            customizations: true, // Incluir customizações dos adicionais
+                        },
+                    },
                     product: { select: { id: true, name: true } },
                 },
             }));
@@ -337,6 +351,8 @@ class AdditionalService {
                 stock_quantity: r.additional.stock_quantity,
                 created_at: r.additional.created_at,
                 updated_at: r.additional.updated_at,
+                allows_customization: r.additional.allows_customization,
+                customizations: r.additional.customizations || [],
                 compatible_products: [
                     {
                         product_id: productId,

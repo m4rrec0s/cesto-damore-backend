@@ -32,6 +32,17 @@ class OrderController {
     }
   }
 
+  async getByUserId(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+      const orders = await orderService.getOrdersByUserId(userId);
+      res.status(200).json(orders);
+    } catch (error) {
+      console.error("Erro ao buscar pedidos do usuário:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
+
   async create(req: Request, res: Response) {
     try {
       const order = await orderService.createOrder(req.body);

@@ -231,11 +231,25 @@ class PaymentService {
             }
             const summary = this.calculateOrderSummary(order);
             await this.ensureOrderTotalsUpToDate(order, summary);
+            console.log("📊 Resumo do pedido:", {
+                itemsTotal: summary.itemsTotal,
+                total: summary.total,
+                discount: summary.discount,
+                shipping: summary.shipping,
+                grandTotal: summary.grandTotal,
+            });
             const nameParts = (data.payerName || "")
                 .split(/\s+/)
                 .filter((part) => /[\p{L}\p{N}]/u.test(part));
             const payerFirstName = nameParts[0] || "Cliente";
             const payerLastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Sem Sobrenome";
+            console.log("👤 Dados do pagador processados:", {
+                firstName: payerFirstName,
+                lastName: payerLastName,
+                email: data.payerEmail,
+                documentType: data.payerDocumentType,
+                documentNumber: data.payerDocument.replace(/\D/g, "").substring(0, 3) + "***",
+            });
             const paymentData = {
                 transaction_amount: roundCurrency(summary.grandTotal),
                 description: `Pedido ${order.id.substring(0, 8)} - ${order.items.length} item(s)`,
@@ -265,19 +279,90 @@ class PaymentService {
             };
             if (data.paymentMethodId === "pix") {
                 paymentData.payment_method_id = "pix";
+                console.log("💳 Método PIX selecionado");
             }
             else {
                 if (!data.cardToken) {
                     throw new Error("Token do cartão é obrigatório para pagamento com cartão");
                 }
+                if (!data.cardholderName) {
+                    throw new Error("Nome do titular do cartão é obrigatório");
+                }
+                console.log("💳 Configurando pagamento com cartão:", {
+                    hasToken: !!data.cardToken,
+                    paymentMethodId: data.payment_method_id,
+                    hasIssuerId: !!data.issuer_id,
+                    installments: data.installments,
+                });
+                // Para cartão, configurar payment_method_id ANTES de adicionar o token
                 paymentData.payment_method_id = data.payment_method_id || "master";
                 paymentData.token = data.cardToken;
                 paymentData.installments = data.installments || 1;
                 if (data.issuer_id) {
                     paymentData.issuer_id = data.issuer_id;
                 }
+                // ✅ CRÍTICO: O payer DEVE ter os mesmos dados usados no token
+                // Atualizar payer com o nome do titular do cartão
+                const cardholderParts = data.cardholderName
+                    .split(/\s+/)
+                    .filter((part) => /[\p{L}\p{N}]/u.test(part));
+                paymentData.payer = {
+                    email: data.payerEmail,
+                    first_name: cardholderParts[0] || "Cliente",
+                    last_name: cardholderParts.length > 1
+                        ? cardholderParts.slice(1).join(" ")
+                        : "Sem Sobrenome",
+                    identification: {
+                        type: data.payerDocumentType,
+                        number: data.payerDocument.replace(/\D/g, ""),
+                    },
+                };
+                console.log("👤 Payer atualizado com dados do titular do cartão:", {
+                    first_name: paymentData.payer.first_name,
+                    last_name: paymentData.payer.last_name,
+                    email: paymentData.payer.email,
+                    identification_type: paymentData.payer.identification.type,
+                    identification_number: paymentData.payer.identification.number, // ✅ Log completo do CPF
+                    identification_number_length: paymentData.payer.identification.number.length,
+                });
+                console.log("🔍 COMPARAÇÃO Token vs Pagamento:", {
+                    cardholderName_no_token: data.cardholderName,
+                    payer_first_name: paymentData.payer.first_name,
+                    payer_last_name: paymentData.payer.last_name,
+                    payer_full_name: `${paymentData.payer.first_name} ${paymentData.payer.last_name}`,
+                    email: paymentData.payer.email,
+                    doc_type: paymentData.payer.identification.type,
+                    doc_number: paymentData.payer.identification.number,
+                });
+                // ✅ Adicionar additional_info com informações do pagador
+                // Isso ajuda o Mercado Pago a validar o pagamento
+                paymentData.additional_info = {
+                    payer: {
+                        first_name: paymentData.payer.first_name,
+                        last_name: paymentData.payer.last_name,
+                        phone: {
+                            area_code: "",
+                            number: "",
+                        },
+                        address: {
+                            zip_code: "",
+                            street_name: "",
+                            street_number: 0,
+                        },
+                    },
+                };
                 paymentData.statement_descriptor = "CESTO D'AMORE";
             }
+            console.log("📤 Enviando pagamento ao Mercado Pago:", {
+                transaction_amount: paymentData.transaction_amount,
+                payment_method_id: paymentData.payment_method_id,
+                hasToken: !!paymentData.token,
+                installments: paymentData.installments,
+                issuer_id: paymentData.issuer_id,
+                payer_email: paymentData.payer.email,
+                payer_doc_type: paymentData.payer.identification.type,
+                payer_doc_number: paymentData.payer.identification.number.substring(0, 3) + "***",
+            });
             const idempotencyKey = `${data.paymentMethodId}-${data.orderId}-${(0, crypto_1.randomUUID)()}`;
             const paymentResponse = await mercadopago_1.payment.create({
                 body: paymentData,
@@ -306,11 +391,28 @@ class PaymentService {
                 },
             });
             if (paymentResponse.status === "approved") {
+                console.log("✅ Pagamento aprovado! Finalizando pedido...");
+                // Atualizar status do pedido
                 await prisma_1.default.order.update({
                     where: { id: data.orderId },
                     data: { status: "PAID" },
                 });
+                // Finalizar customizações (upload para Google Drive)
+                console.log("📁 Finalizando customizações e fazendo upload para Google Drive...");
+                try {
+                    const customizationResult = await orderCustomizationService_1.default.finalizeOrderCustomizations(data.orderId);
+                    console.log("✅ Customizações finalizadas:", {
+                        uploadedFiles: customizationResult.uploadedFiles,
+                        folderUrl: customizationResult.folderUrl,
+                    });
+                }
+                catch (customizationError) {
+                    console.error("⚠️ Erro ao finalizar customizações (continuando com notificação):", customizationError);
+                }
+                // Enviar notificação de confirmação
+                console.log("📧 Enviando notificação de confirmação...");
                 await this.sendOrderConfirmationNotification(data.orderId);
+                console.log("✅ Notificação enviada com sucesso!");
             }
             return {
                 payment_id: paymentResponse.id,
@@ -768,8 +870,11 @@ class PaymentService {
                     : undefined,
             };
             await whatsappService_1.default.sendOrderConfirmationNotification(orderData);
-            if (order.user.phone) {
-                await whatsappService_1.default.sendCustomerOrderConfirmation(order.user.phone, {
+            // ✅ Enviar notificação para o destinatário (pode ser diferente do usuário)
+            const recipientPhone = order.recipient_phone || order.user.phone;
+            if (recipientPhone) {
+                console.log(`📱 Enviando notificação para destinatário: ${recipientPhone}`);
+                await whatsappService_1.default.sendCustomerOrderConfirmation(recipientPhone, {
                     orderId: order.id,
                     orderNumber: order.id.substring(0, 8).toUpperCase(),
                     totalAmount: Number(order.grand_total || order.total || 0),
@@ -783,6 +888,10 @@ class PaymentService {
                         }
                         : undefined,
                 });
+                console.log(`✅ Notificação enviada para destinatário: ${recipientPhone}`);
+            }
+            else {
+                console.log(`⚠️ Nenhum telefone de destinatário disponível para notificação`);
             }
         }
         catch (error) {

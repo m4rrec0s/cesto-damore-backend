@@ -58,15 +58,26 @@ const customizationUploadController_1 = __importDefault(require("./controller/cu
 const oauthController_1 = __importDefault(require("./controller/oauthController"));
 const itemController_1 = __importDefault(require("./controller/itemController"));
 const productComponentController_1 = __importDefault(require("./controller/productComponentController"));
-const layoutController_1 = __importDefault(require("./controller/layoutController"));
 const layoutBaseController_1 = __importDefault(require("./controller/layoutBaseController"));
-const personalizationController_1 = __importDefault(require("./controller/personalizationController"));
+const customerManagementController_1 = __importDefault(require("./controller/customerManagementController"));
+const aiProductController_1 = __importDefault(require("./controller/aiProductController"));
 const multer_1 = require("./config/multer");
 const security_1 = require("./middleware/security");
 const healthCheck_1 = require("./middleware/healthCheck");
 const router = (0, express_1.Router)();
 // Health check endpoint
 router.get("/health", healthCheck_1.healthCheckEndpoint);
+// ============================================
+// AI PRODUCT ROUTES (Consultas otimizadas para IA)
+// ============================================
+// Endpoint principal para consulta de produtos pela IA
+// Exemplos:
+// - GET /ai/products (catálogo por prioridade)
+// - GET /ai/products?keywords=aniversário romântico
+// - GET /ai/products?keywords=barato caneca
+router.get("/ai/products", aiProductController_1.default.searchProducts);
+// Documentação do endpoint AI
+router.get("/ai/products/info", aiProductController_1.default.getEndpointInfo);
 // ============================================
 // GOOGLE DRIVE OAUTH2
 // ============================================
@@ -98,7 +109,29 @@ router.get("/images/:filename", (req, res) => {
         });
     }
 });
-// Servir arquivos de customizações (subpastas)
+// Servir arquivos de customizações (diretamente da pasta customizations)
+router.get("/images/customizations/:filename", (req, res) => {
+    try {
+        const { filename } = req.params;
+        const customizationsPath = path_1.default.join(process.cwd(), "images", "customizations");
+        const filePath = path_1.default.join(customizationsPath, filename);
+        if (!fs_1.default.existsSync(filePath)) {
+            return res.status(404).json({
+                error: "Arquivo de customização não encontrado",
+                filename,
+            });
+        }
+        res.sendFile(filePath);
+    }
+    catch (error) {
+        console.error("Erro ao servir arquivo de customização:", error.message);
+        res.status(500).json({
+            error: "Erro interno do servidor",
+            message: error.message,
+        });
+    }
+});
+// Servir arquivos de customizações (subpastas - mantido para compatibilidade)
 router.get("/images/customizations/:folderId/:filename", (req, res) => {
     try {
         const { folderId, filename } = req.params;
@@ -171,6 +204,7 @@ router.post("/whatsapp/stock-summary", whatsappController_1.default.sendStockSum
 router.get("/users/me", security_1.authenticateToken, userController_1.default.me); // Novo: obter usuário logado
 router.get("/users/cep/:zipCode", userController_1.default.getAddressByZipCode); // Novo: consultar CEP
 router.get("/users", userController_1.default.index);
+router.get("/users/:userId/orders", orderController_1.default.getByUserId);
 router.get("/users/:id", userController_1.default.show);
 router.post("/users", multer_1.upload.single("image"), userController_1.default.create);
 router.put("/users/:id", multer_1.upload.single("image"), userController_1.default.update);
@@ -223,8 +257,8 @@ router.post("/admin/feed/configurations", security_1.authenticateToken, security
 router.put("/admin/feed/configurations/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.updateConfiguration);
 router.delete("/admin/feed/configurations/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.deleteConfiguration);
 // Feed Banner Routes (Admin only)
-router.post("/admin/feed/banners", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebPLossless, feedController_1.default.createBanner);
-router.put("/admin/feed/banners/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), multer_1.convertImagesToWebPLossless, feedController_1.default.updateBanner);
+router.post("/admin/feed/banners", security_1.authenticateToken, security_1.requireAdmin, multer_1.uploadAny.single("image"), multer_1.convertImagesToWebPLossless, feedController_1.default.createBanner);
+router.put("/admin/feed/banners/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.uploadAny.single("image"), multer_1.convertImagesToWebPLossless, feedController_1.default.updateBanner);
 router.delete("/admin/feed/banners/:id", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.deleteBanner);
 // Feed Section Routes (Admin only)
 router.post("/admin/feed/sections", security_1.authenticateToken, security_1.requireAdmin, feedController_1.default.createSection);
@@ -265,9 +299,11 @@ router.post("/customization/upload-image", security_1.authenticateToken, securit
 // Delete de imagem de customização (Admin)
 router.delete("/customization/image/:filename", security_1.authenticateToken, security_1.requireAdmin, customizationUploadController_1.default.deleteImage);
 // ========== ITEM CONSTRAINTS ROUTES ==========
-// Listar todos os constraints
+// Rota pública para buscar constraints de um item (usada no frontend do cliente)
+router.get("/constraints/item/:itemType/:itemId", itemConstraintController_1.default.getByItem);
+// Listar todos os constraints (Admin)
 router.get("/admin/constraints", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.listAll);
-// Buscar constraints de um item específico
+// Buscar constraints de um item específico (Admin - duplicado para manter compatibilidade)
 router.get("/admin/constraints/item/:itemType/:itemId", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.getByItem);
 // Buscar produtos/adicionais para autocomplete
 router.get("/admin/constraints/search", security_1.authenticateToken, security_1.requireAdmin, itemConstraintController_1.default.searchItems);
@@ -294,46 +330,38 @@ router.get("/items/:itemId/customizations", customizationController_1.default.ge
 router.post("/customizations/validate", customizationController_1.default.validateCustomizations);
 // Gerar preview de customizações (público - para clientes)
 router.post("/customizations/preview", customizationController_1.default.buildPreview);
-// ========== LAYOUT 3D ROUTES ==========
-// Listar layouts (com filtro opcional por item)
-router.get("/layouts", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.index);
-// Buscar layout por ID
-router.get("/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.show);
-// Criar layout 3D
-router.post("/layouts", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.create);
-// Atualizar layout 3D
-router.put("/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.update);
-// Deletar layout 3D
-router.delete("/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutController_1.default.remove);
-// Upload de modelo 3D (.glb, .gltf)
-router.post("/layouts/upload-3d", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload3D.single("model"), layoutController_1.default.upload3DModel);
-// Servir modelos 3D
-router.get("/3d-models/:filename", (req, res) => {
-    const filename = req.params.filename;
-    const filePath = path_1.default.join(__dirname, "../public/3d-models", filename);
-    if (!fs_1.default.existsSync(filePath)) {
-        return res.status(404).json({ error: "Arquivo não encontrado" });
-    }
-    res.sendFile(filePath);
-});
-// ========== LAYOUT BASE ROUTES (ADMIN) ==========
 // Listar layouts base
-router.get("/admin/layouts", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.list);
+router.get("/layouts", layoutBaseController_1.default.list);
 // Buscar layout base por ID
-router.get("/admin/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.show);
+router.get("/layouts/:id", layoutBaseController_1.default.show);
 // Criar layout base (SEM conversão WebP - mantém formato original)
 router.post("/admin/layouts", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), layoutBaseController_1.default.create);
 // Atualizar layout base (SEM conversão WebP - mantém formato original)
 router.put("/admin/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), layoutBaseController_1.default.update);
 // Deletar layout base
 router.delete("/admin/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.delete);
-// ========== PERSONALIZATION ROUTES ==========
-// Gerar preview da composição (público - para preview no cliente)
-router.post("/preview/compose", personalizationController_1.default.preview);
-// Commit de personalização (requer autenticação)
-router.post("/orders/:orderId/items/:itemId/personalize/commit", security_1.authenticateToken, personalizationController_1.default.commit);
-// Buscar personalização por ID
-router.get("/personalizations/:id", security_1.authenticateToken, personalizationController_1.default.show);
-// Listar personalizações de um pedido
-router.get("/orders/:orderId/personalizations", security_1.authenticateToken, personalizationController_1.default.listByOrder);
+// ========== CUSTOMER MANAGEMENT ROUTES (N8N INTEGRATION) ==========
+// Listar clientes para follow-up (deve vir antes de /:phone)
+router.get("/customers/follow-up", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.getFollowUpCustomers);
+// Listar todos os clientes
+router.get("/customers", 
+// authenticateToken,
+// requireAdmin,
+customerManagementController_1.default.listCustomers);
+// Criar ou atualizar cliente
+router.post("/customers", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.upsertCustomer);
+// Sincronizar usuário do app para n8n
+router.post("/customers/sync/:userId", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.syncAppUser);
+// Buscar informações completas do cliente
+router.get("/customers/:phone", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.getCustomerInfo);
+// Atualizar follow-up
+router.patch("/customers/:phone/follow-up", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.updateFollowUp);
+// Enviar mensagem ao cliente
+router.post("/customers/:phone/send-message", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.sendMessage);
+// Atualizar status de serviço
+router.patch("/customers/:phone/service-status", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.updateServiceStatus);
+// Atualizar status de cliente (already_a_customer)
+router.patch("/customers/:phone/customer-status", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.updateCustomerStatus);
+// Atualizar nome do cliente
+router.patch("/customers/:phone/name", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.updateName);
 exports.default = router;

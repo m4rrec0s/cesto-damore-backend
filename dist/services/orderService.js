@@ -7,6 +7,7 @@ const prisma_1 = __importDefault(require("../database/prisma"));
 const stockService_1 = __importDefault(require("./stockService"));
 const whatsappService_1 = __importDefault(require("./whatsappService"));
 const productComponentService_1 = __importDefault(require("./productComponentService"));
+const customerManagementService_1 = __importDefault(require("./customerManagementService"));
 const ORDER_STATUSES = [
     "PENDING",
     "PAID",
@@ -29,6 +30,41 @@ function normalizeText(value) {
         .toLowerCase();
 }
 class OrderService {
+    // Enriquece as customizações com labels das opções selecionadas
+    enrichCustomizations(orders) {
+        return orders.map((order) => ({
+            ...order,
+            items: order.items.map((item) => ({
+                ...item,
+                customizations: item.customizations.map((customization) => {
+                    try {
+                        const customData = JSON.parse(customization.value || "{}");
+                        // Se tem selected_option mas não tem label, buscar do customization_data
+                        if (customData.selected_option &&
+                            !customData.selected_option_label &&
+                            customization.customization?.customization_data) {
+                            const customizationData = customization.customization.customization_data;
+                            const options = customizationData.options || [];
+                            // Encontrar a opção selecionada
+                            const selectedOption = options.find((opt) => opt.id === customData.selected_option);
+                            if (selectedOption) {
+                                customData.selected_option_label =
+                                    selectedOption.label || selectedOption.name;
+                            }
+                        }
+                        return {
+                            ...customization,
+                            value: JSON.stringify(customData),
+                        };
+                    }
+                    catch (error) {
+                        console.error("Erro ao enriquecer customização:", customization.id, error);
+                        return customization;
+                    }
+                }),
+            })),
+        }));
+    }
     normalizeStatus(status) {
         const normalized = status?.trim().toUpperCase();
         if (!ORDER_STATUSES.includes(normalized)) {
@@ -56,7 +92,7 @@ class OrderService {
     }
     async getAllOrders(filter) {
         try {
-            return await prisma_1.default.order.findMany({
+            const orders = await prisma_1.default.order.findMany({
                 include: {
                     items: {
                         include: {
@@ -66,7 +102,11 @@ class OrderService {
                                 },
                             },
                             product: true,
-                            customizations: true,
+                            customizations: {
+                                include: {
+                                    customization: true, // Incluir os dados da customização
+                                },
+                            },
                         },
                     },
                     user: true,
@@ -79,10 +119,43 @@ class OrderService {
                     created_at: "desc",
                 },
             });
+            // Enriquecer customizações com labels das opções
+            return this.enrichCustomizations(orders);
         }
         catch (error) {
             throw new Error(`Erro ao buscar pedidos: ${error.message}`);
         }
+    }
+    async getOrdersByUserId(userId) {
+        if (!userId) {
+            throw new Error("ID do usuário é obrigatório");
+        }
+        const orders = await prisma_1.default.order.findMany({
+            where: { user_id: userId },
+            include: {
+                items: {
+                    include: {
+                        additionals: {
+                            include: {
+                                additional: true,
+                            },
+                        },
+                        product: true,
+                        customizations: {
+                            include: {
+                                customization: true, // Incluir os dados da customização
+                            },
+                        },
+                    },
+                },
+                user: true,
+                payment: true,
+            },
+            orderBy: {
+                created_at: "desc",
+            },
+        });
+        return this.enrichCustomizations(orders);
     }
     async getOrderById(id) {
         if (!id) {
@@ -119,10 +192,11 @@ class OrderService {
         if (!data.recipient_phone || data.recipient_phone.trim() === "") {
             throw new Error("Número do destinatário é obrigatório");
         }
-        // Validar formato do telefone (deve conter apenas números e ter entre 10 e 11 dígitos)
+        // Validar formato do telefone (deve conter apenas números e ter entre 10 e 13 dígitos)
+        // Aceita: 10 (fixo sem 9), 11 (celular), 12 (55 + fixo), 13 (55 + celular)
         const phoneDigits = data.recipient_phone.replace(/\D/g, "");
-        if (phoneDigits.length < 10 || phoneDigits.length > 11) {
-            throw new Error("Número do destinatário deve ter entre 10 e 11 dígitos");
+        if (phoneDigits.length < 10 || phoneDigits.length > 13) {
+            throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
         }
         const paymentMethod = normalizeText(data.payment_method);
         if (paymentMethod !== "pix" && paymentMethod !== "card") {
@@ -258,6 +332,7 @@ class OrderService {
                         price: item.price,
                     },
                 });
+                // Salvar adicionais
                 if (Array.isArray(item.additionals) && item.additionals.length > 0) {
                     for (const additional of item.additionals) {
                         await prisma_1.default.orderItemAdditional.create({
@@ -270,6 +345,28 @@ class OrderService {
                         });
                     }
                 }
+                // ✅ NOVO: Salvar customizações
+                if (Array.isArray(item.customizations) &&
+                    item.customizations.length > 0) {
+                    console.log(`💾 Salvando ${item.customizations.length} customização(ões) para o item ${orderItem.id}`);
+                    for (const customization of item.customizations) {
+                        // Extrair todos os campos relevantes da customização
+                        const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
+                        await prisma_1.default.orderItemCustomization.create({
+                            data: {
+                                order_item_id: orderItem.id,
+                                customization_id: customization_id || "default",
+                                value: JSON.stringify({
+                                    customization_type,
+                                    title,
+                                    ...(customization_data || {}),
+                                    ...otherFields, // Inclui selected_option, selected_option_label, etc
+                                }),
+                            },
+                        });
+                    }
+                    console.log(`✅ Customizações salvas com sucesso para o item ${orderItem.id}`);
+                }
             }
             // ========== DECREMENTAR ESTOQUE ==========
             try {
@@ -279,6 +376,18 @@ class OrderService {
                 console.error("❌ Erro ao decrementar estoque:", stockError);
                 // Log o erro mas não falha o pedido, pois já foi criado
                 // Idealmente, deveria ter uma transação para reverter
+            }
+            // Sincronizar cliente com n8n (não bloqueia o pedido se falhar)
+            try {
+                const orderWithUser = await this.getOrderById(created.id);
+                if (orderWithUser?.user?.phone) {
+                    await customerManagementService_1.default.syncAppUserToN8N(data.user_id);
+                    console.info(`✅ Cliente sincronizado com n8n: ${orderWithUser.user.phone}`);
+                }
+            }
+            catch (syncError) {
+                console.error("⚠️ Erro ao sincronizar cliente com n8n:", syncError.message);
+                // Não falha o pedido se a sincronização falhar
             }
             return await this.getOrderById(created.id);
         }

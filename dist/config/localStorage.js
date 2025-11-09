@@ -20,12 +20,23 @@ exports.ensureImagesDirectory = ensureImagesDirectory;
 const saveImageLocally = async (buffer, originalName, mimeType) => {
     try {
         (0, exports.ensureImagesDirectory)();
+        console.log("[localStorage.saveImageLocally] Recebendo arquivo:", {
+            originalName,
+            mimeType,
+            bufferSize: buffer.length,
+        });
         // Gerar hash curto do conteúdo para permitir deduplicação
         const hash = crypto_1.default.createHash("sha256").update(buffer).digest("hex");
         const shortHash = hash.slice(0, 12);
         const timestamp = Date.now();
         const baseFileName = path_1.default.parse(originalName).name;
         const extension = path_1.default.extname(originalName) || getExtensionFromMimeType(mimeType);
+        console.log("[localStorage.saveImageLocally] Processando extensão:", {
+            originalName,
+            pathExtname: path_1.default.extname(originalName),
+            mimeTypeExtension: getExtensionFromMimeType(mimeType),
+            finalExtension: extension,
+        });
         // Procura por arquivo já existente com mesmo hash (evita múltiplas cópias)
         const existing = fs_1.default
             .readdirSync(IMAGES_DIR)
@@ -33,12 +44,21 @@ const saveImageLocally = async (buffer, originalName, mimeType) => {
             f.includes(`-${shortHash}${extension}`));
         if (existing) {
             // já existe um arquivo com este hash — retorna a URL sem regravar
+            console.log("[localStorage.saveImageLocally] Arquivo já existe:", existing);
             return `${BASE_URL}/images/${existing}`;
         }
         const fileName = `${timestamp}-${shortHash}-${sanitizeFileName(baseFileName)}${extension}`;
         const filePath = path_1.default.join(IMAGES_DIR, fileName);
+        console.log("[localStorage.saveImageLocally] Salvando arquivo:", {
+            fileName,
+            filePath,
+        });
         fs_1.default.writeFileSync(filePath, buffer);
         const imageUrl = `${BASE_URL}/images/${fileName}`;
+        console.log("[localStorage.saveImageLocally] Arquivo salvo com sucesso:", {
+            imageUrl,
+            fileSize: buffer.length,
+        });
         return imageUrl;
     }
     catch (error) {

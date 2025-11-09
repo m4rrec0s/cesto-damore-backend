@@ -25,6 +25,7 @@ class CustomizationService {
                 id: item.id,
                 name: item.name,
                 allows_customization: item.allows_customization,
+                layout_base_id: item.layout_base_id,
             },
             customizations: item.customizations.map((c) => ({
                 id: c.id,

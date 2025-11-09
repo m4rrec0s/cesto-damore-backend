@@ -39,6 +39,9 @@ class ItemConstraintController {
     /**
      * Lista constraints de um item específico
      * GET /admin/constraints/item/:itemType/:itemId
+     * GET /constraints/item/:itemType/:itemId (public)
+     *
+     * Retorna todos os constraints onde o item aparece como target OU related
      */
     async getByItem(req, res) {
         try {

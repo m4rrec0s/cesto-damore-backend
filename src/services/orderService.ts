@@ -31,6 +31,12 @@ type CreateOrderItem = {
     quantity: number;
     price: number;
   }[];
+  customizations?: {
+    customization_id?: string;
+    customization_type?: string;
+    title?: string;
+    customization_data?: any;
+  }[];
 };
 
 type CreateOrderInput = {
@@ -62,6 +68,54 @@ function normalizeText(value: string) {
 }
 
 class OrderService {
+  // Enriquece as customizações com labels das opções selecionadas
+  private enrichCustomizations(orders: any[]) {
+    return orders.map((order) => ({
+      ...order,
+      items: order.items.map((item: any) => ({
+        ...item,
+        customizations: item.customizations.map((customization: any) => {
+          try {
+            const customData = JSON.parse(customization.value || "{}");
+
+            // Se tem selected_option mas não tem label, buscar do customization_data
+            if (
+              customData.selected_option &&
+              !customData.selected_option_label &&
+              customization.customization?.customization_data
+            ) {
+              const customizationData =
+                customization.customization.customization_data;
+              const options = customizationData.options || [];
+
+              // Encontrar a opção selecionada
+              const selectedOption = options.find(
+                (opt: any) => opt.id === customData.selected_option
+              );
+
+              if (selectedOption) {
+                customData.selected_option_label =
+                  selectedOption.label || selectedOption.name;
+              }
+            }
+
+            return {
+              ...customization,
+              value: JSON.stringify(customData),
+            };
+          } catch (error) {
+            console.error(
+              "Erro ao enriquecer customização:",
+              customization.id,
+              error
+            );
+            return customization;
+          }
+        }),
+      })),
+    }));
+  }
+
   private normalizeStatus(status: string): OrderStatus {
     const normalized = status?.trim().toUpperCase();
     if (!ORDER_STATUSES.includes(normalized as OrderStatus)) {
@@ -98,7 +152,7 @@ class OrderService {
 
   async getAllOrders(filter?: OrderFilter) {
     try {
-      return await prisma.order.findMany({
+      const orders = await prisma.order.findMany({
         include: {
           items: {
             include: {
@@ -108,7 +162,11 @@ class OrderService {
                 },
               },
               product: true,
-              customizations: true,
+              customizations: {
+                include: {
+                  customization: true, // Incluir os dados da customização
+                },
+              },
             },
           },
           user: true,
@@ -121,9 +179,46 @@ class OrderService {
           created_at: "desc",
         },
       });
+
+      // Enriquecer customizações com labels das opções
+      return this.enrichCustomizations(orders);
     } catch (error: any) {
       throw new Error(`Erro ao buscar pedidos: ${error.message}`);
     }
+  }
+
+  async getOrdersByUserId(userId: string) {
+    if (!userId) {
+      throw new Error("ID do usuário é obrigatório");
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { user_id: userId },
+      include: {
+        items: {
+          include: {
+            additionals: {
+              include: {
+                additional: true,
+              },
+            },
+            product: true,
+            customizations: {
+              include: {
+                customization: true, // Incluir os dados da customização
+              },
+            },
+          },
+        },
+        user: true,
+        payment: true,
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    });
+
+    return this.enrichCustomizations(orders);
   }
 
   async getOrderById(id: string) {
@@ -161,16 +256,17 @@ class OrderService {
       throw new Error("Pelo menos um item é obrigatório");
     }
 
-    // Validar recipient_phone
     if (!data.recipient_phone || data.recipient_phone.trim() === "") {
       throw new Error("Número do destinatário é obrigatório");
     }
 
-    // Validar formato do telefone (deve conter apenas números e ter entre 10 e 13 dígitos)
-    // Aceita: 10 (fixo sem 9), 11 (celular), 12 (55 + fixo), 13 (55 + celular)
-    const phoneDigits = data.recipient_phone.replace(/\D/g, "");
+    let phoneDigits = data.recipient_phone.replace(/\D/g, "");
     if (phoneDigits.length < 10 || phoneDigits.length > 13) {
       throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
+    }
+
+    if (!phoneDigits.startsWith("55")) {
+      phoneDigits = "55" + phoneDigits;
     }
 
     const paymentMethod = normalizeText(data.payment_method);
@@ -347,7 +443,7 @@ class OrderService {
           shipping_price,
           payment_method: paymentMethod,
           grand_total,
-          recipient_phone: orderData.recipient_phone,
+          recipient_phone: phoneDigits, // Salvar com código do país
         },
       });
 
@@ -361,6 +457,7 @@ class OrderService {
           },
         });
 
+        // Salvar adicionais
         if (Array.isArray(item.additionals) && item.additionals.length > 0) {
           for (const additional of item.additionals) {
             await prisma.orderItemAdditional.create({
@@ -372,6 +469,44 @@ class OrderService {
               },
             });
           }
+        }
+
+        // ✅ NOVO: Salvar customizações
+        if (
+          Array.isArray(item.customizations) &&
+          item.customizations.length > 0
+        ) {
+          console.log(
+            `💾 Salvando ${item.customizations.length} customização(ões) para o item ${orderItem.id}`
+          );
+
+          for (const customization of item.customizations) {
+            // Extrair todos os campos relevantes da customização
+            const {
+              customization_id,
+              customization_type,
+              title,
+              customization_data,
+              ...otherFields
+            } = customization as any;
+
+            await prisma.orderItemCustomization.create({
+              data: {
+                order_item_id: orderItem.id,
+                customization_id: customization_id || "default",
+                value: JSON.stringify({
+                  customization_type,
+                  title,
+                  ...(customization_data || {}),
+                  ...otherFields, // Inclui selected_option, selected_option_label, etc
+                }),
+              },
+            });
+          }
+
+          console.log(
+            `✅ Customizações salvas com sucesso para o item ${orderItem.id}`
+          );
         }
       }
 

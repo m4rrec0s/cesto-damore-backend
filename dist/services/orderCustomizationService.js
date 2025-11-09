@@ -8,12 +8,18 @@ const prisma_1 = __importDefault(require("../database/prisma"));
 const googleDriveService_1 = __importDefault(require("./googleDriveService"));
 class OrderCustomizationService {
     async saveOrderItemCustomization(input) {
-        const payload = {
-            order_item_id: input.orderItemId,
-            customization_rule_id: input.customizationRuleId ?? null,
+        // O schema atual tem apenas: order_item_id, customization_id, value
+        // Vamos salvar todos os dados extras no campo "value" como JSON
+        const customizationValue = {
             customization_type: input.customizationType,
             title: input.title,
-            customization_data: JSON.stringify(input.customizationData ?? {}),
+            selected_layout_id: input.selectedLayoutId,
+            ...input.customizationData,
+        };
+        const payload = {
+            order_item_id: input.orderItemId,
+            customization_id: input.customizationRuleId || "default", // Obrigatório no schema
+            value: JSON.stringify(customizationValue),
         };
         return prisma_1.default.orderItemCustomization.create({
             data: payload,
@@ -41,13 +47,26 @@ class OrderCustomizationService {
         if (!existing) {
             throw new Error("Customização não encontrada");
         }
-        const mergedData = {
-            ...JSON.parse(existing.value || "{}"),
+        // Parsear o valor existente
+        const existingData = this.parseCustomizationData(existing.value);
+        // Mesclar com novos dados de customização
+        const mergedCustomizationData = {
+            ...existingData,
             ...(input.customizationData ?? {}),
         };
+        // Se input tem título ou tipo, atualizar também
+        if (input.title) {
+            mergedCustomizationData.title = input.title;
+        }
+        if (input.customizationType) {
+            mergedCustomizationData.customization_type = input.customizationType;
+        }
+        if (input.selectedLayoutId) {
+            mergedCustomizationData.selected_layout_id = input.selectedLayoutId;
+        }
         const updateData = {
             customization_id: input.customizationRuleId ?? existing.customization_id,
-            value: JSON.stringify(mergedData),
+            value: JSON.stringify(mergedCustomizationData),
         };
         return prisma_1.default.orderItemCustomization.update({
             where: { id: customizationId },
@@ -55,6 +74,7 @@ class OrderCustomizationService {
         });
     }
     async finalizeOrderCustomizations(orderId) {
+        console.log("🎨 Iniciando finalização de customizações para pedido:", orderId);
         const order = await prisma_1.default.order.findUnique({
             where: { id: orderId },
             include: {
@@ -70,6 +90,11 @@ class OrderCustomizationService {
         if (!order) {
             throw new Error("Pedido não encontrado");
         }
+        console.log("📦 Pedido encontrado:", {
+            orderId: order.id,
+            itemsCount: order.items.length,
+            userName: order.user?.name,
+        });
         let folderId = null;
         let uploadedFiles = 0;
         const ensureFolder = async () => {
@@ -84,15 +109,30 @@ class OrderCustomizationService {
             return folderId;
         };
         for (const item of order.items) {
+            console.log(`📝 Processando item: ${item.product.name} (${item.customizations.length} customizações)`);
             for (const customization of item.customizations) {
                 const data = this.parseCustomizationData(customization.value);
                 const artworks = this.extractArtworkAssets(data);
+                console.log(`🎨 Customização ${customization.id}:`, JSON.stringify({
+                    customizationId: customization.customization_id,
+                    hasData: !!data,
+                    dataKeys: data ? Object.keys(data) : [],
+                    hasPhotos: Boolean(data?.photos),
+                    photosCount: Array.isArray(data?.photos) ? data.photos.length : 0,
+                    hasFinalArtwork: Boolean(data?.final_artwork),
+                    hasFinalArtworks: Boolean(data?.final_artworks),
+                    artworksCount: artworks.length,
+                }, null, 2));
                 if (artworks.length === 0) {
+                    console.log("⚠️ Nenhuma arte final encontrada, pulando...");
                     continue;
                 }
+                console.log(`📁 Criando/obtendo pasta no Google Drive...`);
                 const targetFolder = await ensureFolder();
+                console.log(`📤 Fazendo upload de ${artworks.length} arquivo(s)...`);
                 const uploads = await Promise.all(artworks.map((asset) => this.uploadArtwork(asset, { id: customization.id }, targetFolder)));
                 uploadedFiles += uploads.length;
+                console.log(`✅ ${uploads.length} arquivo(s) enviado(s) com sucesso!`);
                 const sanitizedData = this.removeBase64FromData(data, uploads);
                 await prisma_1.default.orderItemCustomization.update({
                     where: { id: customization.id },
@@ -102,14 +142,22 @@ class OrderCustomizationService {
                         google_drive_url: googleDriveService_1.default.getFolderUrl(targetFolder),
                     },
                 });
+                console.log(`💾 Customização atualizada no banco com URL do Google Drive`);
             }
         }
         if (!folderId) {
+            console.log("ℹ️ Nenhuma customização com artes finais para fazer upload");
             return { uploadedFiles: 0 };
         }
+        const folderUrl = googleDriveService_1.default.getFolderUrl(folderId);
+        console.log("✅ Finalização concluída:", {
+            folderId,
+            folderUrl,
+            uploadedFiles,
+        });
         return {
             folderId,
-            folderUrl: googleDriveService_1.default.getFolderUrl(folderId),
+            folderUrl,
             uploadedFiles,
         };
     }
@@ -139,15 +187,53 @@ class OrderCustomizationService {
     }
     extractArtworkAssets(data) {
         const assets = [];
+        // Suporte para campo "final_artwork" (antigo)
         const single = data?.final_artwork;
         if (single) {
             assets.push(single);
         }
+        // Suporte para campo "final_artworks" (antigo)
         const multiple = Array.isArray(data?.final_artworks)
             ? data.final_artworks
             : [];
         multiple.forEach((asset) => assets.push(asset));
-        return assets.filter((asset) => Boolean(this.getBase64Content(asset)));
+        // ✅ NOVO: Suporte para campo "photos" do frontend
+        const photos = Array.isArray(data?.photos) ? data.photos : [];
+        console.log(`📸 Processando ${photos.length} foto(s):`, JSON.stringify(photos, null, 2));
+        photos.forEach((photo, index) => {
+            // Converter estrutura de "photos" para ArtworkAsset
+            if (photo && typeof photo === "object") {
+                console.log(`📷 Foto ${index + 1} - Campos disponíveis:`, Object.keys(photo));
+                console.log(`📷 Foto ${index + 1} - Dados:`, JSON.stringify({
+                    hasBase64: Boolean(photo.base64),
+                    hasBase64Data: Boolean(photo.base64Data),
+                    hasTempFileId: Boolean(photo.temp_file_id),
+                    hasPreviewUrl: Boolean(photo.preview_url),
+                    mimeType: photo.mime_type || photo.mimeType,
+                    fileName: photo.original_name || photo.fileName,
+                }, null, 2));
+                assets.push({
+                    base64: photo.base64 || photo.base64Data,
+                    base64Data: photo.base64Data || photo.base64,
+                    mimeType: photo.mime_type || photo.mimeType,
+                    fileName: photo.original_name || photo.fileName,
+                });
+            }
+        });
+        const filteredAssets = assets.filter((asset) => {
+            const hasContent = Boolean(this.getBase64Content(asset));
+            if (!hasContent) {
+                console.log(`⚠️ Asset filtrado (sem base64):`, JSON.stringify({
+                    hasBase64: Boolean(asset.base64),
+                    hasBase64Data: Boolean(asset.base64Data),
+                    mimeType: asset.mimeType,
+                    fileName: asset.fileName,
+                }, null, 2));
+            }
+            return hasContent;
+        });
+        console.log(`✅ Total de assets extraídos: ${assets.length}, Após filtro: ${filteredAssets.length}`);
+        return filteredAssets;
     }
     async uploadArtwork(asset, customization, folderId) {
         const base64Content = this.getBase64Content(asset);

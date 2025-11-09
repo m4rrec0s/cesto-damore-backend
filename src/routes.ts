@@ -245,6 +245,7 @@ router.post("/whatsapp/stock-summary", whatsappController.sendStockSummary);
 router.get("/users/me", authenticateToken, userController.me); // Novo: obter usuário logado
 router.get("/users/cep/:zipCode", userController.getAddressByZipCode); // Novo: consultar CEP
 router.get("/users", userController.index);
+router.get("/users/:userId/orders", orderController.getByUserId);
 router.get("/users/:id", userController.show);
 router.post("/users", upload.single("image"), userController.create);
 router.put("/users/:id", upload.single("image"), userController.update);

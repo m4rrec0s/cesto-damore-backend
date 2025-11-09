@@ -20,7 +20,27 @@ async function getCardIssuers(req, res) {
         if (!accessToken) {
             throw new Error("MERCADO_PAGO_ACCESS_TOKEN não configurado");
         }
-        const detectedPaymentMethodId = paymentMethodId || "master";
+        // Detectar automaticamente o payment method baseado no BIN
+        let detectedPaymentMethodId = paymentMethodId || "master";
+        const firstDigit = bin.charAt(0);
+        if (firstDigit === "4") {
+            detectedPaymentMethodId = "visa";
+        }
+        else if (firstDigit === "5") {
+            detectedPaymentMethodId = "master";
+        }
+        else if (firstDigit === "3") {
+            detectedPaymentMethodId = "amex";
+        }
+        else if (firstDigit === "6") {
+            detectedPaymentMethodId = "elo";
+        }
+        console.log("🔍 Detectando payment method:", {
+            bin,
+            firstDigit,
+            providedMethod: paymentMethodId,
+            detectedMethod: detectedPaymentMethodId,
+        });
         const issuersResponse = await axios_1.default.get(`https://api.mercadopago.com/v1/payment_methods/card_issuers`, {
             params: {
                 payment_method_id: detectedPaymentMethodId,
@@ -32,6 +52,11 @@ async function getCardIssuers(req, res) {
         const issuers = issuersResponse.data;
         if (issuers && Array.isArray(issuers) && issuers.length > 0) {
             const issuer = issuers[0];
+            console.log("✅ Emissor encontrado:", {
+                issuer_id: issuer.id,
+                issuer_name: issuer.name,
+                payment_method_id: detectedPaymentMethodId,
+            });
             return res.status(200).json({
                 success: true,
                 issuer_id: issuer.id.toString(),
@@ -62,6 +87,16 @@ async function getCardIssuers(req, res) {
 async function createCardToken(req, res) {
     try {
         const { cardNumber, securityCode, expirationMonth, expirationYear, cardholderName, identificationType, identificationNumber, } = req.body;
+        console.log("💳 Criando token de cartão:", {
+            cardNumberLength: cardNumber?.length,
+            hasSecurityCode: !!securityCode,
+            expirationMonth,
+            expirationYear,
+            cardholderName,
+            identificationType,
+            identificationNumberLength: identificationNumber?.replace(/\D/g, "")
+                .length,
+        });
         if (!cardNumber ||
             !securityCode ||
             !expirationMonth ||
@@ -85,21 +120,36 @@ async function createCardToken(req, res) {
             },
         });
         const cardTokenClient = new mercadopago_1.CardToken(client);
-        // Criar token com estrutura correta (cardholder como objeto aninhado)
-        const tokenResponse = await cardTokenClient.create({
-            body: {
-                card_number: cardNumber,
-                security_code: securityCode,
-                expiration_month: parseInt(expirationMonth),
-                expiration_year: parseInt(expirationYear),
-                cardholder: {
-                    name: cardholderName,
-                    identification: {
-                        type: identificationType,
-                        number: identificationNumber,
-                    },
+        const tokenPayload = {
+            card_number: cardNumber,
+            security_code: securityCode,
+            expiration_month: parseInt(expirationMonth),
+            expiration_year: parseInt(expirationYear),
+            cardholder: {
+                name: cardholderName,
+                identification: {
+                    type: identificationType,
+                    number: identificationNumber.replace(/\D/g, ""), // ✅ Remover formatação
                 },
             },
+        };
+        console.log("📤 Enviando payload para criar token:", {
+            card_number_length: tokenPayload.card_number.length,
+            expiration_month: tokenPayload.expiration_month,
+            expiration_year: tokenPayload.expiration_year,
+            cardholder_name: tokenPayload.cardholder.name,
+            identification_type: tokenPayload.cardholder.identification.type,
+            identification_number: tokenPayload.cardholder.identification.number, // ✅ Log completo
+            identification_number_length: tokenPayload.cardholder.identification.number.length,
+        });
+        // Criar token com estrutura correta (cardholder como objeto aninhado)
+        const tokenResponse = await cardTokenClient.create({
+            body: tokenPayload,
+        });
+        console.log("✅ Token criado com sucesso:", {
+            id: tokenResponse.id,
+            first_six_digits: tokenResponse.first_six_digits,
+            last_four_digits: tokenResponse.last_four_digits,
         });
         return res.status(200).json({
             success: true,

@@ -68,7 +68,14 @@ PostgreSQL (ou Supabase)
 npm ou yarn
 ```
 
-### Instalação
+**OU usando Docker:**
+
+```bash
+Docker >= 20.10
+Docker Compose >= 2.0
+```
+
+### Instalação Local
 
 ```bash
 # Clone o repositório
@@ -89,6 +96,41 @@ npx prisma migrate dev
 # Inicie o servidor
 npm run dev
 ```
+
+### 🐳 Instalação com Docker (Recomendado)
+
+```bash
+# Clone o repositório
+git clone https://github.com/m4rrec0s/cesto-damore-backend.git
+
+# Entre no diretório
+cd cesto-damore-backend
+
+# Configure o .env
+cp .env.example .env
+# Edite o .env com suas credenciais
+
+# Inicie com Docker Compose
+docker-compose up -d
+
+# Ver logs
+docker-compose logs -f
+```
+
+**Scripts de Deploy Automático:**
+
+```bash
+# Linux/Mac
+chmod +x deploy.sh
+./deploy.sh prod    # Produção
+./deploy.sh dev     # Desenvolvimento
+
+# Windows
+deploy.bat prod     # Produção
+deploy.bat dev      # Desenvolvimento
+```
+
+📘 **Documentação completa do Docker**: [DOCKER.md](./DOCKER.md)
 
 ### Variáveis de Ambiente Críticas
 

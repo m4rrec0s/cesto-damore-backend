@@ -1,0 +1,66 @@
+# Estágio 1: Build
+FROM node:18-alpine AS builder
+
+# Instalar dependências necessárias para Prisma
+RUN apk add --no-cache openssl libc6-compat
+
+WORKDIR /app
+
+# Copiar arquivos de dependências
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Instalar dependências
+RUN npm ci
+
+# Copiar código fonte
+COPY . .
+
+# Gerar Prisma Client
+RUN npx prisma generate
+
+# Build da aplicação
+RUN npm run build
+
+# Estágio 2: Produção
+FROM node:18-alpine AS production
+
+# Instalar dependências necessárias
+RUN apk add --no-cache openssl libc6-compat
+
+WORKDIR /app
+
+# Copiar package.json e package-lock.json
+COPY package*.json ./
+
+# Instalar apenas dependências de produção
+RUN npm ci --only=production && npm cache clean --force
+
+# Copiar Prisma schema
+COPY --from=builder /app/prisma ./prisma
+
+# Gerar Prisma Client em produção
+RUN npx prisma generate
+
+# Copiar código compilado do estágio de build
+COPY --from=builder /app/dist ./dist
+
+# Copiar arquivo HTML
+COPY --from=builder /app/src/index.html ./dist/index.html
+
+# Criar diretórios necessários
+RUN mkdir -p /app/images/customizations /app/customizations/models
+
+# Expor porta
+EXPOSE 3333
+
+# Variáveis de ambiente padrão (serão sobrescritas)
+ENV NODE_ENV=production
+ENV PORT=3333
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3333/', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Comando para iniciar a aplicação
+CMD ["node", "dist/server.js"]

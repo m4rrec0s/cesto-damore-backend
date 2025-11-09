@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cesto-damore-api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3333}:3333"
+    environment:
+      - NODE_ENV=production
+      - PORT=3333
+      - DATABASE_URL=${DATABASE_URL}
+      - DIRECT_URL=${DIRECT_URL}
+      - BASE_URL=${BASE_URL}
+
+      # Mercado Pago
+      - MERCADO_PAGO_PUBLIC_KEY=${MERCADO_PAGO_PUBLIC_KEY}
+      - MERCADO_PAGO_ACCESS_TOKEN=${MERCADO_PAGO_ACCESS_TOKEN}
+      - MERCADO_PAGO_WEBHOOK_SECRET=${MERCADO_PAGO_WEBHOOK_SECRET}
+
+      # Firebase
+      - GOOGLE_TYPE=${GOOGLE_TYPE}
+      - GOOGLE_PROJECT_ID=${GOOGLE_PROJECT_ID}
+      - GOOGLE_PRIVATE_KEY_ID=${GOOGLE_PRIVATE_KEY_ID}
+      - GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY}
+      - GOOGLE_CLIENT_EMAIL=${GOOGLE_CLIENT_EMAIL}
+      - GOOGLE_SERVICE_ACCOUNT_CLIENT_ID=${GOOGLE_SERVICE_ACCOUNT_CLIENT_ID}
+      - GOOGLE_AUTH_URI=${GOOGLE_AUTH_URI}
+      - GOOGLE_TOKEN_URI=${GOOGLE_TOKEN_URI}
+      - GOOGLE_AUTH_PROVIDER_X509_CERT_URL=${GOOGLE_AUTH_PROVIDER_X509_CERT_URL}
+      - GOOGLE_CLIENT_X509_CERT_URL=${GOOGLE_CLIENT_X509_CERT_URL}
+      - GOOGLE_UNIVERSE_DOMAIN=${GOOGLE_UNIVERSE_DOMAIN}
+      - FIREBASE_API_KEY=${FIREBASE_API_KEY}
+
+      # Google OAuth / Drive
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      - GOOGLE_OAUTH_ACCESS_TOKEN=${GOOGLE_OAUTH_ACCESS_TOKEN}
+      - GOOGLE_OAUTH_REFRESH_TOKEN=${GOOGLE_OAUTH_REFRESH_TOKEN}
+      - GOOGLE_OAUTH_SCOPE=${GOOGLE_OAUTH_SCOPE}
+      - GOOGLE_OAUTH_TOKEN_TYPE=${GOOGLE_OAUTH_TOKEN_TYPE}
+      - GOOGLE_OAUTH_EXPIRY_DATE=${GOOGLE_OAUTH_EXPIRY_DATE}
+      - GOOGLE_DRIVE_ROOT_FOLDER_ID=${GOOGLE_DRIVE_ROOT_FOLDER_ID}
+
+      # Evolution API / WhatsApp
+      - EVOLUTION_API_URL=${EVOLUTION_API_URL}
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_INSTANCE=${EVOLUTION_INSTANCE}
+      - WHATSAPP_GROUP_ID=${WHATSAPP_GROUP_ID}
+
+      # Security
+      - JWT_SECRET=${JWT_SECRET}
+
+      # Upload
+      - UPLOAD_DIR=/app/images
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-5242880}
+
+      # Debug
+      - DEBUG_IMAGES=${DEBUG_IMAGES:-false}
+
+    volumes:
+      - ./images:/app/images
+      - ./customizations:/app/customizations
+      - ./google-drive-token.json:/app/google-drive-token.json:ro
+
+    networks:
+      - cesto-damore-network
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3333/', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Executar migrações antes de iniciar
+    command: >
+      sh -c "npx prisma migrate deploy &&
+             npx prisma generate &&
+             node dist/server.js"
+
+networks:
+  cesto-damore-network:
+    driver: bridge

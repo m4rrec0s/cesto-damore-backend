@@ -129,7 +129,70 @@ As imagens de customização finalizadas são enviadas ao Google Drive e retorna
 
 ## 📋 Processo de Deploy
 
-### 1. **Build da Aplicação**
+### Método 1: Deploy com Docker (Recomendado) 🐳
+
+#### **Quick Start**
+
+```bash
+# 1. Clone e configure
+git clone <repo>
+cd cesto-damore-backend
+cp .env.example .env
+nano .env  # Configure todas as variáveis
+
+# 2. Deploy automático
+chmod +x deploy.sh
+./deploy.sh prod
+
+# 3. Verificar
+docker-compose ps
+docker-compose logs -f
+```
+
+#### **Deploy Manual com Docker**
+
+```bash
+# Build da imagem
+docker-compose build
+
+# Iniciar containers
+docker-compose up -d
+
+# Ver logs
+docker-compose logs -f app
+
+# Verificar health
+docker-compose ps
+curl http://localhost:3333/
+```
+
+#### **Comandos Úteis**
+
+```bash
+# Parar containers
+docker-compose down
+
+# Rebuild completo
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+
+# Ver logs
+docker-compose logs -f app
+
+# Executar comandos no container
+docker-compose exec app npx prisma migrate deploy
+docker-compose exec app npx prisma generate
+docker-compose exec app sh
+```
+
+📘 **Documentação completa**: [DOCKER.md](./DOCKER.md)
+
+---
+
+### Método 2: Deploy Tradicional (Node.js)
+
+#### **1. Build da Aplicação**
 
 ```bash
 npm run build

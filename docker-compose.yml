@@ -83,12 +83,6 @@ services:
       retries: 3
       start_period: 40s
 
-    # Executar migrações antes de iniciar
-    command: >
-      sh -c "npx prisma migrate deploy &&
-             npx prisma generate &&
-             node dist/server.js"
-
 networks:
   cesto-damore-network:
     driver: bridge

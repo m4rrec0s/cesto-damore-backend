@@ -8,10 +8,15 @@ WORKDIR /app
 
 # Copiar arquivos de dependências
 COPY package*.json ./
-COPY prisma ./prisma/
 
-# Instalar dependências
-RUN npm ci
+# Instalar dependências com retry e timeout maior
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 5 && \
+    npm ci --prefer-offline --no-audit
+
+# Copiar Prisma schema
+COPY prisma ./prisma/
 
 # Copiar código fonte
 COPY . .
@@ -33,8 +38,12 @@ WORKDIR /app
 # Copiar package.json e package-lock.json
 COPY package*.json ./
 
-# Instalar TODAS as dependências (incluindo @prisma/client)
-RUN npm ci --omit=dev && npm cache clean --force
+# Instalar dependências de produção com retry e timeout maior
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 5 && \
+    npm ci --omit=dev --prefer-offline --no-audit && \
+    npm cache clean --force
 
 # Copiar Prisma schema
 COPY --from=builder /app/prisma ./prisma

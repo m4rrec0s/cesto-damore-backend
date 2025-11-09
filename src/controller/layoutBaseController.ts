@@ -47,10 +47,6 @@ class LayoutBaseController {
       const originalExt = req.file.originalname.split(".").pop();
       const fileName = `layout-${timestamp}-${randomSuffix}.${originalExt}`;
 
-      // Upload para o Google Drive
-      console.log(
-        `📤 Fazendo upload de layout ${item_type} para o Google Drive...`
-      );
       const uploadedFile = await googleDriveService.uploadBuffer(
         req.file.buffer,
         fileName,
@@ -58,15 +54,10 @@ class LayoutBaseController {
         req.file.mimetype
       );
 
-      // Usar a URL de visualização do Google Drive (não download)
       const image_url = uploadedFile.webViewLink;
 
-      console.log(`✅ Imagem salva no Google Drive: ${image_url}`);
-
-      // Slots são opcionais - alguns layouts podem não ter personalização
       const parsedSlots = slots ? JSON.parse(slots) : [];
 
-      // Criar layout
       const layoutBase = await layoutBaseService.create({
         name,
         item_type,
@@ -86,10 +77,6 @@ class LayoutBaseController {
     }
   }
 
-  /**
-   * GET /admin/layouts
-   * Listar layouts
-   */
   async list(req: Request, res: Response) {
     try {
       const { item_type } = req.query;
@@ -105,10 +92,6 @@ class LayoutBaseController {
     }
   }
 
-  /**
-   * GET /admin/layouts/:id
-   * Buscar layout por ID
-   */
   async show(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -124,10 +107,6 @@ class LayoutBaseController {
     }
   }
 
-  /**
-   * PUT /admin/layouts/:id
-   * Atualizar layout
-   */
   async update(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -146,26 +125,20 @@ class LayoutBaseController {
       if (height) updateData.height = parseInt(height);
       if (slots) updateData.slots = JSON.parse(slots);
 
-      // Se tem arquivo novo, fazer upload para o Google Drive
       if (req.file && item_type) {
-        // Validar tipo de item se fornecido
         if (!["CANECA", "QUADRO"].includes(item_type)) {
           return res.status(400).json({
             error: "Tipo de item inválido. Valores permitidos: CANECA, QUADRO",
           });
         }
 
-        // Selecionar pasta do Google Drive baseada no tipo
         const folderId = DRIVE_FOLDERS[item_type as keyof typeof DRIVE_FOLDERS];
 
-        // Gerar nome único mantendo a extensão original
         const timestamp = Date.now();
         const randomSuffix = Math.round(Math.random() * 1e9);
         const originalExt = req.file.originalname.split(".").pop();
         const fileName = `layout-${timestamp}-${randomSuffix}.${originalExt}`;
 
-        // Upload para o Google Drive
-        console.log(`📤 Atualizando layout ${item_type} no Google Drive...`);
         const uploadedFile = await googleDriveService.uploadBuffer(
           req.file.buffer,
           fileName,
@@ -174,9 +147,6 @@ class LayoutBaseController {
         );
 
         updateData.image_url = uploadedFile.webViewLink;
-        console.log(
-          `✅ Imagem atualizada no Google Drive: ${updateData.image_url}`
-        );
       }
 
       const updated = await layoutBaseService.update(id, updateData);
@@ -191,10 +161,6 @@ class LayoutBaseController {
     }
   }
 
-  /**
-   * DELETE /admin/layouts/:id
-   * Deletar layout
-   */
   async delete(req: Request, res: Response) {
     try {
       const { id } = req.params;

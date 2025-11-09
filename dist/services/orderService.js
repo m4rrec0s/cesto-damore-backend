@@ -188,15 +188,15 @@ class OrderService {
         if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
             throw new Error("Pelo menos um item é obrigatório");
         }
-        // Validar recipient_phone
         if (!data.recipient_phone || data.recipient_phone.trim() === "") {
             throw new Error("Número do destinatário é obrigatório");
         }
-        // Validar formato do telefone (deve conter apenas números e ter entre 10 e 13 dígitos)
-        // Aceita: 10 (fixo sem 9), 11 (celular), 12 (55 + fixo), 13 (55 + celular)
-        const phoneDigits = data.recipient_phone.replace(/\D/g, "");
+        let phoneDigits = data.recipient_phone.replace(/\D/g, "");
         if (phoneDigits.length < 10 || phoneDigits.length > 13) {
             throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
+        }
+        if (!phoneDigits.startsWith("55")) {
+            phoneDigits = "55" + phoneDigits;
         }
         const paymentMethod = normalizeText(data.payment_method);
         if (paymentMethod !== "pix" && paymentMethod !== "card") {
@@ -320,7 +320,7 @@ class OrderService {
                     shipping_price,
                     payment_method: paymentMethod,
                     grand_total,
-                    recipient_phone: orderData.recipient_phone,
+                    recipient_phone: phoneDigits, // Salvar com código do país
                 },
             });
             for (const item of items) {
@@ -348,7 +348,6 @@ class OrderService {
                 // ✅ NOVO: Salvar customizações
                 if (Array.isArray(item.customizations) &&
                     item.customizations.length > 0) {
-                    console.log(`💾 Salvando ${item.customizations.length} customização(ões) para o item ${orderItem.id}`);
                     for (const customization of item.customizations) {
                         // Extrair todos os campos relevantes da customização
                         const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
@@ -365,7 +364,6 @@ class OrderService {
                             },
                         });
                     }
-                    console.log(`✅ Customizações salvas com sucesso para o item ${orderItem.id}`);
                 }
             }
             // ========== DECREMENTAR ESTOQUE ==========

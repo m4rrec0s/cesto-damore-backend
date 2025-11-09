@@ -5,11 +5,6 @@ const mercadopago_1 = require("../config/mercadopago");
 class CheckoutProService {
     async createPreference(request) {
         try {
-            console.log("🔄 Criando preferência do Checkout Pro:", {
-                items: request.items.length,
-                email: request.payer?.email?.substring(0, 3) + "***",
-                total: request.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0),
-            });
             const body = {
                 items: request.items.map((item, index) => ({
                     id: `item-${index + 1}`, // ID obrigatório
@@ -34,10 +29,6 @@ class CheckoutProService {
                 },
             };
             const response = await mercadopago_1.preference.create({ body });
-            console.log("✅ Preferência criada:", {
-                id: response.id,
-                init_point: response.init_point ? "Gerado" : "Não gerado",
-            });
             return {
                 id: response.id,
                 init_point: response.init_point,

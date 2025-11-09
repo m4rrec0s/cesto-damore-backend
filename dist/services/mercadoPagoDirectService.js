@@ -8,14 +8,6 @@ class MercadoPagoDirectService {
     async execute(request) {
         try {
             const { transaction_amount, token, description, installments, payment_method_id, email, } = request;
-            console.log("🔄 Criando pagamento no Mercado Pago:", {
-                transaction_amount,
-                payment_method_id,
-                email: email?.substring(0, 3) + "***", // Log parcial do email para privacidade
-                description,
-                installments,
-                hasToken: !!token,
-            });
             const body = {
                 transaction_amount,
                 description,
@@ -24,7 +16,6 @@ class MercadoPagoDirectService {
                 payer: {
                     email,
                 },
-                // Metadados para identificar ambiente de teste
                 metadata: {
                     integration_test: process.env.NODE_ENV === "development",
                     test_environment: true,
@@ -34,18 +25,12 @@ class MercadoPagoDirectService {
             if (token) {
                 body.token = token;
             }
-            // Adicionar configuração específica para teste se em desenvolvimento
             if (process.env.NODE_ENV === "development") {
-                body.capture = true; // Força captura imediata em testes
+                body.capture = true;
             }
             const paymentResponse = (await mercadopago_1.payment.create({
                 body,
             }));
-            console.log("✅ Resposta do Mercado Pago:", {
-                id: paymentResponse.id,
-                status: paymentResponse.status,
-                payment_method_id: paymentResponse.payment_method_id,
-            });
             if (!paymentResponse || !paymentResponse.id) {
                 throw new Error("Retorno inválido ao criar pagamento no Mercado Pago");
             }
@@ -73,7 +58,6 @@ class MercadoPagoDirectService {
                 cause: error?.cause,
                 details: error?.details || error?.body,
             });
-            // Re-lançar o erro original para manter compatibilidade
             throw error;
         }
     }

@@ -88,17 +88,6 @@ class PaymentController {
         try {
             const { orderId, payerEmail, payerName, payerDocument, payerDocumentType, paymentMethodId, cardToken, cardholderName, installments, issuer_id, payment_method_id, } = req.body;
             const userId = req.user?.id;
-            console.log("📝 Dados recebidos no controller:", {
-                orderId,
-                payerEmail,
-                payerName,
-                cardholderName,
-                hasCardToken: !!cardToken,
-                paymentMethodId,
-                issuer_id,
-                payment_method_id,
-            });
-            // Validações
             if (!orderId || !payerEmail || !payerName || !userId) {
                 return res.status(400).json({
                     error: "Dados obrigatórios não fornecidos",
@@ -235,17 +224,11 @@ class PaymentController {
             });
         }
     }
-    /**
-     * Webhook do Mercado Pago
-     */
     static async handleWebhook(req, res) {
         try {
             const webhookData = req.body;
             const headers = req.headers;
-            console.log("Webhook recebido:", webhookData);
-            // Processar notificação
             await paymentService_1.default.processWebhookNotification(webhookData, headers);
-            // Responder com sucesso
             res.status(200).json({ received: true });
         }
         catch (error) {
@@ -256,9 +239,6 @@ class PaymentController {
             });
         }
     }
-    /**
-     * Cancela um pagamento
-     */
     static async cancelPayment(req, res) {
         try {
             const { paymentId } = req.params;
@@ -269,7 +249,6 @@ class PaymentController {
                     error: "ID do pagamento é obrigatório",
                 });
             }
-            // Verificar se o pagamento existe e pertence ao usuário
             const dbPayment = await prisma_1.default.payment.findFirst({
                 where: {
                     OR: [{ id: paymentId }, { mercado_pago_id: paymentId }],
@@ -293,7 +272,6 @@ class PaymentController {
                     error: "Pagamento não pode ser cancelado",
                 });
             }
-            // Cancelar no Mercado Pago
             const cancelResult = await paymentService_1.default.cancelPayment(dbPayment.mercado_pago_id, reason);
             res.json({
                 success: true,
@@ -308,9 +286,6 @@ class PaymentController {
             });
         }
     }
-    /**
-     * Lista pagamentos do usuário
-     */
     static async getUserPayments(req, res) {
         try {
             const userId = req.user?.id;

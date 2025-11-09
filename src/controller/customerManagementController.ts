@@ -161,12 +161,6 @@ class CustomerManagementController {
       const { phone } = req.params;
       const { message } = req.body;
 
-      console.log("📤 [Controller] Tentando enviar mensagem:", {
-        phone,
-        messageLength: message?.length || 0,
-        hasMessage: !!message,
-      });
-
       if (!phone || !message) {
         console.error("❌ [Controller] Validação falhou:", {
           phone: !!phone,
@@ -182,8 +176,6 @@ class CustomerManagementController {
         message
       );
 
-      console.log("📨 [Controller] Resultado do serviço:", result);
-
       if (!result.success) {
         console.error("❌ [Controller] Serviço retornou success=false");
         return res.status(500).json({
@@ -192,7 +184,6 @@ class CustomerManagementController {
         });
       }
 
-      console.log("✅ [Controller] Mensagem enviada com sucesso");
       return res.json({
         message: "Mensagem enviada com sucesso",
         success: true,
@@ -211,9 +202,6 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * GET /api/customers/follow-up - Lista clientes para follow-up
-   */
   async getFollowUpCustomers(req: Request, res: Response): Promise<Response> {
     try {
       const customers = await customerManagementService.getFollowUpCustomers();

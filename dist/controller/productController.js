@@ -69,14 +69,6 @@ class ProductController {
             if (!Array.isArray(data.categories)) {
                 data.categories = [];
             }
-            console.log("📦 [ProductController] Dados recebidos:", {
-                name: data.name,
-                categories: data.categories,
-                categoriesType: typeof data.categories,
-                categoriesIsArray: Array.isArray(data.categories),
-                categoriesLength: data.categories?.length,
-            });
-            // Processar imagem se existir
             let fileToProcess = null;
             if (req.file) {
                 fileToProcess = req.file;

@@ -117,18 +117,6 @@ export class PaymentController {
 
       const userId = (req as any).user?.id;
 
-      console.log("📝 Dados recebidos no controller:", {
-        orderId,
-        payerEmail,
-        payerName,
-        cardholderName,
-        hasCardToken: !!cardToken,
-        paymentMethodId,
-        issuer_id,
-        payment_method_id,
-      });
-
-      // Validações
       if (!orderId || !payerEmail || !payerName || !userId) {
         return res.status(400).json({
           error: "Dados obrigatórios não fornecidos",
@@ -282,20 +270,13 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Webhook do Mercado Pago
-   */
   static async handleWebhook(req: Request, res: Response) {
     try {
       const webhookData = req.body;
       const headers = req.headers;
 
-      console.log("Webhook recebido:", webhookData);
-
-      // Processar notificação
       await PaymentService.processWebhookNotification(webhookData, headers);
 
-      // Responder com sucesso
       res.status(200).json({ received: true });
     } catch (error) {
       console.error("Erro ao processar webhook:", error);
@@ -306,9 +287,6 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Cancela um pagamento
-   */
   static async cancelPayment(req: Request, res: Response) {
     try {
       const { paymentId } = req.params;
@@ -321,7 +299,6 @@ export class PaymentController {
         });
       }
 
-      // Verificar se o pagamento existe e pertence ao usuário
       const dbPayment = await prisma.payment.findFirst({
         where: {
           OR: [{ id: paymentId }, { mercado_pago_id: paymentId }],
@@ -349,7 +326,6 @@ export class PaymentController {
         });
       }
 
-      // Cancelar no Mercado Pago
       const cancelResult = await PaymentService.cancelPayment(
         dbPayment.mercado_pago_id,
         reason
@@ -368,9 +344,6 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Lista pagamentos do usuário
-   */
   static async getUserPayments(req: Request, res: Response) {
     try {
       const userId = (req as any).user?.id;

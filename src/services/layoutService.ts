@@ -279,7 +279,8 @@ class LayoutService {
     const filepath = path.join(MODELS_DIR, filename);
     fs.writeFileSync(filepath, file.buffer);
 
-    return `/customizations/models/${filename}`;
+    const baseUrl = process.env.BASE_URL || "";
+    return `${baseUrl}/customizations/models/${filename}`;
   }
 
   private persistPreviewImage(file: Express.Multer.File, itemId: string) {
@@ -291,7 +292,8 @@ class LayoutService {
     const filepath = path.join(CUSTOMIZATION_IMAGES_DIR, filename);
     fs.writeFileSync(filepath, file.buffer);
 
-    return `/images/customizations/${filename}`;
+    const baseUrl = process.env.BASE_URL || "";
+    return `${baseUrl}/images/customizations/${filename}`;
   }
 
   private safeDeleteFile(filepath: string) {

@@ -81,8 +81,6 @@ class FeedController {
   // ============== FEED BANNER ENDPOINTS ==============
 
   async createBanner(req: Request, res: Response) {
-    console.log("🎯 [feed.createBanner] INÍCIO - Controller chamado!");
-
     try {
       const data = { ...req.body };
 
@@ -115,14 +113,6 @@ class FeedController {
 
       if (fileToProcess) {
         try {
-          // O arquivo já foi convertido para WebP lossless pelo middleware
-          console.log("[feed.createBanner] Arquivo recebido:", {
-            originalname: fileToProcess.originalname,
-            mimetype: fileToProcess.mimetype,
-            size: fileToProcess.size,
-          });
-
-          // Salvar imagem (já está em WebP lossless)
           const origName = fileToProcess.originalname || `banner_${Date.now()}`;
           const extension = origName.substring(origName.lastIndexOf("."));
           const baseName = origName.replace(/\.[^/.]+$/, "");
@@ -135,11 +125,6 @@ class FeedController {
             fileToProcess.mimetype
           );
           data.image_url = imageUrl;
-
-          console.log("[feed.createBanner] Banner salvo com sucesso:", {
-            imageUrl,
-            filename,
-          });
         } catch (imageError: any) {
           console.error("Erro ao processar imagem:", imageError);
           return res.status(500).json({
@@ -166,7 +151,6 @@ class FeedController {
       const { id } = req.params;
       const data = { ...req.body };
 
-      // Converter tipos que vêm como string do FormData
       if (typeof data.is_active === "string") {
         data.is_active = data.is_active === "true";
       }
@@ -174,7 +158,6 @@ class FeedController {
         data.display_order = parseInt(data.display_order, 10);
       }
 
-      // Processar imagem se existir (mantém formato original)
       const file = ((): any => {
         if (req.file) return req.file;
         if (Array.isArray(req.files) && req.files.length) return req.files[0];
@@ -187,14 +170,6 @@ class FeedController {
 
       if (file) {
         try {
-          // O arquivo já foi convertido para WebP lossless pelo middleware
-          console.log("[feed.updateBanner] Arquivo recebido:", {
-            originalname: file.originalname,
-            mimetype: file.mimetype,
-            size: file.size,
-          });
-
-          // Salvar imagem (já está em WebP lossless)
           const origName = file.originalname || `banner_${Date.now()}`;
           const extension = origName.substring(origName.lastIndexOf("."));
           const baseName = origName.replace(/\.[^/.]+$/, "");
@@ -207,11 +182,6 @@ class FeedController {
             file.mimetype
           );
           data.image_url = imageUrl;
-
-          console.log("[feed.updateBanner] Banner atualizado com sucesso:", {
-            imageUrl,
-            filename,
-          });
         } catch (imageError: any) {
           console.error("Erro ao processar imagem:", imageError);
           return res.status(500).json({
@@ -249,8 +219,6 @@ class FeedController {
       }
     }
   }
-
-  // ============== FEED SECTION ENDPOINTS ==============
 
   async createSection(req: Request, res: Response) {
     try {

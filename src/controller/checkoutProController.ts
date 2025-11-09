@@ -4,8 +4,6 @@ import { checkoutProService } from "../services/checkoutProService";
 export class CheckoutProController {
   async createPreference(req: Request, res: Response) {
     try {
-      console.log("🛒 Criando preferência Checkout Pro:", req.body);
-
       const { items, payer, back_urls, auto_return } = req.body;
 
       if (!items || !Array.isArray(items) || items.length === 0) {
@@ -32,8 +30,6 @@ export class CheckoutProController {
         auto_return,
       });
 
-      console.log("✅ Preferência criada:", preference.id);
-
       res.status(201).json({
         success: true,
         data: preference,
@@ -54,18 +50,10 @@ export class CheckoutProController {
 
   async handlePaymentWebhook(req: Request, res: Response) {
     try {
-      console.log("🔔 Webhook de pagamento recebido:", {
-        type: req.body.type,
-        action: req.body.action,
-        data: req.body.data,
-      });
-
       // Aqui você pode implementar a lógica para processar o webhook
       // Por exemplo, atualizar o status do pedido no banco de dados
 
       if (req.body.type === "payment" && req.body.data?.id) {
-        console.log("💰 Pagamento processado:", req.body.data.id);
-
         // TODO: Buscar detalhes do pagamento e atualizar pedido
         // const paymentId = req.body.data.id;
         // await this.updateOrderStatus(paymentId);
@@ -82,13 +70,6 @@ export class CheckoutProController {
     try {
       const { payment_id, collection_id, collection_status } = req.query;
 
-      console.log("📊 Consultando status do pagamento:", {
-        payment_id,
-        collection_id,
-        collection_status,
-      });
-
-      // Por enquanto, retornar status baseado nos parâmetros
       const status = collection_status || "pending";
 
       res.json({

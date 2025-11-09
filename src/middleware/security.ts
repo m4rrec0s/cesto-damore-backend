@@ -48,7 +48,7 @@ export const authenticateToken = async (
         },
       });
     } catch (jwtError: any) {
-      console.log("❌ JWT inválido, tentando Firebase:", {
+      console.error("❌ JWT inválido, tentando Firebase:", {
         error: jwtError?.message || "JWT verification failed",
       });
 
@@ -197,60 +197,93 @@ export const validateMercadoPagoWebhook = (
       });
     }
 
-    // Se for modo teste (live_mode: false), não validar assinatura
     const isTestMode = live_mode === false;
 
     if (isTestMode) {
-      console.log("✅ Webhook de teste aceito (live_mode: false)");
+      console.log("✅ Webhook em modo teste aceito");
       return next();
     }
 
-    // Em produção (live_mode: true), validar assinatura
-    const signature = req.headers["x-signature"] as string;
-    const requestId = req.headers["x-request-id"] as string;
+    const xSignature = req.headers["x-signature"] as string;
+    const xRequestId = req.headers["x-request-id"] as string;
 
-    if (signature && mercadoPagoConfig.webhookSecret) {
-      const isValidSignature = validateWebhookSignature(
-        req.body,
-        signature,
-        mercadoPagoConfig.webhookSecret
-      );
-      if (!isValidSignature) {
-        console.warn("Webhook rejeitado - assinatura inválida");
+    if (!xSignature || !xRequestId) {
+      console.warn("Webhook rejeitado - headers de segurança ausentes");
+      return res.status(401).json({
+        error: "Headers de autenticação ausentes",
+        code: "MISSING_AUTH_HEADERS",
+      });
+    }
+
+    // Validação de assinatura usando padrão oficial do Mercado Pago
+    if (mercadoPagoConfig.webhookSecret) {
+      // Extrair partes da assinatura (formato: ts=1234567890,v1=hash)
+      const parts = xSignature.split(",");
+      let timestamp: string | null = null;
+      let hash: string | null = null;
+
+      for (const part of parts) {
+        const [key, value] = part.split("=");
+        if (key === "ts") timestamp = value;
+        if (key === "v1") hash = value;
+      }
+
+      if (!timestamp || !hash) {
+        console.warn("Webhook rejeitado - formato de assinatura inválido");
+        return res.status(401).json({
+          error: "Formato de assinatura inválido",
+          code: "INVALID_SIGNATURE_FORMAT",
+        });
+      }
+
+      // Validar timestamp (prevenir replay attacks)
+      const webhookTimestamp = parseInt(timestamp, 10);
+      const currentTimestamp = Math.floor(Date.now() / 1000);
+      const maxAge = 5 * 60; // 5 minutos
+
+      if (currentTimestamp - webhookTimestamp > maxAge) {
+        console.warn("Webhook rejeitado - timestamp muito antigo");
+        return res.status(401).json({
+          error: "Webhook expirado",
+          code: "WEBHOOK_EXPIRED",
+        });
+      }
+
+      // Construir manifest string conforme padrão Mercado Pago
+      const dataId = data?.id?.toString() || "";
+      const manifestString = `id:${dataId};request-id:${xRequestId};ts:${timestamp};`;
+
+      // Calcular HMAC SHA256
+      const expectedHash = crypto
+        .HmacSHA256(manifestString, mercadoPagoConfig.webhookSecret)
+        .toString(crypto.enc.Hex);
+
+      if (hash !== expectedHash) {
+        console.warn("Webhook rejeitado - assinatura inválida", {
+          manifest: manifestString,
+        });
         return res.status(403).json({
           error: "Assinatura de webhook inválida",
           code: "INVALID_SIGNATURE",
         });
       }
+
+      console.log("✅ Webhook validado com sucesso");
+    } else {
+      console.warn(
+        "⚠️ MERCADO_PAGO_WEBHOOK_SECRET não configurado - validação desabilitada"
+      );
     }
 
     next();
   } catch (error) {
-    console.error("Erro na validação do webhook:", error);
+    console.error("❌ Erro na validação do webhook:", error);
     res.status(500).json({
       error: "Erro na validação do webhook",
       code: "WEBHOOK_VALIDATION_ERROR",
     });
   }
 };
-
-function validateWebhookSignature(
-  payload: any,
-  signature: string,
-  secret: string
-): boolean {
-  try {
-    const payloadString = JSON.stringify(payload);
-    const expectedSignature = crypto
-      .HmacSHA256(payloadString, secret)
-      .toString();
-
-    return signature === expectedSignature;
-  } catch (error) {
-    console.error("Erro ao validar assinatura:", error);
-    return false;
-  }
-}
 
 export const paymentRateLimit = (() => {
   const requests = new Map<string, { count: number; resetTime: number }>();
@@ -355,20 +388,10 @@ export const logFinancialOperation = (operation: string) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const startTime = Date.now();
 
-    console.log(
-      `[FINANCIAL_OP] ${operation} iniciada por usuário ${req.user?.id} - IP: ${req.ip}`
-    );
-
     const originalSend = res.send;
     res.send = function (data) {
       const duration = Date.now() - startTime;
       const success = res.statusCode < 400;
-
-      console.log(
-        `[FINANCIAL_OP] ${operation} ${
-          success ? "SUCESSO" : "ERRO"
-        } - ${duration}ms - Status: ${res.statusCode}`
-      );
 
       return originalSend.call(this, data);
     };

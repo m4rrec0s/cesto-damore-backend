@@ -16,8 +16,15 @@ app.get("/", async (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-app.use("/api", routes);
+app.use(routes);
 
-app.listen(8080, () => {
-  console.log("🚀 Server running on http://localhost:8080");
+const PORT = process.env.PORT || 3333;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on ${BASE_URL}`);
+  console.log(`📡 PORT: ${PORT}`);
+  console.log(`🔗 BASE_URL: ${BASE_URL}`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`💳 Mercado Pago Webhook: ${BASE_URL}/api/webhook/mercadopago`);
 });

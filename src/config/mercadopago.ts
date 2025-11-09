@@ -11,22 +11,6 @@ if (!accessToken) {
   throw new Error("MERCADO_PAGO_ACCESS_TOKEN é obrigatório");
 }
 
-// Validar tipo de credenciais em desenvolvimento
-if (process.env.NODE_ENV === "development") {
-  if (!accessToken.startsWith("APP_USR")) {
-    console.warn(
-      "⚠️  ATENÇÃO: Use credenciais de TESTE (APP_USR) em desenvolvimento!"
-    );
-  } else {
-    console.log(
-      "✅ Usando credenciais de PRODUÇÃO da CONTA DE TESTE do MercadoPago"
-    );
-    console.log(
-      "📝 Tipo: Credenciais de produção para testes (conforme documentação)"
-    );
-  }
-}
-
 if (!publicKey) {
   throw new Error("MERCADO_PAGO_PUBLIC_KEY é obrigatório");
 }
@@ -35,36 +19,32 @@ if (!webhookSecret) {
   throw new Error("MERCADO_PAGO_WEBHOOK_SECRET é obrigatório");
 }
 
-// Configuração do cliente Mercado Pago
 const client = new MercadoPagoConfig({
   accessToken,
   options: {
-    timeout: 10000, // Aumentar timeout para 10 segundos
+    timeout: 10000,
   },
 });
 
-// Instâncias dos serviços
 export const payment = new Payment(client);
 export const preference = new Preference(client);
 
-// Configurações
 export const mercadoPagoConfig = {
   accessToken,
   publicKey,
   webhookSecret,
   client,
-  // URLs base para webhooks e notificações (remover /api se existir)
-  baseUrl: (process.env.BASE_URL || "http://localhost:8080").replace(
-    /\/api$/,
-    ""
-  ),
-  // Configurações de segurança
+  baseUrl: process.env.BASE_URL || "",
   security: {
     enableWebhookValidation: true,
     enableIPWhitelist: process.env.NODE_ENV === "production",
-    allowedIPs: ["209.225.49.0/24", "216.33.197.0/24", "216.33.196.0/24"],
+    allowedIPs: [
+      "209.225.49.0/24",
+      "216.33.197.0/24",
+      "216.33.196.0/24",
+      "185.205.246.213",
+    ],
   },
-  // Configurações de desenvolvimento
   development: {
     skipBackUrls: process.env.NODE_ENV !== "production",
     useTestUrls: process.env.NODE_ENV !== "production",
@@ -74,7 +54,7 @@ export const mercadoPagoConfig = {
 // Configurações de ambiente
 export const environmentConfig = {
   isProduction: process.env.NODE_ENV === "production",
-  isTestAccount: accessToken.startsWith("APP_USR"), // Indica se é conta de teste
+  isTestAccount: accessToken.startsWith("TEST"),
   integrator_id: process.env.MERCADO_PAGO_INTEGRATOR_ID,
   corporation_id: process.env.MERCADO_PAGO_CORPORATION_ID,
   platform_id: process.env.MERCADO_PAGO_PLATFORM_ID,

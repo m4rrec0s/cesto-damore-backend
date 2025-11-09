@@ -476,10 +476,6 @@ class OrderService {
           Array.isArray(item.customizations) &&
           item.customizations.length > 0
         ) {
-          console.log(
-            `💾 Salvando ${item.customizations.length} customização(ões) para o item ${orderItem.id}`
-          );
-
           for (const customization of item.customizations) {
             // Extrair todos os campos relevantes da customização
             const {
@@ -503,10 +499,6 @@ class OrderService {
               },
             });
           }
-
-          console.log(
-            `✅ Customizações salvas com sucesso para o item ${orderItem.id}`
-          );
         }
       }
 

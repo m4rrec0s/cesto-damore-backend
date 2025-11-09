@@ -189,14 +189,16 @@ class LayoutService {
         const filename = `${Date.now()}-${itemId}-${sanitizeFilename(file.originalname)}`;
         const filepath = path_1.default.join(MODELS_DIR, filename);
         fs_1.default.writeFileSync(filepath, file.buffer);
-        return `/customizations/models/${filename}`;
+        const baseUrl = process.env.BASE_URL || "";
+        return `${baseUrl}/customizations/models/${filename}`;
     }
     persistPreviewImage(file, itemId) {
         ensureDirExists(CUSTOMIZATION_IMAGES_DIR);
         const filename = `${Date.now()}-${itemId}-${sanitizeFilename(file.originalname)}`;
         const filepath = path_1.default.join(CUSTOMIZATION_IMAGES_DIR, filename);
         fs_1.default.writeFileSync(filepath, file.buffer);
-        return `/images/customizations/${filename}`;
+        const baseUrl = process.env.BASE_URL || "";
+        return `${baseUrl}/images/customizations/${filename}`;
     }
     safeDeleteFile(filepath) {
         try {

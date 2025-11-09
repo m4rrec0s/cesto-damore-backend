@@ -51,11 +51,9 @@ class GoogleDriveService {
       "customizations"
     );
     this.tokenPath = path.join(process.cwd(), "google-drive-token.json");
-    this.baseUrl = process.env.BASE_URL || "http://localhost:8080";
+    this.baseUrl = process.env.BASE_URL || "";
 
-    const redirectUri =
-      process.env.GOOGLE_REDIRECT_URI ||
-      "http://localhost:8080/api/oauth/callback";
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
     this.oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
@@ -102,7 +100,6 @@ class GoogleDriveService {
     const envTokens = this.getTokensFromEnv();
     if (envTokens) {
       this.oauth2Client.setCredentials(envTokens);
-      console.log("✅ Tokens OAuth2 carregados das variáveis de ambiente");
       return;
     }
 
@@ -110,7 +107,6 @@ class GoogleDriveService {
       const tokenFile = await fs.readFile(this.tokenPath, "utf-8");
       const tokens = JSON.parse(tokenFile);
       this.oauth2Client.setCredentials(tokens);
-      console.log("✅ Tokens OAuth2 carregados com sucesso");
     } catch (error) {
       console.warn(
         "⚠️ Arquivo de tokens não encontrado ou inválido. Execute a autenticação OAuth2."
@@ -118,32 +114,20 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Salva tokens OAuth2 no arquivo e atualiza .env
-   */
   private async saveTokens(tokens: OAuth2Credentials): Promise<void> {
     try {
-      // Salvar no google-drive-token.json
       await fs.writeFile(this.tokenPath, JSON.stringify(tokens, null, 2));
-      console.log("✅ Tokens OAuth2 salvos em:", this.tokenPath);
 
-      // Atualizar .env
       await this.updateEnvFile(tokens);
-      console.log("✅ Arquivo .env atualizado com novos tokens");
     } catch (error) {
       console.error("❌ Erro ao salvar tokens:", error);
     }
   }
-
-  /**
-   * Atualiza variáveis de ambiente no arquivo .env
-   */
   private async updateEnvFile(tokens: OAuth2Credentials): Promise<void> {
     try {
       const envPath = path.join(process.cwd(), ".env");
       let envContent = await fs.readFile(envPath, "utf-8");
 
-      // Atualizar ou adicionar cada token
       if (tokens.access_token) {
         envContent = this.updateEnvVariable(
           envContent,
@@ -234,12 +218,6 @@ class GoogleDriveService {
       this.oauth2Client.setCredentials(tokens);
       await this.saveTokens(tokens);
 
-      console.log("✅ Autenticação OAuth2 concluída com sucesso!");
-      console.log(
-        "📝 Refresh token:",
-        tokens.refresh_token ? "✅ Obtido" : "❌ Não obtido"
-      );
-
       return tokens;
     } catch (error: any) {
       console.error("❌ Erro ao obter tokens:", error.message);
@@ -252,10 +230,8 @@ class GoogleDriveService {
    */
   private async refreshAccessToken(): Promise<void> {
     try {
-      console.log("🔄 Renovando access token...");
       const { credentials } = await this.oauth2Client.refreshAccessToken();
 
-      // Mesclar com credenciais existentes (preservar refresh_token)
       const updatedTokens = {
         ...this.oauth2Client.credentials,
         ...credentials,
@@ -263,13 +239,6 @@ class GoogleDriveService {
 
       this.oauth2Client.setCredentials(updatedTokens);
       await this.saveTokens(updatedTokens);
-
-      console.log("✅ Access token renovado automaticamente");
-      console.log(
-        `   📅 Nova expiração: ${new Date(
-          updatedTokens.expiry_date || 0
-        ).toLocaleString()}`
-      );
     } catch (error: any) {
       console.error("❌ Erro ao renovar access token:", error.message);
       throw new Error(
@@ -278,9 +247,6 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Verifica se precisa renovar token antes de cada operação
-   */
   private async ensureValidToken(): Promise<void> {
     if (!this.oauth2Client.credentials) {
       throw new Error(
@@ -290,19 +256,16 @@ class GoogleDriveService {
 
     const { expiry_date, refresh_token } = this.oauth2Client.credentials;
 
-    // Se não há data de expiração, tentar usar o token atual
     if (!expiry_date) {
       if (!refresh_token) {
         throw new Error(
           "Token inválido. Execute o fluxo OAuth2 via GET /oauth/authorize"
         );
       }
-      // Forçar renovação se não sabemos quando expira
       await this.refreshAccessToken();
       return;
     }
 
-    // Renovar se expirou ou expira em menos de 5 minutos
     const expiresIn = expiry_date - Date.now();
     const fiveMinutes = 5 * 60 * 1000;
 
@@ -312,18 +275,10 @@ class GoogleDriveService {
           "Refresh token ausente. Execute o fluxo OAuth2 via GET /oauth/authorize"
         );
       }
-      console.log(
-        `🔄 Token expira em ${Math.round(
-          expiresIn / 1000 / 60
-        )} minuto(s), renovando...`
-      );
       await this.refreshAccessToken();
     }
   }
 
-  /**
-   * Cria uma pasta no Google Drive
-   */
   async createFolder(folderName: string): Promise<string> {
     try {
       await this.ensureValidToken();
@@ -339,9 +294,6 @@ class GoogleDriveService {
         fields: "id, name",
       });
 
-      console.log(
-        `📁 Pasta criada no Google Drive: ${response.data.name} (${response.data.id})`
-      );
       return response.data.id;
     } catch (error: any) {
       console.error("❌ Erro ao criar pasta no Google Drive:", error.message);
@@ -349,9 +301,6 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Faz upload de um arquivo para o Google Drive
-   */
   async uploadFile(
     filePath: string,
     fileName: string,
@@ -384,10 +333,6 @@ class GoogleDriveService {
         },
       });
 
-      console.log(
-        `📤 Arquivo enviado para Google Drive: ${response.data.name}`
-      );
-
       const directDownloadUrl = `https://drive.google.com/uc?id=${response.data.id}&export=download`;
 
       return {
@@ -414,9 +359,6 @@ class GoogleDriveService {
     );
 
     const results = await Promise.all(uploadPromises);
-    console.log(
-      `✅ ${results.length} arquivo(s) enviado(s) para o Google Drive`
-    );
 
     return results;
   }
@@ -454,9 +396,6 @@ class GoogleDriveService {
         },
       });
 
-      console.log(`📤 Arquivo (buffer) enviado para Google Drive: ${fileName}`);
-
-      // URL de visualização direta (formato que funciona com <img>)
       const directImageUrl = `https://drive.google.com/uc?id=${response.data.id}`;
 
       return {
@@ -527,17 +466,12 @@ class GoogleDriveService {
       await this.drive.files.delete({
         fileId: fileId,
       });
-
-      console.log(`🗑️ Arquivo deletado do Google Drive: ${fileId}`);
     } catch (error: any) {
       console.error("❌ Erro ao deletar arquivo:", error.message);
       throw new Error("Falha ao deletar arquivo do Google Drive");
     }
   }
 
-  /**
-   * Deleta uma pasta e todos os seus arquivos
-   */
   async deleteFolder(folderId: string): Promise<void> {
     try {
       await this.ensureValidToken();
@@ -548,8 +482,6 @@ class GoogleDriveService {
       await this.drive.files.delete({
         fileId: folderId,
       });
-
-      console.log(`🗑️ Pasta deletada do Google Drive: ${folderId}`);
     } catch (error: any) {
       console.error("❌ Erro ao deletar pasta:", error.message);
       throw new Error("Falha ao deletar pasta do Google Drive");
@@ -570,16 +502,11 @@ class GoogleDriveService {
           type: "anyone",
         },
       });
-
-      console.log(`🔓 Pasta ${folderId} tornada pública`);
     } catch (error: any) {
       console.error("❌ Erro ao tornar pasta pública:", error.message);
     }
   }
 
-  /**
-   * Verifica se o serviço está configurado e autenticado
-   */
   isConfigured(): boolean {
     return (
       !!this.oauth2Client.credentials?.access_token ||
@@ -587,9 +514,6 @@ class GoogleDriveService {
     );
   }
 
-  /**
-   * Obtém informações sobre a configuração atual
-   */
   getStatus(): {
     configured: boolean;
     hasAccessToken: boolean;

@@ -33,8 +33,9 @@ class CustomizationUploadController {
             const filepath = path_1.default.join(customizationDir, filename);
             // Salvar arquivo
             fs_1.default.writeFileSync(filepath, file.buffer);
-            // Retornar URL relativa que pode ser acessada via GET /images/customizations/:filename
-            const imageUrl = `/images/customizations/${filename}`;
+            // Retornar URL completa usando BASE_URL do .env
+            const baseUrl = process.env.BASE_URL || "";
+            const imageUrl = `${baseUrl}/images/customizations/${filename}`;
             return res.status(201).json({
                 success: true,
                 imageUrl,

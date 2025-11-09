@@ -1,5 +1,21 @@
 # 🚀 Guia de Deploy - Cesto d'Amore API
 
+## ⚠️ REQUISITOS CRÍTICOS
+
+### Versão do Node.js
+
+**OBRIGATÓRIO: Node.js >= 20.0.0**
+
+O Firebase Admin SDK requer Node.js 20 ou superior. Configure sua plataforma de deploy para usar Node 20.
+
+**Arquivos de configuração incluídos:**
+
+- `.node-version` - Para plataformas que suportam
+- `.nvmrc` - Para uso com NVM
+- `package.json` - Engine specification
+- `nixpacks.toml` - Para Railway/Nixpacks
+- `render.yaml` - Para Render.com
+
 ## ✅ Checklist de Deploy
 
 ### 1. Variáveis de Ambiente Obrigatórias
@@ -190,7 +206,65 @@ docker-compose exec app sh
 
 ---
 
-### Método 2: Deploy Tradicional (Node.js)
+### Método 2: Deploy em Plataformas Cloud ☁️
+
+#### **Railway** (Recomendado - Detecção automática de Node 20)
+
+1. **Conecte seu repositório GitHub**
+2. **Configure as variáveis de ambiente** (todas as do checklist acima)
+3. **Build automático** - Railway detecta `nixpacks.toml` e usa Node 20
+4. **Build command**: `npm install && npx prisma generate && npm run build`
+5. **Start command**: `npm start`
+
+> ℹ️ O arquivo `nixpacks.toml` já está configurado para Node 20
+
+#### **Render.com**
+
+1. **Crie um novo Web Service**
+2. **Configure:**
+   - **Build Command**: `chmod +x build.sh && ./build.sh`
+   - **Start Command**: `npm start`
+   - **Node Version**: Configure como `20.11.0` nas Settings
+3. **Adicione variáveis de ambiente**
+4. **Configure Health Check**: `/health`
+
+> ℹ️ O arquivo `render.yaml` já está configurado
+
+#### **Outras Plataformas (Heroku, AWS, etc.)**
+
+**Garanta que Node.js >= 20.0.0 esteja instalado:**
+
+```bash
+# Verificar versão no servidor
+node --version  # Deve ser >= v20.0.0
+```
+
+**Comandos de Build:**
+```bash
+npm install
+npx prisma generate
+npm run build
+npx prisma migrate deploy
+```
+
+**Comando de Start:**
+```bash
+npm start
+```
+
+#### **⚠️ Problemas Comuns de Deploy**
+
+| Problema | Causa | Solução |
+|----------|-------|---------|
+| `EBADENGINE` errors | Node < 20 | Configure Node 20+ na plataforma |
+| `Cannot find module '@prisma/client'` | Prisma não gerado | Adicione `npx prisma generate` ao build |
+| `Service is not reachable` | Porta errada | Use variável `PORT` do ambiente ou 3333 |
+| Exit code 137 | Falta de memória | Aumente RAM ou use build script otimizado |
+| Webhook validation fails | Secret incorreto | Verifique `MERCADO_PAGO_WEBHOOK_SECRET` |
+
+---
+
+### Método 3: Deploy Tradicional (Node.js)
 
 #### **1. Build da Aplicação**
 

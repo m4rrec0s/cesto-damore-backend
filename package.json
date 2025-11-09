@@ -13,6 +13,10 @@
   },
   "author": "marrecos",
   "license": "ISC",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "dependencies": {
     "@prisma/client": "^6.15.0",
     "@types/crypto-js": "^4.2.2",

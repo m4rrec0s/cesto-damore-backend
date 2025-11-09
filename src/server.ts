@@ -3,7 +3,6 @@ dotenv.config();
 
 import express from "express";
 import cors from "cors";
-import path from "path";
 import routes from "./routes";
 
 const app = express();
@@ -13,13 +12,13 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 app.get("/", async (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+  return res.json({ message: "Cesto d'Amore Backend is running!" });
 });
 
 app.use(routes);
 
 const PORT = process.env.PORT || 3333;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const BASE_URL = process.env.BASE_URL;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on ${BASE_URL}`);

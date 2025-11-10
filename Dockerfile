@@ -1,78 +1,14 @@
-# Estágio 1: Build
-FROM node:20-alpine AS builder
+# Imagem base simples com Node 20
+FROM node:20-alpine
 
-# Instalar dependências necessárias para Prisma
-RUN apk add --no-cache openssl libc6-compat
+# Instalar dependências do sistema necessárias
+RUN apk add --no-cache openssl libc6-compat git
 
-WORKDIR /app
-
-# Copiar arquivos de dependências
-COPY package*.json ./
-
-# Instalar dependências com retry e timeout maior
-# Otimizado para reduzir uso de memória
-RUN npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 120000 && \
-    npm config set fetch-retries 5 && \
-    npm ci --prefer-offline --no-audit --maxsockets=1
-
-# Copiar Prisma schema
-COPY prisma ./prisma/
-
-# Copiar código fonte
-COPY . .
-
-# Gerar Prisma Client
-RUN npx prisma generate
-
-# Build da aplicação
-RUN npm run build
-
-# Estágio 2: Produção
-FROM node:20-alpine AS production
-
-# Instalar dependências necessárias
-RUN apk add --no-cache openssl libc6-compat
-
-WORKDIR /app
-
-# Copiar package.json e package-lock.json
-COPY package*.json ./
-
-# Instalar dependências de produção com retry e timeout maior
-# Otimizado para reduzir uso de memória
-RUN npm config set fetch-retry-mintimeout 20000 && \
-    npm config set fetch-retry-maxtimeout 120000 && \
-    npm config set fetch-retries 5 && \
-    npm ci --omit=dev --prefer-offline --no-audit --maxsockets=1 && \
-    npm cache clean --force
-
-# Copiar Prisma schema
-COPY --from=builder /app/prisma ./prisma
-
-# Gerar Prisma Client em produção
-RUN npx prisma generate
-
-# Copiar código compilado do estágio de build
-COPY --from=builder /app/dist ./dist
-
-# Criar diretórios necessários
-RUN mkdir -p /app/images/customizations /app/customizations/models
+# Definir diretório de trabalho
+WORKDIR /code
 
 # Expor porta
 EXPOSE 3333
 
-# Variáveis de ambiente padrão (serão sobrescritas pelo docker-compose)
-ENV NODE_ENV=production
-ENV PORT=3333
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3333/', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
-
-# Script de inicialização
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["node", "dist/server.js"]
+# Comando padrão (será sobrescrito pelo Easypanel)
+CMD ["npm", "start"]

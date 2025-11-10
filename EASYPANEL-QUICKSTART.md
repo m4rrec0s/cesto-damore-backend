@@ -2,9 +2,9 @@
 
 ## ⚠️ IMPORTANTE: Configuração Correta
 
-O Easypanel está tentando executar `deploy.sh` **DENTRO** do container, o que causa erro 137 (OOM).
+O Easypanel usa um fluxo diferente: clona o código para `/code` e executa scripts de build.
 
-**NÃO FAÇA ISSO!** O Dockerfile já contém todo o processo de build.
+**Dockerfile simplificado** para funcionar com esse fluxo.
 
 ---
 
@@ -18,15 +18,26 @@ O Easypanel está tentando executar `deploy.sh` **DENTRO** do container, o que c
 
 ### 2. Build Settings ⭐ CRÍTICO
 
-**DEIXE ESTES CAMPOS VAZIOS:**
+**Configure os scripts de implantação:**
 
-```
-Build Command: [VAZIO]
-Deploy Script: [VAZIO]
-Start Command: [VAZIO - o Dockerfile já define]
+```bash
+# Build Command (executa uma vez durante o build)
+npm ci --prefer-offline && npx prisma generate && npm run build && npx prisma migrate deploy
 ```
 
-**Configure apenas:**
+**OU use o script otimizado:**
+
+```bash
+chmod +x easypanel-deploy.sh && ./easypanel-deploy.sh
+```
+
+**Start Command (executa sempre que o container inicia):**
+
+```bash
+npm start
+```
+
+**Configure também:**
 
 - **Build Method**: `Dockerfile`
 - **Dockerfile Path**: `Dockerfile`
@@ -126,13 +137,21 @@ Configure seu domínio:
 
 ### Erro: "Command failed with exit code 137"
 
-**Causa**: Falta de memória (OOM)
+**Causa**: Falta de memória (OOM) durante npm install
 
 **Solução**:
 
 1. ✅ Aumente memória para **1GB** ou **2GB**
-2. ✅ Certifique-se de que NÃO tem `deploy.sh` em "Deploy Script"
-3. ✅ Rebuild com cache limpo
+2. ✅ Use o comando de build otimizado com `--prefer-offline`
+3. ✅ Ou divida o build em etapas menores:
+
+   ```bash
+   # Opção 1: Build completo (recomendado)
+   npm ci --prefer-offline && npx prisma generate && npm run build && npx prisma migrate deploy
+
+   # Opção 2: Sem cache (se tiver problemas)
+   npm install && npx prisma generate && npm run build && npx prisma migrate deploy
+   ```
 
 ### Erro: "Webhook 403 Forbidden"
 
@@ -156,9 +175,9 @@ Configure seu domínio:
 
 Antes de clicar em Deploy:
 
-- [ ] Build Command: **VAZIO**
-- [ ] Deploy Script: **VAZIO**
 - [ ] Build Method: `Dockerfile`
+- [ ] Build Command: `npm ci --prefer-offline && npx prisma generate && npm run build && npx prisma migrate deploy`
+- [ ] Start Command: `npm start`
 - [ ] Memória: **≥ 1GB**
 - [ ] Todas variáveis de ambiente configuradas
 - [ ] PORT: `3333`

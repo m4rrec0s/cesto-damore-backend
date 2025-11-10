@@ -217,6 +217,7 @@ class StockService {
   /**
    * Verifica se há estoque disponível antes de criar o pedido
    * ✅ CRÍTICO: Busca dados frescos do banco sem cache
+   * ✅ NOVO: Pula validação de produto se ele usa sistema de components
    */
   async validateOrderStock(orderItems: OrderItemData[]): Promise<{
     valid: boolean;
@@ -225,26 +226,44 @@ class StockService {
     const errors: string[] = [];
 
     for (const item of orderItems) {
-      // Validar produto - ✅ Força refresh com $queryRaw
+      // ✅ NOVO: Verificar se produto tem componentes
       try {
-        const productResult = await prisma.$queryRaw<
-          Array<{
-            name: string;
-            stock_quantity: number | null;
-          }>
-        >`
-          SELECT name, stock_quantity 
-          FROM "Product" 
-          WHERE id = ${item.product_id}
+        const componentCount = await prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(*)::bigint as count
+          FROM "ProductComponent"
+          WHERE product_id = ${item.product_id}
         `;
 
-        const product = productResult[0];
+        const hasComponents = Number(componentCount[0]?.count || 0) > 0;
 
-        if (product && product.stock_quantity !== null) {
-          if (product.stock_quantity < item.quantity) {
-            errors.push(
-              `Produto ${product.name}: estoque insuficiente (disponível: ${product.stock_quantity})`
-            );
+        // ✅ Se produto usa components, não validar estoque direto do produto
+        if (hasComponents) {
+          console.log(
+            `⚠️ Produto ${item.product_id} usa sistema de components - validação de estoque via components (já feita anteriormente)`
+          );
+          // A validação de components já foi feita em validateComponentsStock()
+          // então pulamos a validação do produto direto
+        } else {
+          // Produto SEM components: validar estoque direto - ✅ Força refresh com $queryRaw
+          const productResult = await prisma.$queryRaw<
+            Array<{
+              name: string;
+              stock_quantity: number | null;
+            }>
+          >`
+            SELECT name, stock_quantity 
+            FROM "Product" 
+            WHERE id = ${item.product_id}
+          `;
+
+          const product = productResult[0];
+
+          if (product && product.stock_quantity !== null) {
+            if (product.stock_quantity < item.quantity) {
+              errors.push(
+                `Produto ${product.name}: estoque insuficiente (disponível: ${product.stock_quantity})`
+              );
+            }
           }
         }
       } catch (error) {

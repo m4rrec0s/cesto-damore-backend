@@ -241,10 +241,15 @@ export const validateMercadoPagoWebhook = (
       // Validar timestamp (prevenir replay attacks)
       const webhookTimestamp = parseInt(timestamp, 10);
       const currentTimestamp = Math.floor(Date.now() / 1000);
-      const maxAge = 5 * 60; // 5 minutos
+      const maxAge = 30 * 60; // 30 minutos (Mercado Pago pode ter delay)
 
       if (currentTimestamp - webhookTimestamp > maxAge) {
-        console.warn("Webhook rejeitado - timestamp muito antigo");
+        console.warn("Webhook rejeitado - timestamp muito antigo", {
+          webhookTimestamp,
+          currentTimestamp,
+          difference: currentTimestamp - webhookTimestamp,
+          maxAge,
+        });
         return res.status(401).json({
           error: "Webhook expirado",
           code: "WEBHOOK_EXPIRED",
@@ -263,6 +268,8 @@ export const validateMercadoPagoWebhook = (
       if (hash !== expectedHash) {
         console.warn("Webhook rejeitado - assinatura inválida", {
           manifest: manifestString,
+          expectedHash: expectedHash.substring(0, 20) + "...",
+          receivedHash: hash.substring(0, 20) + "...",
         });
         return res.status(403).json({
           error: "Assinatura de webhook inválida",
@@ -270,7 +277,10 @@ export const validateMercadoPagoWebhook = (
         });
       }
 
-      console.log("✅ Webhook validado com sucesso");
+      console.log("✅ Webhook validado com sucesso", {
+        paymentId: dataId,
+        type: type,
+      });
     } else {
       console.warn(
         "⚠️ MERCADO_PAGO_WEBHOOK_SECRET não configurado - validação desabilitada"

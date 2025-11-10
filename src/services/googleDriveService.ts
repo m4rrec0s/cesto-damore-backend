@@ -169,8 +169,17 @@ class GoogleDriveService {
       }
 
       await fs.writeFile(envPath, envContent, "utf-8");
+      console.log("✅ Arquivo .env atualizado com sucesso");
     } catch (error) {
-      console.error("❌ Erro ao atualizar .env:", error);
+      // Em produção, o .env não existe (variáveis vêm do ambiente)
+      // Apenas log de warning, não é um erro crítico
+      if (process.env.NODE_ENV === "production") {
+        console.warn(
+          "⚠️ Não é possível atualizar .env em produção (variáveis gerenciadas pelo ambiente)"
+        );
+      } else {
+        console.error("❌ Erro ao atualizar .env:", error);
+      }
     }
   }
 

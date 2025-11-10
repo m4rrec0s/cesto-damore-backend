@@ -10,10 +10,11 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalar dependências com retry e timeout maior
+# Otimizado para reduzir uso de memória
 RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 5 && \
-    npm ci --prefer-offline --no-audit
+    npm ci --prefer-offline --no-audit --maxsockets=1
 
 # Copiar Prisma schema
 COPY prisma ./prisma/
@@ -39,10 +40,11 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalar dependências de produção com retry e timeout maior
+# Otimizado para reduzir uso de memória
 RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 5 && \
-    npm ci --omit=dev --prefer-offline --no-audit && \
+    npm ci --omit=dev --prefer-offline --no-audit --maxsockets=1 && \
     npm cache clean --force
 
 # Copiar Prisma schema

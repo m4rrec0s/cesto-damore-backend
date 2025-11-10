@@ -46,6 +46,26 @@ const router = Router();
 router.get("/health", healthCheckEndpoint);
 
 // ============================================
+// WEBHOOK DEBUG ENDPOINT (temporário)
+// ============================================
+router.post("/webhook/mercadopago/debug", (req: Request, res: Response) => {
+  console.log("🔍 DEBUG WEBHOOK - Headers:", {
+    "x-signature": req.headers["x-signature"],
+    "x-request-id": req.headers["x-request-id"],
+    "content-type": req.headers["content-type"],
+    "user-agent": req.headers["user-agent"],
+  });
+
+  console.log("🔍 DEBUG WEBHOOK - Body:", JSON.stringify(req.body, null, 2));
+
+  res.status(200).json({
+    received: true,
+    message: "Debug webhook OK",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ============================================
 // AI PRODUCT ROUTES (Consultas otimizadas para IA)
 // ============================================
 

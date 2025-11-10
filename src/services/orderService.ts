@@ -232,6 +232,7 @@ class OrderService {
         include: {
           items: { include: { additionals: true, product: true } },
           user: true,
+          payment: true, // ✅ CRÍTICO: Incluir payment para o polling funcionar
         },
       });
 

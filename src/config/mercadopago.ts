@@ -37,7 +37,7 @@ export const mercadoPagoConfig = {
   baseUrl: process.env.BASE_URL || "",
   security: {
     enableWebhookValidation: true,
-    enableIPWhitelist: process.env.NODE_ENV === "production",
+    enableIPWhitelist: false,
     allowedIPs: [
       "209.225.49.0/24",
       "216.33.197.0/24",

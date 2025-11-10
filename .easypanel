@@ -1,0 +1,6 @@
+# Easypanel Configuration
+# Force usage of Dockerfile instead of Nixpacks
+
+builder = "dockerfile"
+dockerfile = "Dockerfile"
+context = "."

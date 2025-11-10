@@ -1,5 +1,6 @@
 [phases.setup]
 nixPkgs = ["nodejs-20_x", "openssl"]
+nixOverlays = ["https://github.com/railwayapp/nixpacks/raw/main/overlay.nix"]
 
 [phases.install]
 cmds = ["npm install", "npx prisma generate"]

@@ -263,6 +263,20 @@ router.patch(
 );
 router.delete("/orders/:id", orderController.remove);
 
+// Rota para buscar pedido pendente do usuário (autenticado)
+router.get(
+  "/orders/pending/user/:userId",
+  authenticateToken,
+  orderController.getPendingOrder
+);
+
+// Rota para cancelar pedido (autenticado)
+router.post(
+  "/orders/:id/cancel",
+  authenticateToken,
+  orderController.cancelOrder
+);
+
 // ========== PAYMENT ROUTES ==========
 
 // Health check do Mercado Pago

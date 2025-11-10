@@ -729,6 +729,104 @@ class OrderService {
 
     return updated;
   }
+
+  /**
+   * Busca pedido pendente de pagamento do usuário
+   */
+  async getPendingOrder(userId: string) {
+    if (!userId) {
+      throw new Error("ID do usuário é obrigatório");
+    }
+
+    const pendingOrder = await prisma.order.findFirst({
+      where: {
+        user_id: userId,
+        status: "PENDING",
+      },
+      include: {
+        items: {
+          include: {
+            product: true,
+            additionals: {
+              include: { additional: true },
+            },
+          },
+        },
+        payment: true,
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    });
+
+    return pendingOrder;
+  }
+
+  /**
+   * Cancela um pedido pendente
+   */
+  async cancelOrder(orderId: string, userId?: string) {
+    if (!orderId) {
+      throw new Error("ID do pedido é obrigatório");
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        payment: true,
+        items: true,
+      },
+    });
+
+    if (!order) {
+      throw new Error("Pedido não encontrado");
+    }
+
+    // Se userId for fornecido, verificar se o pedido pertence ao usuário
+    if (userId && order.user_id !== userId) {
+      throw new Error("Você não tem permissão para cancelar este pedido");
+    }
+
+    // Só permite cancelar pedidos pendentes
+    if (order.status !== "PENDING") {
+      throw new Error(
+        "Apenas pedidos pendentes podem ser cancelados pelo cliente"
+      );
+    }
+
+    // Cancelar pagamento no Mercado Pago se existir
+    if (order.payment?.mercado_pago_id) {
+      try {
+        const PaymentService = require("./paymentService").default;
+        await PaymentService.cancelPayment(order.payment.mercado_pago_id);
+      } catch (error) {
+        console.error("Erro ao cancelar pagamento no Mercado Pago:", error);
+        // Continua mesmo se falhar, pois o pedido será marcado como cancelado
+      }
+    }
+
+    // Atualizar status do pedido
+    const canceledOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: "CANCELED",
+      },
+      include: {
+        items: {
+          include: {
+            product: true,
+            additionals: {
+              include: { additional: true },
+            },
+          },
+        },
+        payment: true,
+        user: true,
+      },
+    });
+
+    return canceledOrder;
+  }
 }
 
 export default new OrderService();

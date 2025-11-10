@@ -169,14 +169,14 @@ export const validateMercadoPagoWebhook = (
   try {
     console.log("🔔 Webhook recebido do Mercado Pago", {
       headers: {
-        'x-signature': req.headers['x-signature'] ? 'presente' : 'ausente',
-        'x-request-id': req.headers['x-request-id'] ? 'presente' : 'ausente',
+        "x-signature": req.headers["x-signature"] ? "presente" : "ausente",
+        "x-request-id": req.headers["x-request-id"] ? "presente" : "ausente",
       },
       body: {
         type: req.body.type,
         live_mode: req.body.live_mode,
         paymentId: req.body.data?.id,
-      }
+      },
     });
 
     if (!mercadoPagoConfig.security.enableWebhookValidation) {

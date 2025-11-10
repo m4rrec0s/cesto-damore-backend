@@ -35,10 +35,20 @@ class OrderController {
   async getByUserId(req: Request, res: Response) {
     try {
       const { userId } = req.params;
+
+      if (!userId) {
+        return res.status(400).json({ error: "ID do usuário é obrigatório" });
+      }
+
       const orders = await orderService.getOrdersByUserId(userId);
       res.status(200).json(orders);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao buscar pedidos do usuário:", error);
+
+      if (error.message.includes("obrigatório")) {
+        return res.status(400).json({ error: error.message });
+      }
+
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -101,8 +111,74 @@ class OrderController {
         return res.status(400).json({ error: error.message });
       }
 
-      if (error.message.includes("Pedido não encontrado")) {
+      if (error.message.includes("Status inválido")) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
+
+  async getPendingOrder(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+
+      if (!userId) {
+        return res.status(400).json({ error: "ID do usuário é obrigatório" });
+      }
+
+      const pendingOrder = await orderService.getPendingOrder(userId);
+
+      if (!pendingOrder) {
+        return res
+          .status(404)
+          .json({ error: "Nenhum pedido pendente encontrado" });
+      }
+
+      res.status(200).json(pendingOrder);
+    } catch (error: any) {
+      console.error("Erro ao buscar pedido pendente:", error);
+
+      if (error.message.includes("obrigatório")) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
+
+  async cancelOrder(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = (req as any).user?.id; // Do middleware de autenticação
+
+      if (!id) {
+        return res.status(400).json({ error: "ID do pedido é obrigatório" });
+      }
+
+      const canceledOrder = await orderService.cancelOrder(id, userId);
+
+      res.status(200).json({
+        success: true,
+        message: "Pedido cancelado com sucesso",
+        order: canceledOrder,
+      });
+    } catch (error: any) {
+      console.error("Erro ao cancelar pedido:", error);
+
+      if (error.message.includes("não encontrado")) {
         return res.status(404).json({ error: error.message });
+      }
+
+      if (
+        error.message.includes("não tem permissão") ||
+        error.message.includes("Apenas pedidos")
+      ) {
+        return res.status(403).json({ error: error.message });
+      }
+
+      if (error.message.includes("obrigatório")) {
+        return res.status(400).json({ error: error.message });
       }
 
       res.status(500).json({ error: "Erro interno do servidor" });

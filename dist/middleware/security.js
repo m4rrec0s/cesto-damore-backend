@@ -202,7 +202,8 @@ const validateMercadoPagoWebhook = (req, res, next) => {
             const webhookTimestamp = parseInt(timestamp, 10);
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const difference = currentTimestamp - webhookTimestamp;
-            if (difference > 3600) { // Mais de 1 hora
+            if (difference > 3600) {
+                // Mais de 1 hora
                 console.warn("⚠️ Webhook com timestamp antigo (possível reprocessamento)", {
                     webhookTimestamp,
                     currentTimestamp,

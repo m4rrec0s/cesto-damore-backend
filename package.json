@@ -39,18 +39,18 @@
     "prisma": "^6.15.0",
     "sharp": "^0.32.6",
     "uuid": "^9.0.1",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
+    "zod": "^3.23.8",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.5.2",
     "@types/node-cron": "^3.0.11",
+    "typescript": "^5.9.2"
+  },
+  "devDependencies": {
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.9.2"
+    "ts-node-dev": "^2.0.0"
   }
 }

@@ -619,8 +619,8 @@ class PaymentService {
                     processed: true,
                 },
                 orderBy: {
-                    created_at: 'desc'
-                }
+                    created_at: "desc",
+                },
             });
             if (existingLog) {
                 console.log("⚠️ Webhook duplicado ignorado (já processado)", {

@@ -1,0 +1,12 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "deploy": {
+    "env": {
+      "NODE_VERSION": "20",
+      "NODE_ENV": "production"
+    }
+  }
+}

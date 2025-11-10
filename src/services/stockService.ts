@@ -18,9 +18,11 @@ class StockService {
    * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
    */
   async decrementOrderStock(orderItems: OrderItemData[]): Promise<void> {
-    console.log("⚠️ DECREMENTO DE ESTOQUE DESABILITADO - Pedido criado sem alterar estoque");
+    console.log(
+      "⚠️ DECREMENTO DE ESTOQUE DESABILITADO - Pedido criado sem alterar estoque"
+    );
     return; // ✅ Desabilitado temporariamente
-    
+
     /* CÓDIGO ORIGINAL (COMENTADO):
     try {
       for (const item of orderItems) {

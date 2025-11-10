@@ -212,9 +212,11 @@ class ProductComponentService {
    * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
    */
   async decrementComponentsStock(productId: string, productQuantity: number) {
-    console.log(`⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`);
+    console.log(
+      `⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`
+    );
     return; // ✅ Desabilitado temporariamente
-    
+
     /* CÓDIGO ORIGINAL (COMENTADO):
     const components = await this.getProductComponents(productId);
 

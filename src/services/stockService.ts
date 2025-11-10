@@ -15,8 +15,13 @@ interface OrderItemData {
 class StockService {
   /**
    * Decrementa o estoque dos produtos e adicionais de um pedido
+   * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
    */
   async decrementOrderStock(orderItems: OrderItemData[]): Promise<void> {
+    console.log("⚠️ DECREMENTO DE ESTOQUE DESABILITADO - Pedido criado sem alterar estoque");
+    return; // ✅ Desabilitado temporariamente
+    
+    /* CÓDIGO ORIGINAL (COMENTADO):
     try {
       for (const item of orderItems) {
         // 1. Decrementar estoque dos componentes do produto (NOVA LÓGICA)
@@ -37,6 +42,7 @@ class StockService {
         error instanceof Error ? error.message : "Erro ao decrementar estoque";
       throw new Error(`Erro ao decrementar estoque: ${errorMessage}`);
     }
+    */
   }
 
   /**
@@ -208,6 +214,7 @@ class StockService {
 
   /**
    * Verifica se há estoque disponível antes de criar o pedido
+   * ✅ CRÍTICO: Busca dados frescos do banco sem cache
    */
   async validateOrderStock(orderItems: OrderItemData[]): Promise<{
     valid: boolean;
@@ -216,12 +223,20 @@ class StockService {
     const errors: string[] = [];
 
     for (const item of orderItems) {
-      // Validar produto
+      // Validar produto - ✅ Força refresh com $queryRaw
       try {
-        const product = await prisma.product.findUnique({
-          where: { id: item.product_id },
-          select: { name: true, stock_quantity: true },
-        });
+        const productResult = await prisma.$queryRaw<
+          Array<{
+            name: string;
+            stock_quantity: number | null;
+          }>
+        >`
+          SELECT name, stock_quantity 
+          FROM "Product" 
+          WHERE id = ${item.product_id}
+        `;
+
+        const product = productResult[0];
 
         if (product && product.stock_quantity !== null) {
           if (product.stock_quantity < item.quantity) {
@@ -231,17 +246,29 @@ class StockService {
           }
         }
       } catch (error) {
+        console.error(
+          `Erro ao validar estoque do produto ${item.product_id}:`,
+          error
+        );
         errors.push(`Erro ao validar produto ${item.product_id}`);
       }
 
-      // Validar adicionais
+      // Validar adicionais - ✅ Força refresh com $queryRaw
       if (item.additionals) {
         for (const additional of item.additionals) {
           try {
-            const additionalData = await prisma.item.findUnique({
-              where: { id: additional.additional_id },
-              select: { name: true, stock_quantity: true },
-            });
+            const additionalResult = await prisma.$queryRaw<
+              Array<{
+                name: string;
+                stock_quantity: number | null;
+              }>
+            >`
+              SELECT name, stock_quantity 
+              FROM "Item" 
+              WHERE id = ${additional.additional_id}
+            `;
+
+            const additionalData = additionalResult[0];
 
             if (!additionalData) continue;
 

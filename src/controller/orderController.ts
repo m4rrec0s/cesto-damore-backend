@@ -59,15 +59,24 @@ class OrderController {
       res.status(201).json(order);
     } catch (error: any) {
       console.error("Erro ao criar pedido:", error);
+
+      // Erros de validação (400)
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("não encontrado") ||
-        error.message.includes("deve ser maior")
+        error.message.includes("deve ser maior") ||
+        error.message.includes("Estoque insuficiente") // ✅ NOVO: Erro de estoque também retorna 400
       ) {
-        res.status(400).json({ error: error.message });
-      } else {
-        res.status(500).json({ error: "Erro interno do servidor" });
+        return res.status(400).json({
+          error: error.message,
+          code: error.message.includes("Estoque insuficiente")
+            ? "INSUFFICIENT_STOCK"
+            : "VALIDATION_ERROR",
+        });
       }
+
+      // Erro genérico (500)
+      res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
 

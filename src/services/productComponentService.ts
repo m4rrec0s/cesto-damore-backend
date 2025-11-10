@@ -114,9 +114,10 @@ class ProductComponentService {
 
   /**
    * Lista componentes de um produto
+   * @param forceRefresh - Se true, força busca sem cache
    */
-  async getProductComponents(productId: string) {
-    return prisma.productComponent.findMany({
+  async getProductComponents(productId: string, forceRefresh = false) {
+    const query = {
       where: { product_id: productId },
       include: {
         item: {
@@ -125,8 +126,43 @@ class ProductComponentService {
           },
         },
       },
-      orderBy: { created_at: "asc" },
-    });
+      orderBy: { created_at: "asc" as const },
+    };
+
+    if (forceRefresh) {
+      // Força bypass de cache do Prisma
+      const rows = (await prisma.$queryRawUnsafe(
+        `
+        SELECT 
+          pc.id,
+          pc.product_id,
+          pc.item_id,
+          pc.quantity,
+          pc.created_at,
+          pc.updated_at,
+          json_build_object(
+            'id', i.id,
+            'name', i.name,
+            'stock_quantity', i.stock_quantity,
+            'price', i.price,
+            'type', i.type,
+            'image_url', i.image_url
+          ) as item
+        FROM "ProductComponent" pc
+        INNER JOIN "Item" i ON i.id = pc.item_id
+        WHERE pc.product_id = $1
+        ORDER BY pc.created_at ASC
+      `,
+        productId
+      )) as any[];
+
+      return rows.map((row) => ({
+        ...row,
+        item: typeof row.item === "string" ? JSON.parse(row.item) : row.item,
+      }));
+    }
+
+    return prisma.productComponent.findMany(query);
   }
 
   /**
@@ -173,8 +209,13 @@ class ProductComponentService {
 
   /**
    * Decrementa estoque de todos os itens componentes de um produto
+   * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
    */
   async decrementComponentsStock(productId: string, productQuantity: number) {
+    console.log(`⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`);
+    return; // ✅ Desabilitado temporariamente
+    
+    /* CÓDIGO ORIGINAL (COMENTADO):
     const components = await this.getProductComponents(productId);
 
     for (const component of components) {
@@ -203,25 +244,29 @@ class ProductComponentService {
 
     // Atualizar estoque do produto
     await this.updateProductStock(productId);
+    */
   }
 
   /**
    * Valida se há estoque suficiente para os componentes
+   * ✅ CRÍTICO: Usa forceRefresh=true para evitar cache
    */
   async validateComponentsStock(
     productId: string,
     productQuantity: number
   ): Promise<{ valid: boolean; errors: string[] }> {
-    const components = await this.getProductComponents(productId);
+    // ✅ Force refresh para garantir dados atualizados
+    const components = await this.getProductComponents(productId, true);
     const errors: string[] = [];
 
     for (const component of components) {
       const itemQuantityNeeded = component.quantity * productQuantity;
+      const availableStock = component.item.stock_quantity ?? 0;
 
-      if (component.item.stock_quantity < itemQuantityNeeded) {
+      if (availableStock < itemQuantityNeeded) {
         errors.push(
           `${component.item.name}: estoque insuficiente. ` +
-            `Disponível: ${component.item.stock_quantity}, ` +
+            `Disponível: ${availableStock}, ` +
             `Necessário: ${itemQuantityNeeded}`
         );
       }

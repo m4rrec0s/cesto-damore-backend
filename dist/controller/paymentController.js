@@ -226,13 +226,15 @@ class PaymentController {
     }
     static async handleWebhook(req, res) {
         try {
+            console.log("📨 PaymentController.handleWebhook - Iniciando processamento");
             const webhookData = req.body;
             const headers = req.headers;
             await paymentService_1.default.processWebhookNotification(webhookData, headers);
+            console.log("✅ PaymentController.handleWebhook - Processado com sucesso");
             res.status(200).json({ received: true });
         }
         catch (error) {
-            console.error("Erro ao processar webhook:", error);
+            console.error("❌ PaymentController.handleWebhook - Erro:", error);
             res.status(500).json({
                 error: "Falha ao processar webhook",
                 details: error instanceof Error ? error.message : "Erro desconhecido",

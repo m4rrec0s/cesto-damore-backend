@@ -167,7 +167,20 @@ export const validateMercadoPagoWebhook = (
   next: NextFunction
 ) => {
   try {
+    console.log("🔔 Webhook recebido do Mercado Pago", {
+      headers: {
+        'x-signature': req.headers['x-signature'] ? 'presente' : 'ausente',
+        'x-request-id': req.headers['x-request-id'] ? 'presente' : 'ausente',
+      },
+      body: {
+        type: req.body.type,
+        live_mode: req.body.live_mode,
+        paymentId: req.body.data?.id,
+      }
+    });
+
     if (!mercadoPagoConfig.security.enableWebhookValidation) {
+      console.log("⚠️ Validação de webhook desabilitada");
       return next();
     }
 
@@ -175,6 +188,7 @@ export const validateMercadoPagoWebhook = (
     const { type, data, live_mode } = req.body;
 
     if (!type || !data || !data.id) {
+      console.error("❌ Webhook com estrutura inválida", { type, data });
       return res.status(400).json({
         error: "Estrutura de webhook inválida",
         code: "INVALID_WEBHOOK_STRUCTURE",

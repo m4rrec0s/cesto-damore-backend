@@ -171,6 +171,24 @@ export const validateMercadoPagoWebhook = (
       return next();
     }
 
+    // Validar estrutura básica primeiro
+    const { type, data, live_mode } = req.body;
+
+    if (!type || !data || !data.id) {
+      return res.status(400).json({
+        error: "Estrutura de webhook inválida",
+        code: "INVALID_WEBHOOK_STRUCTURE",
+      });
+    }
+
+    // ACEITAR WEBHOOKS DE TESTE IMEDIATAMENTE (antes de validar IP ou assinatura)
+    const isTestMode = live_mode === false;
+    if (isTestMode) {
+      console.log("✅ Webhook em modo teste aceito (bypassing validation)");
+      return next();
+    }
+
+    // Validação de IP (apenas para produção)
     if (mercadoPagoConfig.security.enableIPWhitelist) {
       const clientIP = req.ip || req.connection.remoteAddress || "";
       const isAllowedIP = mercadoPagoConfig.security.allowedIPs.some(
@@ -186,22 +204,6 @@ export const validateMercadoPagoWebhook = (
           code: "IP_NOT_ALLOWED",
         });
       }
-    }
-
-    const { type, data, live_mode } = req.body;
-
-    if (!type || !data || !data.id) {
-      return res.status(400).json({
-        error: "Estrutura de webhook inválida",
-        code: "INVALID_WEBHOOK_STRUCTURE",
-      });
-    }
-
-    const isTestMode = live_mode === false;
-
-    if (isTestMode) {
-      console.log("✅ Webhook em modo teste aceito");
-      return next();
     }
 
     const xSignature = req.headers["x-signature"] as string;

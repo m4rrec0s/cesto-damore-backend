@@ -269,8 +269,15 @@ router.delete("/orders/:id", orderController.remove);
 router.get("/payment/health", PaymentController.healthCheck);
 
 // Webhook do Mercado Pago (sem autenticação)
+// Aceita em /webhook/mercadopago e /api/webhook/mercadopago para compatibilidade
 router.post(
   "/webhook/mercadopago",
+  validateMercadoPagoWebhook,
+  PaymentController.handleWebhook
+);
+
+router.post(
+  "/api/webhook/mercadopago",
   validateMercadoPagoWebhook,
   PaymentController.handleWebhook
 );

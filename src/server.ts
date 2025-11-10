@@ -25,5 +25,7 @@ app.listen(PORT, () => {
   console.log(`📡 PORT: ${PORT}`);
   console.log(`🔗 BASE_URL: ${BASE_URL}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`💳 Mercado Pago Webhook: ${BASE_URL}/webhook/mercadopago`);
+  console.log(`💳 Mercado Pago Webhooks:`);
+  console.log(`   - ${BASE_URL}/webhook/mercadopago`);
+  console.log(`   - ${BASE_URL}/api/webhook/mercadopago`);
 });

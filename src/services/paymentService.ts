@@ -842,9 +842,34 @@ export class PaymentService {
         data.live_mode === false && data.data?.id === "123456";
 
       if (isTestWebhook) {
+        console.log("✅ Test webhook received");
         return {
           success: true,
           message: "Test webhook received successfully",
+        };
+      }
+
+      // Verificar se já processamos este webhook (idempotência)
+      const existingLog = await prisma.webhookLog.findFirst({
+        where: {
+          resource_id: data.data?.id?.toString(),
+          topic: data.type,
+          processed: true,
+        },
+        orderBy: {
+          created_at: "desc",
+        },
+      });
+
+      if (existingLog) {
+        console.log("⚠️ Webhook duplicado ignorado (já processado)", {
+          paymentId: data.data?.id,
+          type: data.type,
+          processedAt: existingLog.created_at,
+        });
+        return {
+          success: true,
+          message: "Webhook já processado anteriormente (duplicado ignorado)",
         };
       }
 
@@ -854,6 +879,11 @@ export class PaymentService {
           throw new Error("Webhook inválido");
         }
       }
+
+      console.log("📝 Registrando webhook", {
+        paymentId: data.data?.id,
+        type: data.type,
+      });
 
       await prisma.webhookLog.create({
         data: {

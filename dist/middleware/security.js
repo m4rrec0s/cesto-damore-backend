@@ -197,22 +197,20 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                     code: "INVALID_SIGNATURE_FORMAT",
                 });
             }
-            // Validar timestamp (prevenir replay attacks)
+            // Validar timestamp (apenas log, não rejeitar)
+            // Mercado Pago pode enviar webhooks com horas/dias de diferença (reprocessamentos)
             const webhookTimestamp = parseInt(timestamp, 10);
             const currentTimestamp = Math.floor(Date.now() / 1000);
-            const maxAge = 30 * 60; // 30 minutos (Mercado Pago pode ter delay)
-            if (currentTimestamp - webhookTimestamp > maxAge) {
-                console.warn("Webhook rejeitado - timestamp muito antigo", {
+            const difference = currentTimestamp - webhookTimestamp;
+            if (difference > 3600) { // Mais de 1 hora
+                console.warn("⚠️ Webhook com timestamp antigo (possível reprocessamento)", {
                     webhookTimestamp,
                     currentTimestamp,
-                    difference: currentTimestamp - webhookTimestamp,
-                    maxAge
-                });
-                return res.status(401).json({
-                    error: "Webhook expirado",
-                    code: "WEBHOOK_EXPIRED",
+                    differenceInMinutes: Math.floor(difference / 60),
+                    paymentId: data?.id,
                 });
             }
+            // Não rejeitar por timestamp - deixar o controller decidir se processa ou não
             // Construir manifest string conforme padrão Mercado Pago
             const dataId = data?.id?.toString() || "";
             const manifestString = `id:${dataId};request-id:${xRequestId};ts:${timestamp};`;

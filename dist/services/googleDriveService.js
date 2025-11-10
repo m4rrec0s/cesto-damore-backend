@@ -96,7 +96,7 @@ class GoogleDriveService {
         catch (error) {
             // Em produção, o .env não existe (variáveis vêm do ambiente)
             // Apenas log de warning, não é um erro crítico
-            if (process.env.NODE_ENV === 'production') {
+            if (process.env.NODE_ENV === "production") {
                 console.warn("⚠️ Não é possível atualizar .env em produção (variáveis gerenciadas pelo ambiente)");
             }
             else {

@@ -9,6 +9,3 @@ node_modules
 credentials.json
 google-drive-credentials.json
 google-drive-token.json
-
-# Customizações temporárias
-temp_customizations/

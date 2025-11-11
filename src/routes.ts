@@ -277,7 +277,7 @@ router.get("/orders", orderController.index);
 // ⚠️ IMPORTANTE: Rotas específicas ANTES de rotas genéricas (:id)
 // Rota para buscar pedido pendente do usuário (autenticado)
 router.get(
-  "/orders/pending/user/:userId",
+  "/users/:id/orders/pending",
   authenticateToken,
   orderController.getPendingOrder
 );

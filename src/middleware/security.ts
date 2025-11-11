@@ -195,10 +195,12 @@ export const validateMercadoPagoWebhook = (
       });
     }
 
-    // ACEITAR WEBHOOKS DE TESTE IMEDIATAMENTE (antes de validar IP ou assinatura)
+    // ✅ ACEITAR WEBHOOKS DE TESTE IMEDIATAMENTE (live_mode: false)
     const isTestMode = live_mode === false;
     if (isTestMode) {
-      console.log("✅ Webhook em modo teste aceito (bypassing validation)");
+      console.log(
+        "✅ Webhook em modo teste aceito (live_mode: false - bypassing validation)"
+      );
       return next();
     }
 

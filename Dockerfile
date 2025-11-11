@@ -8,7 +8,8 @@ COPY package*.json ./
 COPY tsconfig.json ./
 
 # Instala TODAS as dependências (incluindo devDependencies para build)
-RUN npm install
+# Com timeout maior e retry para Sharp
+RUN npm install --fetch-timeout=300000 --fetch-retries=5
 
 # Copia arquivos do projeto
 COPY . .
@@ -28,7 +29,8 @@ WORKDIR /code
 COPY package*.json ./
 
 # Instala APENAS dependências de produção
-RUN npm install --omit=dev
+# Com timeout maior e retry para Sharp
+RUN npm install --omit=dev --fetch-timeout=300000 --fetch-retries=5
 
 # Copia arquivos compilados do stage anterior
 COPY --from=builder /code/dist ./dist

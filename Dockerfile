@@ -39,11 +39,17 @@ COPY --from=builder /code/prisma ./prisma
 
 # Copia outros arquivos necessários
 COPY google-drive-token.json* ./
-COPY images ./images
-COPY customizations ./customizations
+
+# Cria diretórios para volumes
+RUN mkdir -p /code/images /code/images/customizations /code/customizations/models /code/storage/temp && \
+    chmod -R 755 /code/images /code/customizations /code/storage
+
+# Copia o script de inicialização
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
 
 # Expõe a porta
 EXPOSE 3333
 
-# Inicia aplicação compilada
-CMD ["node", "dist/server.js"]
+# Usar o entrypoint script
+ENTRYPOINT ["./docker-entrypoint.sh"]

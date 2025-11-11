@@ -17,3 +17,6 @@ coverage
 # Não ignorar images e customizations - necessários em produção
 # images/*
 # customizations/*
+
+# Ignorar pasta de dados (será montada como volume)
+data/

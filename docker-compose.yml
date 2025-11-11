@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3333:3333"
+    volumes:
+      # Persistir imagens localmente na VPS
+      - ./data/images:/code/images
+      - ./data/customizations:/code/customizations
+      - ./data/storage:/code/storage
+    environment:
+      - NODE_ENV=production
+      - BASE_URL=${BASE_URL}
+      - DATABASE_URL=${DATABASE_URL}
+      # Adicione outras variáveis de ambiente necessárias
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+# Volumes nomeados (alternativa, caso prefira)
+# volumes:
+#   images-data:
+#   customizations-data:
+#   storage-data:

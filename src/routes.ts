@@ -273,16 +273,8 @@ router.delete("/users/:id", userController.remove);
 
 // order routes
 router.get("/orders", orderController.index);
-router.get("/orders/:id", orderController.show);
-router.post("/orders", orderController.create);
-router.patch(
-  "/orders/:id/status",
-  authenticateToken,
-  requireAdmin,
-  orderController.updateStatus
-);
-router.delete("/orders/:id", orderController.remove);
 
+// ⚠️ IMPORTANTE: Rotas específicas ANTES de rotas genéricas (:id)
 // Rota para buscar pedido pendente do usuário (autenticado)
 router.get(
   "/orders/pending/user/:userId",
@@ -296,6 +288,17 @@ router.post(
   authenticateToken,
   orderController.cancelOrder
 );
+
+// Rotas genéricas com :id (DEVEM VIR POR ÚLTIMO)
+router.get("/orders/:id", orderController.show);
+router.post("/orders", orderController.create);
+router.patch(
+  "/orders/:id/status",
+  authenticateToken,
+  requireAdmin,
+  orderController.updateStatus
+);
+router.delete("/orders/:id", orderController.remove);
 
 // ========== PAYMENT ROUTES ==========
 

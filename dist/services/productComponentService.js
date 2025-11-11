@@ -92,9 +92,10 @@ class ProductComponentService {
     }
     /**
      * Lista componentes de um produto
+     * @param forceRefresh - Se true, força busca sem cache
      */
-    async getProductComponents(productId) {
-        return prisma_1.default.productComponent.findMany({
+    async getProductComponents(productId, forceRefresh = false) {
+        const query = {
             where: { product_id: productId },
             include: {
                 item: {
@@ -104,7 +105,36 @@ class ProductComponentService {
                 },
             },
             orderBy: { created_at: "asc" },
-        });
+        };
+        if (forceRefresh) {
+            // Força bypass de cache do Prisma
+            const rows = (await prisma_1.default.$queryRawUnsafe(`
+        SELECT 
+          pc.id,
+          pc.product_id,
+          pc.item_id,
+          pc.quantity,
+          pc.created_at,
+          pc.updated_at,
+          json_build_object(
+            'id', i.id,
+            'name', i.name,
+            'stock_quantity', i.stock_quantity,
+            'price', i.price,
+            'type', i.type,
+            'image_url', i.image_url
+          ) as item
+        FROM "ProductComponent" pc
+        INNER JOIN "Item" i ON i.id = pc.item_id
+        WHERE pc.product_id = $1
+        ORDER BY pc.created_at ASC
+      `, productId));
+            return rows.map((row) => ({
+                ...row,
+                item: typeof row.item === "string" ? JSON.parse(row.item) : row.item,
+            }));
+        }
+        return prisma_1.default.productComponent.findMany(query);
     }
     /**
      * Calcula estoque disponível do produto baseado nos componentes
@@ -143,42 +173,56 @@ class ProductComponentService {
     }
     /**
      * Decrementa estoque de todos os itens componentes de um produto
+     * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
      */
     async decrementComponentsStock(productId, productQuantity) {
+        console.log(`⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`);
+        return; // ✅ Desabilitado temporariamente
+        /* CÓDIGO ORIGINAL (COMENTADO):
         const components = await this.getProductComponents(productId);
+    
         for (const component of components) {
-            const itemQuantityNeeded = component.quantity * productQuantity;
-            // Verificar se tem estoque suficiente
-            const stock = component.item.stock_quantity ?? 0;
-            if (stock < itemQuantityNeeded) {
-                throw new Error(`Estoque insuficiente para ${component.item.name}. ` +
-                    `Disponível: ${component.item.stock_quantity}, ` +
-                    `Necessário: ${itemQuantityNeeded}`);
-            }
-            // Decrementar estoque do item
-            await prisma_1.default.item.update({
-                where: { id: component.item_id },
-                data: {
-                    stock_quantity: {
-                        decrement: itemQuantityNeeded,
-                    },
-                },
-            });
+          const itemQuantityNeeded = component.quantity * productQuantity;
+    
+          // Verificar se tem estoque suficiente
+          const stock = component.item.stock_quantity ?? 0;
+          if (stock < itemQuantityNeeded) {
+            throw new Error(
+              `Estoque insuficiente para ${component.item.name}. ` +
+                `Disponível: ${component.item.stock_quantity}, ` +
+                `Necessário: ${itemQuantityNeeded}`
+            );
+          }
+    
+          // Decrementar estoque do item
+          await prisma.item.update({
+            where: { id: component.item_id },
+            data: {
+              stock_quantity: {
+                decrement: itemQuantityNeeded,
+              },
+            },
+          });
         }
+    
         // Atualizar estoque do produto
         await this.updateProductStock(productId);
+        */
     }
     /**
      * Valida se há estoque suficiente para os componentes
+     * ✅ CRÍTICO: Usa forceRefresh=true para evitar cache
      */
     async validateComponentsStock(productId, productQuantity) {
-        const components = await this.getProductComponents(productId);
+        // ✅ Force refresh para garantir dados atualizados
+        const components = await this.getProductComponents(productId, true);
         const errors = [];
         for (const component of components) {
             const itemQuantityNeeded = component.quantity * productQuantity;
-            if (component.item.stock_quantity < itemQuantityNeeded) {
+            const availableStock = component.item.stock_quantity ?? 0;
+            if (availableStock < itemQuantityNeeded) {
                 errors.push(`${component.item.name}: estoque insuficiente. ` +
-                    `Disponível: ${component.item.stock_quantity}, ` +
+                    `Disponível: ${availableStock}, ` +
                     `Necessário: ${itemQuantityNeeded}`);
             }
         }

@@ -68,6 +68,23 @@ const router = (0, express_1.Router)();
 // Health check endpoint
 router.get("/health", healthCheck_1.healthCheckEndpoint);
 // ============================================
+// WEBHOOK DEBUG ENDPOINT (temporário)
+// ============================================
+router.post("/webhook/mercadopago/debug", (req, res) => {
+    console.log("🔍 DEBUG WEBHOOK - Headers:", {
+        "x-signature": req.headers["x-signature"],
+        "x-request-id": req.headers["x-request-id"],
+        "content-type": req.headers["content-type"],
+        "user-agent": req.headers["user-agent"],
+    });
+    console.log("🔍 DEBUG WEBHOOK - Body:", JSON.stringify(req.body, null, 2));
+    res.status(200).json({
+        received: true,
+        message: "Debug webhook OK",
+        timestamp: new Date().toISOString(),
+    });
+});
+// ============================================
 // AI PRODUCT ROUTES (Consultas otimizadas para IA)
 // ============================================
 // Endpoint principal para consulta de produtos pela IA
@@ -211,6 +228,12 @@ router.put("/users/:id", multer_1.upload.single("image"), userController_1.defau
 router.delete("/users/:id", userController_1.default.remove);
 // order routes
 router.get("/orders", orderController_1.default.index);
+// ⚠️ IMPORTANTE: Rotas específicas ANTES de rotas genéricas (:id)
+// Rota para buscar pedido pendente do usuário (autenticado)
+router.get("/users/:id/orders/pending", security_1.authenticateToken, orderController_1.default.getPendingOrder);
+// Rota para cancelar pedido (autenticado)
+router.post("/orders/:id/cancel", security_1.authenticateToken, orderController_1.default.cancelOrder);
+// Rotas genéricas com :id (DEVEM VIR POR ÚLTIMO)
 router.get("/orders/:id", orderController_1.default.show);
 router.post("/orders", orderController_1.default.create);
 router.patch("/orders/:id/status", security_1.authenticateToken, security_1.requireAdmin, orderController_1.default.updateStatus);

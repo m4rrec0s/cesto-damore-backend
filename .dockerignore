@@ -1,9 +1,6 @@
 node_modules
 dist
 npm-debug.log
-.env
-.env.local
-.env.*.local
 .git
 .gitignore
 .vscode
@@ -15,8 +12,8 @@ coverage
 *.log
 .idea
 .editorconfig
-google-drive-token.json
-images/*
-!images/.gitkeep
-customizations/*
-!customizations/.gitkeep
+# Não ignorar .env - será usado via docker run --env-file
+# .env
+# Não ignorar images e customizations - necessários em produção
+# images/*
+# customizations/*

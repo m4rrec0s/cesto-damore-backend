@@ -38,11 +38,17 @@ class OrderController {
     async getByUserId(req, res) {
         try {
             const { userId } = req.params;
+            if (!userId) {
+                return res.status(400).json({ error: "ID do usuário é obrigatório" });
+            }
             const orders = await orderService_1.default.getOrdersByUserId(userId);
             res.status(200).json(orders);
         }
         catch (error) {
             console.error("Erro ao buscar pedidos do usuário:", error);
+            if (error.message.includes("obrigatório")) {
+                return res.status(400).json({ error: error.message });
+            }
             res.status(500).json({ error: "Erro interno do servidor" });
         }
     }
@@ -53,14 +59,21 @@ class OrderController {
         }
         catch (error) {
             console.error("Erro ao criar pedido:", error);
+            // Erros de validação (400)
             if (error.message.includes("obrigatório") ||
                 error.message.includes("não encontrado") ||
-                error.message.includes("deve ser maior")) {
-                res.status(400).json({ error: error.message });
+                error.message.includes("deve ser maior") ||
+                error.message.includes("Estoque insuficiente") // ✅ NOVO: Erro de estoque também retorna 400
+            ) {
+                return res.status(400).json({
+                    error: error.message,
+                    code: error.message.includes("Estoque insuficiente")
+                        ? "INSUFFICIENT_STOCK"
+                        : "VALIDATION_ERROR",
+                });
             }
-            else {
-                res.status(500).json({ error: "Erro interno do servidor" });
-            }
+            // Erro genérico (500)
+            res.status(500).json({ error: "Erro interno do servidor" });
         }
     }
     async remove(req, res) {
@@ -101,8 +114,59 @@ class OrderController {
             if (error.message.includes("Status inválido")) {
                 return res.status(400).json({ error: error.message });
             }
-            if (error.message.includes("Pedido não encontrado")) {
+            if (error.message.includes("Status inválido")) {
+                return res.status(400).json({ error: error.message });
+            }
+            res.status(500).json({ error: "Erro interno do servidor" });
+        }
+    }
+    async getPendingOrder(req, res) {
+        try {
+            const { userId } = req.params;
+            if (!userId) {
+                return res.status(400).json({ error: "ID do usuário é obrigatório" });
+            }
+            const pendingOrder = await orderService_1.default.getPendingOrder(userId);
+            if (!pendingOrder) {
+                return res
+                    .status(404)
+                    .json({ error: "Nenhum pedido pendente encontrado" });
+            }
+            res.status(200).json(pendingOrder);
+        }
+        catch (error) {
+            console.error("Erro ao buscar pedido pendente:", error);
+            if (error.message.includes("obrigatório")) {
+                return res.status(400).json({ error: error.message });
+            }
+            res.status(500).json({ error: "Erro interno do servidor" });
+        }
+    }
+    async cancelOrder(req, res) {
+        try {
+            const { id } = req.params;
+            const userId = req.user?.id; // Do middleware de autenticação
+            if (!id) {
+                return res.status(400).json({ error: "ID do pedido é obrigatório" });
+            }
+            const canceledOrder = await orderService_1.default.cancelOrder(id, userId);
+            res.status(200).json({
+                success: true,
+                message: "Pedido cancelado com sucesso",
+                order: canceledOrder,
+            });
+        }
+        catch (error) {
+            console.error("Erro ao cancelar pedido:", error);
+            if (error.message.includes("não encontrado")) {
                 return res.status(404).json({ error: error.message });
+            }
+            if (error.message.includes("não tem permissão") ||
+                error.message.includes("Apenas pedidos")) {
+                return res.status(403).json({ error: error.message });
+            }
+            if (error.message.includes("obrigatório")) {
+                return res.status(400).json({ error: error.message });
             }
             res.status(500).json({ error: "Erro interno do servidor" });
         }

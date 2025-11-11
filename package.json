@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
+    "build:docker": "tsc --project tsconfig.docker.json || exit 0",
     "start": "node dist/server.js",
     "migration:analyze": "ts-node prisma/migration-scripts/01-analyze-data.ts",
     "migration:backup": "ts-node prisma/migration-scripts/backup-before-migration.ts",

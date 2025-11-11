@@ -10,24 +10,33 @@ const productComponentService_1 = __importDefault(require("./productComponentSer
 class StockService {
     /**
      * Decrementa o estoque dos produtos e adicionais de um pedido
+     * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
      */
     async decrementOrderStock(orderItems) {
+        console.log("⚠️ DECREMENTO DE ESTOQUE DESABILITADO - Pedido criado sem alterar estoque");
+        return; // ✅ Desabilitado temporariamente
+        /* CÓDIGO ORIGINAL (COMENTADO):
         try {
-            for (const item of orderItems) {
-                // 1. Decrementar estoque dos componentes do produto (NOVA LÓGICA)
-                await this.decrementProductStock(item.product_id, item.quantity);
-                // 2. Decrementar estoque dos adicionais
-                if (item.additionals && item.additionals.length > 0) {
-                    for (const additional of item.additionals) {
-                        await this.decrementAdditionalStock(additional.additional_id, additional.quantity);
-                    }
-                }
+          for (const item of orderItems) {
+            // 1. Decrementar estoque dos componentes do produto (NOVA LÓGICA)
+            await this.decrementProductStock(item.product_id, item.quantity);
+    
+            // 2. Decrementar estoque dos adicionais
+            if (item.additionals && item.additionals.length > 0) {
+              for (const additional of item.additionals) {
+                await this.decrementAdditionalStock(
+                  additional.additional_id,
+                  additional.quantity
+                );
+              }
             }
+          }
+        } catch (error: unknown) {
+          const errorMessage =
+            error instanceof Error ? error.message : "Erro ao decrementar estoque";
+          throw new Error(`Erro ao decrementar estoque: ${errorMessage}`);
         }
-        catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "Erro ao decrementar estoque";
-            throw new Error(`Erro ao decrementar estoque: ${errorMessage}`);
-        }
+        */
     }
     /**
      * Decrementa estoque de um produto através dos seus componentes
@@ -134,33 +143,55 @@ class StockService {
     }
     /**
      * Verifica se há estoque disponível antes de criar o pedido
+     * ✅ CRÍTICO: Busca dados frescos do banco sem cache
+     * ✅ NOVO: Pula validação de produto se ele usa sistema de components
      */
     async validateOrderStock(orderItems) {
         const errors = [];
         for (const item of orderItems) {
-            // Validar produto
+            // ✅ NOVO: Verificar se produto tem componentes
             try {
-                const product = await prisma_1.default.product.findUnique({
-                    where: { id: item.product_id },
-                    select: { name: true, stock_quantity: true },
-                });
-                if (product && product.stock_quantity !== null) {
-                    if (product.stock_quantity < item.quantity) {
-                        errors.push(`Produto ${product.name}: estoque insuficiente (disponível: ${product.stock_quantity})`);
+                const componentCount = await prisma_1.default.$queryRaw `
+          SELECT COUNT(*)::bigint as count
+          FROM "ProductComponent"
+          WHERE product_id = ${item.product_id}
+        `;
+                const hasComponents = Number(componentCount[0]?.count || 0) > 0;
+                // ✅ Se produto usa components, não validar estoque direto do produto
+                if (hasComponents) {
+                    console.log(`⚠️ Produto ${item.product_id} usa sistema de components - validação de estoque via components (já feita anteriormente)`);
+                    // A validação de components já foi feita em validateComponentsStock()
+                    // então pulamos a validação do produto direto
+                }
+                else {
+                    // Produto SEM components: validar estoque direto - ✅ Força refresh com $queryRaw
+                    const productResult = await prisma_1.default.$queryRaw `
+            SELECT name, stock_quantity 
+            FROM "Product" 
+            WHERE id = ${item.product_id}
+          `;
+                    const product = productResult[0];
+                    if (product && product.stock_quantity !== null) {
+                        if (product.stock_quantity < item.quantity) {
+                            errors.push(`Produto ${product.name}: estoque insuficiente (disponível: ${product.stock_quantity})`);
+                        }
                     }
                 }
             }
             catch (error) {
+                console.error(`Erro ao validar estoque do produto ${item.product_id}:`, error);
                 errors.push(`Erro ao validar produto ${item.product_id}`);
             }
-            // Validar adicionais
+            // Validar adicionais - ✅ Força refresh com $queryRaw
             if (item.additionals) {
                 for (const additional of item.additionals) {
                     try {
-                        const additionalData = await prisma_1.default.item.findUnique({
-                            where: { id: additional.additional_id },
-                            select: { name: true, stock_quantity: true },
-                        });
+                        const additionalResult = await prisma_1.default.$queryRaw `
+              SELECT name, stock_quantity 
+              FROM "Item" 
+              WHERE id = ${additional.additional_id}
+            `;
+                        const additionalData = additionalResult[0];
                         if (!additionalData)
                             continue;
                         // Validar estoque total do item

@@ -220,8 +220,25 @@ class PaymentService {
                 if (order.payment.status === "APPROVED") {
                     throw new Error("Pedido já possui pagamento aprovado");
                 }
-                if (order.payment.status === "IN_PROCESS") {
-                    throw new Error("Pedido já possui pagamento em processamento");
+                // ✅ MUDANÇA: Permitir alterar entre PIX e CARD se o pagamento ainda está pendente
+                if (order.payment.status === "PENDING" ||
+                    order.payment.status === "IN_PROCESS") {
+                    // Cancelar o pagamento anterior no Mercado Pago (se existir)
+                    if (order.payment.mercado_pago_id) {
+                        try {
+                            console.log(`🔄 Cancelando pagamento anterior: ${order.payment.mercado_pago_id}`);
+                            await this.cancelPayment(order.payment.mercado_pago_id);
+                        }
+                        catch (cancelError) {
+                            console.warn("⚠️ Não foi possível cancelar pagamento anterior:", cancelError);
+                            // Continua mesmo se falhar, pois vamos criar um novo
+                        }
+                    }
+                    // Deletar o registro de pagamento anterior
+                    await prisma_1.default.payment.delete({
+                        where: { id: order.payment.id },
+                    });
+                    console.log(`♻️ Pagamento anterior removido. Criando novo pagamento ${data.paymentMethodId}...`);
                 }
             }
             const summary = this.calculateOrderSummary(order);

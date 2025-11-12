@@ -62,13 +62,11 @@ RUN apk add --no-cache \
     bash \
     curl
 
-# Variável para evitar rebuild do Sharp
-ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
-
-# Copia package files e instala dependências de produção
+# Copia package files
 COPY package*.json ./
-RUN npm config set registry https://registry.npmjs.org/ && \
-    npm install --omit=dev --ignore-scripts
+
+# Copia node_modules completo do builder (inclui Sharp já compilado)
+COPY --from=builder /code/node_modules ./node_modules
 
 # Copia build
 COPY --from=builder /code/dist ./dist

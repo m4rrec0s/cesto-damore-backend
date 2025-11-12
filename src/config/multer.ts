@@ -64,16 +64,37 @@ export const uploadTemp = multer({
 
 export const convertImagesToWebP = async (req: any, res: any, next: any) => {
   try {
+    console.log("🔄 [MIDDLEWARE] convertImagesToWebP iniciado");
+
     const convert = async (file: any) => {
-      if (!file || !file.buffer) return file;
+      if (!file || !file.buffer) {
+        console.log("⚠️ [MIDDLEWARE] Arquivo sem buffer, pulando conversão");
+        return file;
+      }
 
       const isImageMime = file.mimetype && file.mimetype.startsWith("image/");
       const isImageName = isImageByName(file.originalname);
-      if (!isImageMime && !isImageName) return file;
+
+      if (!isImageMime && !isImageName) {
+        console.log("⚠️ [MIDDLEWARE] Não é imagem, pulando conversão");
+        return file;
+      }
+
+      console.log("🔄 [MIDDLEWARE] Convertendo para WebP:", {
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.buffer.length,
+      });
 
       const webpBuffer = await sharp(file.buffer)
         .webp({ quality: 80 })
         .toBuffer();
+
+      console.log(
+        "✅ [MIDDLEWARE] Conversão WebP concluída:",
+        webpBuffer.length,
+        "bytes"
+      );
 
       const originalName = file.originalname || `file_${Date.now()}`;
       const baseName = originalName.replace(/\.[^.]+$/, "");
@@ -86,14 +107,20 @@ export const convertImagesToWebP = async (req: any, res: any, next: any) => {
     };
 
     if (req.file) {
+      console.log("🔄 [MIDDLEWARE] Processando req.file");
       req.file = await convert(req.file);
     }
 
     if (Array.isArray(req.files)) {
+      console.log(
+        "🔄 [MIDDLEWARE] Processando array de arquivos:",
+        req.files.length
+      );
       for (let i = 0; i < req.files.length; i++) {
         req.files[i] = await convert(req.files[i]);
       }
     } else if (req.files && typeof req.files === "object") {
+      console.log("🔄 [MIDDLEWARE] Processando objeto de arquivos");
       for (const key of Object.keys(req.files)) {
         const arr = req.files[key];
         if (Array.isArray(arr)) {
@@ -104,8 +131,13 @@ export const convertImagesToWebP = async (req: any, res: any, next: any) => {
       }
     }
 
+    console.log(
+      "✅ [MIDDLEWARE] convertImagesToWebP concluído, chamando next()"
+    );
     next();
-  } catch (err) {
+  } catch (err: any) {
+    console.error("❌ [MIDDLEWARE] Erro em convertImagesToWebP:", err);
+    console.error("❌ [MIDDLEWARE] Stack:", err.stack);
     next(err);
   }
 };

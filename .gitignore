@@ -9,3 +9,9 @@ node_modules
 credentials.json
 google-drive-credentials.json
 google-drive-token.json
+
+# Docker volumes - dados persistentes (NÃO VERSIONAR!)
+data/
+data/images/
+data/customizations/
+data/storage/

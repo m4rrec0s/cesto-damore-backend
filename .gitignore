@@ -15,3 +15,6 @@ data/
 data/images/
 data/customizations/
 data/storage/
+
+# IMAGES
+./images

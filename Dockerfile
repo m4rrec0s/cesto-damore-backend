@@ -44,7 +44,11 @@ WORKDIR /code
 RUN apk add --no-cache \
     vips-dev \
     fftw-dev \
-    libc6-compat
+    libc6-compat \
+    build-base \
+    python3 \
+    make \
+    g++
 
 # Copia package files
 COPY package*.json ./

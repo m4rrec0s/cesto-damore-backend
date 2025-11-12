@@ -8,6 +8,9 @@ RUN apk add --no-cache \
     python3 \
     make \
     g++ \
+    vips-dev \
+    fftw-dev \
+    build-base \
     cairo-dev \
     jpeg-dev \
     pango-dev \

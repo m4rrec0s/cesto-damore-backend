@@ -1,30 +1,35 @@
+# Dockerfile Alternativo - Debian (Fallback)
+# Use este arquivo se o Alpine der problemas
+# Para usar: docker build -f Dockerfile.debian .
+
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /code
 
 # Instalar dependências necessárias para Sharp e Prisma
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     python3 \
-    make \
-    g++ \
-    cairo-dev \
-    jpeg-dev \
-    pango-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    freetype-dev
+    build-essential \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copia package files
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Instala TODAS as dependências (incluindo devDependencies para build)
-# Usa apenas registro npm padrão para evitar timeouts
-RUN npm config set registry https://registry.npmjs.org/ && \
-    npm install --fetch-timeout=600000 --fetch-retries=10 --verbose
+# Configurar npm para usar mirror alternativo se necessário
+RUN npm config set registry https://registry.npmjs.org/
+
+# Instalar Sharp globalmente primeiro (evita timeout)
+RUN npm install -g sharp@0.32.6
+
+# Instala TODAS as dependências
+RUN npm install --fetch-timeout=600000 --fetch-retries=10 --verbose
 
 # Copia arquivos do projeto
 COPY . .
@@ -36,22 +41,26 @@ RUN npx prisma generate
 RUN npm run build
 
 # Stage 2: Production
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /code
 
-# Instalar dependências runtime necessárias para Sharp
-RUN apk add --no-cache \
-    vips-dev \
-    fftw-dev \
-    libc6-compat
+# Instalar dependências runtime
+RUN apt-get update && apt-get install -y \
+    libvips42 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copia package files
 COPY package*.json ./
 
+# Configurar npm
+RUN npm config set registry https://registry.npmjs.org/
+
+# Instalar Sharp globalmente primeiro
+RUN npm install -g sharp@0.32.6
+
 # Instala APENAS dependências de produção
-RUN npm config set registry https://registry.npmjs.org/ && \
-    npm install --omit=dev --fetch-timeout=600000 --fetch-retries=10
+RUN npm install --omit=dev --fetch-timeout=600000 --fetch-retries=10
 
 # Copia arquivos compilados do stage anterior
 COPY --from=builder /code/dist ./dist

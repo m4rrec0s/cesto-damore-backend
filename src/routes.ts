@@ -46,6 +46,73 @@ const router = Router();
 router.get("/health", healthCheckEndpoint);
 
 // ============================================
+// DEBUG ENDPOINT - Upload de teste
+// ============================================
+router.post(
+  "/debug/test-upload",
+  upload.single("image"),
+  async (req: Request, res: Response) => {
+    try {
+      console.log("🧪 [TEST-UPLOAD] Endpoint de teste acionado");
+
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ error: "Nenhuma imagem enviada" });
+      }
+
+      console.log("🧪 [TEST-UPLOAD] Arquivo recebido:", {
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        bufferSize: file.buffer?.length,
+      });
+
+      // Teste 1: Salvar sem processar
+      const path = await import("path");
+      const fs = await import("fs");
+      const testPath = path.join(
+        process.cwd(),
+        "images",
+        `TEST-${Date.now()}-${file.originalname}`
+      );
+
+      console.log("🧪 [TEST-UPLOAD] Salvando em:", testPath);
+      fs.writeFileSync(testPath, file.buffer);
+      console.log("🧪 [TEST-UPLOAD] Arquivo salvo! Verificando...");
+
+      if (fs.existsSync(testPath)) {
+        const stats = fs.statSync(testPath);
+        console.log(
+          "✅ [TEST-UPLOAD] Arquivo confirmado:",
+          stats.size,
+          "bytes"
+        );
+
+        return res.status(200).json({
+          success: true,
+          message: "Teste de escrita funcionou!",
+          filePath: testPath,
+          fileSize: stats.size,
+        });
+      } else {
+        console.error("❌ [TEST-UPLOAD] Arquivo NÃO foi criado!");
+        return res.status(500).json({
+          success: false,
+          message: "Arquivo não foi criado após writeFileSync",
+        });
+      }
+    } catch (error: any) {
+      console.error("❌ [TEST-UPLOAD] Erro:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        stack: error.stack,
+      });
+    }
+  }
+);
+
+// ============================================
 // WEBHOOK DEBUG ENDPOINT (temporário)
 // ============================================
 router.post("/webhook/mercadopago/debug", (req: Request, res: Response) => {

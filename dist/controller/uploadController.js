@@ -8,6 +8,7 @@ const localStorage_1 = require("../config/localStorage");
 class UploadController {
     async uploadImage(req, res) {
         try {
+            console.log("📤 [UPLOAD] Iniciando processamento de upload");
             // Processar o arquivo enviado
             const file = (() => {
                 if (req.file)
@@ -22,15 +23,26 @@ class UploadController {
                 return null;
             })();
             if (!file) {
+                console.error("❌ [UPLOAD] Nenhum arquivo recebido");
                 return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
             }
+            console.log("📥 [UPLOAD] Arquivo recebido:", {
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+                size: file.buffer?.length || 0,
+            });
             try {
+                console.log("🔄 [UPLOAD] Processando com Sharp...");
                 // Processar imagem (redimensionar e converter para WebP)
                 const processedImage = await (0, sharp_1.default)(file.buffer)
                     .resize(1920, 1080, { fit: "inside", withoutEnlargement: true })
                     .webp({ quality: 85 })
                     .toBuffer();
+                console.log("✅ [UPLOAD] Sharp processou imagem:", processedImage.length, "bytes");
+                console.log("💾 [UPLOAD] Chamando saveImageLocally...");
                 const imageUrl = await (0, localStorage_1.saveImageLocally)(processedImage, file.originalname || `upload_${Date.now()}.webp`, "image/webp");
+                console.log("✅ [UPLOAD] Upload concluído com sucesso!");
+                console.log("🔗 [UPLOAD] URL:", imageUrl);
                 return res.status(200).json({
                     url: imageUrl,
                     image_url: imageUrl,
@@ -38,7 +50,8 @@ class UploadController {
                 });
             }
             catch (imageError) {
-                console.error("Erro ao processar imagem:", imageError);
+                console.error("❌ [UPLOAD] Erro ao processar imagem:", imageError);
+                console.error("❌ [UPLOAD] Stack:", imageError.stack);
                 return res.status(500).json({
                     error: "Erro ao processar imagem",
                     details: imageError.message,
@@ -46,7 +59,8 @@ class UploadController {
             }
         }
         catch (error) {
-            console.error("Erro no upload:", error);
+            console.error("❌ [UPLOAD] Erro geral:", error);
+            console.error("❌ [UPLOAD] Stack:", error.stack);
             return res.status(500).json({
                 error: "Erro ao fazer upload",
                 details: error.message,

@@ -17,15 +17,24 @@ export const saveImageLocally = async (
   mimeType: string
 ): Promise<string> => {
   try {
+    console.log("🔍 [DEBUG] saveImageLocally - Início");
+    console.log("🔍 [DEBUG] Buffer size:", buffer.length, "bytes");
+    console.log("🔍 [DEBUG] Original name:", originalName);
+    console.log("🔍 [DEBUG] MIME type:", mimeType);
+    console.log("🔍 [DEBUG] IMAGES_DIR:", IMAGES_DIR);
+
     ensureImagesDirectory();
+    console.log("🔍 [DEBUG] Directory ensured");
 
     const hash = crypto.createHash("sha256").update(buffer).digest("hex");
     const shortHash = hash.slice(0, 12);
+    console.log("🔍 [DEBUG] Hash gerado:", shortHash);
 
     const timestamp = Date.now();
     const baseFileName = path.parse(originalName).name;
     const extension =
       path.extname(originalName) || getExtensionFromMimeType(mimeType);
+    console.log("🔍 [DEBUG] Extension:", extension);
 
     const existing = fs
       .readdirSync(IMAGES_DIR)
@@ -36,6 +45,7 @@ export const saveImageLocally = async (
       );
 
     if (existing) {
+      console.log("✅ [DEBUG] Imagem duplicada encontrada:", existing);
       return `${BASE_URL}/images/${existing}`;
     }
 
@@ -43,14 +53,31 @@ export const saveImageLocally = async (
       baseFileName
     )}${extension}`;
     const filePath = path.join(IMAGES_DIR, fileName);
+    console.log("🔍 [DEBUG] File path completo:", filePath);
 
+    console.log("🔍 [DEBUG] Escrevendo arquivo no disco...");
     fs.writeFileSync(filePath, buffer);
+    console.log("✅ [DEBUG] Arquivo escrito com sucesso!");
+
+    // Verificar se o arquivo realmente foi criado
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      console.log(
+        "✅ [DEBUG] Arquivo confirmado no disco:",
+        stats.size,
+        "bytes"
+      );
+    } else {
+      console.error("❌ [DEBUG] ARQUIVO NÃO EXISTE APÓS writeFileSync!");
+    }
 
     const imageUrl = `${BASE_URL}/images/${fileName}`;
+    console.log("✅ [DEBUG] URL gerada:", imageUrl);
 
     return imageUrl;
   } catch (error: any) {
-    console.error("❌ Erro ao salvar imagem:", error.message);
+    console.error("❌ [ERRO CRÍTICO] saveImageLocally falhou:", error);
+    console.error("❌ Stack trace:", error.stack);
     throw new Error(`Erro ao salvar imagem: ${error.message}`);
   }
 };

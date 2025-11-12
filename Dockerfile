@@ -3,13 +3,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /code
 
-# Evita bloqueios de DNS e falhas de rede
-RUN npm config set registry https://registry.npmjs.org/ \
-    && npm config set sharp_binary_host "https://npm.taobao.org/mirrors/sharp-libvips" \
-    && npm config set sharp_libvips_binary_host "https://npm.taobao.org/mirrors/sharp-libvips" \
-    && npm config set fetch-retry-maxtimeout 600000 \
-    && npm config set fetch-retry-mintimeout 20000 \
-    && npm config set fetch-retries 10
+# Variáveis de ambiente para evitar bloqueios e erros no Sharp
+ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
+ENV npm_config_fetch_retries=10
+ENV npm_config_fetch_retry_mintimeout=20000
+ENV npm_config_fetch_retry_maxtimeout=600000
 
 # Instalar dependências necessárias
 RUN apk add --no-cache \
@@ -31,14 +29,15 @@ RUN apk add --no-cache \
     curl \
     git
 
-# Copia arquivos essenciais
+# Copia package files
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Instala dependências com fallback
-RUN npm install --verbose || npm install --ignore-scripts
+# Instala dependências com retry estendido
+RUN npm config set registry https://registry.npmjs.org/ && \
+    npm install --verbose --fetch-timeout=600000 --fetch-retries=10
 
-# Copia o restante do projeto
+# Copia projeto
 COPY . .
 
 # Gera Prisma Client
@@ -48,13 +47,14 @@ RUN npx prisma generate
 RUN npm run build
 
 
-# ----------------------
+# ========================
 # Stage 2: Production
-# ----------------------
+# ========================
 FROM node:20-alpine
 
 WORKDIR /code
 
+# Dependências de runtime
 RUN apk add --no-cache \
     vips-dev \
     fftw-dev \
@@ -62,10 +62,15 @@ RUN apk add --no-cache \
     bash \
     curl
 
-# Copia apenas dependências e build final
-COPY package*.json ./
-RUN npm install --omit=dev --ignore-scripts
+# Variável para evitar rebuild do Sharp
+ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
 
+# Copia package files e instala dependências de produção
+COPY package*.json ./
+RUN npm config set registry https://registry.npmjs.org/ && \
+    npm install --omit=dev --ignore-scripts
+
+# Copia build
 COPY --from=builder /code/dist ./dist
 COPY --from=builder /code/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /code/prisma ./prisma

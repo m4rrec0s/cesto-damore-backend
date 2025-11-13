@@ -6,36 +6,61 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
 class ItemService {
     /**
-     * Lista todos os itens
+     * Lista todos os itens com paginação
      */
-    async listItems() {
-        return prisma_1.default.item.findMany({
-            include: {
-                additionals: {
-                    select: {
-                        custom_price: true,
-                        is_active: true,
-                        product: { select: { id: true, name: true, image_url: true } },
+    async listItems(params) {
+        const page = params?.page || 1;
+        const perPage = params?.perPage || 15;
+        const search = params?.search;
+        const where = {};
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: "insensitive" } },
+                { description: { contains: search, mode: "insensitive" } },
+            ];
+        }
+        const [items, total] = await Promise.all([
+            prisma_1.default.item.findMany({
+                where,
+                skip: (page - 1) * perPage,
+                take: perPage,
+                include: {
+                    additionals: {
+                        select: {
+                            custom_price: true,
+                            is_active: true,
+                            product: { select: { id: true, name: true, image_url: true } },
+                        },
+                    },
+                    customizations: {
+                        select: {
+                            id: true,
+                            name: true,
+                            type: true,
+                            isRequired: true,
+                            price: true,
+                        },
+                    },
+                    components: {
+                        select: {
+                            product_id: true,
+                            quantity: true,
+                        },
                     },
                 },
-                customizations: {
-                    select: {
-                        id: true,
-                        name: true,
-                        type: true,
-                        isRequired: true,
-                        price: true,
-                    },
-                },
-                components: {
-                    select: {
-                        product_id: true,
-                        quantity: true,
-                    },
-                },
+                orderBy: { created_at: "desc" },
+            }),
+            prisma_1.default.item.count({ where }),
+        ]);
+        return {
+            items,
+            pagination: {
+                page,
+                perPage,
+                total,
+                totalPages: Math.ceil(total / perPage),
             },
-            orderBy: { created_at: "desc" },
-        });
+        };
     }
     /**
      * Busca item por ID

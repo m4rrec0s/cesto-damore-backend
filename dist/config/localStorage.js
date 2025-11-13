@@ -18,44 +18,29 @@ const ensureImagesDirectory = () => {
 exports.ensureImagesDirectory = ensureImagesDirectory;
 const saveImageLocally = async (buffer, originalName, mimeType) => {
     try {
-        console.log("🔍 [DEBUG] saveImageLocally - Início");
-        console.log("🔍 [DEBUG] Buffer size:", buffer.length, "bytes");
-        console.log("🔍 [DEBUG] Original name:", originalName);
-        console.log("🔍 [DEBUG] MIME type:", mimeType);
-        console.log("🔍 [DEBUG] IMAGES_DIR:", IMAGES_DIR);
         (0, exports.ensureImagesDirectory)();
-        console.log("🔍 [DEBUG] Directory ensured");
         const hash = crypto_1.default.createHash("sha256").update(buffer).digest("hex");
         const shortHash = hash.slice(0, 12);
-        console.log("🔍 [DEBUG] Hash gerado:", shortHash);
         const timestamp = Date.now();
         const baseFileName = path_1.default.parse(originalName).name;
         const extension = path_1.default.extname(originalName) || getExtensionFromMimeType(mimeType);
-        console.log("🔍 [DEBUG] Extension:", extension);
         const existing = fs_1.default
             .readdirSync(IMAGES_DIR)
             .find((f) => f.includes(`-${shortHash}-`) ||
             f.includes(`-${shortHash}${extension}`));
         if (existing) {
-            console.log("✅ [DEBUG] Imagem duplicada encontrada:", existing);
             return `${BASE_URL}/images/${existing}`;
         }
         const fileName = `${timestamp}-${shortHash}-${sanitizeFileName(baseFileName)}${extension}`;
         const filePath = path_1.default.join(IMAGES_DIR, fileName);
-        console.log("🔍 [DEBUG] File path completo:", filePath);
-        console.log("🔍 [DEBUG] Escrevendo arquivo no disco...");
         fs_1.default.writeFileSync(filePath, buffer);
-        console.log("✅ [DEBUG] Arquivo escrito com sucesso!");
-        // Verificar se o arquivo realmente foi criado
         if (fs_1.default.existsSync(filePath)) {
             const stats = fs_1.default.statSync(filePath);
-            console.log("✅ [DEBUG] Arquivo confirmado no disco:", stats.size, "bytes");
         }
         else {
             console.error("❌ [DEBUG] ARQUIVO NÃO EXISTE APÓS writeFileSync!");
         }
         const imageUrl = `${BASE_URL}/images/${fileName}`;
-        console.log("✅ [DEBUG] URL gerada:", imageUrl);
         return imageUrl;
     }
     catch (error) {

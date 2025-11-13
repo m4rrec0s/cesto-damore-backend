@@ -14,8 +14,16 @@ class ItemController {
                 const items = await itemService_1.default.getItemsByProductId(productId);
                 return res.json(items);
             }
-            const items = await itemService_1.default.listItems();
-            res.json(items);
+            // Paginação
+            const page = parseInt(req.query.page) || 1;
+            const perPage = parseInt(req.query.per_page) || 15;
+            const search = req.query.search;
+            const result = await itemService_1.default.listItems({
+                page,
+                perPage,
+                search,
+            });
+            res.json(result);
         }
         catch (error) {
             console.error("Erro ao buscar items:", error);

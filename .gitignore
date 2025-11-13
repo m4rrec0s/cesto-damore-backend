@@ -11,10 +11,7 @@ google-drive-credentials.json
 google-drive-token.json
 
 # Docker volumes - dados persistentes (NÃO VERSIONAR!)
-data/
-data/images/
-data/customizations/
-data/storage/
-
+code/
+code/images/
 # IMAGES
-./images
+/images

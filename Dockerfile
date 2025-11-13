@@ -62,6 +62,10 @@ RUN apk add --no-cache \
     bash \
     curl
 
+# Criar diretórios para bind mounts
+RUN mkdir -p /app/images /app/storage && \
+    chmod 755 /app/images /app/storage
+
 # Copia package files
 COPY package*.json ./
 

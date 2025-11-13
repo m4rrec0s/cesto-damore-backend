@@ -75,9 +75,7 @@ COPY --from=builder /code/prisma ./prisma
 COPY google-drive-token.json* ./
 COPY docker-entrypoint.sh ./
 
-RUN chmod +x docker-entrypoint.sh \
-    && mkdir -p /code/images /code/images/customizations /code/customizations/models /code/storage/temp \
-    && chmod -R 755 /code/images /code/customizations /code/storage
+RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 3333
 ENTRYPOINT ["./docker-entrypoint.sh"]

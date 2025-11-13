@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3333:3333"
+    volumes:
+      # OPÇÃO 1: Volumes nomeados (gerenciados pelo Docker)
+      # Mais simples - Docker cria e gerencia automaticamente
+      - images-data:/code/images
+      - customizations-data:/code/customizations
+      - storage-data:/code/storage
+    environment:
+      - NODE_ENV=production
+      - BASE_URL=${BASE_URL}
+      - DATABASE_URL=${DATABASE_URL}
+      - RUN_MIGRATIONS=true
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+# Declaração dos volumes nomeados
+volumes:
+  images-data:
+    driver: local
+  customizations-data:
+    driver: local
+  storage-data:
+    driver: local

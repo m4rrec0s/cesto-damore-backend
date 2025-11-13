@@ -13,8 +13,17 @@ class ItemController {
         return res.json(items);
       }
 
-      const items = await itemService.listItems();
-      res.json(items);
+      // Paginação
+      const page = parseInt(req.query.page as string) || 1;
+      const perPage = parseInt(req.query.per_page as string) || 15;
+      const search = req.query.search as string;
+
+      const result = await itemService.listItems({
+        page,
+        perPage,
+        search,
+      });
+      res.json(result);
     } catch (error: any) {
       console.error("Erro ao buscar items:", error);
       res.status(500).json({

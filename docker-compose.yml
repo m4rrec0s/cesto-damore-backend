@@ -8,18 +8,15 @@ services:
     ports:
       - "3333:3333"
     volumes:
-      # IMPORTANTE: Antes de usar bind mounts, execute:
-      # ./setup-vps-folders.sh
-      #
-      # Isso criará as pastas necessárias no host
-      - ./images:/code/images
-      - ./customizations:/code/customizations
-      - ./storage:/code/storage
+      # Persistir imagens localmente na VPS
+      - ./data/images:/code/images
+      - ./data/customizations:/code/customizations
+      - ./data/storage:/code/storage
     environment:
       - NODE_ENV=production
       - BASE_URL=${BASE_URL}
       - DATABASE_URL=${DATABASE_URL}
-      - RUN_MIGRATIONS=true
+      # Adicione outras variáveis de ambiente necessárias
     restart: unless-stopped
     networks:
       - app-network
@@ -27,8 +24,7 @@ services:
 networks:
   app-network:
     driver: bridge
-# ALTERNATIVA: Use volumes nomeados (mais simples, não precisa criar pastas)
-# Descomente abaixo e comente os bind mounts acima:
+# Volumes nomeados (alternativa, caso prefira)
 # volumes:
 #   images-data:
 #   customizations-data:

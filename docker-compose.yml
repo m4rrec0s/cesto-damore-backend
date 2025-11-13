@@ -8,10 +8,14 @@ services:
     ports:
       - "3333:3333"
     volumes:
-      # Persistir imagens localmente na VPS
-      - ./data/images:/code/images
-      - ./data/customizations:/code/customizations
-      - ./data/storage:/code/storage
+      # Mapear pastas FORA do diretório code (não serão afetadas por git pull)
+      # Estrutura na VPS:
+      # /etc/easypanel/projects/cesto_damore/cestodamore_api/
+      # ├── code/          (código do Git)
+      # ├── images/        (persistente, fora do Git)
+      # └── storage/       (persistente, fora do Git)
+      - ../images:/app/images
+      - ../storage:/app/storage
     environment:
       - NODE_ENV=production
       - BASE_URL=${BASE_URL}

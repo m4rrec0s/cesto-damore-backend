@@ -2,7 +2,14 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 
-const IMAGES_DIR = path.join(process.cwd(), "images");
+// Pasta de imagens FORA do diretório do código
+// Em produção (Docker): /app/images (mapeado via volume)
+// Em desenvolvimento: ./images (dentro do projeto)
+const IMAGES_DIR =
+  process.env.NODE_ENV === "production"
+    ? "/app/images"
+    : path.join(process.cwd(), "images");
+
 const BASE_URL = process.env.BASE_URL;
 
 export const ensureImagesDirectory = () => {

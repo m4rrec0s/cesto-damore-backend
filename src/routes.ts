@@ -162,7 +162,11 @@ router.get("/oauth/status", oauthController.status);
 router.get("/images/:filename", (req: Request, res: Response) => {
   try {
     const filename = req.params.filename;
-    const imagesPath = path.join(process.cwd(), "images");
+    // Pasta de imagens FORA do diretório do código em produção
+    const imagesPath =
+      process.env.NODE_ENV === "production"
+        ? "/app/images"
+        : path.join(process.cwd(), "images");
     const filePath = path.join(imagesPath, filename);
 
     if (!fs.existsSync(filePath)) {
@@ -188,11 +192,11 @@ router.get(
   (req: Request, res: Response) => {
     try {
       const { filename } = req.params;
-      const customizationsPath = path.join(
-        process.cwd(),
-        "images",
-        "customizations"
-      );
+      const imagesPath =
+        process.env.NODE_ENV === "production"
+          ? "/app/images"
+          : path.join(process.cwd(), "images");
+      const customizationsPath = path.join(imagesPath, "customizations");
       const filePath = path.join(customizationsPath, filename);
 
       if (!fs.existsSync(filePath)) {
@@ -219,9 +223,12 @@ router.get(
   (req: Request, res: Response) => {
     try {
       const { folderId, filename } = req.params;
+      const imagesPath =
+        process.env.NODE_ENV === "production"
+          ? "/app/images"
+          : path.join(process.cwd(), "images");
       const customizationsPath = path.join(
-        process.cwd(),
-        "images",
+        imagesPath,
         "customizations",
         folderId
       );

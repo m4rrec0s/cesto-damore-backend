@@ -13,5 +13,7 @@ google-drive-token.json
 # Docker volumes - dados persistentes (NÃO VERSIONAR!)
 code/
 code/images/
-# IMAGES
+
+# Pastas de dados locais (desenvolvimento e produção)
 /images
+/storage

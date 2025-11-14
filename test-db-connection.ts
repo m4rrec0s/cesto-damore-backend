@@ -3,9 +3,9 @@
 import postgres from "postgres";
 import { PrismaClient } from "@prisma/client";
 
-// Teste de conectividade com o banco Neon (principal)
-async function testNeonConnection() {
-  console.log("🔍 Testando conexão com Neon Database...");
+// Teste de conectividade com o banco Supabase via pgBouncer (porta 6543)
+async function testSupabasePgBouncer() {
+  console.log("🔍 Testando conexão com Supabase via pgBouncer (porta 6543)...");
 
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -21,20 +21,20 @@ async function testNeonConnection() {
     });
 
     const result = await client`SELECT version()`;
-    console.log("✅ Conexão com Neon Database bem-sucedida!");
+    console.log("✅ Conexão com Supabase (pgBouncer) bem-sucedida!");
     console.log("📊 Versão do PostgreSQL:", result[0].version);
 
     await client.end();
     return true;
   } catch (error: any) {
-    console.error("❌ Erro na conexão com Neon Database:", error.message);
+    console.error("❌ Erro na conexão via pgBouncer:", error.message);
     return false;
   }
 }
 
-// Teste de conectividade com o banco Supabase (n8n)
-async function testSupabaseConnection() {
-  console.log("🔍 Testando conexão com Supabase Database...");
+// Teste de conectividade com o banco Supabase N8N via pgBouncer
+async function testSupabaseN8NConnection() {
+  console.log("🔍 Testando conexão com Supabase N8N via pgBouncer...");
 
   const connectionString = process.env.SUPABASE_N8N_DATABASE_URL;
   if (!connectionString) {
@@ -50,13 +50,13 @@ async function testSupabaseConnection() {
     });
 
     const result = await client`SELECT version()`;
-    console.log("✅ Conexão com Supabase Database bem-sucedida!");
+    console.log("✅ Conexão com Supabase N8N bem-sucedida!");
     console.log("📊 Versão do PostgreSQL:", result[0].version);
 
     await client.end();
     return true;
   } catch (error: any) {
-    console.error("❌ Erro na conexão com Supabase Database:", error.message);
+    console.error("❌ Erro na conexão com Supabase N8N:", error.message);
     return false;
   }
 }
@@ -86,14 +86,17 @@ async function main() {
   console.log("🚀 Iniciando testes de conectividade com bancos de dados...\n");
 
   const results = {
-    neon: await testNeonConnection(),
-    supabase: await testSupabaseConnection(),
+    pgBouncer: await testSupabasePgBouncer(),
+    n8n: await testSupabaseN8NConnection(),
     prisma: await testPrismaConnection(),
   };
 
   console.log("\n📋 Resumo dos testes:");
-  console.log("Neon Database:", results.neon ? "✅ OK" : "❌ FALHA");
-  console.log("Supabase Database:", results.supabase ? "✅ OK" : "❌ FALHA");
+  console.log(
+    "Supabase pgBouncer (6543):",
+    results.pgBouncer ? "✅ OK" : "❌ FALHA"
+  );
+  console.log("Supabase N8N (6543):", results.n8n ? "✅ OK" : "❌ FALHA");
   console.log("Prisma Client:", results.prisma ? "✅ OK" : "❌ FALHA");
 
   const allOk = Object.values(results).every((result) => result);

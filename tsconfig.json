@@ -9,5 +9,11 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "exclude": ["tests", "node_modules", "dist", "prisma/migration-scripts"]
+  "exclude": [
+    "tests",
+    "node_modules",
+    "dist",
+    "prisma/migration-scripts",
+    "test-db-connection.ts"
+  ]
 }

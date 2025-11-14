@@ -34,7 +34,11 @@ exports.uploadAny = (0, multer_1.default)({
 const storageTemp = multer_1.default.diskStorage({
     destination: (req, file, cb) => {
         const { sessionId } = req.body;
-        const tempDir = `storage/temp/${sessionId || "default"}`;
+        // Pasta de storage FORA do diretório do código
+        // Em produção (Docker): /app/storage
+        // Em desenvolvimento: ./storage
+        const baseStorageDir = process.env.NODE_ENV === "production" ? "/app/storage" : "storage";
+        const tempDir = `${baseStorageDir}/temp/${sessionId || "default"}`;
         const fs = require("fs");
         if (!fs.existsSync(tempDir)) {
             fs.mkdirSync(tempDir, { recursive: true });

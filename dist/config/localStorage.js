@@ -7,12 +7,27 @@ exports.IMAGES_DIR = exports.listLocalImages = exports.deleteAdditionalImage = e
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const crypto_1 = __importDefault(require("crypto"));
-const IMAGES_DIR = path_1.default.join(process.cwd(), "images");
+// Pasta de imagens FORA do diretório do código
+// Em produção (Docker): /app/images (mapeado via volume)
+// Em desenvolvimento: ./images (dentro do projeto)
+const IMAGES_DIR = process.env.NODE_ENV === "production"
+    ? "/app/images"
+    : path_1.default.join(process.cwd(), "images");
 exports.IMAGES_DIR = IMAGES_DIR;
 const BASE_URL = process.env.BASE_URL;
+// Log para debug
+console.log("📁 [STORAGE CONFIG]", {
+    NODE_ENV: process.env.NODE_ENV,
+    IMAGES_DIR,
+    BASE_URL,
+});
 const ensureImagesDirectory = () => {
     if (!fs_1.default.existsSync(IMAGES_DIR)) {
+        console.log(`📁 [STORAGE] Criando diretório: ${IMAGES_DIR}`);
         fs_1.default.mkdirSync(IMAGES_DIR, { recursive: true });
+    }
+    else {
+        console.log(`✅ [STORAGE] Diretório existe: ${IMAGES_DIR}`);
     }
 };
 exports.ensureImagesDirectory = ensureImagesDirectory;
@@ -29,18 +44,23 @@ const saveImageLocally = async (buffer, originalName, mimeType) => {
             .find((f) => f.includes(`-${shortHash}-`) ||
             f.includes(`-${shortHash}${extension}`));
         if (existing) {
+            console.log(`♻️ [STORAGE] Imagem já existe: ${existing}`);
             return `${BASE_URL}/images/${existing}`;
         }
         const fileName = `${timestamp}-${shortHash}-${sanitizeFileName(baseFileName)}${extension}`;
         const filePath = path_1.default.join(IMAGES_DIR, fileName);
+        console.log(`💾 [STORAGE] Salvando imagem em: ${filePath}`);
         fs_1.default.writeFileSync(filePath, buffer);
         if (fs_1.default.existsSync(filePath)) {
             const stats = fs_1.default.statSync(filePath);
+            console.log(`✅ [STORAGE] Imagem salva com sucesso! Tamanho: ${stats.size} bytes`);
+            console.log(`✅ [STORAGE] Caminho completo: ${filePath}`);
         }
         else {
-            console.error("❌ [DEBUG] ARQUIVO NÃO EXISTE APÓS writeFileSync!");
+            console.error("❌ [STORAGE] ARQUIVO NÃO EXISTE APÓS writeFileSync!");
         }
         const imageUrl = `${BASE_URL}/images/${fileName}`;
+        console.log(`🔗 [STORAGE] URL da imagem: ${imageUrl}`);
         return imageUrl;
     }
     catch (error) {

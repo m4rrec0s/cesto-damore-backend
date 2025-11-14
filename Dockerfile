@@ -1,33 +1,25 @@
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /code
 
-# Variáveis de ambiente para evitar bloqueios e erros no Sharp
-ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
-ENV npm_config_fetch_retries=10
-ENV npm_config_fetch_retry_mintimeout=20000
-ENV npm_config_fetch_retry_maxtimeout=600000
-
-# Instalar dependências necessárias
-RUN apk add --no-cache \
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
-    vips-dev \
-    fftw-dev \
-    build-base \
-    cairo-dev \
-    jpeg-dev \
-    pango-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    freetype-dev \
-    bash \
+    libvips-dev \
+    libfftw3-dev \
+    build-essential \
+    libcairo2-dev \
+    libjpeg-dev \
+    libpango1.0-dev \
+    libgif-dev \
+    libpixman-1-dev \
+    libfreetype6-dev \
     curl \
-    git
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copia package files
 COPY package*.json ./
@@ -50,17 +42,17 @@ RUN npm run build
 # ========================
 # Stage 2: Production
 # ========================
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /code
 
-# Dependências de runtime
-RUN apk add --no-cache \
-    vips-dev \
-    fftw-dev \
-    libc6-compat \
-    bash \
-    curl
+# Instalar dependências de runtime
+RUN apt-get update && apt-get install -y \
+    libvips-dev \
+    libfftw3-dev \
+    libc6 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Criar diretórios para bind mounts
 RUN mkdir -p /app/images /app/storage && \

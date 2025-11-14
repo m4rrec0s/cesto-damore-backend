@@ -158,7 +158,10 @@ router.get("/oauth/status", oauthController_1.default.status);
 router.get("/images/:filename", (req, res) => {
     try {
         const filename = req.params.filename;
-        const imagesPath = path_1.default.join(process.cwd(), "images");
+        // Pasta de imagens FORA do diretório do código em produção
+        const imagesPath = process.env.NODE_ENV === "production"
+            ? "/app/images"
+            : path_1.default.join(process.cwd(), "images");
         const filePath = path_1.default.join(imagesPath, filename);
         if (!fs_1.default.existsSync(filePath)) {
             return res.status(404).json({
@@ -180,7 +183,10 @@ router.get("/images/:filename", (req, res) => {
 router.get("/images/customizations/:filename", (req, res) => {
     try {
         const { filename } = req.params;
-        const customizationsPath = path_1.default.join(process.cwd(), "images", "customizations");
+        const imagesPath = process.env.NODE_ENV === "production"
+            ? "/app/images"
+            : path_1.default.join(process.cwd(), "images");
+        const customizationsPath = path_1.default.join(imagesPath, "customizations");
         const filePath = path_1.default.join(customizationsPath, filename);
         if (!fs_1.default.existsSync(filePath)) {
             return res.status(404).json({
@@ -202,7 +208,10 @@ router.get("/images/customizations/:filename", (req, res) => {
 router.get("/images/customizations/:folderId/:filename", (req, res) => {
     try {
         const { folderId, filename } = req.params;
-        const customizationsPath = path_1.default.join(process.cwd(), "images", "customizations", folderId);
+        const imagesPath = process.env.NODE_ENV === "production"
+            ? "/app/images"
+            : path_1.default.join(process.cwd(), "images");
+        const customizationsPath = path_1.default.join(imagesPath, "customizations", folderId);
         const filePath = path_1.default.join(customizationsPath, filename);
         if (!fs_1.default.existsSync(filePath)) {
             return res.status(404).json({

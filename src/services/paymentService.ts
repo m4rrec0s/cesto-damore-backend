@@ -895,8 +895,9 @@ export class PaymentService {
       }
 
       // Extrair resourceId do formato oficial Mercado Pago Webhooks
-      // Formato: { data: { id: "123" }, type: "payment", action: "payment.updated" }
-      const resourceId = data.data?.id?.toString();
+      // Formato recebido: { type, action, data: { data: { id: "123" } } }
+      // O middleware normaliza para estrutura aninhada: data.data.id
+      const resourceId = data.data?.data?.id?.toString();
 
       if (!resourceId || !webhookType) {
         console.error("❌ Webhook sem ID de recurso ou tipo", {
@@ -904,7 +905,9 @@ export class PaymentService {
           webhookType,
           action: data.action,
           type: data.type,
-          receivedData: JSON.stringify(data).substring(0, 200),
+          dataKeys: Object.keys(data.data || {}),
+          dataDataId: data.data?.data?.id,
+          receivedData: JSON.stringify(data).substring(0, 500),
         });
         return {
           success: false,
@@ -988,7 +991,8 @@ export class PaymentService {
       console.error("Erro ao processar webhook:", error);
 
       // Extrair resourceId do formato oficial (já normalizado pelo middleware)
-      const resourceId = data?.data?.id?.toString();
+      // Estrutura: { type, action, data: { data: { id } } }
+      const resourceId = data?.data?.data?.id?.toString();
       const webhookType = data?.type || data?.action?.split(".")[0];
 
       if (resourceId && webhookType) {

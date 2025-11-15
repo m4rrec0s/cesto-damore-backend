@@ -245,6 +245,15 @@ export const validateMercadoPagoWebhook = (
         normalizedType: type,
         normalizedDataId: data.data.id,
       });
+
+      // ⚠️ IMPORTANTE: Atualizar req.body com estrutura normalizada
+      req.body = {
+        type,
+        action,
+        data,
+        live_mode: true, // Formato antigo é sempre produção
+        date_created: new Date().toISOString(),
+      };
     }
 
     // Suporte para formato com 'action' (ex: payment.updated)
@@ -252,13 +261,15 @@ export const validateMercadoPagoWebhook = (
       type = action.split(".")[0]; // 'payment.updated' -> 'payment'
     }
 
-    // Validar estrutura final
-    if (!type || !data || !data.id) {
+    // Validar estrutura final (aninhada: data.data.id)
+    const hasValidData = data?.data?.id || data?.id;
+    if (!type || !data || !hasValidData) {
       console.error("❌ Webhook com estrutura inválida", {
         type,
         action,
         hasData: !!data,
         dataId: data?.id,
+        dataDataId: data?.data?.id,
         bodyKeys: Object.keys(req.body || {}),
       });
       return res.status(400).json({

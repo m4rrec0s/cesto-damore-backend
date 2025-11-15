@@ -8,6 +8,8 @@
     "build": "tsc",
     "build:docker": "tsc --project tsconfig.docker.json || exit 0",
     "start": "node dist/server.js",
+    "db:seed": "ts-node prisma/seed.ts",
+    "db:backup:supabase": "node supabase-backup.js",
     "migration:analyze": "ts-node prisma/migration-scripts/01-analyze-data.ts",
     "migration:backup": "ts-node prisma/migration-scripts/backup-before-migration.ts",
     "migration:restore": "ts-node prisma/migration-scripts/restore-backup.ts"
@@ -20,8 +22,13 @@
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
     "@types/crypto-js": "^4.2.2",
+    "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
+    "@types/node-cron": "^3.0.11",
     "@types/uuid": "^10.0.0",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
@@ -36,20 +43,16 @@
     "mercadopago": "^2.8.0",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
+    "pg": "^8.16.3",
     "postgres": "^3.4.7",
     "prisma": "^6.15.0",
     "sharp": "^0.32.6",
+    "typescript": "^5.9.2",
     "uuid": "^9.0.1",
-    "zod": "^3.23.8",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3",
-    "@types/multer": "^2.0.0",
-    "@types/node": "^24.5.2",
-    "@types/node-cron": "^3.0.11",
-    "typescript": "^5.9.2"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0"

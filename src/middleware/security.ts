@@ -170,10 +170,16 @@ export const validateMercadoPagoWebhook = (
     // Log seguro da estrutura do webhook
     const bodyPreview = req.body
       ? {
-          type: req.body.type || req.body.action?.split(".")[0],
+          // Formato novo
+          type:
+            req.body.type || req.body.action?.split(".")[0] || req.body.topic,
           action: req.body.action,
           live_mode: req.body.live_mode,
-          paymentId: req.body.data?.id,
+          paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
+          // Formato antigo
+          topic: req.body.topic,
+          resource: req.body.resource,
+          // Meta
           hasData: !!req.body.data,
           keys: Object.keys(req.body),
         }
@@ -193,13 +199,49 @@ export const validateMercadoPagoWebhook = (
     }
 
     // Validar estrutura básica - aceitar diferentes formatos do MP
-    let { type, data, live_mode, action } = req.body;
+    let { type, data, live_mode, action, resource, topic } = req.body;
+
+    // ========== SUPORTE PARA FORMATO ANTIGO {resource, topic} ==========
+    if (!type && !action && topic && resource) {
+      console.log("📦 Webhook formato antigo detectado - normalizando", {
+        topic,
+        resource,
+      });
+
+      // Extrair ID do resource (formato: /v1/payments/123456789)
+      const resourceMatch = resource.match(/\/([^\/]+)$/);
+      const resourceId = resourceMatch ? resourceMatch[1] : null;
+
+      if (!resourceId) {
+        console.error("❌ Formato antigo inválido - resource sem ID", {
+          resource,
+          topic,
+        });
+        return res.status(400).json({
+          error: "Formato de webhook antigo inválido",
+          code: "INVALID_LEGACY_WEBHOOK",
+        });
+      }
+
+      // Normalizar para formato novo
+      type = topic; // 'payment', 'merchant_order', etc.
+      data = { id: resourceId };
+      action = `${topic}.updated`; // Assumir atualização
+
+      console.log("✅ Webhook formato antigo normalizado", {
+        originalTopic: topic,
+        originalResource: resource,
+        normalizedType: type,
+        normalizedDataId: data.id,
+      });
+    }
 
     // Suporte para formato com 'action' (ex: payment.updated)
     if (!type && action) {
       type = action.split(".")[0]; // 'payment.updated' -> 'payment'
     }
 
+    // Validar estrutura final
     if (!type || !data || !data.id) {
       console.error("❌ Webhook com estrutura inválida", {
         type,

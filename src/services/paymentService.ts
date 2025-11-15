@@ -893,7 +893,10 @@ export class PaymentService {
         webhookType = data.action.split(".")[0]; // 'payment.updated' -> 'payment'
       }
 
-      const resourceId = data.data?.id?.toString();
+      // Extrair resourceId - suporte para ambos os formatos:
+      // Formato novo: { data: { id: "123" } }
+      // Formato antigo normalizado: { data: { id: "123" } } (já normalizado pelo middleware)
+      const resourceId = (data.data?.id || data.id)?.toString();
 
       if (!resourceId || !webhookType) {
         console.error("❌ Webhook sem ID de recurso ou tipo", {
@@ -901,6 +904,8 @@ export class PaymentService {
           webhookType,
           action: data.action,
           type: data.type,
+          dataKeys: Object.keys(data || {}),
+          dataDataKeys: Object.keys(data?.data || {}),
         });
         return {
           success: false,
@@ -983,7 +988,7 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao processar webhook:", error);
 
-      const resourceId = data?.data?.id?.toString();
+      const resourceId = (data?.data?.id || data?.id)?.toString();
       const webhookType = data?.type || data?.action?.split(".")[0];
 
       if (resourceId && webhookType) {

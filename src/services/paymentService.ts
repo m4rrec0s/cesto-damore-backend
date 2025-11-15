@@ -909,14 +909,8 @@ export class PaymentService {
         webhookType = data.action.split(".")[0]; // 'payment.updated' -> 'payment'
       }
 
-      // Extrair resourceId - suporte para AMBOS os formatos:
-      // 1. Formato NOVO do MP: { type, action, data: { id: "123" } }
-      // 2. Formato ANTIGO normalizado: { type, action, data: { data: { id: "123" } } }
-      const resourceId = (
-        data.data?.data?.id || // Formato antigo normalizado
-        data.data?.id
-      ) // Formato novo do MP
-        ?.toString();
+      // Extrair resourceId - formato NOVO do MP: { type, action, data: { id: "123" } }
+      const resourceId = data.data?.id?.toString();
 
       if (!resourceId || !webhookType) {
         console.error("❌ Webhook sem ID de recurso ou tipo", {
@@ -926,7 +920,6 @@ export class PaymentService {
           type: data.type,
           dataKeys: Object.keys(data.data || {}),
           dataId: data.data?.id,
-          dataDataId: data.data?.data?.id,
           receivedData: JSON.stringify(data).substring(0, 500),
         });
         return {
@@ -1014,12 +1007,8 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao processar webhook:", error);
 
-      // Extrair resourceId - suporta AMBOS os formatos (novo e antigo normalizado)
-      const resourceId = (
-        data?.data?.data?.id || // Formato antigo normalizado
-        data?.data?.id
-      ) // Formato novo do MP
-        ?.toString();
+      // Extrair resourceId - formato NOVO do MP: { data: { id } }
+      const resourceId = data?.data?.id?.toString();
       const webhookType = data?.type || data?.action?.split(".")[0];
 
       if (resourceId && webhookType) {

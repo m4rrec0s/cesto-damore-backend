@@ -201,6 +201,41 @@ export const validateMercadoPagoWebhook = (
     // Validar estrutura básica - aceitar diferentes formatos do MP
     let { type, data, live_mode, action, resource, topic } = req.body;
 
+    // ========== VALIDAÇÃO DE TIMESTAMP (PREVENIR REPLAY ATTACKS) ==========
+    const xSignature = req.headers["x-signature"] as string;
+    if (xSignature) {
+      const timestampMatch = xSignature.match(/ts=(\d+)/);
+      if (timestampMatch) {
+        const webhookTimestamp = parseInt(timestampMatch[1]);
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const timeDifferenceMinutes = Math.floor(
+          (currentTimestamp - webhookTimestamp) / 60
+        );
+
+        // ⚠️ REJEITAR webhooks com mais de 5 minutos
+        if (timeDifferenceMinutes > 5) {
+          console.error("❌ Webhook rejeitado - timestamp muito antigo", {
+            webhookTimestamp,
+            currentTimestamp,
+            differenceInMinutes: timeDifferenceMinutes,
+            maxAllowedMinutes: 5,
+          });
+          return res.status(400).json({
+            error: "Webhook expirado - timestamp muito antigo",
+            code: "WEBHOOK_EXPIRED",
+            details: {
+              differenceInMinutes: timeDifferenceMinutes,
+              maxAllowedMinutes: 5,
+            },
+          });
+        }
+
+        console.log("✅ Webhook timestamp válido", {
+          differenceInMinutes: timeDifferenceMinutes,
+        });
+      }
+    }
+
     // ========== SUPORTE PARA FORMATO ANTIGO {resource, topic} ==========
     if (!type && !action && topic && resource) {
       console.log("📦 Webhook formato antigo detectado - normalizando", {
@@ -233,27 +268,25 @@ export const validateMercadoPagoWebhook = (
         });
       }
 
-      // Normalizar para formato novo (conforme documentação oficial Mercado Pago)
-      // Formato webhook atual: { type, action, data: { id: "123" } }
-      type = topic; // 'payment', 'merchant_order', etc.
-      data = { data: { id: resourceId } }; // Estrutura aninhada conforme documentação
-      action = `${topic}.updated`; // Assumir atualização
-
-      console.log("✅ Webhook formato antigo normalizado", {
-        originalTopic: topic,
-        originalResource: resource,
-        normalizedType: type,
-        normalizedDataId: data.data.id,
+      // ⚠️ REJEITAR formato antigo - não é confiável determinar se é criação ou atualização
+      console.error(
+        "❌ Webhook formato antigo rejeitado - usar formato novo do MP",
+        {
+          topic,
+          resource,
+          reason:
+            "Formato legado sem campo 'action' - impossível determinar tipo de evento",
+        }
+      );
+      return res.status(400).json({
+        error: "Formato de webhook antigo não suportado",
+        code: "LEGACY_WEBHOOK_NOT_SUPPORTED",
+        details: {
+          message: "Use o formato novo do Mercado Pago com campo 'action'",
+          receivedFormat: "legacy (topic/resource)",
+          requiredFormat: "new (type/action/data)",
+        },
       });
-
-      // ⚠️ IMPORTANTE: Atualizar req.body com estrutura normalizada
-      req.body = {
-        type,
-        action,
-        data,
-        live_mode: true, // Formato antigo é sempre produção
-        date_created: new Date().toISOString(),
-      };
     }
 
     // Suporte para formato com 'action' (ex: payment.updated)
@@ -261,20 +294,23 @@ export const validateMercadoPagoWebhook = (
       type = action.split(".")[0]; // 'payment.updated' -> 'payment'
     }
 
-    // Validar estrutura final (aninhada: data.data.id)
-    const hasValidData = data?.data?.id || data?.id;
-    if (!type || !data || !hasValidData) {
+    // Validar estrutura final - apenas formato NOVO do MP: { type, action, data: { id } }
+    if (!type || !data || !data.id) {
       console.error("❌ Webhook com estrutura inválida", {
         type,
         action,
         hasData: !!data,
         dataId: data?.id,
-        dataDataId: data?.data?.id,
         bodyKeys: Object.keys(req.body || {}),
+        expectedFormat: "{ type, action, data: { id } }",
       });
       return res.status(400).json({
         error: "Estrutura de webhook inválida",
         code: "INVALID_WEBHOOK_STRUCTURE",
+        details: {
+          expectedFormat: "{ type, action, data: { id } }",
+          receivedKeys: Object.keys(req.body || {}),
+        },
       });
     }
 

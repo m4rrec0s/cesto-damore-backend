@@ -639,13 +639,23 @@ class PaymentService {
                     message: "Test webhook received successfully",
                 };
             }
+            // ⚠️ IGNORAR webhooks de criação - só processar atualizações de pagamento
+            if (data.action === "payment.created") {
+                console.log("ℹ️ Webhook de criação ignorado - aguardando confirmação de pagamento", {
+                    action: data.action,
+                    paymentId: data.data?.id,
+                });
+                return {
+                    success: true,
+                    message: "Webhook de criação ignorado (aguardando payment.updated)",
+                };
+            }
             // Extrair tipo do webhook - suporte para 'type' e 'action'
             let webhookType = data.type;
             if (!webhookType && data.action) {
                 webhookType = data.action.split(".")[0]; // 'payment.updated' -> 'payment'
             }
-            // Extrair resourceId do formato oficial Mercado Pago Webhooks
-            // Formato: { data: { id: "123" }, type: "payment", action: "payment.updated" }
+            // Extrair resourceId - formato NOVO do MP: { type, action, data: { id: "123" } }
             const resourceId = data.data?.id?.toString();
             if (!resourceId || !webhookType) {
                 console.error("❌ Webhook sem ID de recurso ou tipo", {
@@ -653,13 +663,22 @@ class PaymentService {
                     webhookType,
                     action: data.action,
                     type: data.type,
-                    receivedData: JSON.stringify(data).substring(0, 200),
+                    dataKeys: Object.keys(data.data || {}),
+                    dataId: data.data?.id,
+                    receivedData: JSON.stringify(data).substring(0, 500),
                 });
                 return {
                     success: false,
                     message: "Webhook sem dados válidos",
                 };
             }
+            // ✅ Log de processamento apenas para payment.updated
+            console.log("💳 Processando webhook de pagamento confirmado", {
+                action: data.action,
+                paymentId: resourceId,
+                type: webhookType,
+                timestamp: data.date_created,
+            });
             // Verificar se já processamos este webhook (idempotência)
             const existingLog = await prisma_1.default.webhookLog.findFirst({
                 where: {
@@ -682,12 +701,8 @@ class PaymentService {
                     message: "Webhook já processado anteriormente (duplicado ignorado)",
                 };
             }
-            if (mercadopago_1.mercadoPagoConfig.security.enableWebhookValidation) {
-                const isValid = this.validateWebhook(data, headers);
-                if (!isValid) {
-                    throw new Error("Webhook inválido");
-                }
-            }
+            // ✅ Validação de assinatura já foi feita no middleware (security.ts)
+            // Não precisamos validar novamente aqui
             console.log("📝 Registrando webhook", {
                 paymentId: resourceId,
                 type: webhookType,
@@ -728,7 +743,7 @@ class PaymentService {
         }
         catch (error) {
             console.error("Erro ao processar webhook:", error);
-            // Extrair resourceId do formato oficial (já normalizado pelo middleware)
+            // Extrair resourceId - formato NOVO do MP: { data: { id } }
             const resourceId = data?.data?.id?.toString();
             const webhookType = data?.type || data?.action?.split(".")[0];
             if (resourceId && webhookType) {

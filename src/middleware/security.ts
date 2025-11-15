@@ -341,10 +341,10 @@ export const validateMercadoPagoWebhook = (
       }
     }
 
-    const xSignature = req.headers["x-signature"] as string;
+    const signatureHeader = req.headers["x-signature"] as string;
     const xRequestId = req.headers["x-request-id"] as string;
 
-    if (!xSignature || !xRequestId) {
+    if (!signatureHeader || !xRequestId) {
       console.warn("Webhook rejeitado - headers de segurança ausentes");
       return res.status(401).json({
         error: "Headers de autenticação ausentes",
@@ -355,7 +355,7 @@ export const validateMercadoPagoWebhook = (
     // Validação de assinatura usando padrão oficial do Mercado Pago
     if (mercadoPagoConfig.webhookSecret) {
       // Extrair partes da assinatura (formato: ts=1234567890,v1=hash)
-      const parts = xSignature.split(",");
+      const parts = signatureHeader.split(",");
       let timestamp: string | null = null;
       let hash: string | null = null;
 
@@ -414,7 +414,7 @@ export const validateMercadoPagoWebhook = (
             expectedHash: expectedHash.substring(0, 20) + "...",
             receivedHash: hash.substring(0, 20) + "...",
             secretLength: mercadoPagoConfig.webhookSecret?.length,
-            xSignatureFull: xSignature,
+            xSignatureFull: signatureHeader,
             paymentId: dataId,
             timestamp: timestamp,
             requestId: xRequestId,

@@ -166,6 +166,36 @@ const validateMercadoPagoWebhook = (req, res, next) => {
         }
         // Validar estrutura básica - aceitar diferentes formatos do MP
         let { type, data, live_mode, action, resource, topic } = req.body;
+        // ========== VALIDAÇÃO DE TIMESTAMP (PREVENIR REPLAY ATTACKS) ==========
+        const xSignature = req.headers["x-signature"];
+        if (xSignature) {
+            const timestampMatch = xSignature.match(/ts=(\d+)/);
+            if (timestampMatch) {
+                const webhookTimestamp = parseInt(timestampMatch[1]);
+                const currentTimestamp = Math.floor(Date.now() / 1000);
+                const timeDifferenceMinutes = Math.floor((currentTimestamp - webhookTimestamp) / 60);
+                // ⚠️ REJEITAR webhooks com mais de 5 minutos
+                if (timeDifferenceMinutes > 5) {
+                    console.error("❌ Webhook rejeitado - timestamp muito antigo", {
+                        webhookTimestamp,
+                        currentTimestamp,
+                        differenceInMinutes: timeDifferenceMinutes,
+                        maxAllowedMinutes: 5,
+                    });
+                    return res.status(400).json({
+                        error: "Webhook expirado - timestamp muito antigo",
+                        code: "WEBHOOK_EXPIRED",
+                        details: {
+                            differenceInMinutes: timeDifferenceMinutes,
+                            maxAllowedMinutes: 5,
+                        },
+                    });
+                }
+                console.log("✅ Webhook timestamp válido", {
+                    differenceInMinutes: timeDifferenceMinutes,
+                });
+            }
+        }
         // ========== SUPORTE PARA FORMATO ANTIGO {resource, topic} ==========
         if (!type && !action && topic && resource) {
             console.log("📦 Webhook formato antigo detectado - normalizando", {
@@ -195,23 +225,27 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                     code: "INVALID_LEGACY_WEBHOOK",
                 });
             }
-            // Normalizar para formato novo (conforme documentação oficial Mercado Pago)
-            // Formato webhook atual: { type, action, data: { id: "123" } }
-            type = topic; // 'payment', 'merchant_order', etc.
-            data = { data: { id: resourceId } }; // Estrutura aninhada conforme documentação
-            action = `${topic}.updated`; // Assumir atualização
-            console.log("✅ Webhook formato antigo normalizado", {
-                originalTopic: topic,
-                originalResource: resource,
-                normalizedType: type,
-                normalizedDataId: data.data.id,
+            // ⚠️ REJEITAR formato antigo - não é confiável determinar se é criação ou atualização
+            console.error("❌ Webhook formato antigo rejeitado - usar formato novo do MP", {
+                topic,
+                resource,
+                reason: "Formato legado sem campo 'action' - impossível determinar tipo de evento",
+            });
+            return res.status(400).json({
+                error: "Formato de webhook antigo não suportado",
+                code: "LEGACY_WEBHOOK_NOT_SUPPORTED",
+                details: {
+                    message: "Use o formato novo do Mercado Pago com campo 'action'",
+                    receivedFormat: "legacy (topic/resource)",
+                    requiredFormat: "new (type/action/data)",
+                },
             });
         }
         // Suporte para formato com 'action' (ex: payment.updated)
         if (!type && action) {
             type = action.split(".")[0]; // 'payment.updated' -> 'payment'
         }
-        // Validar estrutura final
+        // Validar estrutura final - apenas formato NOVO do MP: { type, action, data: { id } }
         if (!type || !data || !data.id) {
             console.error("❌ Webhook com estrutura inválida", {
                 type,
@@ -219,10 +253,15 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                 hasData: !!data,
                 dataId: data?.id,
                 bodyKeys: Object.keys(req.body || {}),
+                expectedFormat: "{ type, action, data: { id } }",
             });
             return res.status(400).json({
                 error: "Estrutura de webhook inválida",
                 code: "INVALID_WEBHOOK_STRUCTURE",
+                details: {
+                    expectedFormat: "{ type, action, data: { id } }",
+                    receivedKeys: Object.keys(req.body || {}),
+                },
             });
         }
         // ✅ ACEITAR WEBHOOKS DE TESTE IMEDIATAMENTE (live_mode: false)
@@ -245,9 +284,9 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                 });
             }
         }
-        const xSignature = req.headers["x-signature"];
+        const signatureHeader = req.headers["x-signature"];
         const xRequestId = req.headers["x-request-id"];
-        if (!xSignature || !xRequestId) {
+        if (!signatureHeader || !xRequestId) {
             console.warn("Webhook rejeitado - headers de segurança ausentes");
             return res.status(401).json({
                 error: "Headers de autenticação ausentes",
@@ -257,7 +296,7 @@ const validateMercadoPagoWebhook = (req, res, next) => {
         // Validação de assinatura usando padrão oficial do Mercado Pago
         if (mercadopago_1.mercadoPagoConfig.webhookSecret) {
             // Extrair partes da assinatura (formato: ts=1234567890,v1=hash)
-            const parts = xSignature.split(",");
+            const parts = signatureHeader.split(",");
             let timestamp = null;
             let hash = null;
             for (const part of parts) {
@@ -305,7 +344,7 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                     expectedHash: expectedHash.substring(0, 20) + "...",
                     receivedHash: hash.substring(0, 20) + "...",
                     secretLength: mercadopago_1.mercadoPagoConfig.webhookSecret?.length,
-                    xSignatureFull: xSignature,
+                    xSignatureFull: signatureHeader,
                     paymentId: dataId,
                     timestamp: timestamp,
                     requestId: xRequestId,

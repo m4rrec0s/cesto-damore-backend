@@ -24,6 +24,7 @@ import productComponentController from "./controller/productComponentController"
 import layoutBaseController from "./controller/layoutBaseController";
 import customerManagementController from "./controller/customerManagementController";
 import aiProductController from "./controller/aiProductController";
+import webhookNotificationController from "./controller/webhookNotificationController";
 import {
   upload,
   uploadAny,
@@ -131,6 +132,26 @@ router.post("/webhook/mercadopago/debug", (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// ============================================
+// WEBHOOK NOTIFICATIONS (SSE - Server-Sent Events)
+// ============================================
+
+// Conectar ao stream de notificações de um pedido específico
+// GET /webhooks/notifications/:orderId
+router.get(
+  "/webhooks/notifications/:orderId",
+  webhookNotificationController.streamNotifications
+);
+
+// Obter estatísticas de conexões SSE ativas
+// GET /webhooks/notifications-stats
+router.get(
+  "/webhooks/notifications-stats",
+  authenticateToken,
+  requireAdmin,
+  webhookNotificationController.getStats
+);
 
 // ============================================
 // AI PRODUCT ROUTES (Consultas otimizadas para IA)

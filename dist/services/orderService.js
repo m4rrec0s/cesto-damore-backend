@@ -183,36 +183,50 @@ class OrderService {
         }
     }
     async createOrder(data) {
+        console.log("📝 [OrderService] Iniciando criação de pedido com dados:", JSON.stringify(data, null, 2));
         if (!data.user_id || data.user_id.trim() === "") {
+            console.error("❌ [OrderService] user_id está vazio ou inválido");
             throw new Error("ID do usuário é obrigatório");
         }
         if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+            console.error("❌ [OrderService] items está vazio ou inválido");
             throw new Error("Pelo menos um item é obrigatório");
         }
         if (!data.recipient_phone || data.recipient_phone.trim() === "") {
+            console.error("❌ [OrderService] recipient_phone está vazio ou inválido");
             throw new Error("Número do destinatário é obrigatório");
         }
         let phoneDigits = data.recipient_phone.replace(/\D/g, "");
+        console.log("📞 [OrderService] Telefone normalizado:", phoneDigits);
         if (phoneDigits.length < 10 || phoneDigits.length > 13) {
+            console.error("❌ [OrderService] Telefone com tamanho inválido:", phoneDigits.length);
             throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
         }
         if (!phoneDigits.startsWith("55")) {
             phoneDigits = "55" + phoneDigits;
+            console.log("📞 [OrderService] Adicionado código do país:", phoneDigits);
         }
         const paymentMethod = normalizeText(data.payment_method);
+        console.log("💳 [OrderService] Método de pagamento normalizado:", paymentMethod);
         if (paymentMethod !== "pix" && paymentMethod !== "card") {
+            console.error("❌ [OrderService] Método de pagamento inválido:", paymentMethod);
             throw new Error("Forma de pagamento inválida. Utilize pix ou card");
         }
         if (!data.delivery_city || !data.delivery_state) {
+            console.error("❌ [OrderService] Cidade ou estado de entrega ausente");
             throw new Error("Cidade e estado de entrega são obrigatórios");
         }
         const normalizedCity = normalizeText(data.delivery_city);
+        console.log("🏙️ [OrderService] Cidade normalizada:", normalizedCity);
         const shippingRules = ACCEPTED_CITIES[normalizedCity];
         if (!shippingRules) {
+            console.error("❌ [OrderService] Cidade não atendida:", normalizedCity);
             throw new Error("Ainda não fazemos entrega nesse endereço");
         }
         const normalizedState = normalizeText(data.delivery_state);
+        console.log("🗺️ [OrderService] Estado normalizado:", normalizedState);
         if (normalizedState !== "pb" && normalizedState !== "paraiba") {
+            console.error("❌ [OrderService] Estado não atendido:", normalizedState);
             throw new Error("Atualmente só entregamos na Paraíba (PB)");
         }
         for (let i = 0; i < data.items.length; i++) {

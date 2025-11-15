@@ -137,25 +137,89 @@ const requireAdmin = (req, res, next) => {
 exports.requireAdmin = requireAdmin;
 const validateMercadoPagoWebhook = (req, res, next) => {
     try {
+        // Log seguro da estrutura do webhook
+        const bodyPreview = req.body
+            ? {
+                // Formato novo
+                type: req.body.type || req.body.action?.split(".")[0] || req.body.topic,
+                action: req.body.action,
+                live_mode: req.body.live_mode,
+                paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
+                // Formato antigo
+                topic: req.body.topic,
+                resource: req.body.resource,
+                // Meta
+                hasData: !!req.body.data,
+                keys: Object.keys(req.body),
+            }
+            : "body vazio";
         console.log("🔔 Webhook recebido do Mercado Pago", {
             headers: {
                 "x-signature": req.headers["x-signature"] ? "presente" : "ausente",
                 "x-request-id": req.headers["x-request-id"] ? "presente" : "ausente",
             },
-            body: {
-                type: req.body.type,
-                live_mode: req.body.live_mode,
-                paymentId: req.body.data?.id,
-            },
+            body: bodyPreview,
         });
         if (!mercadopago_1.mercadoPagoConfig.security.enableWebhookValidation) {
             console.log("⚠️ Validação de webhook desabilitada");
             return next();
         }
-        // Validar estrutura básica primeiro
-        const { type, data, live_mode } = req.body;
+        // Validar estrutura básica - aceitar diferentes formatos do MP
+        let { type, data, live_mode, action, resource, topic } = req.body;
+        // ========== SUPORTE PARA FORMATO ANTIGO {resource, topic} ==========
+        if (!type && !action && topic && resource) {
+            console.log("📦 Webhook formato antigo detectado - normalizando", {
+                topic,
+                resource,
+            });
+            // Extrair ID do resource
+            // Formato 1: "/v1/payments/123456789" (caminho completo)
+            // Formato 2: "123456789" (apenas ID)
+            let resourceId = null;
+            if (resource.includes("/")) {
+                // Formato com caminho completo
+                const resourceMatch = resource.match(/\/([^\/]+)$/);
+                resourceId = resourceMatch ? resourceMatch[1] : null;
+            }
+            else {
+                // Formato apenas com ID (validar se é numérico/alfanumérico)
+                resourceId = resource.trim();
+            }
+            if (!resourceId || resourceId.length === 0) {
+                console.error("❌ Formato antigo inválido - resource vazio", {
+                    resource,
+                    topic,
+                });
+                return res.status(400).json({
+                    error: "Formato de webhook antigo inválido",
+                    code: "INVALID_LEGACY_WEBHOOK",
+                });
+            }
+            // Normalizar para formato novo (conforme documentação oficial Mercado Pago)
+            // Formato webhook atual: { type, action, data: { id: "123" } }
+            type = topic; // 'payment', 'merchant_order', etc.
+            data = { data: { id: resourceId } }; // Estrutura aninhada conforme documentação
+            action = `${topic}.updated`; // Assumir atualização
+            console.log("✅ Webhook formato antigo normalizado", {
+                originalTopic: topic,
+                originalResource: resource,
+                normalizedType: type,
+                normalizedDataId: data.data.id,
+            });
+        }
+        // Suporte para formato com 'action' (ex: payment.updated)
+        if (!type && action) {
+            type = action.split(".")[0]; // 'payment.updated' -> 'payment'
+        }
+        // Validar estrutura final
         if (!type || !data || !data.id) {
-            console.error("❌ Webhook com estrutura inválida", { type, data });
+            console.error("❌ Webhook com estrutura inválida", {
+                type,
+                action,
+                hasData: !!data,
+                dataId: data?.id,
+                bodyKeys: Object.keys(req.body || {}),
+            });
             return res.status(400).json({
                 error: "Estrutura de webhook inválida",
                 code: "INVALID_WEBHOOK_STRUCTURE",

@@ -54,17 +54,23 @@ class OrderController {
     }
     async create(req, res) {
         try {
+            console.log("📝 Criando pedido com dados:", JSON.stringify(req.body, null, 2));
             const order = await orderService_1.default.createOrder(req.body);
+            console.log("✅ Pedido criado com sucesso:", order.id);
             res.status(201).json(order);
         }
         catch (error) {
-            console.error("Erro ao criar pedido:", error);
+            console.error("❌ Erro ao criar pedido:", error);
+            console.error("Stack trace:", error.stack);
             // Erros de validação (400)
             if (error.message.includes("obrigatório") ||
                 error.message.includes("não encontrado") ||
                 error.message.includes("deve ser maior") ||
-                error.message.includes("Estoque insuficiente") // ✅ NOVO: Erro de estoque também retorna 400
-            ) {
+                error.message.includes("Estoque insuficiente") ||
+                error.message.includes("inválida") ||
+                error.message.includes("não pode ser") ||
+                error.message.includes("não fazemos entrega") ||
+                error.message.includes("só entregamos")) {
                 return res.status(400).json({
                     error: error.message,
                     code: error.message.includes("Estoque insuficiente")
@@ -73,7 +79,10 @@ class OrderController {
                 });
             }
             // Erro genérico (500)
-            res.status(500).json({ error: "Erro interno do servidor" });
+            res.status(500).json({
+                error: "Erro interno do servidor",
+                details: process.env.NODE_ENV === "development" ? error.message : undefined,
+            });
         }
     }
     async remove(req, res) {
@@ -122,11 +131,12 @@ class OrderController {
     }
     async getPendingOrder(req, res) {
         try {
-            const { userId } = req.params;
-            if (!userId) {
+            // ✅ Corrigido: usar req.params.id ao invés de req.params.userId
+            const { id } = req.params;
+            if (!id) {
                 return res.status(400).json({ error: "ID do usuário é obrigatório" });
             }
-            const pendingOrder = await orderService_1.default.getPendingOrder(userId);
+            const pendingOrder = await orderService_1.default.getPendingOrder(id);
             if (!pendingOrder) {
                 return res
                     .status(404)

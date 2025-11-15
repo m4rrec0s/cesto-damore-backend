@@ -61,6 +61,7 @@ const productComponentController_1 = __importDefault(require("./controller/produ
 const layoutBaseController_1 = __importDefault(require("./controller/layoutBaseController"));
 const customerManagementController_1 = __importDefault(require("./controller/customerManagementController"));
 const aiProductController_1 = __importDefault(require("./controller/aiProductController"));
+const webhookNotificationController_1 = __importDefault(require("./controller/webhookNotificationController"));
 const multer_1 = require("./config/multer");
 const security_1 = require("./middleware/security");
 const healthCheck_1 = require("./middleware/healthCheck");
@@ -134,6 +135,15 @@ router.post("/webhook/mercadopago/debug", (req, res) => {
         timestamp: new Date().toISOString(),
     });
 });
+// ============================================
+// WEBHOOK NOTIFICATIONS (SSE - Server-Sent Events)
+// ============================================
+// Conectar ao stream de notificações de um pedido específico
+// GET /webhooks/notifications/:orderId
+router.get("/webhooks/notifications/:orderId", webhookNotificationController_1.default.streamNotifications);
+// Obter estatísticas de conexões SSE ativas
+// GET /webhooks/notifications-stats
+router.get("/webhooks/notifications-stats", security_1.authenticateToken, security_1.requireAdmin, webhookNotificationController_1.default.getStats);
 // ============================================
 // AI PRODUCT ROUTES (Consultas otimizadas para IA)
 // ============================================

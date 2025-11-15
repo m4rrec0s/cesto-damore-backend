@@ -233,16 +233,17 @@ export const validateMercadoPagoWebhook = (
         });
       }
 
-      // Normalizar para formato novo
+      // Normalizar para formato novo (conforme documentação oficial Mercado Pago)
+      // Formato webhook atual: { type, action, data: { id: "123" } }
       type = topic; // 'payment', 'merchant_order', etc.
-      data = { id: resourceId };
+      data = { data: { id: resourceId } }; // Estrutura aninhada conforme documentação
       action = `${topic}.updated`; // Assumir atualização
 
       console.log("✅ Webhook formato antigo normalizado", {
         originalTopic: topic,
         originalResource: resource,
         normalizedType: type,
-        normalizedDataId: data.id,
+        normalizedDataId: data.data.id,
       });
     }
 

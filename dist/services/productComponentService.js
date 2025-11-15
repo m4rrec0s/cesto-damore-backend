@@ -120,7 +120,7 @@ class ProductComponentService {
             'id', i.id,
             'name', i.name,
             'stock_quantity', i.stock_quantity,
-            'price', i.price,
+            'base_price', i.base_price,
             'type', i.type,
             'image_url', i.image_url
           ) as item

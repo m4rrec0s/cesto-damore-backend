@@ -208,12 +208,22 @@ export const validateMercadoPagoWebhook = (
         resource,
       });
 
-      // Extrair ID do resource (formato: /v1/payments/123456789)
-      const resourceMatch = resource.match(/\/([^\/]+)$/);
-      const resourceId = resourceMatch ? resourceMatch[1] : null;
+      // Extrair ID do resource
+      // Formato 1: "/v1/payments/123456789" (caminho completo)
+      // Formato 2: "123456789" (apenas ID)
+      let resourceId: string | null = null;
 
-      if (!resourceId) {
-        console.error("❌ Formato antigo inválido - resource sem ID", {
+      if (resource.includes("/")) {
+        // Formato com caminho completo
+        const resourceMatch = resource.match(/\/([^\/]+)$/);
+        resourceId = resourceMatch ? resourceMatch[1] : null;
+      } else {
+        // Formato apenas com ID (validar se é numérico/alfanumérico)
+        resourceId = resource.trim();
+      }
+
+      if (!resourceId || resourceId.length === 0) {
+        console.error("❌ Formato antigo inválido - resource vazio", {
           resource,
           topic,
         });

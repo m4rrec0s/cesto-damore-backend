@@ -526,10 +526,13 @@ export class PaymentService {
 
       return {
         payment_id: paymentResponse.id,
+        mercado_pago_id: String(paymentResponse.id),
         status: paymentResponse.status,
         status_detail: paymentResponse.status_detail,
         payment_record_id: paymentRecord.id,
         external_reference: paymentData.external_reference,
+        amount: summary.grandTotal,
+        transaction_amount: summary.grandTotal,
         ...(data.paymentMethodId === "pix" && {
           qr_code:
             paymentResponse.point_of_interaction?.transaction_data?.qr_code,
@@ -538,6 +541,13 @@ export class PaymentService {
               ?.qr_code_base64,
           ticket_url:
             paymentResponse.point_of_interaction?.transaction_data?.ticket_url,
+          expires_at: paymentResponse.date_of_expiration,
+          payer_info: {
+            id: paymentResponse.payer?.id,
+            email: paymentResponse.payer?.email || data.payerEmail,
+            first_name: paymentResponse.payer?.first_name || payerFirstName,
+            last_name: paymentResponse.payer?.last_name || payerLastName,
+          },
         }),
       };
     } catch (error) {
@@ -877,11 +887,32 @@ export class PaymentService {
         };
       }
 
+      // Extrair tipo do webhook - suporte para 'type' e 'action'
+      let webhookType = data.type;
+      if (!webhookType && data.action) {
+        webhookType = data.action.split(".")[0]; // 'payment.updated' -> 'payment'
+      }
+
+      const resourceId = data.data?.id?.toString();
+
+      if (!resourceId || !webhookType) {
+        console.error("❌ Webhook sem ID de recurso ou tipo", {
+          resourceId,
+          webhookType,
+          action: data.action,
+          type: data.type,
+        });
+        return {
+          success: false,
+          message: "Webhook sem dados válidos",
+        };
+      }
+
       // Verificar se já processamos este webhook (idempotência)
       const existingLog = await prisma.webhookLog.findFirst({
         where: {
-          resource_id: data.data?.id?.toString(),
-          topic: data.type,
+          resource_id: resourceId,
+          topic: webhookType,
           processed: true,
         },
         orderBy: {
@@ -891,8 +922,8 @@ export class PaymentService {
 
       if (existingLog) {
         console.log("⚠️ Webhook duplicado ignorado (já processado)", {
-          paymentId: data.data?.id,
-          type: data.type,
+          paymentId: resourceId,
+          type: webhookType,
           processedAt: existingLog.created_at,
         });
         return {
@@ -909,52 +940,64 @@ export class PaymentService {
       }
 
       console.log("📝 Registrando webhook", {
-        paymentId: data.data?.id,
-        type: data.type,
+        paymentId: resourceId,
+        type: webhookType,
+        action: data.action,
       });
 
       await prisma.webhookLog.create({
         data: {
-          payment_id: data.data?.id?.toString(),
-          topic: data.type || "unknown",
-          resource_id: data.data?.id?.toString() || "unknown",
+          payment_id: resourceId,
+          topic: webhookType,
+          resource_id: resourceId,
           raw_data: JSON.stringify(data),
           processed: false,
         },
       });
 
-      switch (data.type) {
+      switch (webhookType) {
         case "payment":
-          await this.processPaymentNotification(data.data.id);
+          await this.processPaymentNotification(resourceId);
           break;
         case "merchant_order":
-          await this.processMerchantOrderNotification(data.data.id);
+          await this.processMerchantOrderNotification(resourceId);
           break;
         default:
+          console.log(`ℹ️ Tipo de webhook não processado: ${webhookType}`);
       }
 
       await prisma.webhookLog.updateMany({
         where: {
-          resource_id: data.data?.id?.toString(),
-          topic: data.type,
+          resource_id: resourceId,
+          topic: webhookType,
         },
         data: {
           processed: true,
         },
       });
+
+      return {
+        success: true,
+        message: "Webhook processado com sucesso",
+      };
     } catch (error) {
       console.error("Erro ao processar webhook:", error);
 
-      await prisma.webhookLog.updateMany({
-        where: {
-          resource_id: data.data?.id?.toString(),
-          topic: data.type,
-        },
-        data: {
-          error_message:
-            error instanceof Error ? error.message : "Erro desconhecido",
-        },
-      });
+      const resourceId = data?.data?.id?.toString();
+      const webhookType = data?.type || data?.action?.split(".")[0];
+
+      if (resourceId && webhookType) {
+        await prisma.webhookLog.updateMany({
+          where: {
+            resource_id: resourceId,
+            topic: webhookType,
+          },
+          data: {
+            error_message:
+              error instanceof Error ? error.message : "Erro desconhecido",
+          },
+        });
+      }
 
       throw error;
     }

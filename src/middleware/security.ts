@@ -167,16 +167,24 @@ export const validateMercadoPagoWebhook = (
   next: NextFunction
 ) => {
   try {
+    // Log seguro da estrutura do webhook
+    const bodyPreview = req.body
+      ? {
+          type: req.body.type || req.body.action?.split(".")[0],
+          action: req.body.action,
+          live_mode: req.body.live_mode,
+          paymentId: req.body.data?.id,
+          hasData: !!req.body.data,
+          keys: Object.keys(req.body),
+        }
+      : "body vazio";
+
     console.log("🔔 Webhook recebido do Mercado Pago", {
       headers: {
         "x-signature": req.headers["x-signature"] ? "presente" : "ausente",
         "x-request-id": req.headers["x-request-id"] ? "presente" : "ausente",
       },
-      body: {
-        type: req.body.type,
-        live_mode: req.body.live_mode,
-        paymentId: req.body.data?.id,
-      },
+      body: bodyPreview,
     });
 
     if (!mercadoPagoConfig.security.enableWebhookValidation) {
@@ -184,11 +192,22 @@ export const validateMercadoPagoWebhook = (
       return next();
     }
 
-    // Validar estrutura básica primeiro
-    const { type, data, live_mode } = req.body;
+    // Validar estrutura básica - aceitar diferentes formatos do MP
+    let { type, data, live_mode, action } = req.body;
+
+    // Suporte para formato com 'action' (ex: payment.updated)
+    if (!type && action) {
+      type = action.split(".")[0]; // 'payment.updated' -> 'payment'
+    }
 
     if (!type || !data || !data.id) {
-      console.error("❌ Webhook com estrutura inválida", { type, data });
+      console.error("❌ Webhook com estrutura inválida", {
+        type,
+        action,
+        hasData: !!data,
+        dataId: data?.id,
+        bodyKeys: Object.keys(req.body || {}),
+      });
       return res.status(400).json({
         error: "Estrutura de webhook inválida",
         code: "INVALID_WEBHOOK_STRUCTURE",

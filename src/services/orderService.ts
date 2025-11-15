@@ -250,10 +250,13 @@ class OrderService {
   }
 
   async createOrder(data: CreateOrderInput) {
-    console.log(
-      "📝 [OrderService] Iniciando criação de pedido com dados:",
-      JSON.stringify(data, null, 2)
-    );
+    // Log sucinto: evitar imprimir payloads grandes (base64, imagens)
+    console.log("📝 [OrderService] Iniciando criação de pedido - resumo:", {
+      user_id: data.user_id,
+      itemsCount: Array.isArray(data.items) ? data.items.length : 0,
+      payment_method: data.payment_method ?? null,
+      delivery_city: data.delivery_city ?? null,
+    });
 
     if (!data.user_id || data.user_id.trim() === "") {
       console.error("❌ [OrderService] user_id está vazio ou inválido");

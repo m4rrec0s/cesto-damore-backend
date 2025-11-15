@@ -128,7 +128,15 @@ router.post("/webhook/mercadopago/debug", (req, res) => {
         "content-type": req.headers["content-type"],
         "user-agent": req.headers["user-agent"],
     });
-    console.log("🔍 DEBUG WEBHOOK - Body:", JSON.stringify(req.body, null, 2));
+    // Log only a small preview of the body to avoid leaking base64/large blobs
+    const body = req.body || {};
+    const bodyPreview = {
+        type: body.type || body.action || body.topic || null,
+        action: body.action || null,
+        paymentId: body?.data?.id || body.resource || null,
+        keys: Object.keys(body),
+    };
+    console.log("🔍 DEBUG WEBHOOK - Body preview:", bodyPreview);
     res.status(200).json({
         received: true,
         message: "Debug webhook OK",

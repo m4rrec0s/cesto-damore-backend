@@ -184,7 +184,8 @@ class OrderCustomizationService {
         const filteredAssets = assets.filter((asset) => {
             const hasContent = Boolean(this.getBase64Content(asset));
             if (!hasContent) {
-                console.log("⚠️ Asset de arte final ignorado por estar vazio", asset);
+                // Log curto: evitar imprimir base64
+                console.log("⚠️ Asset de arte final ignorado por estar vazio - file:", asset.fileName || "sem-nome");
             }
             return hasContent;
         });

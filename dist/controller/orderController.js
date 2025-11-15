@@ -54,8 +54,15 @@ class OrderController {
     }
     async create(req, res) {
         try {
-            console.log("📝 Criando pedido com dados:", JSON.stringify(req.body, null, 2));
+            // Log sucinto: evitar imprimir payloads grandes (base64, imagens)
+            console.log("📝 Criando pedido - resumo:", {
+                user_id: req.body?.user_id,
+                itemsCount: Array.isArray(req.body?.items) ? req.body.items.length : 0,
+                total: req.body?.total ?? null,
+                delivery_city: req.body?.delivery_city ?? null,
+            });
             const order = await orderService_1.default.createOrder(req.body);
+            // Log curto para indicar sucesso (apenas ID)
             console.log("✅ Pedido criado com sucesso:", order.id);
             res.status(201).json(order);
         }

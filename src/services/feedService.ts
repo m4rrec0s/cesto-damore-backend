@@ -11,6 +11,7 @@ import {
   UpdateFeedSectionItemInput,
   FeedSectionType,
   FeedResponse,
+  FeedSectionResponse,
 } from "../models/Feed";
 import { deleteProductImage } from "../config/localStorage";
 
@@ -482,7 +483,7 @@ class FeedService {
 
   // ============== PUBLIC FEED METHOD ==============
 
-  async getPublicFeed(configId?: string) {
+  async getPublicFeed(configId?: string, page?: number, perPage?: number) {
     try {
       let feedConfig;
 
@@ -540,24 +541,59 @@ class FeedService {
         throw new Error("Nenhuma configuração de feed ativa encontrada");
       }
 
-      // Enriquecer seções com dados automáticos
-      const enrichedSections = await Promise.all(
-        feedConfig.sections.map(async (section) => {
-          const enrichedItems = await this.enrichSectionItems(section);
-          return {
-            ...section,
-            items: enrichedItems,
-          };
-        })
-      );
+      const sections = feedConfig.sections || [];
 
-      return {
-        id: feedConfig.id,
-        name: feedConfig.name,
-        is_active: feedConfig.is_active,
-        banners: feedConfig.banners,
-        sections: enrichedSections,
+      if (page === undefined || perPage === undefined) {
+        const enrichedSections = await Promise.all(
+          feedConfig.sections.map(async (section) => {
+            const enrichedItems = await this.enrichSectionItems(section);
+            return {
+              ...section,
+              section_type: section.section_type as FeedSectionType,
+              max_items: (section as any).max_items ?? 6,
+              items: enrichedItems,
+            };
+          })
+        );
+
+        return {
+          id: feedConfig.id,
+          name: feedConfig.name,
+          is_active: feedConfig.is_active,
+          banners: feedConfig.banners,
+          sections: enrichedSections,
+        };
+      }
+
+      const pageNum = Math.max(1, Math.floor(Number(page) || 1));
+      const perPageNum = Math.max(1, Math.floor(Number(perPage) || 2));
+      const startIndex = (pageNum - 1) * perPageNum;
+      const endIndex = startIndex + perPageNum;
+
+      const paginatedSections = sections.slice(startIndex, endIndex);
+      const enrichedSectionsPaginated: FeedSectionResponse[] =
+        await Promise.all(
+          paginatedSections.map(async (section) => {
+            const enrichedItems = await this.enrichSectionItems(section);
+            return {
+              ...section,
+              section_type: section.section_type as FeedSectionType,
+              max_items: (section as any).max_items ?? 6,
+              items: enrichedItems,
+            };
+          })
+        );
+
+      const response = this.formatFeedConfigurationResponse(feedConfig);
+      response.banners = pageNum === 1 ? response.banners : [];
+      response.sections = enrichedSectionsPaginated;
+      (response as any).pagination = {
+        totalSections: sections.length,
+        page: pageNum,
+        perPage: perPageNum,
       };
+
+      return response;
     } catch (error: any) {
       throw new Error(`Erro ao buscar feed público: ${error.message}`);
     }

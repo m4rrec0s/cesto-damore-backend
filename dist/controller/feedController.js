@@ -329,7 +329,9 @@ class FeedController {
     async getPublicFeed(req, res) {
         try {
             const configId = req.query.config_id;
-            const feed = await feedService_1.default.getPublicFeed(configId);
+            const page = req.query.page ? Number(req.query.page) : undefined;
+            const perPage = req.query.perPage ? Number(req.query.perPage) : undefined;
+            const feed = await feedService_1.default.getPublicFeed(configId, page, perPage);
             res.json(feed);
         }
         catch (error) {

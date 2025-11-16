@@ -329,7 +329,9 @@ class FeedController {
   async getPublicFeed(req: Request, res: Response) {
     try {
       const configId = req.query.config_id as string;
-      const feed = await feedService.getPublicFeed(configId);
+      const page = req.query.page ? Number(req.query.page) : undefined;
+      const perPage = req.query.perPage ? Number(req.query.perPage) : undefined;
+      const feed = await feedService.getPublicFeed(configId, page, perPage);
       res.json(feed);
     } catch (error: any) {
       console.error("Erro ao buscar feed público:", error);

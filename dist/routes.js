@@ -436,6 +436,9 @@ router.post("/customizations/preview", customizationController_1.default.buildPr
 router.get("/layouts", layoutBaseController_1.default.list);
 // Buscar layout base por ID
 router.get("/layouts/:id", layoutBaseController_1.default.show);
+// ===== ADMIN LAYOUTS ROUTES (protegidas) =====
+router.get("/admin/layouts", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.list);
+router.get("/admin/layouts/:id", security_1.authenticateToken, security_1.requireAdmin, layoutBaseController_1.default.show);
 // Criar layout base (SEM conversão WebP - mantém formato original)
 router.post("/admin/layouts", security_1.authenticateToken, security_1.requireAdmin, multer_1.upload.single("image"), layoutBaseController_1.default.create);
 // Atualizar layout base (SEM conversão WebP - mantém formato original)

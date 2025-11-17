@@ -867,6 +867,21 @@ router.get("/layouts", layoutBaseController.list);
 // Buscar layout base por ID
 router.get("/layouts/:id", layoutBaseController.show);
 
+// ===== ADMIN LAYOUTS ROUTES (protegidas) =====
+router.get(
+  "/admin/layouts",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.list
+);
+
+router.get(
+  "/admin/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.show
+);
+
 // Criar layout base (SEM conversão WebP - mantém formato original)
 router.post(
   "/admin/layouts",

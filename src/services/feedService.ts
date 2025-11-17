@@ -566,7 +566,7 @@ class FeedService {
       }
 
       const pageNum = Math.max(1, Math.floor(Number(page) || 1));
-      const perPageNum = Math.max(1, Math.floor(Number(perPage) || 2));
+      const perPageNum = Math.max(1, Math.floor(Number(perPage) || 3));
       const startIndex = (pageNum - 1) * perPageNum;
       const endIndex = startIndex + perPageNum;
 

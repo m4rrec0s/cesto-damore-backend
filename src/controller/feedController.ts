@@ -3,8 +3,6 @@ import feedService from "../services/feedService";
 import { saveImageLocally } from "../config/localStorage";
 
 class FeedController {
-  // ============== FEED CONFIGURATION ENDPOINTS ==============
-
   async getAllConfigurations(req: Request, res: Response) {
     try {
       const configurations = await feedService.getAllFeedConfigurations();
@@ -78,13 +76,10 @@ class FeedController {
     }
   }
 
-  // ============== FEED BANNER ENDPOINTS ==============
-
   async createBanner(req: Request, res: Response) {
     try {
       const data = { ...req.body };
 
-      // Converter tipos que vêm como string do FormData
       if (typeof data.is_active === "string") {
         data.is_active = data.is_active === "true";
       }
@@ -92,7 +87,6 @@ class FeedController {
         data.display_order = parseInt(data.display_order, 10);
       }
 
-      // Processar imagem se existir (mantém formato original)
       let fileToProcess = null;
 
       if (req.file) {

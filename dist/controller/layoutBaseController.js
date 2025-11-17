@@ -5,16 +5,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const layoutBaseService_1 = __importDefault(require("../services/layoutBaseService"));
 const googleDriveService_1 = __importDefault(require("../services/googleDriveService"));
-// IDs das pastas específicas no Google Drive
 const DRIVE_FOLDERS = {
-    CANECA: "1pflj6i9D0rEFGzN3CClppXXeoOyGG07b",
-    QUADRO: "1P-oQM1wd66Y8SGkZKae2TWPR6ISsWvEB",
+    CANECA: process.env.GOOGLE_DRIVE_CUP_FOLDER_ID,
+    QUADRO: process.env.GOOGLE_DRIVE_FRAME_FOLDER_ID,
 };
 class LayoutBaseController {
-    /**
-     * POST /admin/layouts
-     * Criar novo layout base
-     */
     async create(req, res) {
         try {
             const { name, item_type, width, height, slots } = req.body;

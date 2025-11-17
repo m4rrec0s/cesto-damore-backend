@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const feedService_1 = __importDefault(require("../services/feedService"));
 const localStorage_1 = require("../config/localStorage");
 class FeedController {
-    // ============== FEED CONFIGURATION ENDPOINTS ==============
     async getAllConfigurations(req, res) {
         try {
             const configurations = await feedService_1.default.getAllFeedConfigurations();
@@ -85,18 +84,15 @@ class FeedController {
             }
         }
     }
-    // ============== FEED BANNER ENDPOINTS ==============
     async createBanner(req, res) {
         try {
             const data = { ...req.body };
-            // Converter tipos que vêm como string do FormData
             if (typeof data.is_active === "string") {
                 data.is_active = data.is_active === "true";
             }
             if (typeof data.display_order === "string") {
                 data.display_order = parseInt(data.display_order, 10);
             }
-            // Processar imagem se existir (mantém formato original)
             let fileToProcess = null;
             if (req.file) {
                 fileToProcess = req.file;

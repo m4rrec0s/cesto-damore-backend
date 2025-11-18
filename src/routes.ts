@@ -187,6 +187,10 @@ router.get("/oauth/callback", oauthController.callback);
 
 // GET /oauth/status - Verifica status da autenticação
 router.get("/oauth/status", oauthController.status);
+
+// GET /oauth/debug - Informações de debug da autenticação
+router.get("/oauth/debug", oauthController.debug);
+
 // Clear tokens (admin only)
 router.post(
   "/oauth/clear",

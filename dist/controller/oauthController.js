@@ -298,5 +298,27 @@ class OAuthController {
                 .json({ success: false, message: "Falha ao limpar tokens" });
         }
     }
+    /**
+     * GET /oauth/debug
+     * Retorna informações de debug sobre a autenticação
+     */
+    async debug(req, res) {
+        try {
+            const saInfo = googleDriveService_1.default.getServiceAccountInfo();
+            const debugInfo = await googleDriveService_1.default.debugServiceAccount();
+            res.json({
+                serviceAccount: saInfo,
+                debug: debugInfo,
+                timestamp: new Date().toISOString(),
+            });
+        }
+        catch (err) {
+            console.error("Erro no debug:", err);
+            res.status(500).json({
+                error: "Erro ao obter informações de debug",
+                details: err.message,
+            });
+        }
+    }
 }
 exports.default = new OAuthController();

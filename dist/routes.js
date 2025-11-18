@@ -173,6 +173,8 @@ router.get("/oauth/authorize", oauthController_1.default.authorize);
 router.get("/oauth/callback", oauthController_1.default.callback);
 // GET /oauth/status - Verifica status da autenticação
 router.get("/oauth/status", oauthController_1.default.status);
+// GET /oauth/debug - Informações de debug da autenticação
+router.get("/oauth/debug", oauthController_1.default.debug);
 // Clear tokens (admin only)
 router.post("/oauth/clear", security_1.authenticateToken, security_1.requireAdmin, async (req, res) => oauthController_1.default.clear(req, res));
 // Admin test for Google Drive (checks create/delete permissions)

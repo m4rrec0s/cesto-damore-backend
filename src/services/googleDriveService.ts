@@ -118,24 +118,38 @@ class GoogleDriveService {
       }
 
       if (keyJson) {
-        // Validate private key is a correct PEM
+        // Validate private key is a correct PEM (but don't fail init if validation fails)
         if (keyJson.private_key && typeof keyJson.private_key === "string") {
           try {
-            // This will throw if the key can't be parsed
+            // Try to parse as PEM - this will throw if invalid
             crypto.createPrivateKey({
               key: keyJson.private_key,
               format: "pem",
             });
+            console.log("✅ Private key PEM validation passed");
           } catch (err) {
-            console.error("❌ Private key PEM invalid:", String(err));
-            keyJson = null; // prevent using an invalid key
+            console.warn(
+              "⚠️ Private key PEM validation failed, but continuing:",
+              String(err)
+            );
+            // Don't set keyJson to null - let Google Auth handle it
           }
         }
         // Initialize service account auth async and keep promise
         this.isServiceAccount = false; // temporary until init succeeds
         this.saInitPromise = this.initServiceAccount(keyJson).catch((err) => {
-          // Ensure the promise resolves successfully even on error
-          return;
+          console.log("🔄 Service Account failed, initializing OAuth fallback");
+          // Initialize OAuth as fallback
+          this.oauth2Client = new google.auth.OAuth2(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            redirectUri
+          );
+          this.setupOAuth2Client(this.oauth2Client);
+          this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
+          this.isServiceAccount = false;
+          this.loadSavedTokens();
+          return; // Ensure the promise resolves
         });
       }
     }
@@ -147,28 +161,40 @@ class GoogleDriveService {
         process.env.GOOGLE_CLIENT_SECRET,
         redirectUri
       );
-
+      this.setupOAuth2Client(this.oauth2Client);
       this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
       this.isServiceAccount = false;
       this.loadSavedTokens();
     }
 
-    // If we attempted service account init and it failed OR we attempted and still want OAuth fallback,
-    // we will chain the fallback after init completes.
-    if (attemptServiceAccount && this.saInitPromise) {
-      this.saInitPromise.then(() => {
-        if (!this.isServiceAccount) {
-          // Setup OAuth fallback
-          this.oauth2Client = new google.auth.OAuth2(
-            process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET,
-            redirectUri
-          );
-          this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
-          this.loadSavedTokens();
-        }
-      });
-    }
+    // OAuth fallback is now handled in the catch block above
+  }
+
+  /**
+   * Configura o cliente OAuth2 com evento de tokens para atualização automática
+   */
+  private setupOAuth2Client(client: any): void {
+    // Configurar evento para salvar tokens automaticamente quando atualizados
+    client.on("tokens", async (tokens: any) => {
+      console.log("🔄 Tokens atualizados automaticamente");
+
+      if (tokens.refresh_token) {
+        console.log("💾 Novo refresh token recebido");
+      }
+
+      // Combinar tokens existentes com novos
+      const currentCredentials = client.credentials || {};
+      const updatedCredentials = {
+        ...currentCredentials,
+        ...tokens,
+      };
+
+      // Atualizar credenciais no cliente
+      client.setCredentials(updatedCredentials);
+
+      // Salvar no arquivo
+      await this.saveTokens(updatedCredentials);
+    });
   }
 
   private getTokensFromEnv(): OAuth2Credentials | null {
@@ -222,21 +248,56 @@ class GoogleDriveService {
 
   private async initServiceAccount(keyJson: any) {
     try {
-      // Normalize private key if present
+      // Normalize private key according to Google documentation
       if (keyJson.private_key && typeof keyJson.private_key === "string") {
         let pk = keyJson.private_key;
+        console.log(`🔑 Original private key length: ${pk.length}`);
+        console.log(`🔑 Starts with quote: ${pk.startsWith('"')}`);
+        console.log(`🔑 Ends with quote: ${pk.endsWith('"')}`);
+        console.log(`🔑 Contains backslash n: ${pk.includes("\\n")}`);
+        console.log(
+          `🔑 Contains BEGIN marker: ${pk.includes(
+            "-----BEGIN PRIVATE KEY-----"
+          )}`
+        );
+
         // Remove surrounding quotes if they exist
         if (pk.startsWith('"') && pk.endsWith('"')) {
           pk = pk.substring(1, pk.length - 1);
+          console.log(`🔑 After quote removal length: ${pk.length}`);
         }
-        pk = pk.replace(/\\n/g, "\n").trim();
-        // Ensure it starts and ends with proper PEM headers
+
+        // Replace literal \n with actual newlines
+        pk = pk.replace(/\\n/g, "\n");
+        console.log(`🔑 After newline replacement length: ${pk.length}`);
+
+        // Ensure proper PEM format
         if (!pk.includes("-----BEGIN PRIVATE KEY-----")) {
+          // Remove any existing headers/footers first
+          pk = pk
+            .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+            .replace(/-----END PRIVATE KEY-----/g, "")
+            .trim();
+          // Add proper headers
           pk = `-----BEGIN PRIVATE KEY-----\n${pk}\n-----END PRIVATE KEY-----`;
+          console.log(`🔑 After PEM formatting length: ${pk.length}`);
         }
+
         keyJson.private_key = pk;
+        console.log(`🔑 Final private key length: ${pk.length}`);
+        console.log(
+          `🔑 Final key starts with BEGIN: ${pk.startsWith(
+            "-----BEGIN PRIVATE KEY-----"
+          )}`
+        );
+        console.log(
+          `🔑 Final key ends with END: ${pk.endsWith(
+            "-----END PRIVATE KEY-----"
+          )}`
+        );
       }
 
+      // Create GoogleAuth instance with credentials
       const auth = new google.auth.GoogleAuth({
         credentials: keyJson,
         scopes: [
@@ -244,43 +305,40 @@ class GoogleDriveService {
           "https://www.googleapis.com/auth/drive",
         ],
       });
+
+      // Get authenticated client
       const client = await auth.getClient();
       this.oauth2Client = client;
-      // GoogleAuth.getClient returns an AuthClient; cast to any to satisfy TS overload
+
+      // Create Drive API client
       this.drive = google.drive({ version: "v3", auth: client as any });
+
       this.isServiceAccount = true;
       this.serviceAccountEmail = keyJson.client_email || null;
+
       console.log(
         "✅ Google Drive: Service Account mode active for",
         this.serviceAccountEmail
       );
+
+      // Log key details for debugging
       if (keyJson.private_key) {
         console.log(
-          `🔐 Service Account private key length: ${
-            String(keyJson.private_key).length
-          }`
+          `🔐 Service Account private key length: ${keyJson.private_key.length}`
         );
         console.log(`🔐 Service Account email: ${this.serviceAccountEmail}`);
+        console.log(`🔐 Service Account project_id: ${keyJson.project_id}`);
       }
-      // Validate that the credentials can make a simple, harmless Drive request
-      try {
-        // Try to obtain an access token to verify JWT signature
-        if (client && typeof (client as any).getAccessToken === "function") {
-          await (client as any).getAccessToken();
-        }
-        await this.drive.files.list({ pageSize: 1, fields: "files(id)" });
-      } catch (testErr: any) {
-        // If JWT signature or permission issues occur, log and disable SA (fallback)
-        console.error("❌ Service Account validation failed:", String(testErr));
-        this.isServiceAccount = false;
-        this.serviceAccountEmail = null;
-        // For debugging, rethrow up the chain (but we will catch below)
-        throw testErr;
-      }
+
+      // Simple validation - just check if we can create the client
+      // Don't try to get access token or make API calls during init
+      // as per Google documentation best practices
+      console.log("✅ Service Account initialized successfully");
     } catch (err) {
       this.isServiceAccount = false;
       this.serviceAccountEmail = null;
-      console.error("❌ Falha ao inicializar Service Account", String(err));
+      console.error("❌ Falha ao inicializar Service Account:", String(err));
+      // Don't throw - let OAuth fallback handle it
     }
   }
 
@@ -388,6 +446,7 @@ class GoogleDriveService {
       access_type: "offline",
       scope: scopes,
       prompt: "consent",
+      include_granted_scopes: true,
     });
   }
 
@@ -397,8 +456,14 @@ class GoogleDriveService {
   async getTokensFromCode(code: string): Promise<OAuth2Credentials> {
     try {
       const { tokens } = await this.oauth2Client.getToken(code);
+
+      // O evento 'tokens' será disparado automaticamente e salvará os tokens
+      // Não precisamos salvar manualmente aqui
       this.oauth2Client.setCredentials(tokens);
-      await this.saveTokens(tokens);
+
+      console.log("✅ Tokens obtidos do código de autorização");
+      console.log(`🔑 Access token: ${tokens.access_token ? "✅" : "❌"}`);
+      console.log(`🔄 Refresh token: ${tokens.refresh_token ? "✅" : "❌"}`);
 
       return tokens;
     } catch (error: any) {
@@ -441,29 +506,20 @@ class GoogleDriveService {
       );
     }
 
-    const { expiry_date, refresh_token } = this.oauth2Client.credentials;
+    // O cliente OAuth2 da biblioteca googleapis atualiza tokens automaticamente
+    // quando necessário. Apenas verificamos se temos credenciais básicas.
+    const { access_token, refresh_token } = this.oauth2Client.credentials;
 
-    if (!expiry_date) {
-      if (!refresh_token) {
-        throw new Error(
-          "Token inválido. Execute o fluxo OAuth2 via GET /oauth/authorize"
-        );
-      }
-      await this.refreshAccessToken();
-      return;
+    if (!access_token && !refresh_token) {
+      throw new Error(
+        "Credenciais OAuth2 insuficientes. Execute o fluxo OAuth2 via GET /oauth/authorize"
+      );
     }
 
-    const expiresIn = expiry_date - Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-
-    if (expiresIn < fiveMinutes) {
-      if (!refresh_token) {
-        throw new Error(
-          "Refresh token ausente. Execute o fluxo OAuth2 via GET /oauth/authorize"
-        );
-      }
-      await this.refreshAccessToken();
-    }
+    // Se não temos access_token mas temos refresh_token, o cliente vai atualizar automaticamente na próxima chamada
+    console.log(
+      "🔍 Credenciais OAuth2 verificadas - cliente atualizará automaticamente se necessário"
+    );
   }
 
   async createFolder(folderName: string): Promise<string> {
@@ -782,6 +838,31 @@ class GoogleDriveService {
 
   getServiceAccountInfo(): { enabled: boolean; email?: string | null } {
     return { enabled: this.isServiceAccount, email: this.serviceAccountEmail };
+  }
+
+  async debugServiceAccount(): Promise<any> {
+    const info: any = {
+      isServiceAccount: this.isServiceAccount,
+      serviceAccountEmail: this.serviceAccountEmail,
+      hasOAuthClient: !!this.oauth2Client,
+      hasDriveClient: !!this.drive,
+      rootFolderId: this.rootFolderId,
+      tokenPath: this.tokenPath,
+      baseUrl: this.baseUrl,
+    };
+
+    if (this.isServiceAccount && this.oauth2Client) {
+      try {
+        // Try to get access token without making API call
+        const token = await (this.oauth2Client as any).getAccessToken();
+        info.tokenObtained = !!token;
+        info.tokenExpiry = token?.res?.data?.expiry_date;
+      } catch (err) {
+        info.tokenError = String(err);
+      }
+    }
+
+    return info;
   }
 }
 

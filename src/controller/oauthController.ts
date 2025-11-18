@@ -8,6 +8,7 @@ class OAuthController {
    */
   async authorize(req: Request, res: Response) {
     try {
+      const saInfo = googleDriveService.getServiceAccountInfo();
       const authUrl = googleDriveService.getAuthUrl();
 
       res.send(`
@@ -68,7 +69,17 @@ class OAuthController {
               </ul>
             </div>
 
-            <a href="${authUrl}" class="btn">🚀 Autorizar com Google</a>
+            ${
+              saInfo.enabled
+                ? `
+            <div class="info">
+              <p><strong>Service Account está ativa:</strong> ${saInfo.email}<br>
+              Para permitir uploads de admin sem OAuth, compartilhe a pasta de destino com esse email (permissão de editor).</p>
+            </div>
+            `
+                : `<a href="${authUrl}" class="btn">🚀 Autorizar com Google</a>
+            `
+            }
           </div>
         </body>
         </html>
@@ -261,6 +272,8 @@ class OAuthController {
           hasAccessToken: status.hasAccessToken,
           hasRefreshToken: status.hasRefreshToken,
           tokenExpiry: status.tokenExpiry,
+          isServiceAccount: status.isServiceAccount,
+          serviceAccountEmail: status.serviceAccountEmail,
           isExpired: status.tokenExpiry
             ? status.tokenExpiry < new Date()
             : null,
@@ -276,6 +289,21 @@ class OAuthController {
         error: "Erro ao verificar status",
         details: error.message,
       });
+    }
+  }
+
+  async clear(req: Request, res: Response) {
+    try {
+      await googleDriveService.clearTokens();
+      res.json({
+        success: true,
+        message: "Tokens limpos. Execute /oauth/authorize para reautenticar.",
+      });
+    } catch (err: any) {
+      console.error("Erro ao limpar tokens:", err);
+      res
+        .status(500)
+        .json({ success: false, message: "Falha ao limpar tokens" });
     }
   }
 }

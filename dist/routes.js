@@ -56,6 +56,7 @@ const orderCustomizationController_1 = __importDefault(require("./controller/ord
 const itemConstraintController_1 = __importDefault(require("./controller/itemConstraintController"));
 const customizationUploadController_1 = __importDefault(require("./controller/customizationUploadController"));
 const oauthController_1 = __importDefault(require("./controller/oauthController"));
+const googleDriveService_1 = __importDefault(require("./services/googleDriveService"));
 const itemController_1 = __importDefault(require("./controller/itemController"));
 const productComponentController_1 = __importDefault(require("./controller/productComponentController"));
 const layoutBaseController_1 = __importDefault(require("./controller/layoutBaseController"));
@@ -172,6 +173,21 @@ router.get("/oauth/authorize", oauthController_1.default.authorize);
 router.get("/oauth/callback", oauthController_1.default.callback);
 // GET /oauth/status - Verifica status da autenticação
 router.get("/oauth/status", oauthController_1.default.status);
+// Clear tokens (admin only)
+router.post("/oauth/clear", security_1.authenticateToken, security_1.requireAdmin, async (req, res) => oauthController_1.default.clear(req, res));
+// Admin test for Google Drive (checks create/delete permissions)
+router.post("/admin/google-drive/test", security_1.authenticateToken, security_1.requireAdmin, async (req, res) => {
+    try {
+        const folderName = `test-drive-${Date.now()}`;
+        const folderId = await googleDriveService_1.default.createFolder(folderName);
+        // Clean up
+        await googleDriveService_1.default.deleteFolder(folderId);
+        res.json({ success: true, message: "Drive upload OK" });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 // Servir imagens de produtos/adicionais
 router.get("/images/:filename", (req, res) => {
     try {

@@ -19,6 +19,7 @@ import orderCustomizationController from "./controller/orderCustomizationControl
 import itemConstraintController from "./controller/itemConstraintController";
 import customizationUploadController from "./controller/customizationUploadController";
 import oauthController from "./controller/oauthController";
+import googleDriveService from "./services/googleDriveService";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
 import layoutBaseController from "./controller/layoutBaseController";
@@ -186,6 +187,31 @@ router.get("/oauth/callback", oauthController.callback);
 
 // GET /oauth/status - Verifica status da autenticação
 router.get("/oauth/status", oauthController.status);
+// Clear tokens (admin only)
+router.post(
+  "/oauth/clear",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => oauthController.clear(req, res)
+);
+
+// Admin test for Google Drive (checks create/delete permissions)
+router.post(
+  "/admin/google-drive/test",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const folderName = `test-drive-${Date.now()}`;
+      const folderId = await googleDriveService.createFolder(folderName);
+      // Clean up
+      await googleDriveService.deleteFolder(folderId);
+      res.json({ success: true, message: "Drive upload OK" });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+);
 
 // Servir imagens de produtos/adicionais
 router.get("/images/:filename", (req: Request, res: Response) => {

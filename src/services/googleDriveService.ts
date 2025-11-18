@@ -42,6 +42,8 @@ class GoogleDriveService {
   private drive: any;
   private tokenPath: string;
   private baseUrl: string;
+  private isServiceAccount: boolean = false;
+  private serviceAccountEmail?: string | null = null;
 
   constructor() {
     this.rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
@@ -55,14 +57,42 @@ class GoogleDriveService {
 
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-    this.oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri
-    );
+    // Service Account first: check for service account key JSON or a path
+    const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+    const serviceAccountKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
 
-    this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
-    this.loadSavedTokens();
+    if (serviceAccountKey || serviceAccountKeyPath) {
+      let keyJson;
+      try {
+        if (serviceAccountKey) keyJson = JSON.parse(serviceAccountKey);
+        else
+          keyJson = JSON.parse(
+            require("fs").readFileSync(serviceAccountKeyPath, "utf-8")
+          );
+      } catch (err) {
+        console.error("❌ Falha ao carregar chave da Service Account:", err);
+        keyJson = null;
+      }
+
+      if (keyJson) {
+        // Initialize service account auth async
+        this.isServiceAccount = false; // temporary
+        void this.initServiceAccount(keyJson);
+      }
+    }
+
+    // Fallback to OAuth2 flow if no Service Account configured
+    if (!this.isServiceAccount) {
+      this.oauth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        redirectUri
+      );
+
+      this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
+      this.isServiceAccount = false;
+      this.loadSavedTokens();
+    }
   }
 
   private getTokensFromEnv(): OAuth2Credentials | null {
@@ -114,11 +144,41 @@ class GoogleDriveService {
     }
   }
 
+  private async initServiceAccount(keyJson: any) {
+    try {
+      const auth = new google.auth.GoogleAuth({
+        credentials: keyJson,
+        scopes: [
+          "https://www.googleapis.com/auth/drive.file",
+          "https://www.googleapis.com/auth/drive",
+        ],
+      });
+      const client = await auth.getClient();
+      this.oauth2Client = client;
+      // GoogleAuth.getClient returns an AuthClient; cast to any to satisfy TS overload
+      this.drive = google.drive({ version: "v3", auth: client as any });
+      this.isServiceAccount = true;
+      this.serviceAccountEmail = keyJson.client_email || null;
+      console.log(
+        "✅ Google Drive: Service Account mode active for",
+        this.serviceAccountEmail
+      );
+    } catch (err) {
+      this.isServiceAccount = false;
+      console.error("❌ Falha ao inicializar Service Account", String(err));
+    }
+  }
+
   private async saveTokens(tokens: OAuth2Credentials): Promise<void> {
     try {
       await fs.writeFile(this.tokenPath, JSON.stringify(tokens, null, 2));
 
-      await this.updateEnvFile(tokens);
+      // try to persist tokens in .env; allowed in dev but may be skipped in production
+      try {
+        await this.updateEnvFile(tokens);
+      } catch (err) {
+        // Ignore failure to persist in production
+      }
     } catch (error) {
       console.error("❌ Erro ao salvar tokens:", error);
     }
@@ -255,6 +315,11 @@ class GoogleDriveService {
   }
 
   private async ensureValidToken(): Promise<void> {
+    if (this.isServiceAccount) {
+      // Service account uses JWT - always valid unless misconfigured
+      return;
+    }
+
     if (!this.oauth2Client.credentials) {
       throw new Error(
         "Não autenticado. Execute o fluxo OAuth2 via GET /oauth/authorize"
@@ -305,6 +370,22 @@ class GoogleDriveService {
     } catch (error: any) {
       console.error("❌ Erro ao criar pasta no Google Drive:", error.message);
       throw new Error("Falha ao criar pasta de customização no Google Drive");
+    }
+  }
+
+  async clearTokens(): Promise<void> {
+    try {
+      if (
+        this.tokenPath &&
+        (await fs.stat(this.tokenPath).catch(() => false))
+      ) {
+        await fs.unlink(this.tokenPath);
+      }
+      // Clear in-memory credentials
+      if (this.oauth2Client) this.oauth2Client.credentials = {};
+      console.log("✅ Google Drive tokens cleared");
+    } catch (err) {
+      console.warn("Não foi possível remover token local:", String(err));
     }
   }
 
@@ -395,24 +476,64 @@ class GoogleDriveService {
         fields: "id, name, webViewLink, webContentLink",
       });
 
-      await this.drive.permissions.create({
-        fileId: response.data.id,
-        requestBody: {
-          role: "reader",
-          type: "anyone",
-        },
-      });
+      try {
+        // try to make file public (if allowed)
+        await this.drive.permissions.create({
+          fileId: response.data.id,
+          requestBody: {
+            role: "reader",
+            type: "anyone",
+          },
+        });
+      } catch (permErr) {
+        // For service accounts or restricted drives, setting permissions might fail - log and continue
+        console.warn(
+          "Could not set file permissions to anyone: ",
+          String(permErr)
+        );
+      }
 
       const directImageUrl = `https://drive.google.com/uc?id=${response.data.id}`;
 
       return {
         id: response.data.id,
         name: response.data.name,
-        webViewLink: directImageUrl, // Usar formato direto no webViewLink
-        webContentLink: directImageUrl, // Manter consistência
+        webViewLink: response.data.webViewLink || directImageUrl,
+        webContentLink: response.data.webContentLink || directImageUrl,
       };
     } catch (error: any) {
-      console.error("❌ Erro ao fazer upload via buffer:", error.message);
+      console.error("❌ Erro ao fazer upload via buffer:", String(error));
+      console.error("🔎 folderId usado no upload:", folderId);
+      // Detect specific errors and provide actionable messages
+      const message = String(error?.message || error);
+      if (
+        message.includes("invalid_grant") ||
+        message.includes("invalid_grant")
+      ) {
+        throw new Error(
+          "Falha ao renovar autenticação. Execute o fluxo OAuth2 novamente via /oauth/authorize"
+        );
+      }
+      if (
+        message.includes("File not found") ||
+        message.includes("file not found")
+      ) {
+        throw new Error(
+          "Arquivo não encontrado ou Drive configurado incorretamente. Verifique o folderId/permissões e se o Drive configurado está acessível"
+        );
+      }
+      if (
+        this.isServiceAccount &&
+        (message.includes("insufficientFilePermissions") ||
+          message.includes("Forbidden") ||
+          message.includes("permission"))
+      ) {
+        const email = this.serviceAccountEmail || "<service-account-email>";
+        throw new Error(
+          `Permissão negada: a Service Account ${email} não tem acesso à pasta/folderId. Compartilhe a pasta no Drive com esse email ou use OAuth para autorizar um usuário de conta do Drive.`
+        );
+      }
+
       throw new Error("Falha ao fazer upload do arquivo para o Google Drive");
     }
   }
@@ -515,6 +636,7 @@ class GoogleDriveService {
   }
 
   isConfigured(): boolean {
+    if (this.isServiceAccount) return true;
     return (
       !!this.oauth2Client.credentials?.access_token ||
       !!this.oauth2Client.credentials?.refresh_token
@@ -526,6 +648,8 @@ class GoogleDriveService {
     hasAccessToken: boolean;
     hasRefreshToken: boolean;
     tokenExpiry: Date | null;
+    isServiceAccount: boolean;
+    serviceAccountEmail?: string | null;
   } {
     const credentials = this.oauth2Client.credentials;
 
@@ -536,7 +660,13 @@ class GoogleDriveService {
       tokenExpiry: credentials?.expiry_date
         ? new Date(credentials.expiry_date)
         : null,
+      isServiceAccount: this.isServiceAccount,
+      serviceAccountEmail: this.serviceAccountEmail,
     };
+  }
+
+  getServiceAccountInfo(): { enabled: boolean; email?: string | null } {
+    return { enabled: this.isServiceAccount, email: this.serviceAccountEmail };
   }
 }
 

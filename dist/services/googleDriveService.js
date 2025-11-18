@@ -19,7 +19,12 @@ class GoogleDriveService {
         // Service Account first: check for service account key JSON or a path
         const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
         const serviceAccountKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
-        if (serviceAccountKey || serviceAccountKeyPath) {
+        // Allow multiple ways to configure a service account:
+        // 1) Full JSON content via GOOGLE_SERVICE_ACCOUNT_KEY
+        // 2) Path to JSON via GOOGLE_SERVICE_ACCOUNT_KEY_PATH
+        // 3) Individual env vars (GOOGLE_PRIVATE_KEY, GOOGLE_CLIENT_EMAIL, GOOGLE_PROJECT_ID, etc.)
+        const attemptServiceAccount = Boolean(serviceAccountKey || serviceAccountKeyPath || process.env.GOOGLE_PRIVATE_KEY);
+        if (attemptServiceAccount) {
             let keyJson;
             try {
                 if (serviceAccountKey)
@@ -31,14 +36,37 @@ class GoogleDriveService {
                 console.error("❌ Falha ao carregar chave da Service Account:", err);
                 keyJson = null;
             }
+            // If not provided, build keyJson from env vars
+            if (!keyJson && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
+                try {
+                    const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
+                    // Some environments store private key newlines as \n - normalize
+                    const private_key = String(privateKeyRaw).replace(/\\n/g, "\n");
+                    keyJson = {
+                        type: "service_account",
+                        project_id: process.env.GOOGLE_PROJECT_ID || undefined,
+                        private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID || undefined,
+                        private_key,
+                        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+                        client_id: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID,
+                        auth_uri: process.env.GOOGLE_AUTH_URI,
+                        token_uri: process.env.GOOGLE_TOKEN_URI,
+                        auth_provider_x509_cert_url: process.env.GOOGLE_AUTH_PROVIDER_X509_CERT_URL,
+                        client_x509_cert_url: process.env.GOOGLE_CLIENT_X509_CERT_URL,
+                    };
+                }
+                catch (err) {
+                    console.warn("⚠️ Falha ao montar Service Account key JSON a partir das env vars:", String(err));
+                }
+            }
             if (keyJson) {
                 // Initialize service account auth async
-                this.isServiceAccount = false; // temporary
+                this.isServiceAccount = false; // temporary until init succeeds
                 void this.initServiceAccount(keyJson);
             }
         }
-        // Fallback to OAuth2 flow if no Service Account configured
-        if (!this.isServiceAccount) {
+        // Fallback to OAuth2 flow only if we didn't attempt service account init
+        if (!attemptServiceAccount) {
             this.oauth2Client = new googleapis_1.google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, redirectUri);
             this.drive = googleapis_1.google.drive({ version: "v3", auth: this.oauth2Client });
             this.isServiceAccount = false;
@@ -264,7 +292,8 @@ class GoogleDriveService {
     }
     async clearTokens() {
         try {
-            if (this.tokenPath && (await promises_1.default.stat(this.tokenPath).catch(() => false))) {
+            if (this.tokenPath &&
+                (await promises_1.default.stat(this.tokenPath).catch(() => false))) {
                 await promises_1.default.unlink(this.tokenPath);
             }
             // Clear in-memory credentials
@@ -363,14 +392,18 @@ class GoogleDriveService {
             console.error("🔎 folderId usado no upload:", folderId);
             // Detect specific errors and provide actionable messages
             const message = String(error?.message || error);
-            if (message.includes("invalid_grant") || message.includes("invalid_grant")) {
+            if (message.includes("invalid_grant") ||
+                message.includes("invalid_grant")) {
                 throw new Error("Falha ao renovar autenticação. Execute o fluxo OAuth2 novamente via /oauth/authorize");
             }
-            if (message.includes("File not found") || message.includes("file not found")) {
+            if (message.includes("File not found") ||
+                message.includes("file not found")) {
                 throw new Error("Arquivo não encontrado ou Drive configurado incorretamente. Verifique o folderId/permissões e se o Drive configurado está acessível");
             }
             if (this.isServiceAccount &&
-                (message.includes("insufficientFilePermissions") || message.includes("Forbidden") || message.includes("permission"))) {
+                (message.includes("insufficientFilePermissions") ||
+                    message.includes("Forbidden") ||
+                    message.includes("permission"))) {
                 const email = this.serviceAccountEmail || "<service-account-email>";
                 throw new Error(`Permissão negada: a Service Account ${email} não tem acesso à pasta/folderId. Compartilhe a pasta no Drive com esse email ou use OAuth para autorizar um usuário de conta do Drive.`);
             }

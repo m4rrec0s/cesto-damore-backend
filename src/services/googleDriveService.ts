@@ -61,7 +61,16 @@ class GoogleDriveService {
     const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
     const serviceAccountKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
 
-    if (serviceAccountKey || serviceAccountKeyPath) {
+    // Allow multiple ways to configure a service account:
+    // 1) Full JSON content via GOOGLE_SERVICE_ACCOUNT_KEY
+    // 2) Path to JSON via GOOGLE_SERVICE_ACCOUNT_KEY_PATH
+    // 3) Individual env vars (GOOGLE_PRIVATE_KEY, GOOGLE_CLIENT_EMAIL, GOOGLE_PROJECT_ID, etc.)
+    const attemptServiceAccount = Boolean(
+      serviceAccountKey ||
+        serviceAccountKeyPath ||
+        process.env.GOOGLE_PRIVATE_KEY
+    );
+    if (attemptServiceAccount) {
       let keyJson;
       try {
         if (serviceAccountKey) keyJson = JSON.parse(serviceAccountKey);
@@ -74,15 +83,47 @@ class GoogleDriveService {
         keyJson = null;
       }
 
+      // If not provided, build keyJson from env vars
+      if (
+        !keyJson &&
+        process.env.GOOGLE_PRIVATE_KEY &&
+        process.env.GOOGLE_CLIENT_EMAIL
+      ) {
+        try {
+          const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
+          // Some environments store private key newlines as \n - normalize
+          const private_key = String(privateKeyRaw).replace(/\\n/g, "\n");
+
+          keyJson = {
+            type: "service_account",
+            project_id: process.env.GOOGLE_PROJECT_ID || undefined,
+            private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID || undefined,
+            private_key,
+            client_email: process.env.GOOGLE_CLIENT_EMAIL,
+            client_id: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID,
+            auth_uri: process.env.GOOGLE_AUTH_URI,
+            token_uri: process.env.GOOGLE_TOKEN_URI,
+            auth_provider_x509_cert_url:
+              process.env.GOOGLE_AUTH_PROVIDER_X509_CERT_URL,
+            client_x509_cert_url: process.env.GOOGLE_CLIENT_X509_CERT_URL,
+          } as any;
+        } catch (err) {
+          console.warn(
+            "⚠️ Falha ao montar Service Account key JSON a partir das env vars:",
+            String(err)
+          );
+        }
+      }
+
       if (keyJson) {
         // Initialize service account auth async
-        this.isServiceAccount = false; // temporary
+        this.isServiceAccount = false; // temporary until init succeeds
         void this.initServiceAccount(keyJson);
       }
     }
 
-    // Fallback to OAuth2 flow if no Service Account configured
-    if (!this.isServiceAccount) {
+    // Fallback to OAuth2 flow only if we didn't attempt service account init
+    if (!attemptServiceAccount) {
       this.oauth2Client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,

@@ -71,12 +71,14 @@ class OAuthController {
               </ul>
             </div>
 
-            ${saInfo.enabled ? `
+            ${saInfo.enabled
+                ? `
             <div class="info">
               <p><strong>Service Account está ativa:</strong> ${saInfo.email}<br>
               Para permitir uploads de admin sem OAuth, compartilhe a pasta de destino com esse email (permissão de editor).</p>
             </div>
-            ` : `<a href="${authUrl}" class="btn">🚀 Autorizar com Google</a>
+            `
+                : `<a href="${authUrl}" class="btn">🚀 Autorizar com Google</a>
             `}
           </div>
         </body>
@@ -283,11 +285,16 @@ class OAuthController {
     async clear(req, res) {
         try {
             await googleDriveService_1.default.clearTokens();
-            res.json({ success: true, message: "Tokens limpos. Execute /oauth/authorize para reautenticar." });
+            res.json({
+                success: true,
+                message: "Tokens limpos. Execute /oauth/authorize para reautenticar.",
+            });
         }
         catch (err) {
             console.error("Erro ao limpar tokens:", err);
-            res.status(500).json({ success: false, message: "Falha ao limpar tokens" });
+            res
+                .status(500)
+                .json({ success: false, message: "Falha ao limpar tokens" });
         }
     }
 }

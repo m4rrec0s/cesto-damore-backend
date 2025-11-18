@@ -6,10 +6,16 @@ The application supports two modes for uploading files to Google Drive:
 
 1. OAuth2 (user account): Use the web flow `/api/oauth/authorize` to authorize a google user. Tokens are saved in `google-drive-token.json` and the service will refresh tokens automatically (if refresh token is available). This is recommended for single-user setups.
 
-2. Service Account (recommended for server-based automated uploads): Provide a service account key as JSON using env variables:
+2. Service Account (recommended for server-based automated uploads): There are multiple ways to configure Service Account credentials via environment variables:
 
-   - `GOOGLE_SERVICE_ACCOUNT_KEY` -> JSON string with the key contents, OR
-   - `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` -> path to the key JSON file on disk
+   - Direct JSON key content: `GOOGLE_SERVICE_ACCOUNT_KEY` (set the full JSON string) OR
+   - Path to key JSON file: `GOOGLE_SERVICE_ACCOUNT_KEY_PATH` (path to the downloaded file) OR
+   - Individual env vars (helpful for limited env var platforms):
+     - `GOOGLE_PRIVATE_KEY` (private key content; `\\n` sequences allowed)
+     - `GOOGLE_PRIVATE_KEY_ID`
+     - `GOOGLE_CLIENT_EMAIL` or `GOOGLE_SERVICE_ACCOUNT_CLIENT_EMAIL`
+     - `GOOGLE_SERVICE_ACCOUNT_CLIENT_ID` or `GOOGLE_CLIENT_ID`
+     - `GOOGLE_PROJECT_ID`
 
    To validate your configuration, you can use the following admin endpoints:
 

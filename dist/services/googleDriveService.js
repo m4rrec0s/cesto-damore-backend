@@ -7,6 +7,7 @@ const googleapis_1 = require("googleapis");
 const promises_1 = __importDefault(require("fs/promises"));
 const path_1 = __importDefault(require("path"));
 const stream_1 = require("stream");
+const crypto_1 = __importDefault(require("crypto"));
 class GoogleDriveService {
     constructor() {
         this.isServiceAccount = false;
@@ -23,7 +24,9 @@ class GoogleDriveService {
         // 1) Full JSON content via GOOGLE_SERVICE_ACCOUNT_KEY
         // 2) Path to JSON via GOOGLE_SERVICE_ACCOUNT_KEY_PATH
         // 3) Individual env vars (GOOGLE_PRIVATE_KEY, GOOGLE_CLIENT_EMAIL, GOOGLE_PROJECT_ID, etc.)
-        const attemptServiceAccount = Boolean(serviceAccountKey || serviceAccountKeyPath || process.env.GOOGLE_PRIVATE_KEY);
+        const attemptServiceAccount = Boolean(serviceAccountKey ||
+            serviceAccountKeyPath ||
+            process.env.GOOGLE_PRIVATE_KEY);
         if (attemptServiceAccount) {
             let keyJson;
             try {
@@ -37,7 +40,9 @@ class GoogleDriveService {
                 keyJson = null;
             }
             // If not provided, build keyJson from env vars
-            if (!keyJson && process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) {
+            if (!keyJson &&
+                process.env.GOOGLE_PRIVATE_KEY &&
+                process.env.GOOGLE_CLIENT_EMAIL) {
                 try {
                     const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
                     // Some environments store private key newlines as \n - normalize
@@ -60,9 +65,26 @@ class GoogleDriveService {
                 }
             }
             if (keyJson) {
-                // Initialize service account auth async
+                // Validate private key is a correct PEM
+                if (keyJson.private_key && typeof keyJson.private_key === "string") {
+                    try {
+                        // This will throw if the key can't be parsed
+                        crypto_1.default.createPrivateKey({
+                            key: keyJson.private_key,
+                            format: "pem",
+                        });
+                    }
+                    catch (err) {
+                        console.error("❌ Private key PEM invalid:", String(err));
+                        keyJson = null; // prevent using an invalid key
+                    }
+                }
+                // Initialize service account auth async and keep promise
                 this.isServiceAccount = false; // temporary until init succeeds
-                void this.initServiceAccount(keyJson);
+                this.saInitPromise = this.initServiceAccount(keyJson).catch((err) => {
+                    // Ensure the promise resolves successfully even on error
+                    return;
+                });
             }
         }
         // Fallback to OAuth2 flow only if we didn't attempt service account init
@@ -71,6 +93,18 @@ class GoogleDriveService {
             this.drive = googleapis_1.google.drive({ version: "v3", auth: this.oauth2Client });
             this.isServiceAccount = false;
             this.loadSavedTokens();
+        }
+        // If we attempted service account init and it failed OR we attempted and still want OAuth fallback,
+        // we will chain the fallback after init completes.
+        if (attemptServiceAccount && this.saInitPromise) {
+            this.saInitPromise.then(() => {
+                if (!this.isServiceAccount) {
+                    // Setup OAuth fallback
+                    this.oauth2Client = new googleapis_1.google.auth.OAuth2(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, redirectUri);
+                    this.drive = googleapis_1.google.drive({ version: "v3", auth: this.oauth2Client });
+                    this.loadSavedTokens();
+                }
+            });
         }
     }
     getTokensFromEnv() {
@@ -119,6 +153,20 @@ class GoogleDriveService {
     }
     async initServiceAccount(keyJson) {
         try {
+            // Normalize private key if present
+            if (keyJson.private_key && typeof keyJson.private_key === "string") {
+                let pk = keyJson.private_key;
+                // Remove surrounding quotes if they exist
+                if (pk.startsWith('"') && pk.endsWith('"')) {
+                    pk = pk.substring(1, pk.length - 1);
+                }
+                pk = pk.replace(/\\n/g, "\n").trim();
+                // Ensure it starts and ends with proper PEM headers
+                if (!pk.includes("-----BEGIN PRIVATE KEY-----")) {
+                    pk = `-----BEGIN PRIVATE KEY-----\n${pk}\n-----END PRIVATE KEY-----`;
+                }
+                keyJson.private_key = pk;
+            }
             const auth = new googleapis_1.google.auth.GoogleAuth({
                 credentials: keyJson,
                 scopes: [
@@ -133,9 +181,30 @@ class GoogleDriveService {
             this.isServiceAccount = true;
             this.serviceAccountEmail = keyJson.client_email || null;
             console.log("✅ Google Drive: Service Account mode active for", this.serviceAccountEmail);
+            if (keyJson.private_key) {
+                console.log(`🔐 Service Account private key length: ${String(keyJson.private_key).length}`);
+                console.log(`🔐 Service Account email: ${this.serviceAccountEmail}`);
+            }
+            // Validate that the credentials can make a simple, harmless Drive request
+            try {
+                // Try to obtain an access token to verify JWT signature
+                if (client && typeof client.getAccessToken === "function") {
+                    await client.getAccessToken();
+                }
+                await this.drive.files.list({ pageSize: 1, fields: "files(id)" });
+            }
+            catch (testErr) {
+                // If JWT signature or permission issues occur, log and disable SA (fallback)
+                console.error("❌ Service Account validation failed:", String(testErr));
+                this.isServiceAccount = false;
+                this.serviceAccountEmail = null;
+                // For debugging, rethrow up the chain (but we will catch below)
+                throw testErr;
+            }
         }
         catch (err) {
             this.isServiceAccount = false;
+            this.serviceAccountEmail = null;
             console.error("❌ Falha ao inicializar Service Account", String(err));
         }
     }

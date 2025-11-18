@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import fs from "fs/promises";
 import path from "path";
 import { Readable } from "stream";
+import crypto from "crypto";
 
 interface UploadFileOptions {
   filePath: string;
@@ -44,6 +45,7 @@ class GoogleDriveService {
   private baseUrl: string;
   private isServiceAccount: boolean = false;
   private serviceAccountEmail?: string | null = null;
+  private saInitPromise?: Promise<void>;
 
   constructor() {
     this.rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
@@ -116,9 +118,25 @@ class GoogleDriveService {
       }
 
       if (keyJson) {
-        // Initialize service account auth async
+        // Validate private key is a correct PEM
+        if (keyJson.private_key && typeof keyJson.private_key === "string") {
+          try {
+            // This will throw if the key can't be parsed
+            crypto.createPrivateKey({
+              key: keyJson.private_key,
+              format: "pem",
+            });
+          } catch (err) {
+            console.error("❌ Private key PEM invalid:", String(err));
+            keyJson = null; // prevent using an invalid key
+          }
+        }
+        // Initialize service account auth async and keep promise
         this.isServiceAccount = false; // temporary until init succeeds
-        void this.initServiceAccount(keyJson);
+        this.saInitPromise = this.initServiceAccount(keyJson).catch((err) => {
+          // Ensure the promise resolves successfully even on error
+          return;
+        });
       }
     }
 
@@ -133,6 +151,23 @@ class GoogleDriveService {
       this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
       this.isServiceAccount = false;
       this.loadSavedTokens();
+    }
+
+    // If we attempted service account init and it failed OR we attempted and still want OAuth fallback,
+    // we will chain the fallback after init completes.
+    if (attemptServiceAccount && this.saInitPromise) {
+      this.saInitPromise.then(() => {
+        if (!this.isServiceAccount) {
+          // Setup OAuth fallback
+          this.oauth2Client = new google.auth.OAuth2(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET,
+            redirectUri
+          );
+          this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
+          this.loadSavedTokens();
+        }
+      });
     }
   }
 
@@ -187,6 +222,21 @@ class GoogleDriveService {
 
   private async initServiceAccount(keyJson: any) {
     try {
+      // Normalize private key if present
+      if (keyJson.private_key && typeof keyJson.private_key === "string") {
+        let pk = keyJson.private_key;
+        // Remove surrounding quotes if they exist
+        if (pk.startsWith('"') && pk.endsWith('"')) {
+          pk = pk.substring(1, pk.length - 1);
+        }
+        pk = pk.replace(/\\n/g, "\n").trim();
+        // Ensure it starts and ends with proper PEM headers
+        if (!pk.includes("-----BEGIN PRIVATE KEY-----")) {
+          pk = `-----BEGIN PRIVATE KEY-----\n${pk}\n-----END PRIVATE KEY-----`;
+        }
+        keyJson.private_key = pk;
+      }
+
       const auth = new google.auth.GoogleAuth({
         credentials: keyJson,
         scopes: [
@@ -204,8 +254,32 @@ class GoogleDriveService {
         "✅ Google Drive: Service Account mode active for",
         this.serviceAccountEmail
       );
+      if (keyJson.private_key) {
+        console.log(
+          `🔐 Service Account private key length: ${
+            String(keyJson.private_key).length
+          }`
+        );
+        console.log(`🔐 Service Account email: ${this.serviceAccountEmail}`);
+      }
+      // Validate that the credentials can make a simple, harmless Drive request
+      try {
+        // Try to obtain an access token to verify JWT signature
+        if (client && typeof (client as any).getAccessToken === "function") {
+          await (client as any).getAccessToken();
+        }
+        await this.drive.files.list({ pageSize: 1, fields: "files(id)" });
+      } catch (testErr: any) {
+        // If JWT signature or permission issues occur, log and disable SA (fallback)
+        console.error("❌ Service Account validation failed:", String(testErr));
+        this.isServiceAccount = false;
+        this.serviceAccountEmail = null;
+        // For debugging, rethrow up the chain (but we will catch below)
+        throw testErr;
+      }
     } catch (err) {
       this.isServiceAccount = false;
+      this.serviceAccountEmail = null;
       console.error("❌ Falha ao inicializar Service Account", String(err));
     }
   }

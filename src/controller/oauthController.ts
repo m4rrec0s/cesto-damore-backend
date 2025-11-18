@@ -77,9 +77,10 @@ class OAuthController {
               Para permitir uploads de admin sem OAuth, compartilhe a pasta de destino com esse email (permissão de editor).</p>
             </div>
             `
-                : `<a href="${authUrl}" class="btn">🚀 Autorizar com Google</a>
-            `
+                : ""
             }
+
+            <a href="${authUrl}" class="btn">🚀 Autorizar com Google</a>
           </div>
         </body>
         </html>

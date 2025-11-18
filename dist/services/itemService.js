@@ -117,7 +117,7 @@ class ItemService {
                         quantity: true,
                     },
                 },
-                personalizations: true,
+                // Removed legacy 'personalizations' include (table deprecated)
             },
         });
     }

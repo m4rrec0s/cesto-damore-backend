@@ -81,12 +81,21 @@ class LayoutBaseService {
      */
     async delete(id) {
         const layoutBase = await this.getById(id);
-        // Verificar se há personalizações usando este layout
-        const personalizationsCount = await prisma.personalization.count({
+        // Verificar se há itens que referenciam este layout como layout_base
+        const itemsUsingLayoutCount = await prisma.item.count({
             where: { layout_base_id: id },
         });
-        if (personalizationsCount > 0) {
-            throw new Error(`Não é possível deletar. Este layout possui ${personalizationsCount} personalizações vinculadas.`);
+        if (itemsUsingLayoutCount > 0) {
+            throw new Error(`Não é possível deletar. Este layout está vinculado a ${itemsUsingLayoutCount} item(s). Atualize ou remova o vínculo antes de deletar.`);
+        }
+        // Verificar se existem Customizations (definições) cujo customization_data referenciam este layout
+        // Observação: customization_data é JSON livre - fazemos uma busca textual para evitar referenciar tabela legada
+        const customizationCountResult = await prisma.$queryRaw `
+      SELECT COUNT(*) FROM "Customization" WHERE customization_data::text LIKE ${"%" + id + "%"}
+    `;
+        const customizationCount = Number(customizationCountResult?.[0]?.count || 0);
+        if (customizationCount > 0) {
+            throw new Error(`Não é possível deletar. Este layout é usado em ${customizationCount} customização(ões). Atualize a customização antes de deletar.`);
         }
         // Deletar arquivo físico se existir
         if (layoutBase.image_url) {

@@ -171,21 +171,21 @@ class GoogleDriveService {
 
   private setupOAuth2Client(client: any): void {
     client.on("tokens", async (tokens: any) => {
-      console.log("🔄 Tokens atualizados automaticamente");
+      console.log("Tokens atualizados pelo Google");
 
-      if (tokens.refresh_token) {
-        console.log("💾 Novo refresh token recebido");
+      const current = client.credentials || {};
+      const updated: OAuth2Credentials = { ...current, ...tokens };
+
+      // NUNCA perca o refresh_token
+      if (current.refresh_token && !tokens.refresh_token) {
+        updated.refresh_token = current.refresh_token;
+        console.log("Refresh token preservado");
+      } else if (tokens.refresh_token) {
+        console.log("Novo refresh token recebido!");
       }
 
-      const currentCredentials = client.credentials || {};
-      const updatedCredentials = {
-        ...currentCredentials,
-        ...tokens,
-      };
-
-      client.setCredentials(updatedCredentials);
-
-      await this.saveTokens(updatedCredentials);
+      client.setCredentials(updated);
+      await this.saveTokens(updated);
     });
   }
 
@@ -298,14 +298,11 @@ class GoogleDriveService {
         ],
       });
 
-      // Get authenticated client
       const client = await auth.getClient();
       this.oauth2Client = client;
 
-      // Configure token refresh event even for Service Account client
       this.setupOAuth2Client(this.oauth2Client);
 
-      // Create Drive API client
       this.drive = google.drive({ version: "v3", auth: client as any });
 
       this.isServiceAccount = true;
@@ -325,32 +322,39 @@ class GoogleDriveService {
         console.log(`🔐 Service Account project_id: ${keyJson.project_id}`);
       }
 
-      // Simple validation - just check if we can create the client
-      // Don't try to get access token or make API calls during init
-      // as per Google documentation best practices
       console.log("✅ Service Account initialized successfully");
     } catch (err) {
       this.isServiceAccount = false;
       this.serviceAccountEmail = null;
       console.error("❌ Falha ao inicializar Service Account:", String(err));
-      // Don't throw - let OAuth fallback handle it
     }
   }
 
   private async saveTokens(tokens: OAuth2Credentials): Promise<void> {
     try {
-      await fs.writeFile(this.tokenPath, JSON.stringify(tokens, null, 2));
-
-      // try to persist tokens in .env; allowed in dev but may be skipped in production
+      let existing: OAuth2Credentials = {};
       try {
-        await this.updateEnvFile(tokens);
-      } catch (err) {
-        // Ignore failure to persist in production
-      }
+        const data = await fs.readFile(this.tokenPath, "utf-8");
+        existing = JSON.parse(data);
+      } catch (_) {}
+
+      const finalTokens = {
+        ...existing,
+        ...tokens,
+        refresh_token: tokens.refresh_token || existing.refresh_token,
+      };
+
+      await fs.writeFile(this.tokenPath, JSON.stringify(finalTokens, null, 2));
+      console.log("Tokens salvos com sucesso");
+
+      try {
+        await this.updateEnvFile(finalTokens);
+      } catch (_) {}
     } catch (error) {
-      console.error("❌ Erro ao salvar tokens:", error);
+      console.error("Erro ao salvar tokens:", error);
     }
   }
+
   private async updateEnvFile(tokens: OAuth2Credentials): Promise<void> {
     try {
       const envPath = path.join(process.cwd(), ".env");
@@ -441,30 +445,45 @@ class GoogleDriveService {
       "https://www.googleapis.com/auth/drive.readonly",
     ];
 
-    return this.oauth2Client.generateAuthUrl({
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+    if (!redirectUri) {
+      throw new Error("GOOGLE_REDIRECT_URI não definido");
+    }
+
+    // Validar formato do redirect_uri
+    if (
+      !redirectUri.startsWith("http://") &&
+      !redirectUri.startsWith("https://")
+    ) {
+      throw new Error(
+        `GOOGLE_REDIRECT_URI deve começar com http:// ou https://. Valor atual: ${redirectUri}`
+      );
+    }
+
+    console.log("🔗 Gerando URL de autenticação OAuth2");
+    console.log(`🔗 Redirect URI: ${redirectUri}`);
+    console.log(`🔗 Scopes: ${scopes.join(", ")}`);
+
+    const authUrl = this.oauth2Client.generateAuthUrl({
       access_type: "offline",
-      scope: scopes,
       prompt: "consent",
+      scope: scopes,
       include_granted_scopes: true,
+      redirect_uri: redirectUri,
     });
+
+    console.log(`🔗 URL gerada: ${authUrl.substring(0, 100)}...`);
+    return authUrl;
   }
 
-  /**
-   * Troca código de autorização por tokens de acesso
-   */
   async getTokensFromCode(code: string): Promise<OAuth2Credentials> {
     try {
-      const { tokens } = await this.oauth2Client.getToken(code);
+      const { tokens } = await this.oauth2Client.getToken({
+        code,
+      });
 
-      // Definir credenciais no cliente (isso dispara o evento 'tokens' se houver atualização)
       this.oauth2Client.setCredentials(tokens);
-
-      // Salvar tokens manualmente na primeira autenticação
       await this.saveTokens(tokens);
-
-      console.log("✅ Tokens obtidos do código de autorização");
-      console.log(`🔑 Access token: ${tokens.access_token ? "✅" : "❌"}`);
-      console.log(`🔄 Refresh token: ${tokens.refresh_token ? "✅" : "❌"}`);
 
       return tokens;
     } catch (error: any) {
@@ -473,9 +492,6 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Renova o token de acesso se estiver expirado
-   */
   private async refreshAccessToken(): Promise<void> {
     try {
       const { credentials } = await this.oauth2Client.refreshAccessToken();
@@ -507,8 +523,6 @@ class GoogleDriveService {
       );
     }
 
-    // O cliente OAuth2 da biblioteca googleapis atualiza tokens automaticamente
-    // quando necessário. Apenas verificamos se temos credenciais básicas.
     const { access_token, refresh_token } = this.oauth2Client.credentials;
 
     if (!access_token && !refresh_token) {
@@ -854,7 +868,6 @@ class GoogleDriveService {
 
     if (this.isServiceAccount && this.oauth2Client) {
       try {
-        // Try to get access token without making API call
         const token = await (this.oauth2Client as any).getAccessToken();
         info.tokenObtained = !!token;
         info.tokenExpiry = token?.res?.data?.expiry_date;

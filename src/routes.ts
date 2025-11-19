@@ -435,11 +435,8 @@ router.delete("/orders/:id", orderController.remove);
 
 // ========== PAYMENT ROUTES ==========
 
-// Health check do Mercado Pago
 router.get("/payment/health", PaymentController.healthCheck);
 
-// Webhook do Mercado Pago (sem autenticação)
-// Aceita em /webhook/mercadopago e /api/webhook/mercadopago para compatibilidade
 router.post(
   "/webhook/mercadopago",
   validateMercadoPagoWebhook,

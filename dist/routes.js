@@ -334,10 +334,7 @@ router.post("/orders", orderController_1.default.create);
 router.patch("/orders/:id/status", security_1.authenticateToken, security_1.requireAdmin, orderController_1.default.updateStatus);
 router.delete("/orders/:id", orderController_1.default.remove);
 // ========== PAYMENT ROUTES ==========
-// Health check do Mercado Pago
 router.get("/payment/health", paymentController_1.default.healthCheck);
-// Webhook do Mercado Pago (sem autenticação)
-// Aceita em /webhook/mercadopago e /api/webhook/mercadopago para compatibilidade
 router.post("/webhook/mercadopago", security_1.validateMercadoPagoWebhook, paymentController_1.default.handleWebhook);
 router.post("/api/webhook/mercadopago", security_1.validateMercadoPagoWebhook, paymentController_1.default.handleWebhook);
 // Páginas de retorno do checkout (sem autenticação)

@@ -360,9 +360,12 @@ class WhatsAppService {
       message += `\n👤 *Cliente:*\n`;
       message += `• Nome: ${orderData.customer.name}\n`;
       message += `• Email: ${orderData.customer.email}\n`;
-      if (orderData.customer.phone) {
-        message += `• Telefone: ${orderData.customer.phone}\n`;
-      }
+      const isAnonymous = (orderData as any).send_anonymously === true;
+      const complement = (orderData as any).complement as string | undefined;
+
+      message += `• Telefone: ${orderData.customer.phone}${
+        isAnonymous ? " (Envio anônimo)" : ""
+      }\n`;
 
       if (orderData.delivery) {
         message += `\n📍 *Entrega:*\n`;
@@ -373,6 +376,9 @@ class WhatsAppService {
           message += `• Data: ${new Date(
             orderData.delivery.date
           ).toLocaleDateString("pt-BR")}\n`;
+        }
+        if (complement) {
+          message += `• Complemento: ${complement}\n`;
         }
       }
 

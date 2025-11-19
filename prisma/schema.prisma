@@ -107,6 +107,8 @@ model Order {
   payment_method   String?
   grand_total      Float?
   recipient_phone  String? // Número do destinatário da cesta
+  complement       String? // Complemento do endereço (apartamento, bloco, referência)
+  send_anonymously Boolean?    @default(false) // Indica se o envio será anônimo
   created_at       DateTime    @default(now())
   updated_at       DateTime    @updatedAt
 

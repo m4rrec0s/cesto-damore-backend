@@ -425,6 +425,12 @@ router.post(
 // Rotas genéricas com :id (DEVEM VIR POR ÚLTIMO)
 router.get("/orders/:id", orderController.show);
 router.post("/orders", orderController.create);
+router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
+router.put(
+  "/orders/:id/metadata",
+  authenticateToken,
+  orderController.updateMetadata
+);
 router.patch(
   "/orders/:id/status",
   authenticateToken,

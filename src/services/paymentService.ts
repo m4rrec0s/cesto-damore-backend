@@ -1200,11 +1200,13 @@ export class PaymentService {
             }
           : undefined,
       };
-
+      // Include flags and complement for notification's business logic
+      (orderData as any).send_anonymously = order.send_anonymously || false;
+      (orderData as any).complement = order.complement || undefined;
       await whatsappService.sendOrderConfirmationNotification(orderData);
 
       const recipientPhone = order.recipient_phone || order.user.phone;
-      if (recipientPhone) {
+      if (recipientPhone && !order.send_anonymously) {
         await whatsappService.sendCustomerOrderConfirmation(recipientPhone, {
           orderId: order.id,
           orderNumber: order.id.substring(0, 8).toUpperCase(),

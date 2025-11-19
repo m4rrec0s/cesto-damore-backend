@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import fs from "fs/promises";
 import path from "path";
 import { Readable } from "stream";
-import crypto from "crypto";
+// crypto removed - not required when using only OAuth
 
 interface UploadFileOptions {
   filePath: string;
@@ -43,9 +43,7 @@ class GoogleDriveService {
   private drive: any;
   private tokenPath: string;
   private baseUrl: string;
-  private isServiceAccount: boolean = false;
-  private serviceAccountEmail?: string | null = null;
-  private saInitPromise?: Promise<void>;
+  // Service Account removed - using OAuth only
 
   constructor() {
     this.rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
@@ -59,88 +57,7 @@ class GoogleDriveService {
 
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-    const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    const serviceAccountKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
-
-    const attemptServiceAccount = Boolean(
-      serviceAccountKey ||
-        serviceAccountKeyPath ||
-        process.env.GOOGLE_PRIVATE_KEY
-    );
-    if (attemptServiceAccount) {
-      let keyJson;
-      try {
-        if (serviceAccountKey) keyJson = JSON.parse(serviceAccountKey);
-        else
-          keyJson = JSON.parse(
-            require("fs").readFileSync(serviceAccountKeyPath, "utf-8")
-          );
-      } catch (err) {
-        console.error("❌ Falha ao carregar chave da Service Account:", err);
-        keyJson = null;
-      }
-
-      if (
-        !keyJson &&
-        process.env.GOOGLE_PRIVATE_KEY &&
-        process.env.GOOGLE_CLIENT_EMAIL
-      ) {
-        try {
-          const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
-          const private_key = String(privateKeyRaw).replace(/\\n/g, "\n");
-
-          keyJson = {
-            type: "service_account",
-            project_id: process.env.GOOGLE_PROJECT_ID || undefined,
-            private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID || undefined,
-            private_key,
-            client_email: process.env.GOOGLE_CLIENT_EMAIL,
-            client_id: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_ID,
-            auth_uri: process.env.GOOGLE_AUTH_URI,
-            token_uri: process.env.GOOGLE_TOKEN_URI,
-            auth_provider_x509_cert_url:
-              process.env.GOOGLE_AUTH_PROVIDER_X509_CERT_URL,
-            client_x509_cert_url: process.env.GOOGLE_CLIENT_X509_CERT_URL,
-          } as any;
-        } catch (err) {
-          console.warn(
-            "⚠️ Falha ao montar Service Account key JSON a partir das env vars:",
-            String(err)
-          );
-        }
-      }
-
-      if (keyJson) {
-        if (keyJson.private_key && typeof keyJson.private_key === "string") {
-          try {
-            crypto.createPrivateKey({
-              key: keyJson.private_key,
-              format: "pem",
-            });
-            console.log("✅ Private key PEM validation passed");
-          } catch (err) {
-            console.warn(
-              "⚠️ Private key PEM validation failed, but continuing:",
-              String(err)
-            );
-          }
-        }
-        this.isServiceAccount = false;
-        this.saInitPromise = this.initServiceAccount(keyJson).catch((err) => {
-          console.log("🔄 Service Account failed, initializing OAuth fallback");
-          this.oauth2Client = new google.auth.OAuth2(
-            process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET,
-            redirectUri
-          );
-          this.setupOAuth2Client(this.oauth2Client);
-          this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
-          this.isServiceAccount = false;
-          this.loadSavedTokens();
-          return;
-        });
-      }
-    }
+    // Removed Service Account flow - using OAuth only
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -165,7 +82,7 @@ class GoogleDriveService {
     );
     this.setupOAuth2Client(this.oauth2Client);
     this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
-    this.isServiceAccount = false;
+    // ensure OAuth-only mode (no service account)
     this.loadSavedTokens();
   }
 
@@ -238,97 +155,7 @@ class GoogleDriveService {
     }
   }
 
-  private async initServiceAccount(keyJson: any) {
-    try {
-      // Normalize private key according to Google documentation
-      if (keyJson.private_key && typeof keyJson.private_key === "string") {
-        let pk = keyJson.private_key;
-        console.log(`🔑 Original private key length: ${pk.length}`);
-        console.log(`🔑 Starts with quote: ${pk.startsWith('"')}`);
-        console.log(`🔑 Ends with quote: ${pk.endsWith('"')}`);
-        console.log(`🔑 Contains backslash n: ${pk.includes("\\n")}`);
-        console.log(
-          `🔑 Contains BEGIN marker: ${pk.includes(
-            "-----BEGIN PRIVATE KEY-----"
-          )}`
-        );
-
-        // Remove surrounding quotes if they exist
-        if (pk.startsWith('"') && pk.endsWith('"')) {
-          pk = pk.substring(1, pk.length - 1);
-          console.log(`🔑 After quote removal length: ${pk.length}`);
-        }
-
-        // Replace literal \n with actual newlines
-        pk = pk.replace(/\\n/g, "\n");
-        console.log(`🔑 After newline replacement length: ${pk.length}`);
-
-        // Ensure proper PEM format
-        if (!pk.includes("-----BEGIN PRIVATE KEY-----")) {
-          // Remove any existing headers/footers first
-          pk = pk
-            .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-            .replace(/-----END PRIVATE KEY-----/g, "")
-            .trim();
-          // Add proper headers
-          pk = `-----BEGIN PRIVATE KEY-----\n${pk}\n-----END PRIVATE KEY-----`;
-          console.log(`🔑 After PEM formatting length: ${pk.length}`);
-        }
-
-        keyJson.private_key = pk;
-        console.log(`🔑 Final private key length: ${pk.length}`);
-        console.log(
-          `🔑 Final key starts with BEGIN: ${pk.startsWith(
-            "-----BEGIN PRIVATE KEY-----"
-          )}`
-        );
-        console.log(
-          `🔑 Final key ends with END: ${pk.endsWith(
-            "-----END PRIVATE KEY-----"
-          )}`
-        );
-      }
-
-      // Create GoogleAuth instance with credentials
-      const auth = new google.auth.GoogleAuth({
-        credentials: keyJson,
-        scopes: [
-          "https://www.googleapis.com/auth/drive.file",
-          "https://www.googleapis.com/auth/drive",
-        ],
-      });
-
-      const client = await auth.getClient();
-      this.oauth2Client = client;
-
-      this.setupOAuth2Client(this.oauth2Client);
-
-      this.drive = google.drive({ version: "v3", auth: client as any });
-
-      this.isServiceAccount = true;
-      this.serviceAccountEmail = keyJson.client_email || null;
-
-      console.log(
-        "✅ Google Drive: Service Account mode active for",
-        this.serviceAccountEmail
-      );
-
-      // Log key details for debugging
-      if (keyJson.private_key) {
-        console.log(
-          `🔐 Service Account private key length: ${keyJson.private_key.length}`
-        );
-        console.log(`🔐 Service Account email: ${this.serviceAccountEmail}`);
-        console.log(`🔐 Service Account project_id: ${keyJson.project_id}`);
-      }
-
-      console.log("✅ Service Account initialized successfully");
-    } catch (err) {
-      this.isServiceAccount = false;
-      this.serviceAccountEmail = null;
-      console.error("❌ Falha ao inicializar Service Account:", String(err));
-    }
-  }
+  // Service Account init removed - OAuth only
 
   private async saveTokens(tokens: OAuth2Credentials): Promise<void> {
     try {
@@ -512,11 +339,6 @@ class GoogleDriveService {
   }
 
   private async ensureValidToken(): Promise<void> {
-    if (this.isServiceAccount) {
-      // Service account uses JWT - always valid unless misconfigured
-      return;
-    }
-
     if (!this.oauth2Client.credentials) {
       throw new Error(
         "Não autenticado. Execute o fluxo OAuth2 via GET /oauth/authorize"
@@ -709,14 +531,13 @@ class GoogleDriveService {
         );
       }
       if (
-        this.isServiceAccount &&
-        (message.includes("insufficientFilePermissions") ||
-          message.includes("Forbidden") ||
-          message.includes("permission"))
+        message.includes("insufficientFilePermissions") ||
+        message.includes("Forbidden") ||
+        message.includes("permission")
       ) {
-        const email = this.serviceAccountEmail || "<service-account-email>";
+        // Permission denied - OAuth account may not have rights to the target folder
         throw new Error(
-          `Permissão negada: a Service Account ${email} não tem acesso à pasta/folderId. Compartilhe a pasta no Drive com esse email ou use OAuth para autorizar um usuário de conta do Drive.`
+          "Permissão negada: a conta autenticada não tem acesso à pasta/folderId. Verifique as permissões e se a pasta pertence ao Drive correto."
         );
       }
 
@@ -822,7 +643,7 @@ class GoogleDriveService {
   }
 
   isConfigured(): boolean {
-    if (this.isServiceAccount) return true;
+    // OAuth-only: consider configured if we have tokens
     return (
       !!this.oauth2Client.credentials?.access_token ||
       !!this.oauth2Client.credentials?.refresh_token
@@ -846,19 +667,19 @@ class GoogleDriveService {
       tokenExpiry: credentials?.expiry_date
         ? new Date(credentials.expiry_date)
         : null,
-      isServiceAccount: this.isServiceAccount,
-      serviceAccountEmail: this.serviceAccountEmail,
+      isServiceAccount: false,
+      serviceAccountEmail: null,
     };
   }
 
   getServiceAccountInfo(): { enabled: boolean; email?: string | null } {
-    return { enabled: this.isServiceAccount, email: this.serviceAccountEmail };
+    return { enabled: false, email: null };
   }
 
   async debugServiceAccount(): Promise<any> {
     const info: any = {
-      isServiceAccount: this.isServiceAccount,
-      serviceAccountEmail: this.serviceAccountEmail,
+      isServiceAccount: false,
+      serviceAccountEmail: null,
       hasOAuthClient: !!this.oauth2Client,
       hasDriveClient: !!this.drive,
       rootFolderId: this.rootFolderId,
@@ -866,7 +687,10 @@ class GoogleDriveService {
       baseUrl: this.baseUrl,
     };
 
-    if (this.isServiceAccount && this.oauth2Client) {
+    if (
+      this.oauth2Client &&
+      typeof (this.oauth2Client as any).getAccessToken === "function"
+    ) {
       try {
         const token = await (this.oauth2Client as any).getAccessToken();
         info.tokenObtained = !!token;

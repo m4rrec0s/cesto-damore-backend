@@ -11,69 +11,8 @@ class OAuthController {
      */
     async authorize(req, res) {
         try {
-            const saInfo = googleDriveService_1.default.getServiceAccountInfo();
-            const status = googleDriveService_1.default.getStatus();
-            // Se Service Account está ativo e funcionando, mostrar status
-            if (saInfo.enabled && status.configured) {
-                return res.send(`
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Google Drive Configurado</title>
-            <style>
-              body {
-                font-family: Arial, sans-serif;
-                max-width: 600px;
-                margin: 50px auto;
-                padding: 20px;
-                background: #f5f5f5;
-              }
-              .container {
-                background: white;
-                padding: 30px;
-                border-radius: 8px;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-              }
-              .success {
-                background: #e6f4ea;
-                padding: 15px;
-                border-radius: 4px;
-                margin: 20px 0;
-              }
-              .btn {
-                display: inline-block;
-                background: #4285f4;
-                color: white;
-                padding: 12px 24px;
-                text-decoration: none;
-                border-radius: 4px;
-                font-size: 16px;
-                margin-top: 20px;
-              }
-              .btn:hover {
-                background: #357ae8;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1>✅ Google Drive Configurado</h1>
-              
-              <div class="success">
-                <strong>🎉 Service Account Ativa!</strong>
-                <p>O Google Drive está configurado e funcionando com Service Account.</p>
-                <p><strong>Email:</strong> ${saInfo.email}</p>
-              </div>
-
-              <p>Se precisar reautorizar ou usar OAuth como alternativa:</p>
-              <a href="/oauth/authorize?force=oauth" class="btn">🔄 Forçar OAuth</a>
-            </div>
-          </body>
-          </html>
-        `);
-            }
             const authUrl = googleDriveService_1.default.getAuthUrl();
-            // Verificar se foi solicitado forçar OAuth
+            // verify if force OAuth requested (kept for backward compatibility)
             const forceOAuth = req.query.force === "oauth";
             res.send(`
         <!DOCTYPE html>
@@ -133,15 +72,7 @@ class OAuthController {
               </ul>
             </div>
 
-            ${saInfo.enabled && !forceOAuth
-                ? `
-            <div class="info">
-              <p><strong>Service Account está ativa:</strong> ${saInfo.email}<br>
-              Para permitir uploads de admin sem OAuth, compartilhe a pasta de destino com esse email (permissão de editor).</p>
-              <p><em>Se precisar usar OAuth mesmo assim, <a href="/oauth/authorize?force=oauth">clique aqui</a>.</em></p>
-            </div>
-            `
-                : ""}
+            ${""}
 
             <a href="${authUrl}" class="btn">🚀 Autorizar com Google</a>
           </div>
@@ -367,7 +298,6 @@ class OAuthController {
      */
     async debug(req, res) {
         try {
-            const saInfo = googleDriveService_1.default.getServiceAccountInfo();
             const debugInfo = await googleDriveService_1.default.debugServiceAccount();
             // Adicionar informações sobre OAuth
             const oauthDebug = {
@@ -381,7 +311,7 @@ class OAuthController {
                 hasOAuthClient: !!googleDriveService_1.default["oauth2Client"],
             };
             res.json({
-                serviceAccount: saInfo,
+                serviceAccount: { enabled: false, email: null },
                 oauth: oauthDebug,
                 debug: debugInfo,
                 timestamp: new Date().toISOString(),

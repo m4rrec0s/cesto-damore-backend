@@ -59,14 +59,9 @@ class GoogleDriveService {
 
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-    // Service Account first: check for service account key JSON or a path
     const serviceAccountKey = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
     const serviceAccountKeyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
 
-    // Allow multiple ways to configure a service account:
-    // 1) Full JSON content via GOOGLE_SERVICE_ACCOUNT_KEY
-    // 2) Path to JSON via GOOGLE_SERVICE_ACCOUNT_KEY_PATH
-    // 3) Individual env vars (GOOGLE_PRIVATE_KEY, GOOGLE_CLIENT_EMAIL, GOOGLE_PROJECT_ID, etc.)
     const attemptServiceAccount = Boolean(
       serviceAccountKey ||
         serviceAccountKeyPath ||
@@ -85,7 +80,6 @@ class GoogleDriveService {
         keyJson = null;
       }
 
-      // If not provided, build keyJson from env vars
       if (
         !keyJson &&
         process.env.GOOGLE_PRIVATE_KEY &&
@@ -93,7 +87,6 @@ class GoogleDriveService {
       ) {
         try {
           const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY;
-          // Some environments store private key newlines as \n - normalize
           const private_key = String(privateKeyRaw).replace(/\\n/g, "\n");
 
           keyJson = {
@@ -118,10 +111,8 @@ class GoogleDriveService {
       }
 
       if (keyJson) {
-        // Validate private key is a correct PEM (but don't fail init if validation fails)
         if (keyJson.private_key && typeof keyJson.private_key === "string") {
           try {
-            // Try to parse as PEM - this will throw if invalid
             crypto.createPrivateKey({
               key: keyJson.private_key,
               format: "pem",
@@ -132,14 +123,11 @@ class GoogleDriveService {
               "⚠️ Private key PEM validation failed, but continuing:",
               String(err)
             );
-            // Don't set keyJson to null - let Google Auth handle it
           }
         }
-        // Initialize service account auth async and keep promise
-        this.isServiceAccount = false; // temporary until init succeeds
+        this.isServiceAccount = false;
         this.saInitPromise = this.initServiceAccount(keyJson).catch((err) => {
           console.log("🔄 Service Account failed, initializing OAuth fallback");
-          // Initialize OAuth as fallback
           this.oauth2Client = new google.auth.OAuth2(
             process.env.GOOGLE_CLIENT_ID,
             process.env.GOOGLE_CLIENT_SECRET,
@@ -149,32 +137,39 @@ class GoogleDriveService {
           this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
           this.isServiceAccount = false;
           this.loadSavedTokens();
-          return; // Ensure the promise resolves
+          return;
         });
       }
     }
 
-    // Fallback to OAuth2 flow only if we didn't attempt service account init
-    if (!attemptServiceAccount) {
-      this.oauth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-        redirectUri
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      console.error(
+        "❌ GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET não definidos"
       );
-      this.setupOAuth2Client(this.oauth2Client);
-      this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
-      this.isServiceAccount = false;
-      this.loadSavedTokens();
+      console.error(
+        `🔍 GOOGLE_CLIENT_ID: ${clientId ? "definido" : "NÃO DEFINIDO"}`
+      );
+      console.error(
+        `🔍 GOOGLE_CLIENT_SECRET: ${clientSecret ? "definido" : "NÃO DEFINIDO"}`
+      );
+      throw new Error("Credenciais OAuth2 do Google não configuradas");
     }
 
-    // OAuth fallback is now handled in the catch block above
+    this.oauth2Client = new google.auth.OAuth2(
+      clientId,
+      clientSecret,
+      redirectUri
+    );
+    this.setupOAuth2Client(this.oauth2Client);
+    this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
+    this.isServiceAccount = false;
+    this.loadSavedTokens();
   }
 
-  /**
-   * Configura o cliente OAuth2 com evento de tokens para atualização automática
-   */
   private setupOAuth2Client(client: any): void {
-    // Configurar evento para salvar tokens automaticamente quando atualizados
     client.on("tokens", async (tokens: any) => {
       console.log("🔄 Tokens atualizados automaticamente");
 
@@ -182,17 +177,14 @@ class GoogleDriveService {
         console.log("💾 Novo refresh token recebido");
       }
 
-      // Combinar tokens existentes com novos
       const currentCredentials = client.credentials || {};
       const updatedCredentials = {
         ...currentCredentials,
         ...tokens,
       };
 
-      // Atualizar credenciais no cliente
       client.setCredentials(updatedCredentials);
 
-      // Salvar no arquivo
       await this.saveTokens(updatedCredentials);
     });
   }
@@ -309,6 +301,9 @@ class GoogleDriveService {
       // Get authenticated client
       const client = await auth.getClient();
       this.oauth2Client = client;
+
+      // Configure token refresh event even for Service Account client
+      this.setupOAuth2Client(this.oauth2Client);
 
       // Create Drive API client
       this.drive = google.drive({ version: "v3", auth: client as any });
@@ -437,6 +432,10 @@ class GoogleDriveService {
    * Gera URL de autenticação OAuth2
    */
   getAuthUrl(): string {
+    if (!this.oauth2Client) {
+      throw new Error("Cliente OAuth2 não inicializado");
+    }
+
     const scopes = [
       "https://www.googleapis.com/auth/drive.file",
       "https://www.googleapis.com/auth/drive.readonly",
@@ -457,9 +456,11 @@ class GoogleDriveService {
     try {
       const { tokens } = await this.oauth2Client.getToken(code);
 
-      // O evento 'tokens' será disparado automaticamente e salvará os tokens
-      // Não precisamos salvar manualmente aqui
+      // Definir credenciais no cliente (isso dispara o evento 'tokens' se houver atualização)
       this.oauth2Client.setCredentials(tokens);
+
+      // Salvar tokens manualmente na primeira autenticação
+      await this.saveTokens(tokens);
 
       console.log("✅ Tokens obtidos do código de autorização");
       console.log(`🔑 Access token: ${tokens.access_token ? "✅" : "❌"}`);

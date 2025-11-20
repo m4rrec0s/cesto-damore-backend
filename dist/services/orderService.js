@@ -199,11 +199,12 @@ class OrderService {
             throw new Error("Pelo menos um item é obrigatório");
         }
         let phoneDigits = (data.recipient_phone || "").replace(/\D/g, "");
-        if (phoneDigits.length < 10 || phoneDigits.length > 13) {
+        if (!data.is_draft &&
+            (phoneDigits.length < 10 || phoneDigits.length > 13)) {
             console.error("❌ [OrderService] Telefone com tamanho inválido:", phoneDigits.length);
             throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
         }
-        if (!phoneDigits.startsWith("55")) {
+        if (!data.is_draft && !phoneDigits.startsWith("55")) {
             phoneDigits = "55" + phoneDigits;
         }
         const paymentMethod = normalizeText(String(data.payment_method || ""));
@@ -331,9 +332,12 @@ class OrderService {
             }
             const { items, ...orderData } = data;
             // ========== VALIDAR E DECREMENTAR ESTOQUE ==========
-            const stockValidation = await stockService_1.default.validateOrderStock(items);
-            if (!stockValidation.valid) {
-                throw new Error(`Estoque insuficiente:\n${stockValidation.errors.join("\n")}`);
+            // Para pedidos draft (carrinho), não validar estoque
+            if (!data.is_draft) {
+                const stockValidation = await stockService_1.default.validateOrderStock(items);
+                if (!stockValidation.valid) {
+                    throw new Error(`Estoque insuficiente:\n${stockValidation.errors.join("\n")}`);
+                }
             }
             const created = await prisma_1.default.order.create({
                 data: {

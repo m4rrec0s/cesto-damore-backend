@@ -240,9 +240,9 @@ class WhatsAppService {
             message += `\n👤 *Cliente:*\n`;
             message += `• Nome: ${orderData.customer.name}\n`;
             message += `• Email: ${orderData.customer.email}\n`;
-            if (orderData.customer.phone) {
-                message += `• Telefone: ${orderData.customer.phone}\n`;
-            }
+            const isAnonymous = orderData.send_anonymously === true;
+            const complement = orderData.complement;
+            message += `• Telefone: ${orderData.customer.phone}${isAnonymous ? " (Envio anônimo)" : ""}\n`;
             if (orderData.delivery) {
                 message += `\n📍 *Entrega:*\n`;
                 message += `• ${orderData.delivery.address}\n`;
@@ -250,6 +250,9 @@ class WhatsAppService {
                 message += `• CEP: ${orderData.delivery.zipCode}\n`;
                 if (orderData.delivery.date) {
                     message += `• Data: ${new Date(orderData.delivery.date).toLocaleDateString("pt-BR")}\n`;
+                }
+                if (complement) {
+                    message += `• Complemento: ${complement}\n`;
                 }
             }
             // Adicionar link do Google Drive se houver customizações

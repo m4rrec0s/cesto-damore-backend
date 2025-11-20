@@ -136,6 +136,73 @@ class OrderController {
             res.status(500).json({ error: "Erro interno do servidor" });
         }
     }
+    async updateMetadata(req, res) {
+        try {
+            const { id } = req.params;
+            const { send_anonymously, complement } = req.body;
+            if (!id) {
+                return res.status(400).json({ error: "ID do pedido é obrigatório" });
+            }
+            // Ownership: only order owner can update metadata
+            const userId = req.user?.id;
+            const existingOrder = await orderService_1.default.getOrderById(id);
+            if (userId && existingOrder.user_id !== userId) {
+                return res
+                    .status(403)
+                    .json({ error: "Você não tem permissão para modificar este pedido" });
+            }
+            const updated = await orderService_1.default.updateOrderMetadata(id, {
+                send_anonymously,
+                complement,
+            });
+            res.json(updated);
+        }
+        catch (error) {
+            console.error("Erro ao atualizar metadata do pedido:", error);
+            if (error.message.includes("obrigatório")) {
+                return res.status(400).json({ error: error.message });
+            }
+            if (error.message.includes("não encontrado")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message.includes("pendentes")) {
+                return res.status(403).json({ error: error.message });
+            }
+            res.status(500).json({ error: "Erro interno do servidor" });
+        }
+    }
+    async updateItems(req, res) {
+        try {
+            const { id } = req.params;
+            const { items } = req.body;
+            if (!id) {
+                return res.status(400).json({ error: "ID do pedido é obrigatório" });
+            }
+            // Verificar se o usuário autenticado é dono do pedido
+            const userId = req.user?.id;
+            const existingOrder = await orderService_1.default.getOrderById(id);
+            if (userId && existingOrder.user_id !== userId) {
+                return res
+                    .status(403)
+                    .json({ error: "Você não tem permissão para modificar este pedido" });
+            }
+            const updated = await orderService_1.default.updateOrderItems(id, items);
+            res.json(updated);
+        }
+        catch (error) {
+            console.error("Erro ao atualizar itens do pedido:", error);
+            if (error.message.includes("obrigatório")) {
+                return res.status(400).json({ error: error.message });
+            }
+            if (error.message.includes("não encontrado")) {
+                return res.status(404).json({ error: error.message });
+            }
+            if (error.message.includes("pendentes")) {
+                return res.status(403).json({ error: error.message });
+            }
+            res.status(500).json({ error: "Erro interno do servidor" });
+        }
+    }
     async getPendingOrder(req, res) {
         try {
             // ✅ Corrigido: usar req.params.id ao invés de req.params.userId

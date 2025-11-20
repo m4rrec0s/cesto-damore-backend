@@ -270,13 +270,7 @@ class OrderService {
       throw new Error("Pelo menos um item é obrigatório");
     }
 
-    if (!data.recipient_phone || data.recipient_phone.trim() === "") {
-      console.error("❌ [OrderService] recipient_phone está vazio ou inválido");
-      throw new Error("Número do destinatário é obrigatório");
-    }
-
     let phoneDigits = (data.recipient_phone || "").replace(/\D/g, "");
-    console.log("📞 [OrderService] Telefone normalizado:", phoneDigits);
 
     if (phoneDigits.length < 10 || phoneDigits.length > 13) {
       console.error(
@@ -288,7 +282,6 @@ class OrderService {
 
     if (!phoneDigits.startsWith("55")) {
       phoneDigits = "55" + phoneDigits;
-      console.log("📞 [OrderService] Adicionado código do país:", phoneDigits);
     }
 
     const paymentMethod = normalizeText(String(data.payment_method || ""));
@@ -313,7 +306,6 @@ class OrderService {
     const normalizedCity = data.delivery_city
       ? normalizeText(data.delivery_city)
       : undefined;
-    console.log("🏙️ [OrderService] Cidade normalizada:", normalizedCity);
 
     let shippingRules: { pix: number; card: number } | undefined = undefined;
     if (!data.is_draft) {

@@ -331,6 +331,8 @@ router.post("/orders/:id/cancel", security_1.authenticateToken, orderController_
 // Rotas genéricas com :id (DEVEM VIR POR ÚLTIMO)
 router.get("/orders/:id", orderController_1.default.show);
 router.post("/orders", orderController_1.default.create);
+router.put("/orders/:id/items", security_1.authenticateToken, orderController_1.default.updateItems);
+router.put("/orders/:id/metadata", security_1.authenticateToken, orderController_1.default.updateMetadata);
 router.patch("/orders/:id/status", security_1.authenticateToken, security_1.requireAdmin, orderController_1.default.updateStatus);
 router.delete("/orders/:id", orderController_1.default.remove);
 // ========== PAYMENT ROUTES ==========

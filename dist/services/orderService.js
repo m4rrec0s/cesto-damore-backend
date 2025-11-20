@@ -198,40 +198,42 @@ class OrderService {
             console.error("❌ [OrderService] items está vazio ou inválido");
             throw new Error("Pelo menos um item é obrigatório");
         }
-        if (!data.recipient_phone || data.recipient_phone.trim() === "") {
-            console.error("❌ [OrderService] recipient_phone está vazio ou inválido");
-            throw new Error("Número do destinatário é obrigatório");
-        }
-        let phoneDigits = data.recipient_phone.replace(/\D/g, "");
-        console.log("📞 [OrderService] Telefone normalizado:", phoneDigits);
+        let phoneDigits = (data.recipient_phone || "").replace(/\D/g, "");
         if (phoneDigits.length < 10 || phoneDigits.length > 13) {
             console.error("❌ [OrderService] Telefone com tamanho inválido:", phoneDigits.length);
             throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
         }
         if (!phoneDigits.startsWith("55")) {
             phoneDigits = "55" + phoneDigits;
-            console.log("📞 [OrderService] Adicionado código do país:", phoneDigits);
         }
-        const paymentMethod = normalizeText(data.payment_method);
+        const paymentMethod = normalizeText(String(data.payment_method || ""));
         console.log("💳 [OrderService] Método de pagamento normalizado:", paymentMethod);
-        if (paymentMethod !== "pix" && paymentMethod !== "card") {
+        if (!data.is_draft && paymentMethod !== "pix" && paymentMethod !== "card") {
             console.error("❌ [OrderService] Método de pagamento inválido:", paymentMethod);
             throw new Error("Forma de pagamento inválida. Utilize pix ou card");
         }
-        if (!data.delivery_city || !data.delivery_state) {
+        if (!data.is_draft && (!data.delivery_city || !data.delivery_state)) {
             console.error("❌ [OrderService] Cidade ou estado de entrega ausente");
             throw new Error("Cidade e estado de entrega são obrigatórios");
         }
-        const normalizedCity = normalizeText(data.delivery_city);
-        console.log("🏙️ [OrderService] Cidade normalizada:", normalizedCity);
-        const shippingRules = ACCEPTED_CITIES[normalizedCity];
-        if (!shippingRules) {
-            console.error("❌ [OrderService] Cidade não atendida:", normalizedCity);
-            throw new Error("Ainda não fazemos entrega nesse endereço");
+        const normalizedCity = data.delivery_city
+            ? normalizeText(data.delivery_city)
+            : undefined;
+        let shippingRules = undefined;
+        if (!data.is_draft) {
+            shippingRules = ACCEPTED_CITIES[normalizedCity];
+            if (!shippingRules) {
+                console.error("❌ [OrderService] Cidade não atendida:", normalizedCity);
+                throw new Error("Ainda não fazemos entrega nesse endereço");
+            }
         }
-        const normalizedState = normalizeText(data.delivery_state);
+        const normalizedState = data.delivery_state
+            ? normalizeText(data.delivery_state)
+            : undefined;
         console.log("🗺️ [OrderService] Estado normalizado:", normalizedState);
-        if (normalizedState !== "pb" && normalizedState !== "paraiba") {
+        if (!data.is_draft &&
+            normalizedState !== "pb" &&
+            normalizedState !== "paraiba") {
             console.error("❌ [OrderService] Estado não atendido:", normalizedState);
             throw new Error("Atualmente só entregamos na Paraíba (PB)");
         }
@@ -319,7 +321,9 @@ class OrderService {
             if (discount > itemsTotal) {
                 throw new Error("Desconto não pode ser maior que o total dos itens");
             }
-            const shipping_price = shippingRules[paymentMethod];
+            const shipping_price = shippingRules
+                ? shippingRules[paymentMethod]
+                : 0;
             const total = parseFloat(itemsTotal.toFixed(2));
             const grand_total = parseFloat((total - discount + shipping_price).toFixed(2));
             if (grand_total <= 0) {
@@ -337,11 +341,13 @@ class OrderService {
                     discount,
                     total,
                     delivery_address: orderData.delivery_address,
+                    complement: orderData.complement,
                     delivery_date: orderData.delivery_date,
                     shipping_price,
                     payment_method: paymentMethod,
                     grand_total,
                     recipient_phone: phoneDigits, // Salvar com código do país
+                    send_anonymously: data.send_anonymously || false,
                 },
             });
             for (const item of items) {
@@ -389,7 +395,9 @@ class OrderService {
             }
             // ========== DECREMENTAR ESTOQUE ==========
             try {
-                await stockService_1.default.decrementOrderStock(items);
+                if (!data.is_draft) {
+                    await stockService_1.default.decrementOrderStock(items);
+                }
             }
             catch (stockError) {
                 console.error("❌ Erro ao decrementar estoque:", stockError);
@@ -465,6 +473,153 @@ class OrderService {
     }
     async create(data) {
         return this.createOrder(data);
+    }
+    async updateOrderItems(orderId, items) {
+        if (!orderId) {
+            throw new Error("ID do pedido é obrigatório");
+        }
+        const order = await prisma_1.default.order.findUnique({ where: { id: orderId } });
+        if (!order) {
+            throw new Error("Pedido não encontrado");
+        }
+        // Só permite atualizar pedidos PENDING
+        if (order.status !== "PENDING") {
+            throw new Error("Apenas pedidos pendentes podem ser atualizados");
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+            throw new Error("Pelo menos um item é obrigatório");
+        }
+        console.log(`[OrderService] Atualizando itens do pedido ${orderId} - quantidade: ${items.length}`);
+        // Validação básica dos itens
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (!item.product_id || item.product_id.trim() === "") {
+                throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
+            }
+            if (!item.quantity || item.quantity <= 0) {
+                throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
+            }
+            if (!item.price && item.price !== 0) {
+                throw new Error(`Item ${i + 1}: Preço deve ser informado`);
+            }
+            if (Array.isArray(item.additionals)) {
+                for (let j = 0; j < item.additionals.length; j++) {
+                    const additional = item.additionals[j];
+                    if (!additional.additional_id ||
+                        additional.additional_id.trim() === "") {
+                        throw new Error(`Item ${i + 1}: adicional ${j + 1} precisa de um ID válido`);
+                    }
+                }
+            }
+        }
+        const productIds = items.map((i) => i.product_id);
+        const products = await prisma_1.default.product.findMany({
+            where: { id: { in: productIds } },
+        });
+        if (products.length !== productIds.length) {
+            throw new Error("Um ou mais produtos não encontrados");
+        }
+        // Validar estoque (apenas validação - sem decremento aqui)
+        const stockValidation = await stockService_1.default.validateOrderStock(items);
+        if (!stockValidation.valid) {
+            throw new Error(`Estoque insuficiente:\n${stockValidation.errors.join("\n")}`);
+        }
+        // Calcular totais
+        const itemsTotal = items.reduce((sum, item) => {
+            const additionalTotal = (item.additionals || []).reduce((acc, add) => acc + (add.price || 0) * item.quantity, 0);
+            return sum + item.price * item.quantity + additionalTotal;
+        }, 0);
+        const discount = order.discount || 0;
+        if (discount < 0)
+            throw new Error("Desconto não pode ser negativo");
+        if (discount > itemsTotal)
+            throw new Error("Desconto não pode ser maior que o total dos itens");
+        const shipping_price = order.shipping_price || 0;
+        const total = parseFloat(itemsTotal.toFixed(2));
+        const grand_total = parseFloat((total - discount + shipping_price).toFixed(2));
+        // Remover itens antigos (adicionais e customizações em cascata)
+        const oldItems = await prisma_1.default.orderItem.findMany({
+            where: { order_id: orderId },
+        });
+        for (const it of oldItems) {
+            await prisma_1.default.orderItemAdditional.deleteMany({
+                where: { order_item_id: it.id },
+            });
+            await prisma_1.default.orderItemCustomization.deleteMany({
+                where: { order_item_id: it.id },
+            });
+        }
+        await prisma_1.default.orderItem.deleteMany({ where: { order_id: orderId } });
+        // Criar novos itens
+        for (const item of items) {
+            const createdItem = await prisma_1.default.orderItem.create({
+                data: {
+                    order_id: orderId,
+                    product_id: item.product_id,
+                    quantity: item.quantity,
+                    price: item.price,
+                },
+            });
+            if (Array.isArray(item.additionals) && item.additionals.length > 0) {
+                for (const additional of item.additionals) {
+                    await prisma_1.default.orderItemAdditional.create({
+                        data: {
+                            order_item_id: createdItem.id,
+                            additional_id: additional.additional_id,
+                            quantity: additional.quantity,
+                            price: additional.price,
+                        },
+                    });
+                }
+            }
+            if (Array.isArray(item.customizations) &&
+                item.customizations.length > 0) {
+                for (const customization of item.customizations) {
+                    const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
+                    await prisma_1.default.orderItemCustomization.create({
+                        data: {
+                            order_item_id: createdItem.id,
+                            customization_id: customization_id || "default",
+                            value: JSON.stringify({
+                                customization_type,
+                                title,
+                                ...(customization_data || {}),
+                                ...otherFields,
+                            }),
+                        },
+                    });
+                }
+            }
+        }
+        // Atualizar o pedido
+        await prisma_1.default.order.update({
+            where: { id: orderId },
+            data: { total, grand_total },
+        });
+        console.log(`[OrderService] Itens atualizados do pedido ${orderId} - total: ${total}`);
+        return await this.getOrderById(orderId);
+    }
+    async updateOrderMetadata(orderId, data) {
+        if (!orderId) {
+            throw new Error("ID do pedido é obrigatório");
+        }
+        const order = await prisma_1.default.order.findUnique({ where: { id: orderId } });
+        if (!order) {
+            throw new Error("Pedido não encontrado");
+        }
+        // Só permite atualizar pedidos PENDING
+        if (order.status !== "PENDING") {
+            throw new Error("Apenas pedidos pendentes podem ser atualizados");
+        }
+        const updateData = {};
+        if (typeof data.send_anonymously === "boolean") {
+            updateData.send_anonymously = data.send_anonymously;
+        }
+        if (typeof data.complement === "string") {
+            updateData.complement = data.complement;
+        }
+        await prisma_1.default.order.update({ where: { id: orderId }, data: updateData });
+        return await this.getOrderById(orderId);
     }
     async remove(id) {
         return this.deleteOrder(id);

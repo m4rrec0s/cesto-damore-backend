@@ -56,23 +56,42 @@ class AuthService {
     }
     // Novo: registra usuário no Firebase (email+senha) e no DB local
     async registerWithEmail(email, password, name, imageUrl) {
-        // cria usuário no Firebase Auth via admin SDK
-        const firebaseUser = await firebase_1.auth.createUser({
-            email,
-            password,
-            displayName: name,
-            photoURL: imageUrl ?? undefined,
-        });
-        // cria usuário local no DB
-        const user = await prisma_1.default.user.create({
-            data: {
-                firebaseUId: firebaseUser.uid,
+        try {
+            // cria usuário no Firebase Auth via admin SDK
+            const firebaseUser = await firebase_1.auth.createUser({
                 email,
-                name,
-                image_url: imageUrl ?? null,
-            },
-        });
-        return { firebaseUser, user };
+                password,
+                displayName: name,
+                photoURL: imageUrl ?? undefined,
+            });
+            // cria usuário local no DB
+            const user = await prisma_1.default.user.create({
+                data: {
+                    firebaseUId: firebaseUser.uid,
+                    email,
+                    name,
+                    image_url: imageUrl ?? null,
+                },
+            });
+            // Criar tokens
+            const sessionToken = await (0, firebase_1.createCustomToken)(firebaseUser.uid);
+            const appToken = createAppJWT(user.id, user.email);
+            return {
+                firebaseUser,
+                user,
+                sessionToken,
+                appToken,
+            };
+        }
+        catch (error) {
+            if (error.code === "auth/email-already-exists") {
+                throw new Error("Este email já está cadastrado");
+            }
+            if (error.code === "auth/weak-password") {
+                throw new Error("A senha deve ter pelo menos 6 caracteres");
+            }
+            throw error;
+        }
     }
     async googleLogin({ idToken, firebaseUid, email, name, imageUrl, }) {
         // Removi a verificação ensureGoogleOAuthTokens() porque ela é para Google Drive API
@@ -110,25 +129,49 @@ class AuthService {
     async login(email, password) {
         if (!FIREBASE_API_KEY)
             throw new Error("FIREBASE_API_KEY não configurada");
-        const response = await axios_1.default.post(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`, { email, password, returnSecureToken: true });
-        const { idToken, localId: uid } = response.data;
-        const user = await prisma_1.default.user.findUnique({ where: { firebaseUId: uid } });
-        if (!user)
-            throw new Error("Usuário não encontrado");
-        await prisma_1.default.user.update({
-            where: { firebaseUId: uid },
-            data: { updated_at: new Date() },
-        });
-        // Criar tokens
-        const sessionToken = await (0, firebase_1.createCustomToken)(uid);
-        const appToken = createAppJWT(user.id, user.email); // Novo token JWT interno
-        return {
-            idToken,
-            firebaseUid: uid,
-            user,
-            sessionToken,
-            appToken, // Retornar o token da aplicação
-        };
+        try {
+            const response = await axios_1.default.post(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`, { email, password, returnSecureToken: true });
+            const { idToken, localId: uid } = response.data;
+            // Buscar usuário no banco
+            let user = await prisma_1.default.user.findUnique({ where: { firebaseUId: uid } });
+            if (!user) {
+                // Se não encontrou por firebaseUId, tentar por email
+                user = await prisma_1.default.user.findUnique({ where: { email } });
+                if (user) {
+                    // Atualizar firebaseUId se encontrou por email
+                    user = await prisma_1.default.user.update({
+                        where: { email },
+                        data: { firebaseUId: uid, updated_at: new Date() },
+                    });
+                }
+                else {
+                    throw new Error("Usuário não encontrado. Faça login com Google primeiro.");
+                }
+            }
+            else {
+                // Atualizar timestamp
+                await prisma_1.default.user.update({
+                    where: { firebaseUId: uid },
+                    data: { updated_at: new Date() },
+                });
+            }
+            // Criar tokens
+            const sessionToken = await (0, firebase_1.createCustomToken)(uid);
+            const appToken = createAppJWT(user.id, user.email);
+            return {
+                idToken,
+                firebaseUid: uid,
+                user,
+                sessionToken,
+                appToken,
+            };
+        }
+        catch (error) {
+            if (error.response?.status === 400) {
+                throw new Error("Email ou senha incorretos, ou usuário não registrado no Firebase Auth");
+            }
+            throw error;
+        }
     }
 }
 exports.default = new AuthService();

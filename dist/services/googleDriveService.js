@@ -491,7 +491,8 @@ class GoogleDriveService {
             tokenPath: this.tokenPath,
             baseUrl: this.baseUrl,
         };
-        if (this.oauth2Client && typeof this.oauth2Client.getAccessToken === 'function') {
+        if (this.oauth2Client &&
+            typeof this.oauth2Client.getAccessToken === "function") {
             try {
                 const token = await this.oauth2Client.getAccessToken();
                 info.tokenObtained = !!token;

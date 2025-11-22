@@ -2,6 +2,12 @@ import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
 
+// Usar a mesma lógica de diretório que localStorage.ts
+const IMAGES_DIR =
+  process.env.NODE_ENV === "production"
+    ? "/app/images"
+    : path.join(process.cwd(), "images");
+
 class CustomizationUploadController {
   /**
    * POST /api/customization/upload-image
@@ -19,11 +25,7 @@ class CustomizationUploadController {
       const file = req.file;
 
       // Garantir que a pasta existe
-      const customizationDir = path.join(
-        process.cwd(),
-        "images",
-        "customizations"
-      );
+      const customizationDir = path.join(IMAGES_DIR, "customizations");
 
       if (!fs.existsSync(customizationDir)) {
         fs.mkdirSync(customizationDir, { recursive: true });
@@ -74,12 +76,7 @@ class CustomizationUploadController {
         });
       }
 
-      const filepath = path.join(
-        process.cwd(),
-        "images",
-        "customizations",
-        filename
-      );
+      const filepath = path.join(IMAGES_DIR, "customizations", filename);
 
       if (!fs.existsSync(filepath)) {
         return res.status(404).json({

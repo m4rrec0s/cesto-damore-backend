@@ -55,8 +55,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar diretórios para bind mounts
-RUN mkdir -p /app/images /app/storage && \
-    chmod 755 /app/images /app/storage
+RUN mkdir -p /app/images /app/images/customizations /app/storage && \
+    chmod 755 /app/images /app/images/customizations /app/storage
 
 # Copia package files
 COPY package*.json ./

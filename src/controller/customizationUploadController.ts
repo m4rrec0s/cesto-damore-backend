@@ -1,12 +1,7 @@
 import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
-
-// Usar a mesma lógica de diretório que localStorage.ts
-const IMAGES_DIR =
-  process.env.NODE_ENV === "production"
-    ? "/app/images"
-    : path.join(process.cwd(), "images");
+import { IMAGES_DIR } from "../config/localStorage";
 
 class CustomizationUploadController {
   /**

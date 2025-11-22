@@ -5,10 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-// Usar a mesma lógica de diretório que localStorage.ts
-const IMAGES_DIR = process.env.NODE_ENV === "production"
-    ? "/app/images"
-    : path_1.default.join(process.cwd(), "images");
+const localStorage_1 = require("../config/localStorage");
 class CustomizationUploadController {
     /**
      * POST /api/customization/upload-image
@@ -24,7 +21,7 @@ class CustomizationUploadController {
             }
             const file = req.file;
             // Garantir que a pasta existe
-            const customizationDir = path_1.default.join(IMAGES_DIR, "customizations");
+            const customizationDir = path_1.default.join(localStorage_1.IMAGES_DIR, "customizations");
             if (!fs_1.default.existsSync(customizationDir)) {
                 fs_1.default.mkdirSync(customizationDir, { recursive: true });
             }
@@ -68,7 +65,7 @@ class CustomizationUploadController {
                     error: "Nome do arquivo não informado",
                 });
             }
-            const filepath = path_1.default.join(IMAGES_DIR, "customizations", filename);
+            const filepath = path_1.default.join(localStorage_1.IMAGES_DIR, "customizations", filename);
             if (!fs_1.default.existsSync(filepath)) {
                 return res.status(404).json({
                     error: "Arquivo não encontrado",

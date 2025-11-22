@@ -26,12 +26,10 @@ interface LayoutPayload {
   previewImage?: Express.Multer.File;
 }
 
+import { IMAGES_DIR } from "../config/localStorage";
+
 const MODELS_DIR = path.join(process.cwd(), "customizations", "models");
-const CUSTOMIZATION_IMAGES_DIR = path.join(
-  process.cwd(),
-  "images",
-  "customizations"
-);
+const CUSTOMIZATION_IMAGES_DIR = path.join(IMAGES_DIR, "customizations");
 
 const ensureDirExists = (dir: string) => {
   if (!fs.existsSync(dir)) {

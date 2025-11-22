@@ -7,8 +7,9 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const crypto_1 = require("crypto");
 const prisma_1 = __importDefault(require("../database/prisma"));
+const localStorage_1 = require("../config/localStorage");
 const MODELS_DIR = path_1.default.join(process.cwd(), "customizations", "models");
-const CUSTOMIZATION_IMAGES_DIR = path_1.default.join(process.cwd(), "images", "customizations");
+const CUSTOMIZATION_IMAGES_DIR = path_1.default.join(localStorage_1.IMAGES_DIR, "customizations");
 const ensureDirExists = (dir) => {
     if (!fs_1.default.existsSync(dir)) {
         fs_1.default.mkdirSync(dir, { recursive: true });

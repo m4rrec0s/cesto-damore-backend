@@ -149,7 +149,15 @@ class OrderController {
   async updateMetadata(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const { send_anonymously, complement } = req.body;
+      const {
+        send_anonymously,
+        complement,
+        delivery_address,
+        delivery_city,
+        delivery_state,
+        recipient_phone,
+        delivery_date,
+      } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: "ID do pedido é obrigatório" });
@@ -167,6 +175,11 @@ class OrderController {
       const updated = await orderService.updateOrderMetadata(id, {
         send_anonymously,
         complement,
+        delivery_address,
+        delivery_city,
+        delivery_state,
+        recipient_phone,
+        delivery_date,
       });
       res.json(updated);
     } catch (error: any) {

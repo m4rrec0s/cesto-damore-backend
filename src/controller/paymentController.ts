@@ -3,6 +3,26 @@ import PaymentService from "../services/paymentService";
 import prisma from "../database/prisma";
 
 export class PaymentController {
+  // Map service errors (messages) to HTTP status codes
+  private static mapErrorToStatus(err: unknown) {
+    if (!(err instanceof Error)) return 500;
+    const message = err.message.toLowerCase();
+    if (
+      message.includes("obrigatório") ||
+      message.includes("inválid") ||
+      message.includes("inválido") ||
+      message.includes("errado")
+    ) {
+      return 400;
+    }
+    if (message.includes("não encontrado") || message.includes("not found")) {
+      return 404;
+    }
+    if (message.includes("permissão") || message.includes("acesso negado")) {
+      return 403;
+    }
+    return 500;
+  }
   /**
    * Cria uma preferência de pagamento para Checkout Pro
    */
@@ -32,7 +52,8 @@ export class PaymentController {
       });
     } catch (error) {
       console.error("Erro ao criar preferência:", error);
-      res.status(500).json({
+      const status = PaymentController.mapErrorToStatus(error);
+      res.status(status).json({
         error: "Falha ao criar preferência de pagamento",
         details: error instanceof Error ? error.message : "Erro desconhecido",
       });
@@ -88,7 +109,8 @@ export class PaymentController {
       });
     } catch (error) {
       console.error("Erro ao criar pagamento:", error);
-      res.status(500).json({
+      const status = PaymentController.mapErrorToStatus(error);
+      res.status(status).json({
         error: "Falha ao criar pagamento",
         details: error instanceof Error ? error.message : "Erro desconhecido",
       });
@@ -178,7 +200,8 @@ export class PaymentController {
       });
     } catch (error) {
       console.error("Erro ao processar checkout transparente:", error);
-      res.status(500).json({
+      const status = PaymentController.mapErrorToStatus(error);
+      res.status(status).json({
         error: "Falha ao processar pagamento",
         details: error instanceof Error ? error.message : "Erro desconhecido",
       });

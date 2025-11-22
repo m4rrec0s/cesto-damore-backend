@@ -102,6 +102,8 @@ model Order {
   discount         Float       @default(0)
   total            Float       @map("total_price")
   delivery_address String?
+  delivery_city    String?
+  delivery_state   String?
   delivery_date    DateTime?
   shipping_price   Float?
   payment_method   String?

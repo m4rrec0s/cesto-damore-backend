@@ -213,7 +213,28 @@ class PaymentService {
             if (!order.items.length) {
                 throw new Error("Pedido não possui itens");
             }
-            const orderPaymentMethod = normalizeOrderPaymentMethod(order.payment_method);
+            // Tenta obter o método de pagamento do pedido, caso não exista, usar o método
+            // informado pelo payload (data.paymentMethodId). Se encontrarmos um método
+            // válido no payload, persistimos no pedido para manter a consistência.
+            let orderPaymentMethod = normalizeOrderPaymentMethod(order.payment_method);
+            if (!orderPaymentMethod && data.paymentMethodId) {
+                orderPaymentMethod = normalizeOrderPaymentMethod(data.paymentMethodId);
+                if (orderPaymentMethod) {
+                    // Atualiza o pedido com o método de pagamento normalizado (card|pix)
+                    try {
+                        await prisma_1.default.order.update({
+                            where: { id: order.id },
+                            data: { payment_method: orderPaymentMethod },
+                        });
+                        console.log(`🛠️ Pedido ${order.id} atualizado com payment_method: ${orderPaymentMethod}`);
+                    }
+                    catch (upErr) {
+                        console.warn("⚠️ Não foi possível atualizar payment_method do pedido:", upErr);
+                        // Continuamos mesmo se não conseguir persistir — o fluxo de pagamento
+                        // seguirá considerando orderPaymentMethod definido.
+                    }
+                }
+            }
             if (!orderPaymentMethod) {
                 throw new Error("Método de pagamento do pedido inválido");
             }

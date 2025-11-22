@@ -704,15 +704,15 @@ class OrderService {
       throw new Error("Um ou mais produtos não encontrados");
     }
 
-    // Validar estoque (apenas validação - sem decremento aqui)
-    const stockValidation = await stockService.validateOrderStock(items);
-    if (!stockValidation.valid) {
-      throw new Error(
-        `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`
-      );
+    if (order.payment_method) {
+      const stockValidation = await stockService.validateOrderStock(items);
+      if (!stockValidation.valid) {
+        throw new Error(
+          `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`
+        );
+      }
     }
 
-    // Calcular totais
     const itemsTotal = items.reduce((sum, item) => {
       const additionalTotal = (item.additionals || []).reduce(
         (acc, add) => acc + (add.price || 0) * item.quantity,
@@ -813,7 +813,15 @@ class OrderService {
 
   async updateOrderMetadata(
     orderId: string,
-    data: { send_anonymously?: boolean; complement?: string }
+    data: {
+      send_anonymously?: boolean;
+      complement?: string;
+      delivery_address?: string | null;
+      delivery_city?: string | null;
+      delivery_state?: string | null;
+      recipient_phone?: string | null;
+      delivery_date?: Date | string | null;
+    }
   ) {
     if (!orderId) {
       throw new Error("ID do pedido é obrigatório");
@@ -835,6 +843,67 @@ class OrderService {
     }
     if (typeof data.complement === "string") {
       updateData.complement = data.complement;
+    }
+
+    // Permitir atualização de endereço/telefone no pedido quando for rascunho (PENDING)
+    if (typeof data.delivery_address === "string") {
+      updateData.delivery_address = data.delivery_address || null;
+    }
+    if (typeof data.delivery_city === "string") {
+      updateData.delivery_city = data.delivery_city || null;
+    }
+    if (typeof data.delivery_state === "string") {
+      updateData.delivery_state = data.delivery_state || null;
+    }
+    if (typeof data.recipient_phone === "string") {
+      // Normalizar telefone para o formato que usamos no backend
+      const digits = data.recipient_phone.replace(/\D/g, "");
+      let normalized = digits;
+      if (!digits.startsWith("55")) {
+        normalized = "55" + digits;
+      }
+      // Validação simples do tamanho do telefone (sem código do país)
+      const localDigits = normalized.startsWith("55")
+        ? normalized.substring(2)
+        : normalized;
+      if (localDigits.length < 10 || localDigits.length > 11) {
+        throw new Error("Telefone do destinatário inválido");
+      }
+      updateData.recipient_phone = normalized;
+    }
+
+    // Validar data de entrega se fornecida
+    if (data.delivery_date === null) {
+      updateData.delivery_date = null; // permite limpar a data
+    } else if (
+      typeof data.delivery_date === "string" ||
+      data.delivery_date instanceof Date
+    ) {
+      const dt =
+        data.delivery_date instanceof Date
+          ? data.delivery_date
+          : new Date(String(data.delivery_date));
+      if (isNaN(Number(dt))) {
+        throw new Error("Data de entrega inválida");
+      }
+      // Opcional: evitar datas no passado
+      const now = new Date();
+      if (dt < now) {
+        throw new Error("Data de entrega não pode ser no passado");
+      }
+      updateData.delivery_date = dt;
+    }
+
+    // Validar estado de entrega se fornecido
+    if (typeof data.delivery_state === "string") {
+      const normalizedState = normalizeText(data.delivery_state || "");
+      if (
+        normalizedState &&
+        normalizedState !== "pb" &&
+        normalizedState !== "paraiba"
+      ) {
+        throw new Error("Atualmente só entregamos na Paraíba (PB)");
+      }
     }
 
     await prisma.order.update({ where: { id: orderId }, data: updateData });

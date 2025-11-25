@@ -1191,9 +1191,25 @@ class OrderService {
       try {
         const PaymentService = require("./paymentService").default;
         await PaymentService.cancelPayment(order.payment.mercado_pago_id);
+        console.log(
+          `✅ Pagamento ${order.payment.mercado_pago_id} cancelado no Mercado Pago`
+        );
       } catch (error) {
         console.error("Erro ao cancelar pagamento no Mercado Pago:", error);
         // Continua mesmo se falhar, pois o pedido será marcado como cancelado
+      }
+    }
+
+    // Deletar registro de Payment se existir
+    if (order.payment) {
+      try {
+        await prisma.payment.delete({
+          where: { order_id: orderId },
+        });
+        console.log(`🗑️ Registro de pagamento deletado para pedido ${orderId}`);
+      } catch (error) {
+        console.error("Erro ao deletar registro de pagamento:", error);
+        // Continua mesmo se falhar
       }
     }
 
@@ -1217,6 +1233,7 @@ class OrderService {
       },
     });
 
+    console.log(`✅ Pedido ${orderId} cancelado com sucesso`);
     return canceledOrder;
   }
 }

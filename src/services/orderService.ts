@@ -537,10 +537,17 @@ class OrderService {
               ...otherFields
             } = customization as any;
 
+            // Validar se customization_id é um UUID válido (não apenas "default")
+            const uuidRegex =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const isValidUUID =
+              customization_id && uuidRegex.test(customization_id);
+
+            // Apenas criar a customização se tiver um ID válido, ou usar null
             await prisma.orderItemCustomization.create({
               data: {
                 order_item_id: orderItem.id,
-                customization_id: customization_id || "default",
+                customization_id: isValidUUID ? customization_id : null,
                 value: JSON.stringify({
                   customization_type,
                   title,
@@ -605,23 +612,83 @@ class OrderService {
     await this.getOrderById(id);
 
     try {
-      // Remove em cascata: adicionais dos itens, itens e pedido
+      console.log(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
+
+      // 1. Deletar customizações dos itens do pedido
       const items = await prisma.orderItem.findMany({
         where: { order_id: id },
+        select: { id: true },
       });
-      for (const item of items) {
-        await prisma.orderItemAdditional.deleteMany({
-          where: { order_item_id: item.id },
+
+      const itemIds = items.map((item) => item.id);
+      
+      if (itemIds.length > 0) {
+        // Deletar OrderItemCustomization
+        const deletedCustomizations =
+          await prisma.orderItemCustomization.deleteMany({
+            where: { order_item_id: { in: itemIds } },
+          });
+        console.log(
+          `  ✓ Customizações deletadas: ${deletedCustomizations.count}`
+        );
+
+        // Deletar OrderItemAdditional
+        const deletedAdditionals = await prisma.orderItemAdditional.deleteMany({
+          where: { order_item_id: { in: itemIds } },
         });
+        console.log(
+          `  ✓ Adicionais deletados: ${deletedAdditionals.count}`
+        );
       }
-      await prisma.orderItem.deleteMany({ where: { order_id: id } });
+
+      // 2. Deletar OrderItems
+      const deletedItems = await prisma.orderItem.deleteMany({
+        where: { order_id: id },
+      });
+      console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
+
+      // 3. Deletar Personalizations (se existir)
+      try {
+        const deletedPersonalizations =
+          await prisma.personalization.deleteMany({
+            where: { order_id: id },
+          });
+        console.log(
+          `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`
+        );
+      } catch (error) {
+        // Ignorar se a tabela Personalization não tiver dados
+        console.log("  ℹ️ Sem personalizações para deletar");
+      }
+
+      // 4. Deletar Payment (se existir)
+      try {
+        const payment = await prisma.payment.findUnique({
+          where: { order_id: id },
+        });
+
+        if (payment) {
+          await prisma.payment.delete({
+            where: { order_id: id },
+          });
+          console.log("  ✓ Pagamento deletado");
+        } else {
+          console.log("  ℹ️ Sem pagamento para deletar");
+        }
+      } catch (error) {
+        console.log("  ℹ️ Erro ao deletar pagamento (pode não existir)");
+      }
+
+      // 5. Finalmente, deletar o Order
       await prisma.order.delete({ where: { id } });
+      console.log(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
 
       return { message: "Pedido deletado com sucesso" };
     } catch (error: any) {
       if (error.message.includes("não encontrado")) {
         throw error;
       }
+      console.error(`❌ [OrderService] Erro ao deletar pedido:`, error);
       throw new Error(`Erro ao deletar pedido: ${error.message}`);
     }
   }
@@ -782,10 +849,17 @@ class OrderService {
             customization_data,
             ...otherFields
           } = customization as any;
+
+          // Validar se customization_id é um UUID válido
+          const uuidRegex =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const isValidUUID =
+            customization_id && uuidRegex.test(customization_id);
+
           await prisma.orderItemCustomization.create({
             data: {
               order_item_id: createdItem.id,
-              customization_id: customization_id || "default",
+              customization_id: isValidUUID ? customization_id : null,
               value: JSON.stringify({
                 customization_type,
                 title,

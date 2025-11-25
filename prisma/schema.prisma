@@ -416,13 +416,13 @@ model ProductComponent {
 model OrderItemCustomization {
   id                     String  @id @default(uuid())
   order_item_id          String
-  customization_id       String
+  customization_id       String? // Tornado opcional para permitir customizações sem FK rígida
   value                  String // JSON com os detalhes da customização aplicada
   google_drive_folder_id String? // ID da pasta no Google Drive com as artes
   google_drive_url       String? // URL pública da pasta no Google Drive
 
-  orderItem     OrderItem     @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
-  customization Customization @relation(fields: [customization_id], references: [id])
+  orderItem     OrderItem      @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+  customization Customization? @relation(fields: [customization_id], references: [id])
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

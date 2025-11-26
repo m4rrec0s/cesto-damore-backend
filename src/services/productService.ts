@@ -72,6 +72,7 @@ class ProductService {
                   include: {
                     // Não incluir additionals dos items
                     customizations: true, // Incluir apenas customizações dos items
+                    layout_base: true, // Incluir layout base para acessar additional_time
                   },
                 },
               },

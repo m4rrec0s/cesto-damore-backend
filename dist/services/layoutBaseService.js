@@ -22,6 +22,7 @@ class LayoutBaseService {
                 width: data.width,
                 height: data.height,
                 slots: data.slots,
+                additional_time: data.additional_time || 0,
             },
         });
         return layoutBase;
@@ -70,6 +71,8 @@ class LayoutBaseService {
             updateData.height = data.height;
         if (data.slots)
             updateData.slots = data.slots;
+        if (data.additional_time !== undefined)
+            updateData.additional_time = data.additional_time;
         const updated = await prisma.layoutBase.update({
             where: { id },
             data: updateData,

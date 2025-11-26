@@ -640,6 +640,93 @@ class PaymentService {
             throw new Error(`Falha ao buscar métodos de pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"}`);
         }
     }
+    /**
+     * Busca opções de parcelamento disponíveis para um determinado valor e método de pagamento
+     * @param amount - Valor total da compra
+     * @param paymentMethodId - ID do método de pagamento (ex: 'visa', 'master', 'elo')
+     * @param bin - Primeiros 6 dígitos do cartão (opcional, melhora precisão)
+     */
+    static async getInstallmentOptions(amount, paymentMethodId, bin) {
+        try {
+            // Construir URL com parâmetros
+            const params = new URLSearchParams({
+                amount: amount.toString(),
+                payment_method_id: paymentMethodId,
+                locale: 'pt-BR',
+            });
+            if (bin) {
+                params.append('bin', bin);
+            }
+            const url = `https://api.mercadopago.com/v1/payment_methods/installments?${params.toString()}`;
+            const response = await fetch(url, {
+                headers: {
+                    Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
+                },
+            });
+            if (!response.ok) {
+                throw new Error(`Erro ao buscar opções de parcelamento: ${response.statusText}`);
+            }
+            const data = await response.json();
+            // A API retorna um array com as opções de parcelamento
+            // Cada item contém payer_costs com as parcelas disponíveis
+            if (data && data.length > 0 && data[0].payer_costs) {
+                return {
+                    payment_method_id: data[0].payment_method_id,
+                    payment_type_id: data[0].payment_type_id,
+                    issuer: data[0].issuer,
+                    payer_costs: data[0].payer_costs.map((cost) => ({
+                        installments: cost.installments,
+                        installment_rate: cost.installment_rate,
+                        discount_rate: cost.discount_rate,
+                        labels: cost.labels,
+                        min_allowed_amount: cost.min_allowed_amount,
+                        max_allowed_amount: cost.max_allowed_amount,
+                        recommended_message: cost.recommended_message,
+                        installment_amount: cost.installment_amount,
+                        total_amount: cost.total_amount,
+                        payment_method_option_id: cost.payment_method_option_id,
+                    })),
+                };
+            }
+            // Fallback: se não conseguir buscar da API, retornar parcelas padrão
+            return this.getDefaultInstallmentOptions(amount);
+        }
+        catch (error) {
+            console.error('Erro ao buscar opções de parcelamento:', error);
+            // Em caso de erro, retornar opções padrão
+            return this.getDefaultInstallmentOptions(amount);
+        }
+    }
+    /**
+     * Retorna opções de parcelamento padrão quando a API não está disponível
+     */
+    static getDefaultInstallmentOptions(amount) {
+        const installments = [];
+        // Até 12 parcelas
+        for (let i = 1; i <= 12; i++) {
+            const installmentAmount = amount / i;
+            const totalAmount = amount;
+            installments.push({
+                installments: i,
+                installment_rate: 0,
+                discount_rate: 0,
+                labels: i === 1 ? ['CFT_ZERO'] : [],
+                min_allowed_amount: 0,
+                max_allowed_amount: 999999,
+                recommended_message: i === 1
+                    ? `1 parcela de R$ ${installmentAmount.toFixed(2)} sem juros`
+                    : `${i} parcelas de R$ ${installmentAmount.toFixed(2)}`,
+                installment_amount: roundCurrency(installmentAmount),
+                total_amount: roundCurrency(totalAmount),
+            });
+        }
+        return {
+            payment_method_id: 'unknown',
+            payment_type_id: 'credit_card',
+            issuer: null,
+            payer_costs: installments,
+        };
+    }
     static async getPayment(paymentId) {
         try {
             const paymentInfo = await mercadopago_1.payment.get({ id: paymentId });

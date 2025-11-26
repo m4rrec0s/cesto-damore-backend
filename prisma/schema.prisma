@@ -285,13 +285,14 @@ enum FeedSectionType {
 // ================ LAYOUT BASE & PERSONALIZATION MODELS ================
 
 model LayoutBase {
-  id        String @id @default(uuid())
-  name      String
-  item_type String // "caneca" | "quadro" | ...
-  image_url String // URL da imagem base (PNG com transparência/espaço)
-  width     Int // px reais da imagem base
-  height    Int
-  slots     Json // array de SlotDef (posições em percentual)
+  id              String @id @default(uuid())
+  name            String
+  item_type       String // "caneca" | "quadro" | ...
+  image_url       String // URL da imagem base (PNG com transparência/espaço)
+  width           Int // px reais da imagem base
+  height          Int
+  slots           Json // array de SlotDef (posições em percentual)
+  additional_time Int    @default(0) // Tempo adicional de produção em horas
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

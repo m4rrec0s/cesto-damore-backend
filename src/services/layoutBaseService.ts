@@ -22,6 +22,7 @@ interface CreateLayoutBaseInput {
   width: number;
   height: number;
   slots: SlotDef[];
+  additional_time?: number;
 }
 
 interface UpdateLayoutBaseInput {
@@ -30,6 +31,7 @@ interface UpdateLayoutBaseInput {
   width?: number;
   height?: number;
   slots?: SlotDef[];
+  additional_time?: number;
 }
 
 class LayoutBaseService {
@@ -48,6 +50,7 @@ class LayoutBaseService {
         width: data.width,
         height: data.height,
         slots: data.slots as any,
+        additional_time: data.additional_time || 0,
       },
     });
 
@@ -102,6 +105,7 @@ class LayoutBaseService {
     if (data.width) updateData.width = data.width;
     if (data.height) updateData.height = data.height;
     if (data.slots) updateData.slots = data.slots;
+    if (data.additional_time !== undefined) updateData.additional_time = data.additional_time;
 
     const updated = await prisma.layoutBase.update({
       where: { id },

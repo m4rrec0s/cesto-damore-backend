@@ -50,7 +50,6 @@ class AIProductService {
       recuperacao: ["melhoras", "saúde", "recuperação"],
     };
 
-    // Identificar ocasião
     let categoryFilter: string[] = [];
     for (const [occasion, terms] of Object.entries(occasionMap)) {
       if (terms.some((term) => searchTerms.includes(term))) {
@@ -59,7 +58,6 @@ class AIProductService {
       }
     }
 
-    // Identificar tipo de produto preferencial
     let typeFilter: string | null = null;
     if (
       searchTerms.includes("quadro") ||
@@ -71,7 +69,6 @@ class AIProductService {
       typeFilter = "caneca";
     }
 
-    // Identificar faixa de preço
     let priceFilter: { min?: number; max?: number } = {};
     if (
       searchTerms.includes("barato") ||
@@ -87,12 +84,10 @@ class AIProductService {
       priceFilter.min = 120;
     }
 
-    // Construir query
     const where: any = {
       is_active: true,
     };
 
-    // Filtro por categoria/ocasião
     if (categoryFilter.length > 0) {
       where.OR = categoryFilter.map((term) => ({
         OR: [
@@ -111,17 +106,14 @@ class AIProductService {
       }));
     }
 
-    // Filtro por preço
     if (priceFilter.min || priceFilter.max) {
       where.price = {};
       if (priceFilter.min) where.price.gte = priceFilter.min;
       if (priceFilter.max) where.price.lte = priceFilter.max;
     }
 
-    // Buscar produtos
     let products = await prisma.product.findMany({
       where,
-      take: 10,
       orderBy: [{ price: "desc" }],
       include: {
         categories: {

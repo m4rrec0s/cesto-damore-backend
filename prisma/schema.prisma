@@ -42,7 +42,8 @@ model Product {
   stock_quantity       Int? // Calculado automaticamente baseado nos componentes
   is_active            Boolean  @default(true)
   image_url            String?
-  allows_customization Boolean  @default(false) // Se permite customização
+  allows_customization Boolean  @default(false)
+  production_time      Int?     @default(0)
   created_at           DateTime @default(now())
   updated_at           DateTime @updatedAt
 

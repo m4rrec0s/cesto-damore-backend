@@ -204,7 +204,6 @@ class ProductService {
     }
 
     try {
-      // Validar se todas as categorias existem
       await this.validateCategories(data.categories);
 
       const { additionals, categories, ...rest } = data as any;
@@ -219,7 +218,6 @@ class ProductService {
 
       const created = await prisma.product.create({ data: { ...normalized } });
 
-      // Criar as relações com as categorias
       if (categories && categories.length > 0) {
         await Promise.all(
           categories.map((categoryId: string) =>
@@ -325,7 +323,7 @@ class ProductService {
         );
       }
 
-      return this.getProductById(id);
+      return this.getProductById(updated.id);
     } catch (error: any) {
       if (
         error.message.includes("não encontrado") ||

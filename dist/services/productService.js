@@ -168,7 +168,6 @@ class ProductService {
             throw new Error("Ao menos uma categoria é obrigatória");
         }
         try {
-            // Validar se todas as categorias existem
             await this.validateCategories(data.categories);
             const { additionals, categories, ...rest } = data;
             const normalized = { ...rest };
@@ -177,7 +176,6 @@ class ProductService {
             normalized.stock_quantity = this.normalizeStockQuantity(normalized.stock_quantity);
             normalized.is_active = this.normalizeBoolean(normalized.is_active, true);
             const created = await prisma_1.default.product.create({ data: { ...normalized } });
-            // Criar as relações com as categorias
             if (categories && categories.length > 0) {
                 await Promise.all(categories.map((categoryId) => prisma_1.default.productCategory.create({
                     data: { product_id: created.id, category_id: categoryId },
@@ -250,7 +248,7 @@ class ProductService {
                     data: { product_id: id, additional_id: addId },
                 })));
             }
-            return this.getProductById(id);
+            return this.getProductById(updated.id);
         }
         catch (error) {
             if (error.message.includes("não encontrado") ||

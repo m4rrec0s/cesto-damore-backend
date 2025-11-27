@@ -175,6 +175,7 @@ class ProductService {
             normalized.price = this.normalizePrice(normalized.price);
             normalized.discount = this.normalizeDiscount(normalized.discount);
             normalized.stock_quantity = this.normalizeStockQuantity(normalized.stock_quantity);
+            normalized.production_time = this.normalizeProductionTime(normalized.production_time);
             normalized.is_active = this.normalizeBoolean(normalized.is_active, true);
             const created = await prisma_1.default.product.create({ data: { ...normalized } });
             if (categories && categories.length > 0) {
@@ -219,6 +220,9 @@ class ProductService {
             }
             if (normalized.stock_quantity !== undefined) {
                 normalized.stock_quantity = this.normalizeStockQuantity(normalized.stock_quantity);
+            }
+            if (normalized.production_time !== undefined) {
+                normalized.production_time = this.normalizeProductionTime(normalized.production_time);
             }
             if (normalized.is_active !== undefined) {
                 normalized.is_active = this.normalizeBoolean(normalized.is_active);
@@ -411,6 +415,22 @@ class ProductService {
             return Math.floor(stock);
         }
         throw new Error("Quantidade em estoque deve ser um número");
+    }
+    normalizeProductionTime(time) {
+        if (time === null || time === undefined || time === "") {
+            return 0;
+        }
+        if (typeof time === "string") {
+            const normalized = parseInt(time, 10);
+            if (isNaN(normalized)) {
+                throw new Error("Tempo de produção inválido");
+            }
+            return normalized;
+        }
+        if (typeof time === "number") {
+            return Math.floor(time);
+        }
+        throw new Error("Tempo de produção deve ser um número");
     }
     normalizeBoolean(value, defaultValue) {
         if (value === null || value === undefined) {

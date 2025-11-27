@@ -215,6 +215,9 @@ class ProductService {
       normalized.stock_quantity = this.normalizeStockQuantity(
         normalized.stock_quantity
       );
+      normalized.production_time = this.normalizeProductionTime(
+        normalized.production_time
+      );
       normalized.is_active = this.normalizeBoolean(normalized.is_active, true);
 
       const created = await prisma.product.create({ data: { ...normalized } });
@@ -278,6 +281,11 @@ class ProductService {
       if (normalized.stock_quantity !== undefined) {
         normalized.stock_quantity = this.normalizeStockQuantity(
           normalized.stock_quantity
+        );
+      }
+      if (normalized.production_time !== undefined) {
+        normalized.production_time = this.normalizeProductionTime(
+          normalized.production_time
         );
       }
       if (normalized.is_active !== undefined) {
@@ -517,6 +525,26 @@ class ProductService {
     }
 
     throw new Error("Quantidade em estoque deve ser um número");
+  }
+
+  private normalizeProductionTime(time: any): number | null {
+    if (time === null || time === undefined || time === "") {
+      return 0;
+    }
+
+    if (typeof time === "string") {
+      const normalized = parseInt(time, 10);
+      if (isNaN(normalized)) {
+        throw new Error("Tempo de produção inválido");
+      }
+      return normalized;
+    }
+
+    if (typeof time === "number") {
+      return Math.floor(time);
+    }
+
+    throw new Error("Tempo de produção deve ser um número");
   }
 
   private normalizeBoolean(value: any, defaultValue?: boolean): boolean {

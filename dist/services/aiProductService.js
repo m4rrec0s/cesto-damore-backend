@@ -31,27 +31,41 @@ class AIProductService {
             }
             // Filtro de ocasião
             if (occasion) {
-                const occasionTerm = occasion.replace(/-/g, " ");
-                const occasionFilter = {
-                    OR: [
-                        {
-                            categories: {
-                                some: {
-                                    category: {
-                                        name: { contains: occasionTerm, mode: "insensitive" },
-                                    },
+                // Mapeamento de ocasiões para categorias reais do banco
+                const occasionToCategoryMap = {
+                    "namorados": ["Romântica"],
+                    "aniversario": ["Aniversário"],
+                    "dia-das-maes": ["Romântica"], // Pode ser romântico também
+                    "natal": ["Cesto Express", "Simples"], // Cestas gerais para Natal
+                    "formatura": ["Simples", "Bar"],
+                    "infantil": ["Infantil"],
+                    "flores": ["Floricultura"],
+                };
+                const categoryNames = occasionToCategoryMap[occasion.toLowerCase()] || [];
+                if (categoryNames.length > 0) {
+                    const occasionFilter = {
+                        categories: {
+                            some: {
+                                category: {
+                                    name: { in: categoryNames },
                                 },
                             },
                         },
-                        { name: { contains: occasionTerm, mode: "insensitive" } },
-                        { description: { contains: occasionTerm, mode: "insensitive" } },
-                    ],
-                };
-                if (where.OR) {
-                    where.AND = [occasionFilter];
-                }
-                else {
-                    Object.assign(where, occasionFilter);
+                    };
+                    // Combine with existing filters using AND
+                    if (where.OR) {
+                        // If there's already an OR (from searchTerm), combine both with AND
+                        where.AND = [{ OR: where.OR }, occasionFilter];
+                        delete where.OR;
+                    }
+                    else if (where.AND) {
+                        // If there's already an AND array, add to it
+                        where.AND.push(occasionFilter);
+                    }
+                    else {
+                        // Otherwise, just merge the occasion filter
+                        Object.assign(where, occasionFilter);
+                    }
                 }
             }
             // Filtro de preço máximo

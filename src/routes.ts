@@ -166,32 +166,22 @@ router.get(
 // AI PRODUCT ROUTES (Consultas otimizadas para IA)
 // ============================================
 
-// Endpoint principal para consulta de produtos pela IA
-// Exemplos:
-// - GET /ai/products (catálogo por prioridade)
-// - GET /ai/products?keywords=aniversário romântico
-// - GET /ai/products?keywords=barato caneca
-router.get("/ai/products", aiProductController.searchProducts);
-
-// Documentação do endpoint AI
+router.get("/ai/products/light", aiProductController.getLightweightProducts);
+router.get("/ai/products/detail/:id", aiProductController.getProductDetail);
 router.get("/ai/products/info", aiProductController.getEndpointInfo);
 
 // ============================================
 // GOOGLE DRIVE OAUTH2
 // ============================================
-// GET /oauth/authorize - Gera URL de autenticação
+
 router.get("/oauth/authorize", oauthController.authorize);
 
-// GET /oauth/callback - Callback após autorização
 router.get("/oauth/callback", oauthController.callback);
 
-// GET /oauth/status - Verifica status da autenticação
 router.get("/oauth/status", oauthController.status);
 
-// GET /oauth/debug - Informações de debug da autenticação
 router.get("/oauth/debug", oauthController.debug);
 
-// Clear tokens (admin only)
 router.post(
   "/oauth/clear",
   authenticateToken,

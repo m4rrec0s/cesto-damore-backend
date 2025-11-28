@@ -156,26 +156,16 @@ router.get("/webhooks/notifications-stats", security_1.authenticateToken, securi
 // ============================================
 // AI PRODUCT ROUTES (Consultas otimizadas para IA)
 // ============================================
-// Endpoint principal para consulta de produtos pela IA
-// Exemplos:
-// - GET /ai/products (catálogo por prioridade)
-// - GET /ai/products?keywords=aniversário romântico
-// - GET /ai/products?keywords=barato caneca
-router.get("/ai/products", aiProductController_1.default.searchProducts);
-// Documentação do endpoint AI
+router.get("/ai/products/light", aiProductController_1.default.getLightweightProducts);
+router.get("/ai/products/detail/:id", aiProductController_1.default.getProductDetail);
 router.get("/ai/products/info", aiProductController_1.default.getEndpointInfo);
 // ============================================
 // GOOGLE DRIVE OAUTH2
 // ============================================
-// GET /oauth/authorize - Gera URL de autenticação
 router.get("/oauth/authorize", oauthController_1.default.authorize);
-// GET /oauth/callback - Callback após autorização
 router.get("/oauth/callback", oauthController_1.default.callback);
-// GET /oauth/status - Verifica status da autenticação
 router.get("/oauth/status", oauthController_1.default.status);
-// GET /oauth/debug - Informações de debug da autenticação
 router.get("/oauth/debug", oauthController_1.default.debug);
-// Clear tokens (admin only)
 router.post("/oauth/clear", security_1.authenticateToken, security_1.requireAdmin, async (req, res) => oauthController_1.default.clear(req, res));
 // Admin test for Google Drive (checks create/delete permissions)
 router.post("/admin/google-drive/test", security_1.authenticateToken, security_1.requireAdmin, async (req, res) => {

@@ -1,297 +1,296 @@
 import prisma from "../database/prisma";
 
-/**
- * Service especializado para consultas de produtos pela IA
- * Fornece respostas otimizadas e contextualizadas para agentes de IA
- */
 class AIProductService {
-  /**
-   * Busca produtos com otimização para interpretação da IA
-   * @param keywords - Palavras-chave para busca (ocasião, tipo, preço, etc)
-   * @returns Lista de produtos formatada para IA
-   */
-  async searchProducts(keywords?: string) {
+  async getLightweightProducts(query?: any) {
     try {
-      let products;
+      // Extrair parâmetros de busca
+      const {
+        keywords,
+        occasion,
+        price_max,
+        tag,
+        available,
+        q,
+      } = query || {};
 
-      if (keywords && keywords.trim()) {
-        // Busca inteligente baseada em keywords
-        products = await this.searchByKeywords(keywords);
-      } else {
-        // Ordem de prioridade padrão quando não há keywords
-        products = await this.getDefaultPriority();
-      }
+      // Construir filtro base
+      const where: any = {
+        is_active: true,
+        type: { name: { equals: "Cestas", mode: "insensitive" } }
+      };
 
-      // Formatar resposta para IA
-      return this.formatForAI(products);
-    } catch (error: any) {
-      throw new Error(`Erro ao buscar produtos para IA: ${error.message}`);
-    }
-  }
-
-  /**
-   * Busca produtos baseado em palavras-chave
-   */
-  private async searchByKeywords(keywords: string) {
-    const searchTerms = keywords.toLowerCase();
-
-    // Mapeamento de ocasiões/contextos para categorias
-    const occasionMap: { [key: string]: string[] } = {
-      aniversario: ["aniversário", "festa", "celebração"],
-      casamento: ["casamento", "noivos", "união"],
-      namorados: ["namorados", "amor", "romântico"],
-      maes: ["mães", "dia das mães", "maternal"],
-      pais: ["pais", "dia dos pais", "paternal"],
-      natal: ["natal", "natalino", "festas"],
-      pascoa: ["páscoa", "chocolate"],
-      formatura: ["formatura", "graduação"],
-      "bebe nascimento": ["bebê", "nascimento", "maternidade"],
-      agradecimento: ["obrigado", "gratidão", "agradecimento"],
-      recuperacao: ["melhoras", "saúde", "recuperação"],
-    };
-
-    let categoryFilter: string[] = [];
-    for (const [occasion, terms] of Object.entries(occasionMap)) {
-      if (terms.some((term) => searchTerms.includes(term))) {
-        categoryFilter = terms;
-        break;
-      }
-    }
-
-    let typeFilter: string | null = null;
-    if (
-      searchTerms.includes("quadro") ||
-      searchTerms.includes("pelúcia") ||
-      searchTerms.includes("pelucia")
-    ) {
-      typeFilter = "premium";
-    } else if (searchTerms.includes("caneca")) {
-      typeFilter = "caneca";
-    }
-
-    let priceFilter: { min?: number; max?: number } = {};
-    if (
-      searchTerms.includes("barato") ||
-      searchTerms.includes("economico") ||
-      searchTerms.includes("em conta")
-    ) {
-      priceFilter.max = 120;
-    } else if (
-      searchTerms.includes("caro") ||
-      searchTerms.includes("premium") ||
-      searchTerms.includes("luxo")
-    ) {
-      priceFilter.min = 120;
-    }
-
-    const where: any = {
-      is_active: true,
-    };
-
-    if (categoryFilter.length > 0) {
-      where.OR = categoryFilter.map((term) => ({
-        OR: [
-          { name: { contains: term, mode: "insensitive" } },
-          { description: { contains: term, mode: "insensitive" } },
+      // Filtro de texto (keywords ou q)
+      const searchTerm = keywords || q;
+      if (searchTerm) {
+        where.OR = [
+          { name: { contains: searchTerm, mode: "insensitive" } },
+          { description: { contains: searchTerm, mode: "insensitive" } },
           {
             categories: {
               some: {
-                category: {
-                  name: { contains: term, mode: "insensitive" },
-                },
+                category: { name: { contains: searchTerm, mode: "insensitive" } },
               },
             },
           },
-        ],
-      }));
-    }
+        ];
+      }
 
-    if (priceFilter.min || priceFilter.max) {
-      where.price = {};
-      if (priceFilter.min) where.price.gte = priceFilter.min;
-      if (priceFilter.max) where.price.lte = priceFilter.max;
-    }
-
-    let products = await prisma.product.findMany({
-      where,
-      orderBy: [{ price: "desc" }],
-      include: {
-        categories: {
-          include: { category: true },
-        },
-        type: true,
-        components: {
-          include: {
-            item: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-              },
-            },
-          },
-        },
-        additionals: {
-          include: {
-            additional: {
-              select: {
-                id: true,
-                name: true,
-                base_price: true,
-                type: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    // Se não encontrou com filtros específicos, fazer busca genérica
-    if (products.length === 0) {
-      products = await prisma.product.findMany({
-        where: {
-          is_active: true,
+      // Filtro de ocasião
+      if (occasion) {
+        const occasionTerm = occasion.replace(/-/g, " ");
+        const occasionFilter = {
           OR: [
-            { name: { contains: keywords, mode: "insensitive" } },
-            { description: { contains: keywords, mode: "insensitive" } },
+            {
+              categories: {
+                some: {
+                  category: {
+                    name: { contains: occasionTerm, mode: "insensitive" },
+                  },
+                },
+              },
+            },
+            { name: { contains: occasionTerm, mode: "insensitive" } },
+            { description: { contains: occasionTerm, mode: "insensitive" } },
           ],
-        },
-        take: 10,
-        orderBy: [{ price: "desc" }],
-        include: {
-          categories: {
-            include: { category: true },
-          },
-          type: true,
-          components: {
-            include: {
-              item: {
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
+        };
+
+        if (where.OR) {
+          where.AND = [occasionFilter];
+        } else {
+          Object.assign(where, occasionFilter);
+        }
+      }
+
+      // Filtro de preço máximo
+      if (price_max) {
+        where.price = { lte: parseFloat(price_max) };
+      }
+
+      // Filtro de tag
+      if (tag) {
+        const tagTerm = tag.replace(/-/g, " ");
+        const tagFilter = {
+          OR: [
+            {
+              components: {
+                some: {
+                  item: {
+                    OR: [
+                      { name: { contains: tagTerm, mode: "insensitive" } },
+                      { type: { contains: tagTerm, mode: "insensitive" } },
+                    ],
+                  },
                 },
               },
             },
-          },
-          additionals: {
-            include: {
-              additional: {
-                select: {
-                  id: true,
-                  name: true,
-                  base_price: true,
-                  type: true,
-                },
-              },
-            },
-          },
-        },
-      });
-    }
+            { name: { contains: tagTerm, mode: "insensitive" } },
+          ],
+        };
 
-    return products;
-  }
+        if (where.AND) {
+          where.AND.push(tagFilter);
+        } else if (where.OR) {
+          where.AND = [tagFilter];
+        } else {
+          Object.assign(where, tagFilter);
+        }
+      }
 
-  /**
-   * Retorna produtos na ordem de prioridade padrão
-   */
-  private async getDefaultPriority() {
-    const priorities = [
-      // 1. Mais cara com quadro/pelúcia
-      {
-        where: {
-          is_active: true,
-          components: {
-            some: {
-              item: {
-                OR: [
-                  { type: { contains: "quadro", mode: "insensitive" as any } },
-                  { type: { contains: "pelúcia", mode: "insensitive" as any } },
-                  { type: { contains: "pelucia", mode: "insensitive" as any } },
-                ],
-              },
-            },
-          },
-        },
-        orderBy: { price: "desc" as const },
-        label: "premium_expensive",
-      },
-      // 2. Mais barata com quadro/pelúcia
-      {
-        where: {
-          is_active: true,
-          components: {
-            some: {
-              item: {
-                OR: [
-                  { type: { contains: "quadro", mode: "insensitive" as any } },
-                  { type: { contains: "pelúcia", mode: "insensitive" as any } },
-                  { type: { contains: "pelucia", mode: "insensitive" as any } },
-                ],
-              },
-            },
-          },
-        },
-        orderBy: { price: "asc" as const },
-        label: "premium_affordable",
-      },
-      // 3. Mais cara com caneca
-      {
-        where: {
-          is_active: true,
-          components: {
-            some: {
-              item: {
-                type: { contains: "caneca", mode: "insensitive" as any },
-              },
-            },
-          },
-        },
-        orderBy: { price: "desc" as const },
-        label: "mug_expensive",
-      },
-      // 4. Mais barata com outros itens
-      {
-        where: {
-          is_active: true,
-        },
-        orderBy: { price: "asc" as const },
-        label: "affordable_general",
-      },
-    ];
+      // Filtro de disponibilidade
+      if (available === "true") {
+        where.stock_quantity = { gt: 0 };
+      }
 
-    const allProducts = [];
-
-    for (const priority of priorities) {
       const products = await prisma.product.findMany({
-        where: priority.where,
-        take: 3, // 3 de cada categoria
-        orderBy: priority.orderBy,
+        where,
+        orderBy: { price: "asc" },
         include: {
-          categories: {
-            include: { category: true },
-          },
+          categories: { include: { category: true } },
           type: true,
           components: {
             include: {
-              item: {
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
-                },
-              },
+              item: true,
+            },
+          },
+          additionals: {
+            include: {
+              additional: true,
+            },
+          },
+        },
+      });
+
+      const baseUrl = process.env.BASE_URL as string;
+
+      const lightweightProducts = products.map((p) => {
+        const occasions = this.getIdealOccasions(p);
+        const tags = this.generateTags(p, occasions);
+        const slug = this.toSlug(p.name);
+
+        const componentsList = p.components.map((c) => {
+          const qty = c.quantity > 1 ? `${c.quantity}x ` : "";
+          return `${qty}${c.item.name}`;
+        });
+
+        const additionalsList = p.additionals.map((pa) => ({
+          name: pa.additional.name,
+          price: this.formatPrice(pa.custom_price || pa.additional.base_price),
+        }));
+
+        let customizationTitle = null;
+        if (p.allows_customization) {
+          customizationTitle = "Personalização disponível";
+          if (p.type?.name.toLowerCase().includes("quadro")) {
+            customizationTitle = "Envio de foto para o quadro";
+          } else if (p.type?.name.toLowerCase().includes("caneca")) {
+            customizationTitle = "Nome ou frase para a caneca";
+          }
+        }
+
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description || "Sem descrição disponível", // Descrição completa
+          price: p.price,
+          final_price: this.calculateFinalPrice(p.price, p.discount || 0),
+          image: p.image_url ? this.formatImageUrl(p.image_url, baseUrl) : null,
+          category: p.type?.name || "Outros", // Usando o Tipo como categoria principal visual
+          real_categories: p.categories.map((c) => c.category.name), // Categorias reais
+          occasion: occasions[0]?.toLowerCase() || "geral",
+          tags: tags,
+          allows_customization: p.allows_customization,
+          customization_title: customizationTitle,
+          components: componentsList,
+          has_additionals: p.additionals.length > 0,
+          additionals: additionalsList,
+          detail_endpoint: `/ai/products/detail/${slug}`, // Usando slug
+        };
+      });
+
+      // Ordenação personalizada em memória
+      // 1. Produtos mais caros - Contendo Quadro/Pelúcias/Polaroides
+      // 2. Produtos mais baratos - Contendo Quadro/Pelúcias/Polaroides
+      // 3. Produtos mais caros - Contendo Caneca/Quebra-Cabeça
+      // 4. Mais baratos de forma geral
+
+      const premiumKeywords = ["quadro", "pelucia", "pelúcia", "polaroid"];
+      const standardKeywords = ["caneca", "quebra-cabeça", "quebra-cabeca"];
+
+      const hasKeyword = (p: any, keywords: string[]) => {
+        const text = (
+          p.name +
+          " " +
+          (p.description || "") +
+          " " +
+          p.components.map((c: any) => c.item.name).join(" ")
+        ).toLowerCase();
+        return keywords.some((k) => text.includes(k));
+      };
+
+      const premiumProducts: any[] = [];
+      const standardProducts: any[] = [];
+      const otherProducts: any[] = [];
+
+      lightweightProducts.forEach((p: any) => {
+        // Precisamos checar os dados originais para a busca de keywords, 
+        // mas lightweightProducts já está formatado. 
+        // Vamos usar o objeto formatado mesmo, pois ele tem name, description e components (nomes).
+
+        // Reconstruindo verificação baseada no objeto formatado
+        const text = (
+          p.name + " " + p.description + " " + p.components.join(" ")
+        ).toLowerCase();
+
+        const isPremium = premiumKeywords.some(k => text.includes(k));
+        const isStandard = standardKeywords.some(k => text.includes(k));
+
+        if (isPremium) {
+          premiumProducts.push(p);
+        } else if (isStandard) {
+          standardProducts.push(p);
+        } else {
+          otherProducts.push(p);
+        }
+      });
+
+      // Ordenar grupos
+      // Premium: DESC (Mais caro -> Mais barato)
+      premiumProducts.sort((a, b) => b.price - a.price);
+
+      // Standard: DESC (Mais caro -> Mais barato)
+      standardProducts.sort((a, b) => b.price - a.price);
+
+      // Outros: ASC (Mais barato -> Mais caro)
+      otherProducts.sort((a, b) => a.price - b.price);
+
+      const sortedProducts = [
+        ...premiumProducts,
+        ...standardProducts,
+        ...otherProducts
+      ];
+
+      // Gerar filtros dinâmicos
+      const filters = {
+        occasions: [
+          "aniversario",
+          "namorados",
+          "dia-das-maes",
+          "natal",
+          "formatura",
+          "agradecimento",
+          "nascimento",
+        ],
+        price_ranges: ["0-100", "100-150", "150-200", "200-300", "300+"],
+        tags: [
+          "caneca",
+          "pelucia",
+          "quebra-cabeca",
+          "quadro",
+          "polaroid",
+          "balao",
+          "flores",
+          "chocolate",
+        ],
+      };
+
+      return {
+        products: sortedProducts,
+        filters,
+      };
+    } catch (error: any) {
+      throw new Error(`Erro ao buscar produtos leves: ${error.message}`);
+    }
+  }
+
+
+  async getProductDetail(idOrSlug: string) {
+    try {
+      let productId = idOrSlug;
+
+      // Se não for UUID, tentar encontrar pelo slug
+      if (!this.isUUID(idOrSlug)) {
+        const foundId = await this.findIdBySlug(idOrSlug);
+        if (!foundId) {
+          throw new Error(`Produto não encontrado para o slug: ${idOrSlug}`);
+        }
+        productId = foundId;
+      }
+
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        include: {
+          categories: { include: { category: true } },
+          type: true,
+          components: {
+            include: {
+              item: true,
             },
           },
           additionals: {
             include: {
               additional: {
-                select: {
-                  id: true,
-                  name: true,
-                  base_price: true,
-                  type: true,
+                include: {
+                  customizations: true,
                 },
               },
             },
@@ -299,110 +298,259 @@ class AIProductService {
         },
       });
 
-      // Adicionar metadata de prioridade
-      products.forEach((p: any) => {
-        p._priority_category = priority.label;
-      });
+      if (!product) {
+        throw new Error("Produto não encontrado");
+      }
 
-      allProducts.push(...products);
-    }
+      const baseUrl = process.env.BASE_URL as string;
 
-    // Remover duplicatas
-    const uniqueProducts = Array.from(
-      new Map(allProducts.map((p) => [p.id, p])).values()
-    );
-
-    return uniqueProducts;
-  }
-
-  /**
-   * Formata resposta para fácil interpretação da IA
-   */
-  private formatForAI(products: any[]) {
-    const baseUrl = process.env.BASE_URL;
-
-    return {
-      total_products: products.length,
-      products: products.map((product) => ({
+      return {
         id: product.id,
         name: product.name,
-        description: product.description || "Sem descrição disponível",
-
-        // Preço final formatado
-        price: this.formatPrice(
-          this.calculateFinalPrice(product.price, product.discount || 0)
+        slug: this.toSlug(product.name),
+        description: product.description,
+        base_price: product.price,
+        final_price: this.calculateFinalPrice(
+          product.price,
+          product.discount || 0
         ),
-
-        // Imagem (URL corrigida - sem duplicação)
-        image_url: product.image_url
+        image: product.image_url
           ? this.formatImageUrl(product.image_url, baseUrl)
           : null,
-
-        // Componentes formatados como lista
-        components: this.formatComponentsList(product.components || []),
-
-        // Disponibilidade simplificada
-        available: product.is_active && product.stock_quantity !== 0,
-
-        // Adicionais disponíveis (simplificado)
-        additionals:
-          product.additionals?.map((pa: any) => ({
-            name: pa.additional.name,
-            price: this.formatPrice(
-              pa.custom_price || pa.additional.base_price
-            ),
-          })) || [],
-      })),
-    };
+        stock: product.stock_quantity,
+        included_components: product.components.map((c) => {
+          const qty = c.quantity > 1 ? `${c.quantity}x ` : "";
+          return `${qty}${c.item.name}`;
+        }),
+        optional_additionals: product.additionals.map((pa) => ({
+          id: pa.additional.id,
+          name: pa.additional.name,
+          price: pa.custom_price || pa.additional.base_price,
+          formatted_price: this.formatPrice(
+            pa.custom_price || pa.additional.base_price
+          ),
+          image: pa.additional.image_url
+            ? this.formatImageUrl(pa.additional.image_url, baseUrl)
+            : null,
+          requires_photo:
+            pa.additional.type === "quadro" ||
+            pa.additional.type === "polaroid" ||
+            pa.additional.name.toLowerCase().includes("foto"),
+          customization_type:
+            pa.additional.customizations.length > 0
+              ? "configurable"
+              : "simple",
+        })),
+      };
+    } catch (error: any) {
+      throw new Error(`Erro ao buscar detalhe do produto: ${error.message}`);
+    }
   }
 
   /**
-   * Formata lista de componentes como string
+   * Busca produtos com otimização para ferramentas de IA (tool calling)
    */
-  private formatComponentsList(components: any[]): string {
-    if (!components || components.length === 0) {
-      return "";
+  async searchProducts(query: any) {
+    try {
+      const {
+        keywords,
+        occasion,
+        price_max,
+        tag,
+        has_custom_photo,
+        available,
+        q,
+      } = query;
+
+      const where: any = { is_active: true, type: { name: { equals: "Cestas", mode: "insensitive" } } };
+
+      // Filtro de texto (keywords ou q)
+      const searchTerm = keywords || q;
+      if (searchTerm) {
+        where.OR = [
+          { name: { contains: searchTerm, mode: "insensitive" } },
+          { description: { contains: searchTerm, mode: "insensitive" } },
+          {
+            categories: {
+              some: {
+                category: { name: { contains: searchTerm, mode: "insensitive" } },
+              },
+            },
+          },
+        ];
+      }
+
+      // Filtro de ocasião
+      if (occasion) {
+        const occasionTerm = occasion.replace(/-/g, " ");
+        const occasionFilter = {
+          OR: [
+            {
+              is_active: true,
+              type: { name: { equals: "Cestas", mode: "insensitive" } },
+              categories: {
+                some: {
+                  category: {
+                    name: { contains: occasionTerm, mode: "insensitive" },
+                  },
+                },
+              },
+            },
+            { name: { contains: occasionTerm, mode: "insensitive" } },
+            { description: { contains: occasionTerm, mode: "insensitive" } },
+          ],
+        };
+
+        if (where.OR) {
+          where.AND = [occasionFilter];
+        } else {
+          Object.assign(where, occasionFilter);
+        }
+      }
+
+      // Filtro de preço máximo
+      if (price_max) {
+        where.price = { lte: parseFloat(price_max) };
+      }
+
+      // Filtro de tag
+      if (tag) {
+        const tagTerm = tag.replace(/-/g, " ");
+        const tagFilter = {
+          OR: [
+            {
+              components: {
+                some: {
+                  item: {
+                    OR: [
+                      { name: { contains: tagTerm, mode: "insensitive" } },
+                      { type: { name: { equals: "Cestas", mode: "insensitive" } } },
+                    ],
+                  },
+                },
+              },
+            },
+            { name: { contains: tagTerm, mode: "insensitive" } },
+          ],
+        };
+
+        if (where.AND) {
+          where.AND.push(tagFilter);
+        } else if (where.OR) {
+          where.AND = [tagFilter];
+        } else {
+          Object.assign(where, tagFilter);
+        }
+      }
+
+      if (available === "true") {
+        where.stock_quantity = { gt: 0 };
+      }
+
+      const products = await prisma.product.findMany({
+        where,
+        orderBy: { price: "asc" },
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          image_url: true,
+          description: true,
+        },
+      });
+
+      const baseUrl = process.env.BASE_URL as string;
+
+      return {
+        results: products.map((p) => ({
+          id: p.id,
+          name: p.name,
+          price: p.price,
+          image: p.image_url ? this.formatImageUrl(p.image_url, baseUrl) : null,
+          match_score: searchTerm ? 0.95 : 1.0,
+        })),
+      };
+    } catch (error: any) {
+      throw new Error(`Erro na busca de produtos IA: ${error.message}`);
+    }
+  }
+
+  // ==========================================
+  // HELPER METHODS
+  // ==========================================
+
+  private toSlug(text: string): string {
+    return text
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+      .replace(/[^\w\s-]/g, "") // Remove caracteres especiais
+      .replace(/\s+/g, "-") // Substitui espaços por hífens
+      .replace(/^-+|-+$/g, ""); // Remove hífens do início/fim
+  }
+
+  private isUUID(str: string): boolean {
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(str);
+  }
+
+  private async findIdBySlug(slug: string): Promise<string | null> {
+    // Como slugs não estão no banco, buscamos todos e filtramos
+    // Para catálogos pequenos (<1000 itens) isso é performático o suficiente
+    const products = await prisma.product.findMany({
+      where: { is_active: true, type: { name: { equals: "Cestas", mode: "insensitive" } } },
+      select: { id: true, name: true },
+    });
+
+    const match = products.find((p) => this.toSlug(p.name) === slug);
+    return match ? match.id : null;
+  }
+
+  private generateTags(product: any, occasions: string[]): string[] {
+    const tags = new Set<string>();
+
+    // Adiciona ocasiões como tags
+    occasions.forEach((o) =>
+      tags.add(
+        o
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, "-")
+      )
+    );
+
+    // Adiciona tipo do produto
+    if (product.type?.name) {
+      tags.add(product.type.name.toLowerCase());
     }
 
-    return components
-      .map((c: any) => {
-        const qty = c.quantity > 1 ? ` (${c.quantity}x)` : "";
-        return `- ${c.item.name}${qty}`;
-      })
-      .join("\n");
+    const nameKeywords = product.name.toLowerCase().split(" ");
+    if (nameKeywords.includes("caneca")) tags.add("caneca");
+    if (nameKeywords.includes("chocolate")) tags.add("chocolate");
+    if (nameKeywords.includes("pelúcia") || nameKeywords.includes("pelucia"))
+      tags.add("pelucia");
+    if (nameKeywords.includes("quadro")) tags.add("quadro");
+
+    return Array.from(tags);
   }
 
-  /**
-   * Calcula preço final com desconto
-   */
   private calculateFinalPrice(price: number, discount: number): number {
-    return price - price * (discount / 100);
+    return Number((price - price * (discount / 100)).toFixed(2));
   }
 
-  /**
-   * Formata preço para exibição
-   */
+  private formatImageUrl(imageUrl: string, baseUrl: string): string {
+    if (imageUrl.startsWith("http")) {
+      return imageUrl.replace(/\/images\/images\//g, "/images/");
+    }
+    return `${baseUrl}/images/${imageUrl}`;
+  }
+
   private formatPrice(price: number): string {
     return `R$ ${price.toFixed(2).replace(".", ",")}`;
   }
 
-  /**
-   * Formata URL da imagem, removendo duplicações
-   */
-  private formatImageUrl(
-    imageUrl: string,
-    baseUrl: string | undefined
-  ): string {
-    if (imageUrl.startsWith("http")) {
-      return imageUrl.replace(/\/images\/images\//g, "/images/");
-    }
-
-    return `${baseUrl}/images/${imageUrl}`;
-  }
-
-  /**
-   * Identifica ocasiões ideais baseado em categorias e componentes
-   */
   private getIdealOccasions(product: any): string[] {
     const occasions: string[] = [];
     const categories =
@@ -413,30 +561,28 @@ class AIProductService {
 
     const allText = [...categories, description, name].join(" ");
 
-    // Mapeamento de ocasiões
     if (
       allText.includes("aniversário") ||
       allText.includes("aniversario") ||
       allText.includes("festa")
     )
-      occasions.push("Aniversário");
+      occasions.push("Aniversario");
     if (allText.includes("casamento") || allText.includes("noivos"))
       occasions.push("Casamento");
     if (allText.includes("namorados") || allText.includes("amor"))
-      occasions.push("Dia dos Namorados");
+      occasions.push("Namorados");
     if (allText.includes("mães") || allText.includes("maes"))
-      occasions.push("Dia das Mães");
-    if (allText.includes("pais")) occasions.push("Dia dos Pais");
+      occasions.push("Dia-das-Maes");
+    if (allText.includes("pais")) occasions.push("Dia-dos-Pais");
     if (allText.includes("natal")) occasions.push("Natal");
     if (allText.includes("páscoa") || allText.includes("pascoa"))
-      occasions.push("Páscoa");
+      occasions.push("Pascoa");
     if (allText.includes("formatura")) occasions.push("Formatura");
     if (allText.includes("bebê") || allText.includes("bebe"))
       occasions.push("Nascimento");
 
-    // Ocasiões genéricas se não houver específicas
     if (occasions.length === 0) {
-      occasions.push("Presente especial", "Demonstração de carinho");
+      occasions.push("Geral");
     }
 
     return occasions;

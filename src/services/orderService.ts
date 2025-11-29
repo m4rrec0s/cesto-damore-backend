@@ -266,7 +266,21 @@ class OrderService {
       const order = await prisma.order.findUnique({
         where: { id },
         include: {
-          items: { include: { additionals: true, product: true } },
+          items: {
+            include: {
+              additionals: {
+                include: {
+                  additional: true,
+                },
+              },
+              product: true,
+              customizations: {
+                include: {
+                  customization: true, // ✅ ADICIONAR customizações
+                },
+              },
+            },
+          },
           user: true,
           payment: true, // ✅ CRÍTICO: Incluir payment para o polling funcionar
         },
@@ -1189,6 +1203,9 @@ class OrderService {
             product: true,
             additionals: {
               include: { additional: true },
+            },
+            customizations: {
+              include: { customization: true }, // ✅ ADICIONAR customizações
             },
           },
         },

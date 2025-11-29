@@ -29,6 +29,33 @@ function normalizeText(value) {
         .trim()
         .toLowerCase();
 }
+/**
+ * Cria um hash das customizações para detectar itens duplicados
+ * Compara product_id + customizações para identificar se é o mesmo item personalizado
+ */
+function hashCustomizations(customizations) {
+    if (!customizations || customizations.length === 0) {
+        return "no-customization";
+    }
+    // Ordenar por customization_id e criar uma representação em string
+    const sorted = [...customizations].sort((a, b) => (a.customization_id || "").localeCompare(b.customization_id || ""));
+    // Criar hash baseado nos campos relevantes
+    const hashData = sorted.map((c) => ({
+        id: c.customization_id || "",
+        type: c.customization_type || "",
+        // Incluir campos de valor para comparação
+        text: c.title || c.text || "",
+        option: c.selected_option || "",
+        item: c.selected_item ? JSON.stringify(c.selected_item) : "",
+        photos: Array.isArray(c.photos)
+            ? c.photos
+                .map((p) => p.temp_file_id || p.preview_url || "")
+                .sort()
+                .join(",")
+            : "",
+    }));
+    return JSON.stringify(hashData);
+}
 class OrderService {
     // Enriquece as customizações com labels das opções selecionadas
     enrichCustomizations(orders) {
@@ -266,6 +293,16 @@ class OrderService {
             }
         }
         try {
+            // ========== CANCELAR PEDIDOS PENDING ANTERIORES ==========
+            // Evitar múltiplos pedidos PENDING do mesmo usuário
+            try {
+                await this.cancelPreviousPendingOrders(data.user_id);
+                console.log(`✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`);
+            }
+            catch (error) {
+                console.error("⚠️ Erro ao cancelar pedidos anteriores (continuando):", error instanceof Error ? error.message : error);
+                // Não bloqueia a criação do pedido se falhar
+            }
             const user = await prisma_1.default.user.findUnique({
                 where: { id: data.user_id },
             });
@@ -346,12 +383,14 @@ class OrderService {
                     total,
                     delivery_address: orderData.delivery_address,
                     complement: orderData.complement,
-                    delivery_date: orderData.delivery_date,
+                    delivery_date: orderData.delivery_date || null, // ✅ NOVO: delivery_date é opcional
                     shipping_price,
                     payment_method: paymentMethod,
                     grand_total,
                     recipient_phone: phoneDigits, // Salvar com código do país
                     send_anonymously: data.send_anonymously || false,
+                    delivery_city: orderData.delivery_city, // ✅ NOVO: Salvar cidade
+                    delivery_state: orderData.delivery_state, // ✅ NOVO: Salvar estado
                 },
             });
             for (const item of items) {
@@ -946,7 +985,89 @@ class OrderService {
             },
         });
         console.log(`✅ Pedido ${orderId} cancelado com sucesso`);
-        return canceledOrder;
+        return null;
+    }
+    /**
+     * Cancela pedidos PENDING antigos do mesmo usuário
+     * Deve ser chamado antes de criar um novo pedido para evitar múltiplos pedidos PENDING
+     */
+    async cancelPreviousPendingOrders(userId, excludeOrderId) {
+        if (!userId) {
+            throw new Error("ID do usuário é obrigatório");
+        }
+        try {
+            // Buscar pedidos PENDING do usuário
+            const pendingOrders = await prisma_1.default.order.findMany({
+                where: {
+                    user_id: userId,
+                    status: "PENDING",
+                    ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
+                },
+                select: { id: true, created_at: true },
+            });
+            if (pendingOrders.length === 0) {
+                console.log(`ℹ️ [OrderService] Nenhum pedido PENDING anterior encontrado para usuário ${userId}`);
+                return { canceled: 0 };
+            }
+            console.log(`🗑️ [OrderService] Cancelando ${pendingOrders.length} pedido(s) PENDING anterior(es) do usuário ${userId}`);
+            // Cancelar cada pedido PENDING antigo
+            let canceledCount = 0;
+            for (const order of pendingOrders) {
+                try {
+                    await this.cancelOrder(order.id, userId);
+                    canceledCount++;
+                }
+                catch (error) {
+                    console.error(`⚠️ Erro ao cancelar pedido ${order.id}:`, error instanceof Error ? error.message : error);
+                }
+            }
+            console.log(`✅ [OrderService] ${canceledCount} pedido(s) PENDING cancelado(s) com sucesso`);
+            return { canceled: canceledCount };
+        }
+        catch (error) {
+            console.error(`❌ [OrderService] Erro ao canc elar pedidos PENDING anteriores:`, error);
+            throw new Error(`Erro ao cancelar pedidos pendentes anteriores: ${error.message}`);
+        }
+    }
+    /**
+     * Limpa pedidos PENDING abandonados (mais de 24 horas sem pagamento)
+     * Deve ser executado periodicamente (cron job)
+     */
+    async cleanupAbandonedOrders() {
+        try {
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            // Buscar pedidos PENDING criados há mais de 24h
+            const abandonedOrders = await prisma_1.default.order.findMany({
+                where: {
+                    status: "PENDING",
+                    created_at: {
+                        lt: twentyFourHoursAgo,
+                    },
+                },
+                select: { id: true, user_id: true, created_at: true },
+            });
+            if (abandonedOrders.length === 0) {
+                console.log("ℹ️ [OrderService] Nenhum pedido abandonado encontrado para limpeza");
+                return { cleaned: 0 };
+            }
+            console.log(`🧹 [OrderService] Limpando ${abandonedOrders.length} pedido(s) abandonado(s)`);
+            let cleanedCount = 0;
+            for (const order of abandonedOrders) {
+                try {
+                    await this.cancelOrder(order.id, order.user_id);
+                    cleanedCount++;
+                }
+                catch (error) {
+                    console.error(`⚠️ Erro ao limpar pedido abandonado ${order.id}:`, error instanceof Error ? error.message : error);
+                }
+            }
+            console.log(`✅ [OrderService] ${cleanedCount} pedido(s) abandonado(s) limpo(s) com sucesso`);
+            return { cleaned: cleanedCount };
+        }
+        catch (error) {
+            console.error(`❌ [OrderService] Erro ao limpar pedidos abandonados:`, error);
+            throw new Error(`Erro ao limpar pedidos abandonados: ${error.message}`);
+        }
     }
 }
 exports.default = new OrderService();

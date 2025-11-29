@@ -4,6 +4,7 @@ node_modules
 
 /src/generated/prisma
 /tests
+/dist
 
 # Google Drive OAuth2 (NÃO COMMITAR!)
 credentials.json

@@ -346,6 +346,11 @@ router.post("/mercadopago/get-issuers", security_1.authenticateToken, security_1
     const { getCardIssuers } = await Promise.resolve().then(() => __importStar(require("./controller/mercadopagoController")));
     return getCardIssuers(req, res);
 });
+// Buscar parcelas
+router.post("/mercadopago/get-installments", security_1.authenticateToken, security_1.paymentRateLimit, async (req, res) => {
+    const { getInstallments } = await Promise.resolve().then(() => __importStar(require("./controller/mercadopagoController")));
+    return getInstallments(req, res);
+});
 // Checkout Transparente (pagamento direto na aplicação)
 router.post("/payment/transparent-checkout", security_1.authenticateToken, security_1.paymentRateLimit, (0, security_1.logFinancialOperation)("TRANSPARENT_CHECKOUT"), paymentController_1.default.processTransparentCheckout);
 router.get("/payment/:paymentId/status", security_1.authenticateToken, (0, security_1.logFinancialOperation)("GET_PAYMENT_STATUS"), paymentController_1.default.getPaymentStatus);

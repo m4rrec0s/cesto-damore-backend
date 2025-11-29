@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getCardIssuers = getCardIssuers;
 exports.createCardToken = createCardToken;
+exports.getInstallments = getInstallments;
 const mercadopago_1 = require("mercadopago");
 const axios_1 = __importDefault(require("axios"));
 async function getCardIssuers(req, res) {
@@ -127,6 +128,62 @@ async function createCardToken(req, res) {
         const errorMessage = error && typeof error === "object" && "message" in error
             ? error.message
             : "Erro desconhecido ao criar token";
+        return res.status(500).json({
+            success: false,
+            message: errorMessage,
+        });
+    }
+}
+async function getInstallments(req, res) {
+    try {
+        const { amount, bin, paymentMethodId } = req.body;
+        if (!amount) {
+            return res.status(400).json({
+                success: false,
+                message: "Valor (amount) é obrigatório",
+            });
+        }
+        const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        if (!accessToken) {
+            throw new Error("MERCADO_PAGO_ACCESS_TOKEN não configurado");
+        }
+        // Construir URL com parâmetros
+        const params = new URLSearchParams({
+            amount: amount.toString(),
+            locale: "pt-BR",
+        });
+        if (paymentMethodId) {
+            params.append("payment_method_id", paymentMethodId);
+        }
+        if (bin) {
+            params.append("bin", bin);
+        }
+        const response = await axios_1.default.get(`https://api.mercadopago.com/v1/payment_methods/installments?${params.toString()}`, {
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+            },
+        });
+        const data = response.data;
+        if (data && Array.isArray(data) && data.length > 0) {
+            // Retorna a primeira opção encontrada (geralmente a mais relevante)
+            return res.status(200).json({
+                success: true,
+                payer_costs: data[0].payer_costs,
+                payment_method_id: data[0].payment_method_id,
+                payment_type_id: data[0].payment_type_id,
+                issuer: data[0].issuer,
+            });
+        }
+        return res.status(404).json({
+            success: false,
+            message: "Nenhuma opção de parcelamento encontrada",
+        });
+    }
+    catch (error) {
+        console.error("❌ Erro ao buscar parcelas:", error);
+        const errorMessage = error && typeof error === "object" && "message" in error
+            ? error.message
+            : "Erro desconhecido ao buscar parcelas";
         return res.status(500).json({
             success: false,
             message: errorMessage,

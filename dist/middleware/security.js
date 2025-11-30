@@ -195,21 +195,15 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                     code: "INVALID_LEGACY_WEBHOOK",
                 });
             }
-            // ⚠️ REJEITAR formato antigo - não é confiável determinar se é criação ou atualização
-            console.error("❌ Webhook formato antigo rejeitado - usar formato novo do MP", {
-                topic,
-                resource,
-                reason: "Formato legado sem campo 'action' - impossível determinar tipo de evento",
+            // Normalizar formato antigo para o novo, permitindo o processamento
+            // ⚠️ Estamos aceitando o formato legado (topic/resource) mas o normalizamos para
+            // o novo formato (type + data.id) para processamento subsequente
+            console.warn("⚠️ Aceitando formato antigo e normalizando para processamento", {
+                normalizedType: topic,
+                normalizedResourceId: resourceId,
             });
-            return res.status(400).json({
-                error: "Formato de webhook antigo não suportado",
-                code: "LEGACY_WEBHOOK_NOT_SUPPORTED",
-                details: {
-                    message: "Use o formato novo do Mercado Pago com campo 'action'",
-                    receivedFormat: "legacy (topic/resource)",
-                    requiredFormat: "new (type/action/data)",
-                },
-            });
+            type = topic;
+            data = { id: resourceId };
         }
         // Suporte para formato com 'action' (ex: payment.updated)
         if (!type && action) {

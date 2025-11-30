@@ -295,11 +295,20 @@ export class PaymentController {
 
   static async handleWebhook(req: Request, res: Response) {
     try {
-      console.log(
-        "📨 PaymentController.handleWebhook - Iniciando processamento"
-      );
       const webhookData = req.body;
       const headers = req.headers;
+      const incomingType =
+        webhookData?.type ||
+        webhookData?.topic ||
+        (webhookData?.action ? webhookData.action.split(".")[0] : undefined);
+      const incomingResource =
+        (webhookData?.data && webhookData?.data?.id) ||
+        webhookData?.resource ||
+        null;
+      console.log(
+        "📨 PaymentController.handleWebhook - Iniciando processamento",
+        { type: incomingType || null, resource: incomingResource || null }
+      );
 
       await PaymentService.processWebhookNotification(webhookData, headers);
 

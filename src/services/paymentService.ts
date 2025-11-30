@@ -1035,24 +1035,26 @@ export class PaymentService {
         };
       }
 
-      // Extrair tipo do webhook - suporte para 'type' e 'action'
-      let webhookType = data.type;
+      // Extrair tipo do webhook - suporte para 'type', 'topic' e 'action'
+      let webhookType = data.type || data.topic;
       if (!webhookType && data.action) {
         webhookType = data.action.split(".")[0]; // 'payment.updated' -> 'payment'
       }
 
-      // Extrair resourceId - formato NOVO do MP: { type, action, data: { id: "123" } }
-      const resourceId = data.data?.id?.toString();
+      // Extrair resourceId - suporte para formato NOVO (data.id) e LEGADO (resource)
+      const resourceId =
+        (data.data && data.data.id && data.data.id.toString()) ||
+        (data.resource && data.resource.toString()) ||
+        undefined;
 
       if (!resourceId || !webhookType) {
-        console.error("❌ Webhook sem ID de recurso ou tipo", {
-          resourceId,
-          webhookType,
-          action: data.action,
-          type: data.type,
-          dataKeys: Object.keys(data.data || {}),
-          dataId: data.data?.id,
-          receivedData: JSON.stringify(data).substring(0, 500),
+        console.error("❌ Webhook inválido - sem ID de recurso ou tipo", {
+          resourceId: resourceId || null,
+          webhookType: webhookType || null,
+          action: data.action || null,
+          type: data.type || null,
+          topic: data.topic || null,
+          keys: Object.keys(data || {}),
         });
         return {
           success: false,
@@ -1060,12 +1062,16 @@ export class PaymentService {
         };
       }
 
-      // ✅ Log de processamento apenas para payment.updated
-      console.log("💳 Processando webhook de pagamento confirmado", {
-        action: data.action,
-        paymentId: resourceId,
+      // Identificar formato (legacy ou novo) para logging e processamento
+      const webhookFormat = data.topic && data.resource ? "legacy" : "new";
+
+      // Log minimalista padronizado para facilitar leitura dos eventos
+      console.log("🔔 Webhook recebido", {
+        format: webhookFormat,
         type: webhookType,
-        timestamp: data.date_created,
+        action: data.action || null,
+        paymentId: resourceId,
+        timestamp: data.date_created || data.date || new Date().toISOString(),
       });
 
       // Verificar se já processamos este webhook (idempotência)
@@ -1095,10 +1101,10 @@ export class PaymentService {
       // ✅ Validação de assinatura já foi feita no middleware (security.ts)
       // Não precisamos validar novamente aqui
 
-      console.log("📝 Registrando webhook", {
+      console.log("📝 Registrando webhook no log interno", {
         paymentId: resourceId,
         type: webhookType,
-        action: data.action,
+        action: data.action || null,
       });
 
       await prisma.webhookLog.create({

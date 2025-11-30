@@ -249,7 +249,9 @@ class OrderController {
       });
 
       if (userId && existingOrder.user_id !== userId) {
-        console.warn("⚠️ [updateItems] Acesso negado: usuário não é dono do pedido");
+        console.warn(
+          "⚠️ [updateItems] Acesso negado: usuário não é dono do pedido"
+        );
         return res
           .status(403)
           .json({ error: "Você não tem permissão para modificar este pedido" });
@@ -292,7 +294,6 @@ class OrderController {
 
   async getPendingOrder(req: Request, res: Response) {
     try {
-      // ✅ Corrigido: usar req.params.id ao invés de req.params.userId
       const { id } = req.params;
 
       if (!id) {
@@ -302,9 +303,7 @@ class OrderController {
       const pendingOrder = await orderService.getPendingOrder(id);
 
       if (!pendingOrder) {
-        return res
-          .status(404)
-          .json({ error: "Nenhum pedido pendente encontrado" });
+        return res.status(200).send();
       }
 
       res.status(200).json(pendingOrder);

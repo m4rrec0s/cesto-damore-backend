@@ -6,6 +6,7 @@ import cors from "cors";
 import routes from "./routes";
 import cron from "node-cron";
 import orderService from "./services/orderService";
+import { PaymentService } from "./services/paymentService";
 import prisma from "./database/prisma";
 
 const app = express();
@@ -72,4 +73,22 @@ app.listen(PORT, () => {
   console.log(`📡 PORT: ${PORT}`);
   console.log(`🔗 BASE_URL: ${BASE_URL}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+  (async () => {
+    try {
+      await PaymentService.replayStoredWebhooks();
+    } catch (err) {
+      console.error("Erro ao executar replay de webhooks armazenados:", err);
+    }
+  })();
+});
+
+cron.schedule("*/5 * * * *", async () => {
+  try {
+    await PaymentService.replayStoredWebhooks();
+  } catch (err) {
+    console.error(
+      "Erro ao executar replay periódico de webhooks armazenados:",
+      err
+    );
+  }
 });

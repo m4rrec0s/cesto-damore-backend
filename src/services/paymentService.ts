@@ -1,5 +1,6 @@
 import { payment, preference, mercadoPagoConfig } from "../config/mercadopago";
 import prisma from "../database/prisma";
+import fs from "fs/promises";
 import type { PaymentStatus, Prisma } from "@prisma/client";
 import * as crypto from "crypto-js";
 import { randomUUID } from "crypto";
@@ -903,11 +904,11 @@ export class PaymentService {
       const params = new URLSearchParams({
         amount: amount.toString(),
         payment_method_id: paymentMethodId,
-        locale: 'pt-BR',
+        locale: "pt-BR",
       });
 
       if (bin) {
-        params.append('bin', bin);
+        params.append("bin", bin);
       }
 
       const url = `https://api.mercadopago.com/v1/payment_methods/installments?${params.toString()}`;
@@ -919,7 +920,9 @@ export class PaymentService {
       });
 
       if (!response.ok) {
-        throw new Error(`Erro ao buscar opções de parcelamento: ${response.statusText}`);
+        throw new Error(
+          `Erro ao buscar opções de parcelamento: ${response.statusText}`
+        );
       }
 
       const data = await response.json();
@@ -949,7 +952,7 @@ export class PaymentService {
       // Fallback: se não conseguir buscar da API, retornar parcelas padrão
       return this.getDefaultInstallmentOptions(amount);
     } catch (error) {
-      console.error('Erro ao buscar opções de parcelamento:', error);
+      console.error("Erro ao buscar opções de parcelamento:", error);
       // Em caso de erro, retornar opções padrão
       return this.getDefaultInstallmentOptions(amount);
     }
@@ -960,30 +963,31 @@ export class PaymentService {
    */
   private static getDefaultInstallmentOptions(amount: number) {
     const installments = [];
-    
+
     // Até 12 parcelas
     for (let i = 1; i <= 12; i++) {
       const installmentAmount = amount / i;
       const totalAmount = amount;
-      
+
       installments.push({
         installments: i,
         installment_rate: 0,
         discount_rate: 0,
-        labels: i === 1 ? ['CFT_ZERO'] : [],
+        labels: i === 1 ? ["CFT_ZERO"] : [],
         min_allowed_amount: 0,
         max_allowed_amount: 999999,
-        recommended_message: i === 1 
-          ? `1 parcela de R$ ${installmentAmount.toFixed(2)} sem juros`
-          : `${i} parcelas de R$ ${installmentAmount.toFixed(2)}`,
+        recommended_message:
+          i === 1
+            ? `1 parcela de R$ ${installmentAmount.toFixed(2)} sem juros`
+            : `${i} parcelas de R$ ${installmentAmount.toFixed(2)}`,
         installment_amount: roundCurrency(installmentAmount),
         total_amount: roundCurrency(totalAmount),
       });
     }
 
     return {
-      payment_method_id: 'unknown',
-      payment_type_id: 'credit_card',
+      payment_method_id: "unknown",
+      payment_type_id: "credit_card",
       issuer: null,
       payer_costs: installments,
     };
@@ -1132,8 +1136,40 @@ export class PaymentService {
         success: true,
         message: "Webhook processado com sucesso",
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao processar webhook:", error);
+
+      // If DB is unreachable (Prisma P1001), store the webhook locally for later retry
+      const isPrismaDBUnreachable =
+        (error && (error.code === "P1001" || error?.meta?.code === "P1001")) ||
+        false;
+
+      if (isPrismaDBUnreachable) {
+        try {
+          const logEntry = {
+            timestamp: new Date().toISOString(),
+            error: String(error?.message || "Prisma P1001 - DB unreachable"),
+            payload: data,
+          };
+          await fs.appendFile(
+            process.env.WEBHOOK_OFFLINE_LOG_FILE ||
+              "./webhook_offline_log.ndjson",
+            JSON.stringify(logEntry) + "\n"
+          );
+          console.warn(
+            "⚠️ Webhook armazenado localmente por indisponibilidade do BD"
+          );
+        } catch (fileErr) {
+          console.error("Falha ao salvar webhook offline:", fileErr);
+        }
+
+        // Respond as accepted (202) to avoid provider retries; we will reprocess later
+        return {
+          success: true,
+          message:
+            "Webhook armazenado localmente devido à indisponibilidade do banco, processará posteriormente",
+        };
+      }
 
       // Extrair resourceId - formato NOVO do MP: { data: { id } }
       const resourceId = data?.data?.id?.toString();
@@ -1153,6 +1189,44 @@ export class PaymentService {
       }
 
       throw error;
+    }
+  }
+
+  /**
+   * Reprocess stored webhooks that were stored locally due to DB unavailability
+   * Useful to run during startup or as a cron task.
+   */
+  static async replayStoredWebhooks() {
+    const filePath =
+      process.env.WEBHOOK_OFFLINE_LOG_FILE || "./webhook_offline_log.ndjson";
+    try {
+      const content = await fs.readFile(filePath, "utf-8");
+      const lines = content.split(/\r?\n/).filter(Boolean);
+      const failed: string[] = [];
+
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          await PaymentService.processWebhookNotification(entry.payload, {});
+        } catch (err) {
+          console.error("Falha ao reprocesar webhook armazenado:", err);
+          failed.push(line);
+        }
+      }
+
+      // Rewrite file with failed entries only
+      if (failed.length > 0) {
+        await fs.writeFile(filePath, failed.join("\n") + "\n", "utf-8");
+      } else {
+        // Remove file when all processed
+        await fs.unlink(filePath);
+      }
+    } catch (error: any) {
+      if (error.code === "ENOENT") {
+        console.info("No offline webhook file to replay");
+        return;
+      }
+      console.error("Erro ao reprocessar webhooks armazenados:", error);
     }
   }
 

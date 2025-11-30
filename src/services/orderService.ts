@@ -94,9 +94,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-          .map((p: any) => p.temp_file_id || p.preview_url || "")
-          .sort()
-          .join(",")
+        .map((p: any) => p.temp_file_id || p.preview_url || "")
+        .sort()
+        .join(",")
       : "",
   }));
 
@@ -413,8 +413,7 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${
-                j + 1
+              `Item ${i + 1}: adicional ${j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -489,8 +488,7 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${
-                product.name
+              `Estoque insuficiente para ${product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -920,83 +918,75 @@ class OrderService {
       (total - discount + shipping_price).toFixed(2)
     );
 
-    // Remover itens antigos (adicionais e customizações em cascata)
-    const oldItems = await prisma.orderItem.findMany({
-      where: { order_id: orderId },
-    });
-    for (const it of oldItems) {
-      await prisma.orderItemAdditional.deleteMany({
-        where: { order_item_id: it.id },
-      });
-      await prisma.orderItemCustomization.deleteMany({
-        where: { order_item_id: it.id },
-      });
-    }
-    await prisma.orderItem.deleteMany({ where: { order_id: orderId } });
+    // ✅ Use transaction to ensure atomicity and prevent FK constraint violations
+    await prisma.$transaction(async (tx) => {
+      // Remover itens antigos (customizações e adicionais em cascata)
+      await tx.orderItem.deleteMany({ where: { order_id: orderId } });
 
-    // Criar novos itens
-    for (const item of items) {
-      const createdItem = await prisma.orderItem.create({
-        data: {
-          order_id: orderId,
-          product_id: item.product_id,
-          quantity: item.quantity,
-          price: item.price,
-        },
-      });
+      // Criar novos itens
+      for (const item of items) {
+        const createdItem = await tx.orderItem.create({
+          data: {
+            order_id: orderId,
+            product_id: item.product_id,
+            quantity: item.quantity,
+            price: item.price,
+          },
+        });
 
-      if (Array.isArray(item.additionals) && item.additionals.length > 0) {
-        for (const additional of item.additionals) {
-          await prisma.orderItemAdditional.create({
-            data: {
-              order_item_id: createdItem.id,
-              additional_id: additional.additional_id,
-              quantity: additional.quantity,
-              price: additional.price,
-            },
-          });
+        if (Array.isArray(item.additionals) && item.additionals.length > 0) {
+          for (const additional of item.additionals) {
+            await tx.orderItemAdditional.create({
+              data: {
+                order_item_id: createdItem.id,
+                additional_id: additional.additional_id,
+                quantity: additional.quantity,
+                price: additional.price,
+              },
+            });
+          }
+        }
+
+        if (
+          Array.isArray(item.customizations) &&
+          item.customizations.length > 0
+        ) {
+          for (const customization of item.customizations) {
+            const {
+              customization_id,
+              customization_type,
+              title,
+              customization_data,
+              ...otherFields
+            } = customization as any;
+
+            // Validar se customization_id é um UUID válido
+            const uuidRegex =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const isValidUUID =
+              customization_id && uuidRegex.test(customization_id);
+
+            await tx.orderItemCustomization.create({
+              data: {
+                order_item_id: createdItem.id,
+                customization_id: isValidUUID ? customization_id : null,
+                value: JSON.stringify({
+                  customization_type,
+                  title,
+                  ...(customization_data || {}),
+                  ...otherFields,
+                }),
+              },
+            });
+          }
         }
       }
 
-      if (
-        Array.isArray(item.customizations) &&
-        item.customizations.length > 0
-      ) {
-        for (const customization of item.customizations) {
-          const {
-            customization_id,
-            customization_type,
-            title,
-            customization_data,
-            ...otherFields
-          } = customization as any;
-
-          // Validar se customization_id é um UUID válido
-          const uuidRegex =
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-          const isValidUUID =
-            customization_id && uuidRegex.test(customization_id);
-
-          await prisma.orderItemCustomization.create({
-            data: {
-              order_item_id: createdItem.id,
-              customization_id: isValidUUID ? customization_id : null,
-              value: JSON.stringify({
-                customization_type,
-                title,
-                ...(customization_data || {}),
-                ...otherFields,
-              }),
-            },
-          });
-        }
-      }
-    }
-
-    // Atualizar o pedido
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { total, grand_total },
+      // Atualizar o pedido
+      await tx.order.update({
+        where: { id: orderId },
+        data: { total, grand_total },
+      });
     });
 
     console.log(
@@ -1224,9 +1214,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                  address: updated.delivery_address,
-                  date: updated.delivery_date || undefined,
-                }
+                address: updated.delivery_address,
+                date: updated.delivery_date || undefined,
+              }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },

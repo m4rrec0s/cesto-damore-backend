@@ -85,6 +85,28 @@ class OrderController {
                         : "VALIDATION_ERROR",
                 });
             }
+            // Erro específico: produtos faltando (informar ids)
+            if (error.code === "MISSING_PRODUCTS") {
+                return res.status(404).json({
+                    error: error.message,
+                    missing: error.missing || [],
+                    code: "MISSING_PRODUCTS",
+                });
+            }
+            if (error.code === "MISSING_ADDITIONALS") {
+                return res.status(404).json({
+                    error: error.message,
+                    missing: error.missing || [],
+                    code: "MISSING_ADDITIONALS",
+                });
+            }
+            if (error.code === "MISSING_ADDITIONALS") {
+                return res.status(404).json({
+                    error: error.message,
+                    missing: error.missing || [],
+                    code: "MISSING_ADDITIONALS",
+                });
+            }
             // Erro genérico (500)
             res.status(500).json({
                 error: "Erro interno do servidor",
@@ -170,6 +192,13 @@ class OrderController {
             if (error.message.includes("não encontrado")) {
                 return res.status(404).json({ error: error.message });
             }
+            if (error.code === "MISSING_PRODUCTS") {
+                return res.status(404).json({
+                    error: error.message,
+                    missing: error.missing || [],
+                    code: "MISSING_PRODUCTS",
+                });
+            }
             if (error.message.includes("pendentes")) {
                 return res.status(403).json({ error: error.message });
             }
@@ -186,7 +215,15 @@ class OrderController {
             // Verificar se o usuário autenticado é dono do pedido
             const userId = req.user?.id;
             const existingOrder = await orderService_1.default.getOrderById(id);
+            // Debug logging para identificar problemas de autenticação
+            console.log("🔍 [updateItems] Verificação de permissão:", {
+                userId,
+                orderUserId: existingOrder.user_id,
+                orderId: id,
+                hasUser: !!req.user,
+            });
             if (userId && existingOrder.user_id !== userId) {
+                console.warn("⚠️ [updateItems] Acesso negado: usuário não é dono do pedido");
                 return res
                     .status(403)
                     .json({ error: "Você não tem permissão para modificar este pedido" });
@@ -204,6 +241,21 @@ class OrderController {
             }
             if (error.message.includes("pendentes")) {
                 return res.status(403).json({ error: error.message });
+            }
+            // Erro específico: produtos ou adicionais faltando
+            if (error.code === "MISSING_PRODUCTS") {
+                return res.status(404).json({
+                    error: error.message,
+                    missing: error.missing || [],
+                    code: "MISSING_PRODUCTS",
+                });
+            }
+            if (error.code === "MISSING_ADDITIONALS") {
+                return res.status(404).json({
+                    error: error.message,
+                    missing: error.missing || [],
+                    code: "MISSING_ADDITIONALS",
+                });
             }
             res.status(500).json({ error: "Erro interno do servidor" });
         }

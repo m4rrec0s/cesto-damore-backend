@@ -239,7 +239,17 @@ class OrderController {
       // Verificar se o usuário autenticado é dono do pedido
       const userId = (req as any).user?.id;
       const existingOrder = await orderService.getOrderById(id);
+
+      // Debug logging para identificar problemas de autenticação
+      console.log("🔍 [updateItems] Verificação de permissão:", {
+        userId,
+        orderUserId: existingOrder.user_id,
+        orderId: id,
+        hasUser: !!(req as any).user,
+      });
+
       if (userId && existingOrder.user_id !== userId) {
+        console.warn("⚠️ [updateItems] Acesso negado: usuário não é dono do pedido");
         return res
           .status(403)
           .json({ error: "Você não tem permissão para modificar este pedido" });
@@ -258,6 +268,22 @@ class OrderController {
       }
       if (error.message.includes("pendentes")) {
         return res.status(403).json({ error: error.message });
+      }
+
+      // Erro específico: produtos ou adicionais faltando
+      if ((error as any).code === "MISSING_PRODUCTS") {
+        return res.status(404).json({
+          error: error.message,
+          missing: (error as any).missing || [],
+          code: "MISSING_PRODUCTS",
+        });
+      }
+      if ((error as any).code === "MISSING_ADDITIONALS") {
+        return res.status(404).json({
+          error: error.message,
+          missing: (error as any).missing || [],
+          code: "MISSING_ADDITIONALS",
+        });
       }
 
       res.status(500).json({ error: "Erro interno do servidor" });

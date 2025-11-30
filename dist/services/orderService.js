@@ -192,7 +192,21 @@ class OrderService {
             const order = await prisma_1.default.order.findUnique({
                 where: { id },
                 include: {
-                    items: { include: { additionals: true, product: true } },
+                    items: {
+                        include: {
+                            additionals: {
+                                include: {
+                                    additional: true,
+                                },
+                            },
+                            product: true,
+                            customizations: {
+                                include: {
+                                    customization: true, // ✅ ADICIONAR customizações
+                                },
+                            },
+                        },
+                    },
                     user: true,
                     payment: true, // ✅ CRÍTICO: Incluir payment para o polling funcionar
                 },
@@ -270,6 +284,11 @@ class OrderService {
             if (!item.product_id || item.product_id.trim() === "") {
                 throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
             }
+            // Validar formato UUID do product_id para evitar erros comuns de payload
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!uuidRegex.test(item.product_id)) {
+                throw new Error(`Item ${i + 1}: ID do produto inválido (formato UUID esperado)`);
+            }
             if (!item.quantity || item.quantity <= 0) {
                 throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
             }
@@ -310,6 +329,8 @@ class OrderService {
                 throw new Error("Usuário não encontrado");
             }
             const productIds = data.items.map((item) => item.product_id);
+            // Helpful debug info for diagnosing missing product issues
+            console.debug("[OrderService.createOrder] payload productIds:", productIds);
             const products = await prisma_1.default.product.findMany({
                 where: { id: { in: productIds } },
                 include: {
@@ -321,7 +342,12 @@ class OrderService {
                 },
             });
             if (products.length !== productIds.length) {
-                throw new Error("Um ou mais produtos não foram encontrados");
+                const foundIds = products.map((p) => p.id);
+                const missing = productIds.filter((id) => !foundIds.includes(id));
+                const err = new Error(`Produtos não encontrados: ${missing.join(",")}`);
+                err.code = "MISSING_PRODUCTS";
+                err.missing = missing;
+                throw err;
             }
             // ========== VALIDAR ESTOQUE DOS PRODUCT COMPONENTS ==========
             for (const orderItem of data.items) {
@@ -484,60 +510,54 @@ class OrderService {
         await this.getOrderById(id);
         try {
             console.log(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
-            // 1. Deletar customizações dos itens do pedido
-            const items = await prisma_1.default.orderItem.findMany({
-                where: { order_id: id },
-                select: { id: true },
-            });
-            const itemIds = items.map((item) => item.id);
-            if (itemIds.length > 0) {
-                // Deletar OrderItemCustomization
-                const deletedCustomizations = await prisma_1.default.orderItemCustomization.deleteMany({
-                    where: { order_item_id: { in: itemIds } },
+            // Execute the deletion sequence inside a transaction to keep data consistent
+            await prisma_1.default.$transaction(async (tx) => {
+                // Re-fetch items inside the transaction for consistent data
+                const items = await tx.orderItem.findMany({
+                    where: { order_id: id },
+                    select: { id: true },
                 });
-                console.log(`  ✓ Customizações deletadas: ${deletedCustomizations.count}`);
-                // Deletar OrderItemAdditional
-                const deletedAdditionals = await prisma_1.default.orderItemAdditional.deleteMany({
-                    where: { order_item_id: { in: itemIds } },
-                });
-                console.log(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
-            }
-            // 2. Deletar OrderItems
-            const deletedItems = await prisma_1.default.orderItem.deleteMany({
-                where: { order_id: id },
-            });
-            console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
-            // 3. Deletar Personalizations (se existir)
-            try {
-                const deletedPersonalizations = await prisma_1.default.personalization.deleteMany({
+                const itemIds = items.map((item) => item.id);
+                if (itemIds.length > 0) {
+                    const deletedCustomizations = await tx.orderItemCustomization.deleteMany({
+                        where: { order_item_id: { in: itemIds } },
+                    });
+                    console.log(`  ✓ Customizações deletadas: ${deletedCustomizations.count}`);
+                    const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
+                        where: { order_item_id: { in: itemIds } },
+                    });
+                    console.log(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
+                }
+                const deletedItems = await tx.orderItem.deleteMany({
                     where: { order_id: id },
                 });
-                console.log(`  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`);
-            }
-            catch (error) {
-                // Ignorar se a tabela Personalization não tiver dados
-                console.log("  ℹ️ Sem personalizações para deletar");
-            }
-            // 4. Deletar Payment (se existir)
-            try {
-                const payment = await prisma_1.default.payment.findUnique({
-                    where: { order_id: id },
-                });
-                if (payment) {
-                    await prisma_1.default.payment.delete({
+                console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
+                try {
+                    const deletedPersonalizations = await tx.personalization.deleteMany({
                         where: { order_id: id },
                     });
-                    console.log("  ✓ Pagamento deletado");
+                    console.log(`  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`);
                 }
-                else {
-                    console.log("  ℹ️ Sem pagamento para deletar");
+                catch (err) {
+                    console.log("  ℹ️ Sem personalizações para deletar (ou erro):", err?.message || err);
                 }
-            }
-            catch (error) {
-                console.log("  ℹ️ Erro ao deletar pagamento (pode não existir)");
-            }
-            // 5. Finalmente, deletar o Order
-            await prisma_1.default.order.delete({ where: { id } });
+                try {
+                    const payment = await tx.payment.findUnique({
+                        where: { order_id: id },
+                    });
+                    if (payment) {
+                        await tx.payment.delete({ where: { order_id: id } });
+                        console.log("  ✓ Pagamento deletado");
+                    }
+                    else {
+                        console.log("  ℹ️ Sem pagamento para deletar");
+                    }
+                }
+                catch (err) {
+                    console.log("  ℹ️ Erro ao deletar pagamento (pode não existir):", err?.message || err);
+                }
+                await tx.order.delete({ where: { id } });
+            });
             console.log(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
             return { message: "Pedido deletado com sucesso" };
         }
@@ -589,6 +609,11 @@ class OrderService {
             if (!item.product_id || item.product_id.trim() === "") {
                 throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
             }
+            // Validar formato UUID do product_id para evitar erros comuns de payload
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!uuidRegex.test(item.product_id)) {
+                throw new Error(`Item ${i + 1}: ID do produto inválido (formato UUID esperado)`);
+            }
             if (!item.quantity || item.quantity <= 0) {
                 throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
             }
@@ -606,11 +631,35 @@ class OrderService {
             }
         }
         const productIds = items.map((i) => i.product_id);
+        console.debug(`[OrderService.updateOrderItems] orderId=${orderId} payload items:`, items);
+        console.debug(`[OrderService.updateOrderItems] orderId=${orderId} items productIds:`, productIds);
         const products = await prisma_1.default.product.findMany({
             where: { id: { in: productIds } },
         });
         if (products.length !== productIds.length) {
-            throw new Error("Um ou mais produtos não encontrados");
+            const foundIds = products.map((p) => p.id);
+            const missing = productIds.filter((id) => !foundIds.includes(id));
+            const err = new Error(`Produtos não encontrados: ${missing.join(",")}`);
+            err.code = "MISSING_PRODUCTS";
+            err.missing = missing;
+            throw err;
+        }
+        // Validar se os adicionais existem
+        const additionalsIds = items
+            .flatMap((item) => item.additionals?.map((ad) => ad.additional_id) || [])
+            .filter(Boolean);
+        if (additionalsIds.length > 0) {
+            const additionals = await prisma_1.default.item.findMany({
+                where: { id: { in: additionalsIds } },
+            });
+            if (additionals.length !== additionalsIds.length) {
+                const foundIds = additionals.map((a) => a.id);
+                const missing = additionalsIds.filter((id) => !foundIds.includes(id));
+                const err = new Error(`Adicionais não encontrados: ${missing.join(",")}`);
+                err.code = "MISSING_ADDITIONALS";
+                err.missing = missing;
+                throw err;
+            }
         }
         if (order.payment_method) {
             const stockValidation = await stockService_1.default.validateOrderStock(items);
@@ -630,67 +679,59 @@ class OrderService {
         const shipping_price = order.shipping_price || 0;
         const total = parseFloat(itemsTotal.toFixed(2));
         const grand_total = parseFloat((total - discount + shipping_price).toFixed(2));
-        // Remover itens antigos (adicionais e customizações em cascata)
-        const oldItems = await prisma_1.default.orderItem.findMany({
-            where: { order_id: orderId },
-        });
-        for (const it of oldItems) {
-            await prisma_1.default.orderItemAdditional.deleteMany({
-                where: { order_item_id: it.id },
-            });
-            await prisma_1.default.orderItemCustomization.deleteMany({
-                where: { order_item_id: it.id },
-            });
-        }
-        await prisma_1.default.orderItem.deleteMany({ where: { order_id: orderId } });
-        // Criar novos itens
-        for (const item of items) {
-            const createdItem = await prisma_1.default.orderItem.create({
-                data: {
-                    order_id: orderId,
-                    product_id: item.product_id,
-                    quantity: item.quantity,
-                    price: item.price,
-                },
-            });
-            if (Array.isArray(item.additionals) && item.additionals.length > 0) {
-                for (const additional of item.additionals) {
-                    await prisma_1.default.orderItemAdditional.create({
-                        data: {
-                            order_item_id: createdItem.id,
-                            additional_id: additional.additional_id,
-                            quantity: additional.quantity,
-                            price: additional.price,
-                        },
-                    });
+        // ✅ Use transaction to ensure atomicity and prevent FK constraint violations
+        await prisma_1.default.$transaction(async (tx) => {
+            // Remover itens antigos (customizações e adicionais em cascata)
+            await tx.orderItem.deleteMany({ where: { order_id: orderId } });
+            // Criar novos itens
+            for (const item of items) {
+                const createdItem = await tx.orderItem.create({
+                    data: {
+                        order_id: orderId,
+                        product_id: item.product_id,
+                        quantity: item.quantity,
+                        price: item.price,
+                    },
+                });
+                if (Array.isArray(item.additionals) && item.additionals.length > 0) {
+                    for (const additional of item.additionals) {
+                        await tx.orderItemAdditional.create({
+                            data: {
+                                order_item_id: createdItem.id,
+                                additional_id: additional.additional_id,
+                                quantity: additional.quantity,
+                                price: additional.price,
+                            },
+                        });
+                    }
+                }
+                if (Array.isArray(item.customizations) &&
+                    item.customizations.length > 0) {
+                    for (const customization of item.customizations) {
+                        const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
+                        // Validar se customization_id é um UUID válido
+                        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                        const isValidUUID = customization_id && uuidRegex.test(customization_id);
+                        await tx.orderItemCustomization.create({
+                            data: {
+                                order_item_id: createdItem.id,
+                                customization_id: isValidUUID ? customization_id : null,
+                                value: JSON.stringify({
+                                    customization_type,
+                                    title,
+                                    ...(customization_data || {}),
+                                    ...otherFields,
+                                }),
+                            },
+                        });
+                    }
                 }
             }
-            if (Array.isArray(item.customizations) &&
-                item.customizations.length > 0) {
-                for (const customization of item.customizations) {
-                    const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
-                    // Validar se customization_id é um UUID válido
-                    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                    const isValidUUID = customization_id && uuidRegex.test(customization_id);
-                    await prisma_1.default.orderItemCustomization.create({
-                        data: {
-                            order_item_id: createdItem.id,
-                            customization_id: isValidUUID ? customization_id : null,
-                            value: JSON.stringify({
-                                customization_type,
-                                title,
-                                ...(customization_data || {}),
-                                ...otherFields,
-                            }),
-                        },
-                    });
-                }
-            }
-        }
-        // Atualizar o pedido
-        await prisma_1.default.order.update({
-            where: { id: orderId },
-            data: { total, grand_total },
+            // Atualizar o pedido
+            await tx.order.update({
+                where: { id: orderId },
+                data: { total, grand_total },
+            });
         });
         console.log(`[OrderService] Itens atualizados do pedido ${orderId} - total: ${total}`);
         return await this.getOrderById(orderId);
@@ -904,6 +945,9 @@ class OrderService {
                         product: true,
                         additionals: {
                             include: { additional: true },
+                        },
+                        customizations: {
+                            include: { customization: true }, // ✅ ADICIONAR customizações
                         },
                     },
                 },

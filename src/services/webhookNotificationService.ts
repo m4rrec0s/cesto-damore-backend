@@ -3,6 +3,7 @@ import { Response } from "express";
 interface WebhookClient {
   orderId: string;
   response: Response;
+  pingInterval?: NodeJS.Timeout | null;
 }
 
 /**
@@ -24,12 +25,29 @@ class WebhookNotificationService {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
+    // Flush headers when possible to ensure client starts receiving data immediately
+    try {
+      (res as any).flushHeaders?.();
+    } catch {
+      /* ignore */
+    }
+
     // Enviar mensagem inicial de conexão
     res.write(`data: ${JSON.stringify({ type: "connected", orderId })}\n\n`);
 
+    // Iniciar heartbeat para manter conexão viva (20s)
+    const pingInterval = setInterval(() => {
+      try {
+        // comments are valid SSE to keep NAT/proxy alive
+        res.write(`: ping\n\n`);
+      } catch (err) {
+        console.warn("🔔 Erro ao enviar ping SSE:", err);
+      }
+    }, 20000);
+
     // Adicionar cliente à lista
     const clients = this.clients.get(orderId) || [];
-    clients.push({ orderId, response: res });
+    clients.push({ orderId, response: res, pingInterval });
     this.clients.set(orderId, clients);
 
     // Remover cliente quando a conexão for fechada
@@ -44,7 +62,16 @@ class WebhookNotificationService {
    */
   private removeClient(orderId: string, res: Response): void {
     const clients = this.clients.get(orderId) || [];
-    const filtered = clients.filter((client) => client.response !== res);
+    const filtered = clients.filter((client) => {
+      if (client.response === res) {
+        if (client.pingInterval) {
+          clearInterval(client.pingInterval);
+          client.pingInterval = null;
+        }
+        return false; // remove this client
+      }
+      return true;
+    });
 
     if (filtered.length === 0) {
       this.clients.delete(orderId);

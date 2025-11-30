@@ -94,9 +94,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-        .map((p: any) => p.temp_file_id || p.preview_url || "")
-        .sort()
-        .join(",")
+          .map((p: any) => p.temp_file_id || p.preview_url || "")
+          .sort()
+          .join(",")
       : "",
   }));
 
@@ -385,6 +385,14 @@ class OrderService {
       if (!item.product_id || item.product_id.trim() === "") {
         throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
       }
+      // Validar formato UUID do product_id para evitar erros comuns de payload
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(item.product_id)) {
+        throw new Error(
+          `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`
+        );
+      }
       if (!item.quantity || item.quantity <= 0) {
         throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
       }
@@ -405,7 +413,8 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1
+              `Item ${i + 1}: adicional ${
+                j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -442,6 +451,11 @@ class OrderService {
       }
 
       const productIds = data.items.map((item) => item.product_id);
+      // Helpful debug info for diagnosing missing product issues
+      console.debug(
+        "[OrderService.createOrder] payload productIds:",
+        productIds
+      );
       const products = await prisma.product.findMany({
         where: { id: { in: productIds } },
         include: {
@@ -454,7 +468,12 @@ class OrderService {
       });
 
       if (products.length !== productIds.length) {
-        throw new Error("Um ou mais produtos não foram encontrados");
+        const foundIds = products.map((p) => p.id);
+        const missing = productIds.filter((id) => !foundIds.includes(id));
+        const err = new Error(`Produtos não encontrados: ${missing.join(",")}`);
+        (err as any).code = "MISSING_PRODUCTS";
+        (err as any).missing = missing;
+        throw err;
       }
 
       // ========== VALIDAR ESTOQUE DOS PRODUCT COMPONENTS ==========
@@ -470,7 +489,8 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${product.name
+              `Estoque insuficiente para ${
+                product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -676,73 +696,69 @@ class OrderService {
     try {
       console.log(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
 
-      // 1. Deletar customizações dos itens do pedido
-      const items = await prisma.orderItem.findMany({
-        where: { order_id: id },
-        select: { id: true },
-      });
+      // Execute the deletion sequence inside a transaction to keep data consistent
+      await prisma.$transaction(async (tx) => {
+        // Re-fetch items inside the transaction for consistent data
+        const items = await tx.orderItem.findMany({
+          where: { order_id: id },
+          select: { id: true },
+        });
+        const itemIds = items.map((item) => item.id);
 
-      const itemIds = items.map((item) => item.id);
+        if (itemIds.length > 0) {
+          const deletedCustomizations =
+            await tx.orderItemCustomization.deleteMany({
+              where: { order_item_id: { in: itemIds } },
+            });
+          console.log(
+            `  ✓ Customizações deletadas: ${deletedCustomizations.count}`
+          );
 
-      if (itemIds.length > 0) {
-        // Deletar OrderItemCustomization
-        const deletedCustomizations =
-          await prisma.orderItemCustomization.deleteMany({
+          const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
             where: { order_item_id: { in: itemIds } },
           });
-        console.log(
-          `  ✓ Customizações deletadas: ${deletedCustomizations.count}`
-        );
+          console.log(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
+        }
 
-        // Deletar OrderItemAdditional
-        const deletedAdditionals = await prisma.orderItemAdditional.deleteMany({
-          where: { order_item_id: { in: itemIds } },
-        });
-        console.log(
-          `  ✓ Adicionais deletados: ${deletedAdditionals.count}`
-        );
-      }
-
-      // 2. Deletar OrderItems
-      const deletedItems = await prisma.orderItem.deleteMany({
-        where: { order_id: id },
-      });
-      console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
-
-      // 3. Deletar Personalizations (se existir)
-      try {
-        const deletedPersonalizations =
-          await prisma.personalization.deleteMany({
-            where: { order_id: id },
-          });
-        console.log(
-          `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`
-        );
-      } catch (error) {
-        // Ignorar se a tabela Personalization não tiver dados
-        console.log("  ℹ️ Sem personalizações para deletar");
-      }
-
-      // 4. Deletar Payment (se existir)
-      try {
-        const payment = await prisma.payment.findUnique({
+        const deletedItems = await tx.orderItem.deleteMany({
           where: { order_id: id },
         });
+        console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
 
-        if (payment) {
-          await prisma.payment.delete({
+        try {
+          const deletedPersonalizations = await tx.personalization.deleteMany({
             where: { order_id: id },
           });
-          console.log("  ✓ Pagamento deletado");
-        } else {
-          console.log("  ℹ️ Sem pagamento para deletar");
+          console.log(
+            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`
+          );
+        } catch (err) {
+          console.log(
+            "  ℹ️ Sem personalizações para deletar (ou erro):",
+            (err as any)?.message || err
+          );
         }
-      } catch (error) {
-        console.log("  ℹ️ Erro ao deletar pagamento (pode não existir)");
-      }
 
-      // 5. Finalmente, deletar o Order
-      await prisma.order.delete({ where: { id } });
+        try {
+          const payment = await tx.payment.findUnique({
+            where: { order_id: id },
+          });
+          if (payment) {
+            await tx.payment.delete({ where: { order_id: id } });
+            console.log("  ✓ Pagamento deletado");
+          } else {
+            console.log("  ℹ️ Sem pagamento para deletar");
+          }
+        } catch (err) {
+          console.log(
+            "  ℹ️ Erro ao deletar pagamento (pode não existir):",
+            (err as any)?.message || err
+          );
+        }
+
+        await tx.order.delete({ where: { id } });
+      });
+
       console.log(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
 
       return { message: "Pedido deletado com sucesso" };
@@ -804,6 +820,14 @@ class OrderService {
       if (!item.product_id || item.product_id.trim() === "") {
         throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
       }
+      // Validar formato UUID do product_id para evitar erros comuns de payload
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(item.product_id)) {
+        throw new Error(
+          `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`
+        );
+      }
       if (!item.quantity || item.quantity <= 0) {
         throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
       }
@@ -826,11 +850,46 @@ class OrderService {
     }
 
     const productIds = items.map((i) => i.product_id);
+    console.debug(
+      `[OrderService.updateOrderItems] orderId=${orderId} payload items:`,
+      items
+    );
+    console.debug(
+      `[OrderService.updateOrderItems] orderId=${orderId} items productIds:`,
+      productIds
+    );
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
     });
     if (products.length !== productIds.length) {
-      throw new Error("Um ou mais produtos não encontrados");
+      const foundIds = products.map((p) => p.id);
+      const missing = productIds.filter((id) => !foundIds.includes(id));
+      const err = new Error(`Produtos não encontrados: ${missing.join(",")}`);
+      (err as any).code = "MISSING_PRODUCTS";
+      (err as any).missing = missing;
+      throw err;
+    }
+
+    // Validar se os adicionais existem
+    const additionalsIds = items
+      .flatMap((item) => item.additionals?.map((ad) => ad.additional_id) || [])
+      .filter(Boolean);
+
+    if (additionalsIds.length > 0) {
+      const additionals = await prisma.item.findMany({
+        where: { id: { in: additionalsIds } },
+      });
+
+      if (additionals.length !== additionalsIds.length) {
+        const foundIds = additionals.map((a) => a.id);
+        const missing = additionalsIds.filter((id) => !foundIds.includes(id));
+        const err = new Error(
+          `Adicionais não encontrados: ${missing.join(",")}`
+        );
+        (err as any).code = "MISSING_ADDITIONALS";
+        (err as any).missing = missing;
+        throw err;
+      }
     }
 
     if (order.payment_method) {
@@ -1165,9 +1224,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                address: updated.delivery_address,
-                date: updated.delivery_date || undefined,
-              }
+                  address: updated.delivery_address,
+                  date: updated.delivery_date || undefined,
+                }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },
@@ -1369,9 +1428,7 @@ class OrderService {
    */
   async cleanupAbandonedOrders() {
     try {
-      const twentyFourHoursAgo = new Date(
-        Date.now() - 24 * 60 * 60 * 1000
-      );
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       // Buscar pedidos PENDING criados há mais de 24h
       const abandonedOrders = await prisma.order.findMany({

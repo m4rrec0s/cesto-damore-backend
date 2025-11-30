@@ -89,6 +89,29 @@ class OrderController {
         });
       }
 
+      // Erro específico: produtos faltando (informar ids)
+      if ((error as any).code === "MISSING_PRODUCTS") {
+        return res.status(404).json({
+          error: error.message,
+          missing: (error as any).missing || [],
+          code: "MISSING_PRODUCTS",
+        });
+      }
+      if ((error as any).code === "MISSING_ADDITIONALS") {
+        return res.status(404).json({
+          error: error.message,
+          missing: (error as any).missing || [],
+          code: "MISSING_ADDITIONALS",
+        });
+      }
+      if ((error as any).code === "MISSING_ADDITIONALS") {
+        return res.status(404).json({
+          error: error.message,
+          missing: (error as any).missing || [],
+          code: "MISSING_ADDITIONALS",
+        });
+      }
+
       // Erro genérico (500)
       res.status(500).json({
         error: "Erro interno do servidor",
@@ -189,6 +212,13 @@ class OrderController {
       }
       if (error.message.includes("não encontrado")) {
         return res.status(404).json({ error: error.message });
+      }
+      if ((error as any).code === "MISSING_PRODUCTS") {
+        return res.status(404).json({
+          error: error.message,
+          missing: (error as any).missing || [],
+          code: "MISSING_PRODUCTS",
+        });
       }
       if (error.message.includes("pendentes")) {
         return res.status(403).json({ error: error.message });

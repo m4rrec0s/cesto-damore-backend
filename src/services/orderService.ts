@@ -94,9 +94,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-        .map((p: any) => p.temp_file_id || p.preview_url || "")
-        .sort()
-        .join(",")
+          .map((p: any) => p.temp_file_id || p.preview_url || "")
+          .sort()
+          .join(",")
       : "",
   }));
 
@@ -413,7 +413,8 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1
+              `Item ${i + 1}: adicional ${
+                j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -488,7 +489,8 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${product.name
+              `Estoque insuficiente para ${
+                product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -578,7 +580,13 @@ class OrderService {
         },
       });
 
-      for (const item of items) {
+      const createdItems: { id: string; index: number }[] = [];
+      const additionalsBatch: any[] = [];
+      const customizationsBatch: any[] = [];
+
+      const createStart = Date.now();
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
         const orderItem = await prisma.orderItem.create({
           data: {
             order_id: created.id,
@@ -587,28 +595,26 @@ class OrderService {
             price: item.price,
           },
         });
+        createdItems.push({ id: orderItem.id, index: idx });
 
-        // Salvar adicionais
+        // Preparar adicionais
         if (Array.isArray(item.additionals) && item.additionals.length > 0) {
           for (const additional of item.additionals) {
-            await prisma.orderItemAdditional.create({
-              data: {
-                order_item_id: orderItem.id,
-                additional_id: additional.additional_id,
-                quantity: additional.quantity,
-                price: additional.price,
-              },
+            additionalsBatch.push({
+              order_item_id: orderItem.id,
+              additional_id: additional.additional_id,
+              quantity: additional.quantity,
+              price: additional.price,
             });
           }
         }
 
-        // ✅ NOVO: Salvar customizações
+        // Preparar customizações
         if (
           Array.isArray(item.customizations) &&
           item.customizations.length > 0
         ) {
           for (const customization of item.customizations) {
-            // Extrair todos os campos relevantes da customização
             const {
               customization_id,
               customization_type,
@@ -617,28 +623,37 @@ class OrderService {
               ...otherFields
             } = customization as any;
 
-            // Validar se customization_id é um UUID válido (não apenas "default")
             const uuidRegex =
               /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             const isValidUUID =
               customization_id && uuidRegex.test(customization_id);
 
-            // Apenas criar a customização se tiver um ID válido, ou usar null
-            await prisma.orderItemCustomization.create({
-              data: {
-                order_item_id: orderItem.id,
-                customization_id: isValidUUID ? customization_id : null,
-                value: JSON.stringify({
-                  customization_type,
-                  title,
-                  ...(customization_data || {}),
-                  ...otherFields, // Inclui selected_option, selected_option_label, etc
-                }),
-              },
+            customizationsBatch.push({
+              order_item_id: orderItem.id,
+              customization_id: isValidUUID ? customization_id : null,
+              value: JSON.stringify({
+                customization_type,
+                title,
+                ...(customization_data || {}),
+                ...otherFields,
+              }),
             });
           }
         }
       }
+
+      if (additionalsBatch.length > 0) {
+        await prisma.orderItemAdditional.createMany({ data: additionalsBatch });
+      }
+      if (customizationsBatch.length > 0) {
+        await prisma.orderItemCustomization.createMany({
+          data: customizationsBatch,
+        });
+      }
+      const createDuration = Date.now() - createStart;
+      console.log(
+        `✅ [OrderService.createOrder] inserted items in ${createDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`
+      );
 
       // ========== DECREMENTAR ESTOQUE ==========
       try {
@@ -919,75 +934,112 @@ class OrderService {
     );
 
     // ✅ Use transaction to ensure atomicity and prevent FK constraint violations
-    await prisma.$transaction(async (tx) => {
-      // Remover itens antigos (customizações e adicionais em cascata)
-      await tx.orderItem.deleteMany({ where: { order_id: orderId } });
+    // To avoid timeouts, perform fewer DB roundtrips by batching adds
+    // and increase transaction timeout to handle larger payloads
+    const txStart = Date.now();
+    try {
+      await prisma.$transaction(
+        async (tx) => {
+          // Remover itens antigos (customizações e adicionais em cascata)
+          await tx.orderItem.deleteMany({ where: { order_id: orderId } });
 
-      // Criar novos itens
-      for (const item of items) {
-        const createdItem = await tx.orderItem.create({
-          data: {
-            order_id: orderId,
-            product_id: item.product_id,
-            quantity: item.quantity,
-            price: item.price,
-          },
-        });
+          const createdItems: { id: string; index: number }[] = [];
+          const additionalsBatch: any[] = [];
+          const customizationsBatch: any[] = [];
 
-        if (Array.isArray(item.additionals) && item.additionals.length > 0) {
-          for (const additional of item.additionals) {
-            await tx.orderItemAdditional.create({
+          // Criar novos itens e acumular additionals/customizations para createMany
+          for (let idx = 0; idx < items.length; idx++) {
+            const item = items[idx];
+            const createdItem = await tx.orderItem.create({
               data: {
-                order_item_id: createdItem.id,
-                additional_id: additional.additional_id,
-                quantity: additional.quantity,
-                price: additional.price,
+                order_id: orderId,
+                product_id: item.product_id,
+                quantity: item.quantity,
+                price: item.price,
               },
             });
-          }
-        }
+            createdItems.push({ id: createdItem.id, index: idx });
 
-        if (
-          Array.isArray(item.customizations) &&
-          item.customizations.length > 0
-        ) {
-          for (const customization of item.customizations) {
-            const {
-              customization_id,
-              customization_type,
-              title,
-              customization_data,
-              ...otherFields
-            } = customization as any;
+            if (
+              Array.isArray(item.additionals) &&
+              item.additionals.length > 0
+            ) {
+              for (const additional of item.additionals) {
+                additionalsBatch.push({
+                  order_item_id: createdItem.id,
+                  additional_id: additional.additional_id,
+                  quantity: additional.quantity,
+                  price: additional.price,
+                });
+              }
+            }
 
-            // Validar se customization_id é um UUID válido
-            const uuidRegex =
-              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            const isValidUUID =
-              customization_id && uuidRegex.test(customization_id);
-
-            await tx.orderItemCustomization.create({
-              data: {
-                order_item_id: createdItem.id,
-                customization_id: isValidUUID ? customization_id : null,
-                value: JSON.stringify({
+            if (
+              Array.isArray(item.customizations) &&
+              item.customizations.length > 0
+            ) {
+              for (const customization of item.customizations) {
+                const {
+                  customization_id,
                   customization_type,
                   title,
-                  ...(customization_data || {}),
-                  ...otherFields,
-                }),
-              },
+                  customization_data,
+                  ...otherFields
+                } = customization as any;
+
+                const uuidRegex =
+                  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                const isValidUUID =
+                  customization_id && uuidRegex.test(customization_id);
+
+                customizationsBatch.push({
+                  order_item_id: createdItem.id,
+                  customization_id: isValidUUID ? customization_id : null,
+                  value: JSON.stringify({
+                    customization_type,
+                    title,
+                    ...(customization_data || {}),
+                    ...otherFields,
+                  }),
+                });
+              }
+            }
+          }
+
+          // Insert all additionals and customizations in bulk to reduce queries
+          if (additionalsBatch.length > 0) {
+            await tx.orderItemAdditional.createMany({ data: additionalsBatch });
+          }
+          if (customizationsBatch.length > 0) {
+            await tx.orderItemCustomization.createMany({
+              data: customizationsBatch,
             });
           }
-        }
-      }
 
-      // Atualizar o pedido
-      await tx.order.update({
-        where: { id: orderId },
-        data: { total, grand_total },
-      });
-    });
+          // Atualizar o pedido
+          await tx.order.update({
+            where: { id: orderId },
+            data: { total, grand_total },
+          });
+          const txDuration = Date.now() - txStart;
+          console.log(
+            `[OrderService] updateOrderItems transaction completed in ${txDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`
+          );
+        },
+        { timeout: 20000 }
+      );
+    } catch (error: any) {
+      console.error(
+        `[OrderService] updateOrderItems transaction failed for order ${orderId}:`,
+        error
+      );
+      if (error?.code === "P2028") {
+        throw new Error(
+          "Erro ao atualizar itens do pedido: tempo limite da transação excedido"
+        );
+      }
+      throw error;
+    }
 
     console.log(
       `[OrderService] Itens atualizados do pedido ${orderId} - total: ${total}`
@@ -1214,9 +1266,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                address: updated.delivery_address,
-                date: updated.delivery_date || undefined,
-              }
+                  address: updated.delivery_address,
+                  date: updated.delivery_date || undefined,
+                }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },

@@ -157,6 +157,9 @@ class OrderCustomizationService {
   }
 
   async finalizeOrderCustomizations(orderId: string): Promise<FinalizeResult> {
+    console.log(
+      `🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`
+    );
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -195,6 +198,9 @@ class OrderCustomizationService {
 
     for (const item of order.items) {
       for (const customization of item.customizations) {
+        console.log(
+          `🔎 processando customization ${customization.id} do item ${item.id}`
+        );
         const data = this.parseCustomizationData(customization.value);
         const artworks = this.extractArtworkAssets(data);
 
@@ -263,11 +269,17 @@ class OrderCustomizationService {
 
     const folderUrl = googleDriveService.getFolderUrl(folderId);
 
-    return {
+    const result = {
       folderId,
       folderUrl,
       uploadedFiles,
     };
+
+    console.log(
+      `✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles}`
+    );
+
+    return result;
   }
 
   async listOrderCustomizations(orderId: string) {

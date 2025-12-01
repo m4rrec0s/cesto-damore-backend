@@ -184,14 +184,16 @@ model FinancialSummary {
 }
 
 model WebhookLog {
-  id            String   @id @default(uuid())
-  payment_id    String? // ID do pagamento relacionado
-  topic         String // Tópico do webhook (payment, merchant_order, etc.)
-  resource_id   String // ID do recurso
-  raw_data      String // Dados brutos do webhook (JSON)
-  processed     Boolean  @default(false)
-  error_message String?
-  created_at    DateTime @default(now())
+  id                     String   @id @default(uuid())
+  payment_id             String? // ID do pagamento relacionado
+  topic                  String // Tópico do webhook (payment, merchant_order, etc.)
+  resource_id            String // ID do recurso
+  raw_data               String // Dados brutos do webhook (JSON)
+  processed              Boolean  @default(false)
+  finalization_succeeded Boolean? @default(false)
+  finalization_attempts  Int      @default(0)
+  error_message          String?
+  created_at             DateTime @default(now())
 }
 
 enum PaymentStatus {

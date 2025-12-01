@@ -67,6 +67,13 @@ app.listen(PORT, () => {
     (async () => {
         try {
             await paymentService_1.PaymentService.replayStoredWebhooks();
+            // On startup, reprocess any failed finalizations (e.g., webhooks processed but finalization failed)
+            try {
+                await paymentService_1.PaymentService.reprocessFailedFinalizations();
+            }
+            catch (err) {
+                console.error("Erro ao reprocessar finalizações na inicialização:", err);
+            }
         }
         catch (err) {
             console.error("Erro ao executar replay de webhooks armazenados:", err);
@@ -76,6 +83,7 @@ app.listen(PORT, () => {
 node_cron_1.default.schedule("*/5 * * * *", async () => {
     try {
         await paymentService_1.PaymentService.replayStoredWebhooks();
+        await paymentService_1.PaymentService.reprocessFailedFinalizations();
     }
     catch (err) {
         console.error("Erro ao executar replay periódico de webhooks armazenados:", err);

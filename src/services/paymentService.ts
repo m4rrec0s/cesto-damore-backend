@@ -1030,6 +1030,70 @@ export class PaymentService {
     }
   }
 
+  /**
+   * Retry finalization for webhook logs where finalization failed or wasn't attempted
+   * This is intended to be called on startup or via scheduled cron to ensure
+   * we eventually finalize pending customizations without relying solely on provider retries.
+   */
+  static async reprocessFailedFinalizations(maxAttempts = 5) {
+    try {
+      const logs = await prisma.webhookLog.findMany({
+        where: {
+          processed: true,
+          finalization_succeeded: false,
+          finalization_attempts: { lt: maxAttempts },
+          topic: "payment",
+        },
+      });
+
+      for (const log of logs) {
+        try {
+          const paymentId = log.resource_id;
+          const dbPayment = await prisma.payment.findFirst({
+            where: { mercado_pago_id: paymentId },
+            include: { order: true },
+          });
+
+          if (!dbPayment || !dbPayment.order_id) {
+            console.warn(`Reprocess: pagamento ${paymentId} sem order_id`);
+            await prisma.webhookLog.updateMany({
+              where: { id: log.id },
+              data: { finalization_attempts: { increment: 1 } as any },
+            });
+            continue;
+          }
+
+          console.log(
+            `🔁 Reprocessando finalização - orderId=${dbPayment.order_id}`
+          );
+          await orderCustomizationService.finalizeOrderCustomizations(
+            dbPayment.order_id
+          );
+
+          await prisma.webhookLog.updateMany({
+            where: { id: log.id },
+            data: {
+              finalization_succeeded: true,
+              finalization_attempts: { increment: 1 } as any,
+            },
+          });
+        } catch (err: any) {
+          console.error("Erro ao reprocessar finalização:", err);
+          await prisma.webhookLog.updateMany({
+            where: { id: log.id },
+            data: {
+              finalization_succeeded: false,
+              finalization_attempts: { increment: 1 } as any,
+              error_message: String(err?.message || err),
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao buscar logs para reprocessamento:", err);
+    }
+  }
+
   static async processWebhookNotification(data: any, headers: any) {
     try {
       const isTestWebhook =
@@ -1127,19 +1191,73 @@ export class PaymentService {
         action: data.action || null,
       });
 
-      await prisma.webhookLog.create({
+      const logEntry = await prisma.webhookLog.create({
         data: {
           payment_id: resourceId,
           topic: webhookType,
           resource_id: resourceId,
           raw_data: JSON.stringify(data),
           processed: false,
+          finalization_succeeded: false,
+          finalization_attempts: 0,
         },
       });
 
       switch (webhookType) {
         case "payment":
           await this.processPaymentNotification(resourceId);
+          // Kick off background finalization monitoring: non-blocking
+          (async () => {
+            try {
+              // Attempt to find DB payment and order
+              const dbPayment = await prisma.payment.findFirst({
+                where: { mercado_pago_id: resourceId },
+                include: { order: true },
+              });
+              if (!dbPayment || !dbPayment.order_id) return;
+              const orderId = dbPayment.order_id;
+              // Run finalize again (idempotent) in background and update webhookLog with finalization result
+              try {
+                const finalizeRes =
+                  await orderCustomizationService.finalizeOrderCustomizations(
+                    orderId
+                  );
+                await prisma.webhookLog.updateMany({
+                  where: {
+                    resource_id: resourceId,
+                    topic: webhookType,
+                  },
+                  data: {
+                    finalization_succeeded: true,
+                    finalization_attempts: {
+                      increment: 1,
+                    } as any,
+                  },
+                });
+                console.log(
+                  `🔁 Finalização para order ${orderId} concluída (webhook monitor)`
+                );
+              } catch (finalizeErr: any) {
+                console.error(
+                  "⚠️ Erro ao finalizar customizações (monitor):",
+                  finalizeErr
+                );
+                await prisma.webhookLog.updateMany({
+                  where: {
+                    resource_id: resourceId,
+                    topic: webhookType,
+                  },
+                  data: {
+                    finalization_succeeded: false,
+                    finalization_attempts: { increment: 1 } as any,
+                    error_message: String(finalizeErr?.message || finalizeErr),
+                  },
+                });
+              }
+            } catch (err) {
+              console.error("Erro no monitor de finalização de webhook:", err);
+            }
+          })();
           break;
         case "merchant_order":
           await this.processMerchantOrderNotification(resourceId);

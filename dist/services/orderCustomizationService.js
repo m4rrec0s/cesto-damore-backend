@@ -105,6 +105,7 @@ class OrderCustomizationService {
         });
     }
     async finalizeOrderCustomizations(orderId) {
+        console.log(`🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`);
         const order = await prisma_1.default.order.findUnique({
             where: { id: orderId },
             include: {
@@ -135,6 +136,7 @@ class OrderCustomizationService {
         };
         for (const item of order.items) {
             for (const customization of item.customizations) {
+                console.log(`🔎 processando customization ${customization.id} do item ${item.id}`);
                 const data = this.parseCustomizationData(customization.value);
                 const artworks = this.extractArtworkAssets(data);
                 if (artworks.length === 0) {
@@ -177,11 +179,13 @@ class OrderCustomizationService {
             return { uploadedFiles: 0 };
         }
         const folderUrl = googleDriveService_1.default.getFolderUrl(folderId);
-        return {
+        const result = {
             folderId,
             folderUrl,
             uploadedFiles,
         };
+        console.log(`✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles}`);
+        return result;
     }
     async listOrderCustomizations(orderId) {
         return prisma_1.default.orderItem.findMany({

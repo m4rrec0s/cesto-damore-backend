@@ -97,6 +97,60 @@ class OrderService {
             })),
         }));
     }
+    /**
+     * Remove todos os campos base64 das customizações antes de retornar ao frontend
+     * Mantém apenas os links do Google Drive
+     */
+    removeBase64Recursive(obj) {
+        if (!obj || typeof obj !== "object")
+            return;
+        if (Array.isArray(obj)) {
+            obj.forEach((item) => this.removeBase64Recursive(item));
+            return;
+        }
+        for (const key of Object.keys(obj)) {
+            if (key === "base64" || key === "base64Data") {
+                delete obj[key];
+                continue;
+            }
+            const value = obj[key];
+            // Remover strings que começam com data:image (base64)
+            if (typeof value === "string" && value.startsWith("data:image")) {
+                delete obj[key];
+                continue;
+            }
+            if (typeof value === "object" && value !== null) {
+                this.removeBase64Recursive(value);
+            }
+        }
+    }
+    /**
+     * Remove todos os campos base64 das customizações antes de retornar ao frontend
+     * Mantém apenas os links do Google Drive
+     */
+    sanitizeBase64FromCustomizations(orders) {
+        return orders.map((order) => ({
+            ...order,
+            items: order.items.map((item) => ({
+                ...item,
+                customizations: item.customizations.map((customization) => {
+                    try {
+                        const customData = JSON.parse(customization.value || "{}");
+                        // Sanitização recursiva para garantir que nada escape
+                        this.removeBase64Recursive(customData);
+                        return {
+                            ...customization,
+                            value: JSON.stringify(customData),
+                        };
+                    }
+                    catch (error) {
+                        console.error("Erro ao sanitizar customização:", customization.id, error);
+                        return customization;
+                    }
+                }),
+            })),
+        }));
+    }
     normalizeStatus(status) {
         const normalized = status?.trim().toUpperCase();
         if (!ORDER_STATUSES.includes(normalized)) {
@@ -148,7 +202,9 @@ class OrderService {
                 },
             });
             // Enriquecer customizações com labels das opções
-            return this.enrichCustomizations(orders);
+            const enriched = this.enrichCustomizations(orders);
+            // Sanitizar base64 antes de retornar
+            return this.sanitizeBase64FromCustomizations(enriched);
         }
         catch (error) {
             throw new Error(`Erro ao buscar pedidos: ${error.message}`);
@@ -183,7 +239,8 @@ class OrderService {
                 created_at: "desc",
             },
         });
-        return this.enrichCustomizations(orders);
+        const enriched = this.enrichCustomizations(orders);
+        return this.sanitizeBase64FromCustomizations(enriched);
     }
     async getOrderById(id) {
         if (!id) {
@@ -215,7 +272,10 @@ class OrderService {
             if (!order) {
                 throw new Error("Pedido não encontrado");
             }
-            return order;
+            // Enriquecer e sanitizar o pedido único
+            const enriched = this.enrichCustomizations([order]);
+            const sanitized = this.sanitizeBase64FromCustomizations(enriched);
+            return sanitized[0];
         }
         catch (error) {
             if (error.message.includes("não encontrado")) {
@@ -849,26 +909,9 @@ class OrderService {
         if (!current) {
             throw new Error("Pedido não encontrado");
         }
-        // Se status não mudou, apenas retorna o pedido completo
+        // Se status não mudou, apenas retorna o pedido completo (sanitizado via getOrderById)
         if (current.status === normalizedStatus) {
-            return prisma_1.default.order.findUnique({
-                where: { id },
-                include: {
-                    items: {
-                        include: {
-                            additionals: {
-                                include: {
-                                    additional: true,
-                                },
-                            },
-                            product: true,
-                            customizations: true,
-                        },
-                    },
-                    user: true,
-                    payment: true,
-                },
-            });
+            return this.getOrderById(id);
         }
         const updated = await prisma_1.default.order.update({
             where: { id },
@@ -947,7 +990,8 @@ class OrderService {
                 console.error("⚠️ Erro ao enviar notificação de atualização de pedido:", error.message);
             }
         }
-        return updated;
+        // Retornar via getOrderById para garantir sanitização
+        return this.getOrderById(id);
     }
     async getPendingOrder(userId) {
         if (!userId) {
@@ -976,7 +1020,12 @@ class OrderService {
                 created_at: "desc",
             },
         });
-        return pendingOrder;
+        if (!pendingOrder)
+            return null;
+        // Enriquecer e sanitizar o pedido pendente
+        const enriched = this.enrichCustomizations([pendingOrder]);
+        const sanitized = this.sanitizeBase64FromCustomizations(enriched);
+        return sanitized[0];
     }
     async cancelOrder(orderId, userId) {
         if (!orderId) {

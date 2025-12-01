@@ -86,9 +86,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-          .map((p: any) => p.temp_file_id || p.preview_url || "")
-          .sort()
-          .join(",")
+        .map((p: any) => p.temp_file_id || p.preview_url || "")
+        .sort()
+        .join(",")
       : "",
   }));
 
@@ -134,7 +134,7 @@ class OrderService {
                 typeof customData.selected_item === "string"
                   ? customData.selected_item
                   : (customData.selected_item as { selected_item?: string })
-                      .selected_item;
+                    .selected_item;
 
               if (selected) {
                 customData.label_selected = selected;
@@ -149,6 +149,70 @@ class OrderService {
           } catch (error) {
             console.error(
               "Erro ao enriquecer customização:",
+              customization.id,
+              error
+            );
+            return customization;
+          }
+        }),
+      })),
+    }));
+  }
+
+  /**
+   * Remove todos os campos base64 das customizações antes de retornar ao frontend
+   * Mantém apenas os links do Google Drive
+   */
+  private removeBase64Recursive(obj: any) {
+    if (!obj || typeof obj !== "object") return;
+
+    if (Array.isArray(obj)) {
+      obj.forEach((item) => this.removeBase64Recursive(item));
+      return;
+    }
+
+    for (const key of Object.keys(obj)) {
+      if (key === "base64" || key === "base64Data") {
+        delete obj[key];
+        continue;
+      }
+
+      const value = obj[key];
+      // Remover strings que começam com data:image (base64)
+      if (typeof value === "string" && value.startsWith("data:image")) {
+        delete obj[key];
+        continue;
+      }
+
+      if (typeof value === "object" && value !== null) {
+        this.removeBase64Recursive(value);
+      }
+    }
+  }
+
+  /**
+   * Remove todos os campos base64 das customizações antes de retornar ao frontend
+   * Mantém apenas os links do Google Drive
+   */
+  private sanitizeBase64FromCustomizations(orders: any[]) {
+    return orders.map((order) => ({
+      ...order,
+      items: order.items.map((item: any) => ({
+        ...item,
+        customizations: item.customizations.map((customization: any) => {
+          try {
+            const customData = JSON.parse(customization.value || "{}");
+
+            // Sanitização recursiva para garantir que nada escape
+            this.removeBase64Recursive(customData);
+
+            return {
+              ...customization,
+              value: JSON.stringify(customData),
+            };
+          } catch (error) {
+            console.error(
+              "Erro ao sanitizar customização:",
               customization.id,
               error
             );
@@ -220,7 +284,10 @@ class OrderService {
       });
 
       // Enriquecer customizações com labels das opções
-      return this.enrichCustomizations(orders);
+      const enriched = this.enrichCustomizations(orders);
+
+      // Sanitizar base64 antes de retornar
+      return this.sanitizeBase64FromCustomizations(enriched);
     } catch (error: any) {
       throw new Error(`Erro ao buscar pedidos: ${error.message}`);
     }
@@ -257,7 +324,8 @@ class OrderService {
       },
     });
 
-    return this.enrichCustomizations(orders);
+    const enriched = this.enrichCustomizations(orders);
+    return this.sanitizeBase64FromCustomizations(enriched);
   }
 
   async getOrderById(id: string) {
@@ -293,7 +361,11 @@ class OrderService {
         throw new Error("Pedido não encontrado");
       }
 
-      return order;
+      // Enriquecer e sanitizar o pedido único
+      const enriched = this.enrichCustomizations([order]);
+      const sanitized = this.sanitizeBase64FromCustomizations(enriched);
+
+      return sanitized[0];
     } catch (error: any) {
       if (error.message.includes("não encontrado")) {
         throw error;
@@ -415,8 +487,7 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${
-                j + 1
+              `Item ${i + 1}: adicional ${j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -486,8 +557,7 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${
-                product.name
+              `Estoque insuficiente para ${product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -1163,26 +1233,9 @@ class OrderService {
       throw new Error("Pedido não encontrado");
     }
 
-    // Se status não mudou, apenas retorna o pedido completo
+    // Se status não mudou, apenas retorna o pedido completo (sanitizado via getOrderById)
     if (current.status === normalizedStatus) {
-      return prisma.order.findUnique({
-        where: { id },
-        include: {
-          items: {
-            include: {
-              additionals: {
-                include: {
-                  additional: true,
-                },
-              },
-              product: true,
-              customizations: true,
-            },
-          },
-          user: true,
-          payment: true,
-        },
-      });
+      return this.getOrderById(id);
     }
 
     const updated = await prisma.order.update({
@@ -1257,9 +1310,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                  address: updated.delivery_address,
-                  date: updated.delivery_date || undefined,
-                }
+                address: updated.delivery_address,
+                date: updated.delivery_date || undefined,
+              }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },
@@ -1273,7 +1326,8 @@ class OrderService {
       }
     }
 
-    return updated;
+    // Retornar via getOrderById para garantir sanitização
+    return this.getOrderById(id);
   }
 
   async getPendingOrder(userId: string) {
@@ -1305,7 +1359,13 @@ class OrderService {
       },
     });
 
-    return pendingOrder;
+    if (!pendingOrder) return null;
+
+    // Enriquecer e sanitizar o pedido pendente
+    const enriched = this.enrichCustomizations([pendingOrder]);
+    const sanitized = this.sanitizeBase64FromCustomizations(enriched);
+
+    return sanitized[0];
   }
 
   async cancelOrder(orderId: string, userId?: string) {

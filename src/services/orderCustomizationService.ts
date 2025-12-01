@@ -191,9 +191,8 @@ class OrderCustomizationService {
         .replace(/[^a-zA-Z0-9]/g, "_")
         .substring(0, 40);
 
-      const folderName = `Pedido_${safeCustomerName}_${
-        new Date().toISOString().split("T")[0]
-      }_${orderId.substring(0, 8)}`;
+      const folderName = `Pedido_${safeCustomerName}_${new Date().toISOString().split("T")[0]
+        }_${orderId.substring(0, 8)}`;
 
       folderId = await googleDriveService.createFolder(folderName);
       await googleDriveService.makeFolderPublic(folderId);
@@ -511,6 +510,24 @@ class OrderCustomizationService {
       }
     });
 
+    // ✅ NOVO: Suporte para LAYOUT_BASE - extrai imagens dos slots
+    const images = Array.isArray(data?.images) ? data.images : [];
+
+    images.forEach((image: any, index: number) => {
+      if (image && typeof image === "object") {
+        // LAYOUT_BASE pode ter: { slot: string, url: string (base64), ... }
+        const base64Content = image.url || image.base64 || image.base64Data;
+        if (base64Content) {
+          assets.push({
+            base64: base64Content,
+            base64Data: base64Content,
+            mimeType: image.mimeType || image.mime_type || "image/jpeg",
+            fileName: image.fileName || image.original_name || `layout-slot-${image.slot || index}.jpg`,
+          } as ArtworkAsset);
+        }
+      }
+    });
+
     const filteredAssets = assets.filter((asset) => {
       const hasContent = Boolean(this.getBase64Content(asset));
       if (!hasContent) {
@@ -523,6 +540,7 @@ class OrderCustomizationService {
       return hasContent;
     });
 
+    console.log(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do LAYOUT_BASE)`);
     return filteredAssets;
   }
 
@@ -653,6 +671,42 @@ class OrderCustomizationService {
 
         return newPhoto;
       });
+      uploadIndex += sanitized.photos.length;
+    }
+
+    // ✅ NOVO: Sanitizar LAYOUT_BASE images array
+    if (Array.isArray(sanitized.images)) {
+      sanitized.images = sanitized.images.map((image: any, idx: number) => {
+        const upload = uploads[uploadIndex + idx];
+        const newImage = {
+          ...image,
+          url: undefined, // Remove base64 URL
+          base64: undefined,
+          base64Data: undefined,
+          mimeType: upload?.mimeType || image?.mimeType,
+          fileName: upload?.fileName || image?.fileName,
+          google_drive_file_id: upload?.id,
+          google_drive_url: upload?.webContentLink,
+        };
+
+        if (upload) {
+          console.log(
+            `✅ LAYOUT_BASE image[${idx}] (slot: ${image.slot || 'unknown'}) sanitized and uploaded: ${upload.fileName} (driveId=${upload.id})`
+          );
+        } else {
+          console.log(
+            `⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`
+          );
+        }
+
+        return newImage;
+      });
+    }
+
+    // ✅ NOVO: Remover base64 do campo text se for uma URL base64
+    if (sanitized.text && typeof sanitized.text === 'string' && sanitized.text.startsWith('data:image')) {
+      console.log("✅ Removendo base64 do campo 'text'");
+      delete sanitized.text;
     }
 
     return sanitized;
@@ -682,10 +736,19 @@ class OrderCustomizationService {
     for (const key of Object.keys(obj)) {
       if (key === "base64" || key === "base64Data") {
         delete obj[key];
+        removedCount++;
         continue;
       }
 
       const value = obj[key];
+
+      // Check for data URI strings
+      if (typeof value === "string" && value.startsWith("data:image")) {
+        delete obj[key];
+        removedCount++;
+        continue;
+      }
+
       if (typeof value === "object" && value !== null) {
         removedCount += this.removeBase64FieldsRecursive(value) || 0;
       }

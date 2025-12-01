@@ -310,6 +310,17 @@ export class PaymentController {
         { type: incomingType || null, resource: incomingResource || null }
       );
 
+      if (process.env.NODE_ENV !== "production") {
+        try {
+          console.log(
+            "📮 Webhook payload (debug):",
+            JSON.stringify(webhookData, null, 2)
+          );
+        } catch (err) {
+          console.warn("Falha ao imprimir payload do webhook (debug)");
+        }
+      }
+
       await PaymentService.processWebhookNotification(webhookData, headers);
 
       console.log(

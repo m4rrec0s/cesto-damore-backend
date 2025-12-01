@@ -1066,15 +1066,21 @@ export class PaymentService {
           console.log(
             `🔁 Reprocessando finalização - orderId=${dbPayment.order_id}`
           );
-          await orderCustomizationService.finalizeOrderCustomizations(
-            dbPayment.order_id
-          );
-
+          const finalizeRes =
+            await orderCustomizationService.finalizeOrderCustomizations(
+              dbPayment.order_id
+            );
+          const succeeded = !finalizeRes?.base64Detected;
           await prisma.webhookLog.updateMany({
             where: { id: log.id },
             data: {
-              finalization_succeeded: true,
+              finalization_succeeded: succeeded,
               finalization_attempts: { increment: 1 } as any,
+              error_message: succeeded
+                ? undefined
+                : `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
+                    ","
+                  )}`,
             },
           });
         } catch (err: any) {
@@ -1174,6 +1180,40 @@ export class PaymentService {
       });
 
       if (existingLog) {
+        // If we've processed this webhook previously, verify that our DB is consistent with
+        // the Mercado Pago status. If the DB hasn't been updated but MP reports 'approved', re-run processing.
+        try {
+          const paymentInfo = await this.getPayment(resourceId);
+          const dbPayment = await prisma.payment.findFirst({
+            where: { mercado_pago_id: resourceId },
+          });
+          const mpStatus = (paymentInfo?.status || "").toLowerCase();
+          const dbStatus = dbPayment?.status?.toLowerCase() || null;
+          if (mpStatus === "approved" && dbStatus !== "approved") {
+            console.warn(
+              "⚠️ Webhook marked processed but DB out-of-sync (MP approved, DB not) - reprocessing",
+              { resourceId }
+            );
+            // Reprocess to ensure order/payment state is updated
+            await this.processPaymentNotification(resourceId);
+            // Update log with attempted reprocess
+            await prisma.webhookLog.updateMany({
+              where: { resource_id: resourceId, topic: webhookType },
+              data: { processed: true },
+            });
+            return {
+              success: true,
+              message:
+                "Webhook reprocessado para sincronizar estado de pagamento",
+            };
+          }
+        } catch (err) {
+          console.error(
+            "Erro ao verificar estado do pagamento para webhooks duplicados:",
+            err
+          );
+        }
+
         console.log("⚠️ Webhook duplicado ignorado (já processado)", {
           paymentId: resourceId,
           type: webhookType,
@@ -1203,9 +1243,10 @@ export class PaymentService {
         },
       });
 
+      let processedPayment: boolean | undefined = undefined;
       switch (webhookType) {
         case "payment":
-          await this.processPaymentNotification(resourceId);
+          processedPayment = await this.processPaymentNotification(resourceId);
           // Kick off background finalization monitoring: non-blocking
           (async () => {
             try {
@@ -1222,21 +1263,34 @@ export class PaymentService {
                   await orderCustomizationService.finalizeOrderCustomizations(
                     orderId
                   );
+                const succeeded = !finalizeRes?.base64Detected;
+                const message = succeeded
+                  ? `🔁 Finalização para order ${orderId} concluída (webhook monitor)`
+                  : `⚠️ Finalização incompleta (base64 detectado) para order ${orderId} (monitor)`;
                 await prisma.webhookLog.updateMany({
                   where: {
                     resource_id: resourceId,
                     topic: webhookType,
                   },
                   data: {
-                    finalization_succeeded: true,
+                    finalization_succeeded: succeeded,
                     finalization_attempts: {
                       increment: 1,
                     } as any,
+                    error_message: succeeded
+                      ? undefined
+                      : `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
+                          ","
+                        )}`,
                   },
                 });
-                console.log(
-                  `🔁 Finalização para order ${orderId} concluída (webhook monitor)`
-                );
+                console.log(message);
+                if (finalizeRes?.base64Detected) {
+                  console.warn(
+                    `Base64 detected in ${finalizeRes.base64AffectedIds?.length} customizations:`,
+                    finalizeRes.base64AffectedIds
+                  );
+                }
               } catch (finalizeErr: any) {
                 console.error(
                   "⚠️ Erro ao finalizar customizações (monitor):",
@@ -1266,15 +1320,23 @@ export class PaymentService {
           console.log(`ℹ️ Tipo de webhook não processado: ${webhookType}`);
       }
 
-      await prisma.webhookLog.updateMany({
-        where: {
-          resource_id: resourceId,
-          topic: webhookType,
-        },
-        data: {
-          processed: true,
-        },
-      });
+      if (processedPayment) {
+        await prisma.webhookLog.updateMany({
+          where: {
+            resource_id: resourceId,
+            topic: webhookType,
+          },
+          data: {
+            processed: true,
+          },
+        });
+      } else {
+        // If payment was not processed (e.g., not found in DB), do not mark as processed
+        console.warn(
+          "⚠️ Webhook processing completed but payment was NOT processed (not updating webhookLog.processed)",
+          { resourceId, topic: webhookType }
+        );
+      }
 
       return {
         success: true,
@@ -1374,18 +1436,27 @@ export class PaymentService {
     }
   }
 
-  static async processPaymentNotification(paymentId: string) {
+  static async processPaymentNotification(paymentId: string): Promise<boolean> {
     try {
       const paymentInfo = await this.getPayment(paymentId);
+      console.log(
+        `🔔 processPaymentNotification - paymentId=${paymentId} status=${paymentInfo?.status}`
+      );
 
       const dbPayment = await prisma.payment.findFirst({
         where: { mercado_pago_id: paymentId.toString() },
         include: { order: { include: { user: true } } },
       });
 
+      console.log(
+        `🔎 dbPayment found: ${dbPayment ? dbPayment.id : "null"} status: ${
+          dbPayment ? dbPayment.status : "N/A"
+        }`
+      );
+
       if (!dbPayment) {
         console.error("Pagamento não encontrado no banco:", paymentId);
-        return;
+        return false;
       }
 
       const newStatus = this.mapPaymentStatus(paymentInfo.status as string);
@@ -1399,11 +1470,21 @@ export class PaymentService {
           net_received_amount:
             paymentInfo.transaction_details?.net_received_amount,
           fee_details: JSON.stringify(paymentInfo.fee_details),
-          approved_at: paymentInfo.status === "approved" ? new Date() : null,
-          last_webhook_at: new Date(),
+          approved_at:
+            paymentInfo.status === "approved"
+              ? paymentInfo.date_approved
+                ? new Date(paymentInfo.date_approved)
+                : new Date()
+              : null,
+          last_webhook_at: paymentInfo.date_created
+            ? new Date(paymentInfo.date_created)
+            : paymentInfo.date_approved
+            ? new Date(paymentInfo.date_approved)
+            : new Date(),
           webhook_attempts: dbPayment.webhook_attempts + 1,
         },
       });
+      console.log(`💾 DB updated payment ${dbPayment.id} -> ${newStatus}`);
 
       if (paymentInfo.status === "approved") {
         await prisma.order.update({
@@ -1453,6 +1534,7 @@ export class PaymentService {
           data: { status: "CANCELED" },
         });
       }
+      return true;
     } catch (error) {
       console.error("Erro ao processar notificação de pagamento:", error);
       throw error;

@@ -257,6 +257,14 @@ class PaymentController {
                 webhookData?.resource ||
                 null;
             console.log("📨 PaymentController.handleWebhook - Iniciando processamento", { type: incomingType || null, resource: incomingResource || null });
+            if (process.env.NODE_ENV !== "production") {
+                try {
+                    console.log("📮 Webhook payload (debug):", JSON.stringify(webhookData, null, 2));
+                }
+                catch (err) {
+                    console.warn("Falha ao imprimir payload do webhook (debug)");
+                }
+            }
             await paymentService_1.default.processWebhookNotification(webhookData, headers);
             console.log("✅ PaymentController.handleWebhook - Processado com sucesso");
             res.status(200).json({ received: true });

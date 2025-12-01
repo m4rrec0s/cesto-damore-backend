@@ -123,6 +123,8 @@ class OrderCustomizationService {
         }
         let folderId = null;
         let uploadedFiles = 0;
+        let base64Detected = false;
+        const base64AffectedIds = [];
         const ensureFolder = async () => {
             if (folderId)
                 return folderId;
@@ -146,6 +148,29 @@ class OrderCustomizationService {
                 const uploads = await Promise.all(artworks.map((asset) => this.uploadArtwork(asset, { id: customization.id }, targetFolder)));
                 uploadedFiles += uploads.length;
                 const sanitizedData = this.removeBase64FromData(data, uploads);
+                // Recompute label_selected for BASE_LAYOUT / MULTIPLE_CHOICE if missing
+                try {
+                    const cType = sanitizedData.customization_type;
+                    if (!sanitizedData.label_selected ||
+                        sanitizedData.label_selected === "") {
+                        if (cType === "BASE_LAYOUT" || cType === "MULTIPLE_CHOICE") {
+                            const computed = await this.computeLabelSelected(cType, sanitizedData, customization.customization_id, sanitizedData.selected_layout_id);
+                            if (computed) {
+                                sanitizedData.label_selected = computed;
+                                if (cType === "MULTIPLE_CHOICE") {
+                                    sanitizedData.selected_option_label = computed;
+                                }
+                                if (cType === "BASE_LAYOUT") {
+                                    sanitizedData.selected_item_label = computed;
+                                }
+                                console.log(`🧭 Recomputed label_selected for customization ${customization.id}: ${computed}`);
+                            }
+                        }
+                    }
+                }
+                catch (err) {
+                    console.warn(`⚠️ Falha ao recomputar label_selected para customization ${customization.id}:`, err);
+                }
                 // Defense: ensure no lingering base64 fields anywhere in the JSON
                 const removedFieldsCount = this.removeBase64FieldsRecursive(sanitizedData);
                 if (removedFieldsCount > 0) {
@@ -165,9 +190,40 @@ class OrderCustomizationService {
                         where: { id: customization.id },
                         select: { value: true },
                     });
-                    if (updated &&
-                        /base64[,\s]*$|data:[^;]+;base64,/.test(String(updated.value))) {
-                        console.error("🚨 Detected base64 content in saved customization value after sanitization:", customization.id);
+                    const updatedVal = updated ? String(updated.value) : "";
+                    const dataUriPattern = /data:[^;]+;base64,/i;
+                    if (updatedVal && dataUriPattern.test(updatedVal)) {
+                        console.error("🚨 Detected data URI / base64 content in saved customization value after sanitization:", customization.id);
+                        base64Detected = true;
+                        base64AffectedIds.push(customization.id);
+                        // Try an additional pass: parse and remove any lingering base64 fields and resave
+                        try {
+                            const parsed = JSON.parse(updatedVal);
+                            const removed = this.removeBase64FieldsRecursive(parsed);
+                            if (removed > 0) {
+                                console.log(`🔁 Re-sanitizing customization ${customization.id}, removed ${removed} lingering base64 fields`);
+                                await prisma_1.default.orderItemCustomization.update({
+                                    where: { id: customization.id },
+                                    data: { value: JSON.stringify(parsed) },
+                                });
+                                // verify again
+                                const refetch = await prisma_1.default.orderItemCustomization.findUnique({
+                                    where: { id: customization.id },
+                                    select: { value: true },
+                                });
+                                const refVal = refetch ? String(refetch.value) : "";
+                                if (!dataUriPattern.test(refVal)) {
+                                    console.log(`✅ Re-sanitization successful for customization ${customization.id}`);
+                                    // remove from base64AffectedIds since it was fixed
+                                    const idx = base64AffectedIds.indexOf(customization.id);
+                                    if (idx >= 0)
+                                        base64AffectedIds.splice(idx, 1);
+                                }
+                            }
+                        }
+                        catch (err) {
+                            console.warn(`⚠️ Falha ao re-sanitizar customization ${customization.id}:`, err);
+                        }
                     }
                 }
                 catch (verifyErr) {
@@ -179,10 +235,13 @@ class OrderCustomizationService {
             return { uploadedFiles: 0 };
         }
         const folderUrl = googleDriveService_1.default.getFolderUrl(folderId);
+        base64Detected = base64AffectedIds.length > 0;
         const result = {
             folderId,
             folderUrl,
             uploadedFiles,
+            base64Detected,
+            base64AffectedIds,
         };
         console.log(`✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles}`);
         return result;
@@ -249,9 +308,11 @@ class OrderCustomizationService {
         }
         // BASE_LAYOUT — use the provided layout id or selected_layout_id to get layout name
         if (customizationType === "BASE_LAYOUT") {
+            // Try typical fields then recursively search the object for common keys
             const layoutId = selectedLayoutId ||
                 customizationData.layout_id ||
-                customizationData.base_layout_id;
+                customizationData.base_layout_id ||
+                this.findLayoutIdInObject(customizationData);
             if (!layoutId)
                 return undefined;
             try {
@@ -263,6 +324,31 @@ class OrderCustomizationService {
             catch (error) {
                 console.warn("computeLabelSelected: erro ao buscar layout", error);
                 return undefined;
+            }
+        }
+        return undefined;
+    }
+    // Search recursively for layout id in nested JSON structure
+    findLayoutIdInObject(obj) {
+        if (!obj || typeof obj !== "object")
+            return undefined;
+        const keys = [
+            "selected_layout_id",
+            "layout_id",
+            "base_layout_id",
+            "layoutId",
+            "baseLayoutId",
+        ];
+        for (const k of keys) {
+            if (obj[k])
+                return obj[k];
+        }
+        for (const key of Object.keys(obj)) {
+            const value = obj[key];
+            if (typeof value === "object" && value !== null) {
+                const found = this.findLayoutIdInObject(value);
+                if (found)
+                    return found;
             }
         }
         return undefined;

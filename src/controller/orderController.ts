@@ -355,6 +355,16 @@ class OrderController {
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
+
+  async removeAllCanceledOrders(req: Request, res: Response) {
+    try {
+      const result = await orderService.deleteAllCanceledOrders();
+      res.json(result);
+    } catch (error: any) {
+      console.error("Erro ao deletar pedidos cancelados:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
 }
 
 export default new OrderController();

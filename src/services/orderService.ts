@@ -198,11 +198,7 @@ class OrderService {
                 },
               },
               product: true,
-              customizations: {
-                include: {
-                  customization: true, // Incluir os dados da customização
-                },
-              },
+              customizations: true,
             },
           },
           user: true,
@@ -276,13 +272,13 @@ class OrderService {
               product: true,
               customizations: {
                 include: {
-                  customization: true, // ✅ ADICIONAR customizações
+                  customization: true,
                 },
               },
             },
           },
           user: true,
-          payment: true, // ✅ CRÍTICO: Incluir payment para o polling funcionar
+          payment: true,
         },
       });
 
@@ -300,7 +296,6 @@ class OrderService {
   }
 
   async createOrder(data: CreateOrderInput) {
-    // Log sucinto: evitar imprimir payloads grandes (base64, imagens)
     console.log("📝 [OrderService] Iniciando criação de pedido - resumo:", {
       user_id: data.user_id,
       itemsCount: Array.isArray(data.items) ? data.items.length : 0,
@@ -428,8 +423,6 @@ class OrderService {
     }
 
     try {
-      // ========== CANCELAR PEDIDOS PENDING ANTERIORES ==========
-      // Evitar múltiplos pedidos PENDING do mesmo usuário
       try {
         await this.cancelPreviousPendingOrders(data.user_id);
         console.log(
@@ -440,7 +433,6 @@ class OrderService {
           "⚠️ Erro ao cancelar pedidos anteriores (continuando):",
           error instanceof Error ? error.message : error
         );
-        // Não bloqueia a criação do pedido se falhar
       }
 
       const user = await prisma.user.findUnique({
@@ -451,7 +443,6 @@ class OrderService {
       }
 
       const productIds = data.items.map((item) => item.product_id);
-      // Helpful debug info for diagnosing missing product issues
       console.debug(
         "[OrderService.createOrder] payload productIds:",
         productIds
@@ -476,7 +467,6 @@ class OrderService {
         throw err;
       }
 
-      // ========== VALIDAR ESTOQUE DOS PRODUCT COMPONENTS ==========
       for (const orderItem of data.items) {
         const product = products.find((p) => p.id === orderItem.product_id);
 
@@ -550,8 +540,6 @@ class OrderService {
 
       const { items, ...orderData } = data;
 
-      // ========== VALIDAR E DECREMENTAR ESTOQUE ==========
-      // Para pedidos draft (carrinho), não validar estoque
       if (!data.is_draft) {
         const stockValidation = await stockService.validateOrderStock(items);
 
@@ -1518,6 +1506,99 @@ class OrderService {
         error
       );
       throw new Error(`Erro ao limpar pedidos abandonados: ${error.message}`);
+    }
+  }
+
+  async deleteAllCanceledOrders() {
+    try {
+      const canceledOrders = await prisma.order.findMany({
+        where: { status: "CANCELED" },
+        select: { id: true },
+      });
+
+      if (canceledOrders.length === 0) {
+        console.log(
+          "ℹ️ [OrderService] Nenhum pedido cancelado encontrado para exclusão"
+        );
+        return { deleted: 0 };
+      }
+
+      console.log(
+        `🗑️ [OrderService] Iniciando deleção de ${canceledOrders.length} pedido(s) cancelado(s)`
+      );
+
+      await prisma.$transaction(async (tx) => {
+        const orderIds = canceledOrders.map((order) => order.id);
+
+        const items = await tx.orderItem.findMany({
+          where: { order_id: { in: orderIds } },
+          select: { id: true },
+        });
+        const itemIds = items.map((item) => item.id);
+
+        if (itemIds.length > 0) {
+          const deletedCustomizations =
+            await tx.orderItemCustomization.deleteMany({
+              where: { order_item_id: { in: itemIds } },
+            });
+          console.log(
+            `  ✓ Customizações deletadas: ${deletedCustomizations.count}`
+          );
+
+          const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
+            where: { order_item_id: { in: itemIds } },
+          });
+          console.log(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
+        }
+
+        const deletedItems = await tx.orderItem.deleteMany({
+          where: { order_id: { in: orderIds } },
+        });
+        console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
+
+        try {
+          const deletedPersonalizations = await tx.personalization.deleteMany({
+            where: { order_id: { in: orderIds } },
+          });
+          console.log(
+            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`
+          );
+        } catch (err) {
+          console.log(
+            "  ℹ️ Sem personalizações para deletar (ou erro):",
+            (err as any)?.message || err
+          );
+        }
+
+        try {
+          const deletedPayments = await tx.payment.deleteMany({
+            where: { order_id: { in: orderIds } },
+          });
+          console.log(`  ✓ Pagamentos deletados: ${deletedPayments.count}`);
+        } catch (err) {
+          console.log(
+            "  ℹ️ Erro ao deletar pagamentos (podem não existir):",
+            (err as any)?.message || err
+          );
+        }
+
+        const deletedOrders = await tx.order.deleteMany({
+          where: { id: { in: orderIds } },
+        });
+        console.log(`  ✓ Pedidos deletados: ${deletedOrders.count}`);
+      });
+
+      console.log(
+        `✅ [OrderService] ${canceledOrders.length} pedido(s) cancelado(s) deletado(s) com sucesso`
+      );
+
+      return { deleted: canceledOrders.length };
+    } catch (error: any) {
+      console.error(
+        `❌ [OrderService] Erro ao deletar pedidos cancelados:`,
+        error
+      );
+      throw new Error(`Erro ao deletar pedidos cancelados: ${error.message}`);
     }
   }
 }

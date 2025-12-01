@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PaymentService = void 0;
 const mercadopago_1 = require("../config/mercadopago");
 const prisma_1 = __importDefault(require("../database/prisma"));
+const promises_1 = __importDefault(require("fs/promises"));
 const crypto_1 = require("crypto");
 const mercadoPagoDirectService_1 = require("./mercadoPagoDirectService");
 const whatsappService_1 = __importDefault(require("./whatsappService"));
@@ -372,12 +373,15 @@ class PaymentService {
                     where: { id: data.orderId },
                     data: { status: "PAID" },
                 });
-                try {
-                    const customizationResult = await orderCustomizationService_1.default.finalizeOrderCustomizations(data.orderId);
-                }
-                catch (customizationError) {
-                    console.error("⚠️ Erro ao finalizar customizações (continuando com notificação):", customizationError);
-                }
+                // Run finalize in background (non-blocking) so payment flow continues
+                orderCustomizationService_1.default
+                    .finalizeOrderCustomizations(data.orderId)
+                    .then((customizationResult) => {
+                    console.log("✅ Customizações finalizadas com sucesso (background):", customizationResult);
+                })
+                    .catch((customizationError) => {
+                    console.error("⚠️ Erro ao finalizar customizações em background (continuando com notificação):", customizationError);
+                });
                 // Enviar notificação de confirmação
                 await this.sendOrderConfirmationNotification(data.orderId);
             }
@@ -540,6 +544,18 @@ class PaymentService {
                     grand_total: amount,
                 },
             });
+            // If payment is approved, finalize any order customizations (upload/sanitize artwork)
+            if (mercadoPagoResult.status === "approved") {
+                // Run finalize in background (non-blocking) so the API call that creates the payment is not blocked
+                orderCustomizationService_1.default
+                    .finalizeOrderCustomizations(order.id)
+                    .then((customizationResult) => {
+                    console.log("✅ Customizações finalizadas com sucesso (background):", customizationResult);
+                })
+                    .catch((finalizeErr) => {
+                    console.error("⚠️ Erro ao finalizar customizações após pagamento aprovada (background, continuando):", finalizeErr);
+                });
+            }
             return {
                 payment_id: paymentRecord.id,
                 mercado_pago_id: mercadoPagoResult.id,
@@ -652,10 +668,10 @@ class PaymentService {
             const params = new URLSearchParams({
                 amount: amount.toString(),
                 payment_method_id: paymentMethodId,
-                locale: 'pt-BR',
+                locale: "pt-BR",
             });
             if (bin) {
-                params.append('bin', bin);
+                params.append("bin", bin);
             }
             const url = `https://api.mercadopago.com/v1/payment_methods/installments?${params.toString()}`;
             const response = await fetch(url, {
@@ -692,7 +708,7 @@ class PaymentService {
             return this.getDefaultInstallmentOptions(amount);
         }
         catch (error) {
-            console.error('Erro ao buscar opções de parcelamento:', error);
+            console.error("Erro ao buscar opções de parcelamento:", error);
             // Em caso de erro, retornar opções padrão
             return this.getDefaultInstallmentOptions(amount);
         }
@@ -710,7 +726,7 @@ class PaymentService {
                 installments: i,
                 installment_rate: 0,
                 discount_rate: 0,
-                labels: i === 1 ? ['CFT_ZERO'] : [],
+                labels: i === 1 ? ["CFT_ZERO"] : [],
                 min_allowed_amount: 0,
                 max_allowed_amount: 999999,
                 recommended_message: i === 1
@@ -721,8 +737,8 @@ class PaymentService {
             });
         }
         return {
-            payment_method_id: 'unknown',
-            payment_type_id: 'credit_card',
+            payment_method_id: "unknown",
+            payment_type_id: "credit_card",
             issuer: null,
             payer_costs: installments,
         };
@@ -749,7 +765,7 @@ class PaymentService {
             }
             // ⚠️ IGNORAR webhooks de criação - só processar atualizações de pagamento
             if (data.action === "payment.created") {
-                console.log("ℹ️ Webhook de criação ignorado - aguardando confirmação de pagamento", {
+                console.log("Webhook de criação ignorado - aguardando confirmação de pagamento", {
                     action: data.action,
                     paymentId: data.data?.id,
                 });
@@ -758,34 +774,38 @@ class PaymentService {
                     message: "Webhook de criação ignorado (aguardando payment.updated)",
                 };
             }
-            // Extrair tipo do webhook - suporte para 'type' e 'action'
-            let webhookType = data.type;
+            // Extrair tipo do webhook - suporte para 'type', 'topic' e 'action'
+            let webhookType = data.type || data.topic;
             if (!webhookType && data.action) {
                 webhookType = data.action.split(".")[0]; // 'payment.updated' -> 'payment'
             }
-            // Extrair resourceId - formato NOVO do MP: { type, action, data: { id: "123" } }
-            const resourceId = data.data?.id?.toString();
+            // Extrair resourceId - suporte para formato NOVO (data.id) e LEGADO (resource)
+            const resourceId = (data.data && data.data.id && data.data.id.toString()) ||
+                (data.resource && data.resource.toString()) ||
+                undefined;
             if (!resourceId || !webhookType) {
-                console.error("❌ Webhook sem ID de recurso ou tipo", {
-                    resourceId,
-                    webhookType,
-                    action: data.action,
-                    type: data.type,
-                    dataKeys: Object.keys(data.data || {}),
-                    dataId: data.data?.id,
-                    receivedData: JSON.stringify(data).substring(0, 500),
+                console.error("❌ Webhook inválido - sem ID de recurso ou tipo", {
+                    resourceId: resourceId || null,
+                    webhookType: webhookType || null,
+                    action: data.action || null,
+                    type: data.type || null,
+                    topic: data.topic || null,
+                    keys: Object.keys(data || {}),
                 });
                 return {
                     success: false,
                     message: "Webhook sem dados válidos",
                 };
             }
-            // ✅ Log de processamento apenas para payment.updated
-            console.log("💳 Processando webhook de pagamento confirmado", {
-                action: data.action,
-                paymentId: resourceId,
+            // Identificar formato (legacy ou novo) para logging e processamento
+            const webhookFormat = data.topic && data.resource ? "legacy" : "new";
+            // Log minimalista padronizado para facilitar leitura dos eventos
+            console.log("🔔 Webhook recebido", {
+                format: webhookFormat,
                 type: webhookType,
-                timestamp: data.date_created,
+                action: data.action || null,
+                paymentId: resourceId,
+                timestamp: data.date_created || data.date || new Date().toISOString(),
             });
             // Verificar se já processamos este webhook (idempotência)
             const existingLog = await prisma_1.default.webhookLog.findFirst({
@@ -809,12 +829,10 @@ class PaymentService {
                     message: "Webhook já processado anteriormente (duplicado ignorado)",
                 };
             }
-            // ✅ Validação de assinatura já foi feita no middleware (security.ts)
-            // Não precisamos validar novamente aqui
-            console.log("📝 Registrando webhook", {
+            console.log("Pagamento Recebido 💵: Registrando Log", {
                 paymentId: resourceId,
                 type: webhookType,
-                action: data.action,
+                action: data.action || null,
             });
             await prisma_1.default.webhookLog.create({
                 data: {
@@ -851,6 +869,29 @@ class PaymentService {
         }
         catch (error) {
             console.error("Erro ao processar webhook:", error);
+            // If DB is unreachable (Prisma P1001), store the webhook locally for later retry
+            const isPrismaDBUnreachable = (error && (error.code === "P1001" || error?.meta?.code === "P1001")) ||
+                false;
+            if (isPrismaDBUnreachable) {
+                try {
+                    const logEntry = {
+                        timestamp: new Date().toISOString(),
+                        error: String(error?.message || "Prisma P1001 - DB unreachable"),
+                        payload: data,
+                    };
+                    await promises_1.default.appendFile(process.env.WEBHOOK_OFFLINE_LOG_FILE ||
+                        "./webhook_offline_log.ndjson", JSON.stringify(logEntry) + "\n");
+                    console.warn("⚠️ Webhook armazenado localmente por indisponibilidade do BD");
+                }
+                catch (fileErr) {
+                    console.error("Falha ao salvar webhook offline:", fileErr);
+                }
+                // Respond as accepted (202) to avoid provider retries; we will reprocess later
+                return {
+                    success: true,
+                    message: "Webhook armazenado localmente devido à indisponibilidade do banco, processará posteriormente",
+                };
+            }
             // Extrair resourceId - formato NOVO do MP: { data: { id } }
             const resourceId = data?.data?.id?.toString();
             const webhookType = data?.type || data?.action?.split(".")[0];
@@ -866,6 +907,43 @@ class PaymentService {
                 });
             }
             throw error;
+        }
+    }
+    /**
+     * Reprocess stored webhooks that were stored locally due to DB unavailability
+     * Useful to run during startup or as a cron task.
+     */
+    static async replayStoredWebhooks() {
+        const filePath = process.env.WEBHOOK_OFFLINE_LOG_FILE || "./webhook_offline_log.ndjson";
+        try {
+            const content = await promises_1.default.readFile(filePath, "utf-8");
+            const lines = content.split(/\r?\n/).filter(Boolean);
+            const failed = [];
+            for (const line of lines) {
+                try {
+                    const entry = JSON.parse(line);
+                    await PaymentService.processWebhookNotification(entry.payload, {});
+                }
+                catch (err) {
+                    console.error("Falha ao reprocesar webhook armazenado:", err);
+                    failed.push(line);
+                }
+            }
+            // Rewrite file with failed entries only
+            if (failed.length > 0) {
+                await promises_1.default.writeFile(filePath, failed.join("\n") + "\n", "utf-8");
+            }
+            else {
+                // Remove file when all processed
+                await promises_1.default.unlink(filePath);
+            }
+        }
+        catch (error) {
+            if (error.code === "ENOENT") {
+                console.info("No offline webhook file to replay");
+                return;
+            }
+            console.error("Erro ao reprocessar webhooks armazenados:", error);
         }
     }
     static async processPaymentNotification(paymentId) {
@@ -904,16 +982,21 @@ class PaymentService {
                     status: "approved",
                     paymentId: dbPayment.id,
                     mercadoPagoId: paymentId,
-                    approvedAt: new Date().toISOString(),
+                    approvedAt: new Date().toLocaleString("pt-BR", {
+                        timeZone: "America/Sao_Paulo",
+                    }),
                     paymentMethod: paymentInfo.payment_method_id || undefined,
                 });
                 console.log(`📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`);
-                try {
-                    await orderCustomizationService_1.default.finalizeOrderCustomizations(dbPayment.order_id);
-                }
-                catch (error) {
-                    console.error("⚠️ Erro ao processar customizações, mas pedido foi aprovado:", error);
-                }
+                // Run finalize in background (non-blocking) so webhook processing does not delay
+                orderCustomizationService_1.default
+                    .finalizeOrderCustomizations(dbPayment.order_id)
+                    .then((customizationResult) => {
+                    console.log("✅ Customizações finalizadas com sucesso (background):", customizationResult);
+                })
+                    .catch((error) => {
+                    console.error("⚠️ Erro ao processar customizações em background, mas pedido foi aprovado:", error);
+                });
                 await this.sendOrderConfirmationNotification(dbPayment.order_id);
             }
             if (["cancelled", "rejected"].includes(paymentInfo.status)) {
@@ -1015,25 +1098,22 @@ class PaymentService {
             orderData.send_anonymously = order.send_anonymously || false;
             orderData.complement = order.complement || undefined;
             await whatsappService_1.default.sendOrderConfirmationNotification(orderData);
-            const recipientPhone = order.recipient_phone || order.user.phone;
-            if (recipientPhone && !order.send_anonymously) {
-                await whatsappService_1.default.sendCustomerOrderConfirmation(recipientPhone, {
-                    orderId: order.id,
+            // Enviar confirmação APENAS para o COMPRADOR
+            if (order.user.phone) {
+                await whatsappService_1.default.sendOrderConfirmation({
+                    phone: order.user.phone,
                     orderNumber: order.id.substring(0, 8).toUpperCase(),
-                    totalAmount: Number(order.grand_total || order.total || 0),
-                    paymentMethod: order.payment_method || "Não informado",
-                    items,
+                    customerName: order.user.name,
+                    recipientPhone: order.recipient_phone || undefined,
+                    deliveryDate: order.delivery_date || undefined,
+                    createdAt: order.created_at,
                     googleDriveUrl,
-                    delivery: order.delivery_address
-                        ? {
-                            address: order.delivery_address,
-                            date: order.delivery_date || undefined,
-                        }
-                        : undefined,
+                    items,
+                    total: Number(order.grand_total || order.total || 0),
                 });
             }
             else {
-                console.warn("Telefone do destinatário não disponível, não foi possível enviar notificação via WhatsApp.");
+                console.warn("Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp.");
             }
         }
         catch (error) {

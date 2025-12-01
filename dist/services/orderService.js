@@ -29,21 +29,14 @@ function normalizeText(value) {
         .trim()
         .toLowerCase();
 }
-/**
- * Cria um hash das customizações para detectar itens duplicados
- * Compara product_id + customizações para identificar se é o mesmo item personalizado
- */
 function hashCustomizations(customizations) {
     if (!customizations || customizations.length === 0) {
         return "no-customization";
     }
-    // Ordenar por customization_id e criar uma representação em string
     const sorted = [...customizations].sort((a, b) => (a.customization_id || "").localeCompare(b.customization_id || ""));
-    // Criar hash baseado nos campos relevantes
     const hashData = sorted.map((c) => ({
         id: c.customization_id || "",
         type: c.customization_type || "",
-        // Incluir campos de valor para comparação
         text: c.title || c.text || "",
         option: c.selected_option || "",
         item: c.selected_item ? JSON.stringify(c.selected_item) : "",
@@ -57,7 +50,6 @@ function hashCustomizations(customizations) {
     return JSON.stringify(hashData);
 }
 class OrderService {
-    // Enriquece as customizações com labels das opções selecionadas
     enrichCustomizations(orders) {
         return orders.map((order) => ({
             ...order,
@@ -77,6 +69,19 @@ class OrderService {
                             if (selectedOption) {
                                 customData.selected_option_label =
                                     selectedOption.label || selectedOption.name;
+                                // Also expose label_selected for backwards compatibility with API
+                                customData.label_selected = customData.selected_option_label;
+                            }
+                        }
+                        // If it's a base layout and we have a selected_item, map it to label_selected
+                        if (!customData.label_selected && customData.selected_item) {
+                            const selected = typeof customData.selected_item === "string"
+                                ? customData.selected_item
+                                : customData.selected_item
+                                    .selected_item;
+                            if (selected) {
+                                customData.label_selected = selected;
+                                customData.selected_item_label = selected;
                             }
                         }
                         return {
@@ -129,11 +134,7 @@ class OrderService {
                                 },
                             },
                             product: true,
-                            customizations: {
-                                include: {
-                                    customization: true, // Incluir os dados da customização
-                                },
-                            },
+                            customizations: true,
                         },
                     },
                     user: true,
@@ -202,13 +203,13 @@ class OrderService {
                             product: true,
                             customizations: {
                                 include: {
-                                    customization: true, // ✅ ADICIONAR customizações
+                                    customization: true,
                                 },
                             },
                         },
                     },
                     user: true,
-                    payment: true, // ✅ CRÍTICO: Incluir payment para o polling funcionar
+                    payment: true,
                 },
             });
             if (!order) {
@@ -224,7 +225,6 @@ class OrderService {
         }
     }
     async createOrder(data) {
-        // Log sucinto: evitar imprimir payloads grandes (base64, imagens)
         console.log("📝 [OrderService] Iniciando criação de pedido - resumo:", {
             user_id: data.user_id,
             itemsCount: Array.isArray(data.items) ? data.items.length : 0,
@@ -312,15 +312,12 @@ class OrderService {
             }
         }
         try {
-            // ========== CANCELAR PEDIDOS PENDING ANTERIORES ==========
-            // Evitar múltiplos pedidos PENDING do mesmo usuário
             try {
                 await this.cancelPreviousPendingOrders(data.user_id);
                 console.log(`✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`);
             }
             catch (error) {
                 console.error("⚠️ Erro ao cancelar pedidos anteriores (continuando):", error instanceof Error ? error.message : error);
-                // Não bloqueia a criação do pedido se falhar
             }
             const user = await prisma_1.default.user.findUnique({
                 where: { id: data.user_id },
@@ -329,7 +326,6 @@ class OrderService {
                 throw new Error("Usuário não encontrado");
             }
             const productIds = data.items.map((item) => item.product_id);
-            // Helpful debug info for diagnosing missing product issues
             console.debug("[OrderService.createOrder] payload productIds:", productIds);
             const products = await prisma_1.default.product.findMany({
                 where: { id: { in: productIds } },
@@ -349,7 +345,6 @@ class OrderService {
                 err.missing = missing;
                 throw err;
             }
-            // ========== VALIDAR ESTOQUE DOS PRODUCT COMPONENTS ==========
             for (const orderItem of data.items) {
                 const product = products.find((p) => p.id === orderItem.product_id);
                 if (product && product.components.length > 0) {
@@ -394,8 +389,6 @@ class OrderService {
                 throw new Error("Valor final do pedido deve ser maior que zero");
             }
             const { items, ...orderData } = data;
-            // ========== VALIDAR E DECREMENTAR ESTOQUE ==========
-            // Para pedidos draft (carrinho), não validar estoque
             if (!data.is_draft) {
                 const stockValidation = await stockService_1.default.validateOrderStock(items);
                 if (!stockValidation.valid) {
@@ -419,7 +412,12 @@ class OrderService {
                     delivery_state: orderData.delivery_state, // ✅ NOVO: Salvar estado
                 },
             });
-            for (const item of items) {
+            const createdItems = [];
+            const additionalsBatch = [];
+            const customizationsBatch = [];
+            const createStart = Date.now();
+            for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
                 const orderItem = await prisma_1.default.orderItem.create({
                     data: {
                         order_id: created.id,
@@ -428,44 +426,48 @@ class OrderService {
                         price: item.price,
                     },
                 });
-                // Salvar adicionais
+                createdItems.push({ id: orderItem.id, index: idx });
+                // Preparar adicionais
                 if (Array.isArray(item.additionals) && item.additionals.length > 0) {
                     for (const additional of item.additionals) {
-                        await prisma_1.default.orderItemAdditional.create({
-                            data: {
-                                order_item_id: orderItem.id,
-                                additional_id: additional.additional_id,
-                                quantity: additional.quantity,
-                                price: additional.price,
-                            },
+                        additionalsBatch.push({
+                            order_item_id: orderItem.id,
+                            additional_id: additional.additional_id,
+                            quantity: additional.quantity,
+                            price: additional.price,
                         });
                     }
                 }
-                // ✅ NOVO: Salvar customizações
+                // Preparar customizações
                 if (Array.isArray(item.customizations) &&
                     item.customizations.length > 0) {
                     for (const customization of item.customizations) {
-                        // Extrair todos os campos relevantes da customização
                         const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
-                        // Validar se customization_id é um UUID válido (não apenas "default")
                         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
                         const isValidUUID = customization_id && uuidRegex.test(customization_id);
-                        // Apenas criar a customização se tiver um ID válido, ou usar null
-                        await prisma_1.default.orderItemCustomization.create({
-                            data: {
-                                order_item_id: orderItem.id,
-                                customization_id: isValidUUID ? customization_id : null,
-                                value: JSON.stringify({
-                                    customization_type,
-                                    title,
-                                    ...(customization_data || {}),
-                                    ...otherFields, // Inclui selected_option, selected_option_label, etc
-                                }),
-                            },
+                        customizationsBatch.push({
+                            order_item_id: orderItem.id,
+                            customization_id: isValidUUID ? customization_id : null,
+                            value: JSON.stringify({
+                                customization_type,
+                                title,
+                                ...(customization_data || {}),
+                                ...otherFields,
+                            }),
                         });
                     }
                 }
             }
+            if (additionalsBatch.length > 0) {
+                await prisma_1.default.orderItemAdditional.createMany({ data: additionalsBatch });
+            }
+            if (customizationsBatch.length > 0) {
+                await prisma_1.default.orderItemCustomization.createMany({
+                    data: customizationsBatch,
+                });
+            }
+            const createDuration = Date.now() - createStart;
+            console.log(`✅ [OrderService.createOrder] inserted items in ${createDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`);
             // ========== DECREMENTAR ESTOQUE ==========
             try {
                 if (!data.is_draft) {
@@ -510,9 +512,7 @@ class OrderService {
         await this.getOrderById(id);
         try {
             console.log(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
-            // Execute the deletion sequence inside a transaction to keep data consistent
             await prisma_1.default.$transaction(async (tx) => {
-                // Re-fetch items inside the transaction for consistent data
                 const items = await tx.orderItem.findMany({
                     where: { order_id: id },
                     select: { id: true },
@@ -569,7 +569,6 @@ class OrderService {
             throw new Error(`Erro ao deletar pedido: ${error.message}`);
         }
     }
-    // Métodos de compatibilidade com o código existente
     async list() {
         return this.getAllOrders();
     }
@@ -595,7 +594,6 @@ class OrderService {
         if (!order) {
             throw new Error("Pedido não encontrado");
         }
-        // Só permite atualizar pedidos PENDING
         if (order.status !== "PENDING") {
             throw new Error("Apenas pedidos pendentes podem ser atualizados");
         }
@@ -680,40 +678,46 @@ class OrderService {
         const total = parseFloat(itemsTotal.toFixed(2));
         const grand_total = parseFloat((total - discount + shipping_price).toFixed(2));
         // ✅ Use transaction to ensure atomicity and prevent FK constraint violations
-        await prisma_1.default.$transaction(async (tx) => {
-            // Remover itens antigos (customizações e adicionais em cascata)
-            await tx.orderItem.deleteMany({ where: { order_id: orderId } });
-            // Criar novos itens
-            for (const item of items) {
-                const createdItem = await tx.orderItem.create({
-                    data: {
-                        order_id: orderId,
-                        product_id: item.product_id,
-                        quantity: item.quantity,
-                        price: item.price,
-                    },
-                });
-                if (Array.isArray(item.additionals) && item.additionals.length > 0) {
-                    for (const additional of item.additionals) {
-                        await tx.orderItemAdditional.create({
-                            data: {
+        // To avoid timeouts, perform fewer DB roundtrips by batching adds
+        // and increase transaction timeout to handle larger payloads
+        const txStart = Date.now();
+        try {
+            await prisma_1.default.$transaction(async (tx) => {
+                // Remover itens antigos (customizações e adicionais em cascata)
+                await tx.orderItem.deleteMany({ where: { order_id: orderId } });
+                const createdItems = [];
+                const additionalsBatch = [];
+                const customizationsBatch = [];
+                // Criar novos itens e acumular additionals/customizations para createMany
+                for (let idx = 0; idx < items.length; idx++) {
+                    const item = items[idx];
+                    const createdItem = await tx.orderItem.create({
+                        data: {
+                            order_id: orderId,
+                            product_id: item.product_id,
+                            quantity: item.quantity,
+                            price: item.price,
+                        },
+                    });
+                    createdItems.push({ id: createdItem.id, index: idx });
+                    if (Array.isArray(item.additionals) &&
+                        item.additionals.length > 0) {
+                        for (const additional of item.additionals) {
+                            additionalsBatch.push({
                                 order_item_id: createdItem.id,
                                 additional_id: additional.additional_id,
                                 quantity: additional.quantity,
                                 price: additional.price,
-                            },
-                        });
+                            });
+                        }
                     }
-                }
-                if (Array.isArray(item.customizations) &&
-                    item.customizations.length > 0) {
-                    for (const customization of item.customizations) {
-                        const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
-                        // Validar se customization_id é um UUID válido
-                        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                        const isValidUUID = customization_id && uuidRegex.test(customization_id);
-                        await tx.orderItemCustomization.create({
-                            data: {
+                    if (Array.isArray(item.customizations) &&
+                        item.customizations.length > 0) {
+                        for (const customization of item.customizations) {
+                            const { customization_id, customization_type, title, customization_data, ...otherFields } = customization;
+                            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                            const isValidUUID = customization_id && uuidRegex.test(customization_id);
+                            customizationsBatch.push({
                                 order_item_id: createdItem.id,
                                 customization_id: isValidUUID ? customization_id : null,
                                 value: JSON.stringify({
@@ -722,17 +726,35 @@ class OrderService {
                                     ...(customization_data || {}),
                                     ...otherFields,
                                 }),
-                            },
-                        });
+                            });
+                        }
                     }
                 }
+                // Insert all additionals and customizations in bulk to reduce queries
+                if (additionalsBatch.length > 0) {
+                    await tx.orderItemAdditional.createMany({ data: additionalsBatch });
+                }
+                if (customizationsBatch.length > 0) {
+                    await tx.orderItemCustomization.createMany({
+                        data: customizationsBatch,
+                    });
+                }
+                // Atualizar o pedido
+                await tx.order.update({
+                    where: { id: orderId },
+                    data: { total, grand_total },
+                });
+                const txDuration = Date.now() - txStart;
+                console.log(`[OrderService] updateOrderItems transaction completed in ${txDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`);
+            }, { timeout: 20000 });
+        }
+        catch (error) {
+            console.error(`[OrderService] updateOrderItems transaction failed for order ${orderId}:`, error);
+            if (error?.code === "P2028") {
+                throw new Error("Erro ao atualizar itens do pedido: tempo limite da transação excedido");
             }
-            // Atualizar o pedido
-            await tx.order.update({
-                where: { id: orderId },
-                data: { total, grand_total },
-            });
-        });
+            throw error;
+        }
         console.log(`[OrderService] Itens atualizados do pedido ${orderId} - total: ${total}`);
         return await this.getOrderById(orderId);
     }
@@ -927,9 +949,6 @@ class OrderService {
         }
         return updated;
     }
-    /**
-     * Busca pedido pendente de pagamento do usuário
-     */
     async getPendingOrder(userId) {
         if (!userId) {
             throw new Error("ID do usuário é obrigatório");
@@ -959,9 +978,6 @@ class OrderService {
         });
         return pendingOrder;
     }
-    /**
-     * Cancela um pedido pendente
-     */
     async cancelOrder(orderId, userId) {
         if (!orderId) {
             throw new Error("ID do pedido é obrigatório");
@@ -976,15 +992,12 @@ class OrderService {
         if (!order) {
             throw new Error("Pedido não encontrado");
         }
-        // Se userId for fornecido, verificar se o pedido pertence ao usuário
         if (userId && order.user_id !== userId) {
             throw new Error("Você não tem permissão para cancelar este pedido");
         }
-        // Só permite cancelar pedidos pendentes
         if (order.status !== "PENDING") {
             throw new Error("Apenas pedidos pendentes podem ser cancelados pelo cliente");
         }
-        // Cancelar pagamento no Mercado Pago se existir
         if (order.payment?.mercado_pago_id) {
             try {
                 const PaymentService = require("./paymentService").default;
@@ -993,10 +1006,8 @@ class OrderService {
             }
             catch (error) {
                 console.error("Erro ao cancelar pagamento no Mercado Pago:", error);
-                // Continua mesmo se falhar, pois o pedido será marcado como cancelado
             }
         }
-        // Deletar registro de Payment se existir
         if (order.payment) {
             try {
                 await prisma_1.default.payment.delete({
@@ -1006,10 +1017,8 @@ class OrderService {
             }
             catch (error) {
                 console.error("Erro ao deletar registro de pagamento:", error);
-                // Continua mesmo se falhar
             }
         }
-        // Atualizar status do pedido
         const canceledOrder = await prisma_1.default.order.update({
             where: { id: orderId },
             data: {
@@ -1031,16 +1040,11 @@ class OrderService {
         console.log(`✅ Pedido ${orderId} cancelado com sucesso`);
         return null;
     }
-    /**
-     * Cancela pedidos PENDING antigos do mesmo usuário
-     * Deve ser chamado antes de criar um novo pedido para evitar múltiplos pedidos PENDING
-     */
     async cancelPreviousPendingOrders(userId, excludeOrderId) {
         if (!userId) {
             throw new Error("ID do usuário é obrigatório");
         }
         try {
-            // Buscar pedidos PENDING do usuário
             const pendingOrders = await prisma_1.default.order.findMany({
                 where: {
                     user_id: userId,
@@ -1073,14 +1077,9 @@ class OrderService {
             throw new Error(`Erro ao cancelar pedidos pendentes anteriores: ${error.message}`);
         }
     }
-    /**
-     * Limpa pedidos PENDING abandonados (mais de 24 horas sem pagamento)
-     * Deve ser executado periodicamente (cron job)
-     */
     async cleanupAbandonedOrders() {
         try {
             const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-            // Buscar pedidos PENDING criados há mais de 24h
             const abandonedOrders = await prisma_1.default.order.findMany({
                 where: {
                     status: "PENDING",
@@ -1111,6 +1110,69 @@ class OrderService {
         catch (error) {
             console.error(`❌ [OrderService] Erro ao limpar pedidos abandonados:`, error);
             throw new Error(`Erro ao limpar pedidos abandonados: ${error.message}`);
+        }
+    }
+    async deleteAllCanceledOrders() {
+        try {
+            const canceledOrders = await prisma_1.default.order.findMany({
+                where: { status: "CANCELED" },
+                select: { id: true },
+            });
+            if (canceledOrders.length === 0) {
+                console.log("ℹ️ [OrderService] Nenhum pedido cancelado encontrado para exclusão");
+                return { deleted: 0 };
+            }
+            console.log(`🗑️ [OrderService] Iniciando deleção de ${canceledOrders.length} pedido(s) cancelado(s)`);
+            await prisma_1.default.$transaction(async (tx) => {
+                const orderIds = canceledOrders.map((order) => order.id);
+                const items = await tx.orderItem.findMany({
+                    where: { order_id: { in: orderIds } },
+                    select: { id: true },
+                });
+                const itemIds = items.map((item) => item.id);
+                if (itemIds.length > 0) {
+                    const deletedCustomizations = await tx.orderItemCustomization.deleteMany({
+                        where: { order_item_id: { in: itemIds } },
+                    });
+                    console.log(`  ✓ Customizações deletadas: ${deletedCustomizations.count}`);
+                    const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
+                        where: { order_item_id: { in: itemIds } },
+                    });
+                    console.log(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
+                }
+                const deletedItems = await tx.orderItem.deleteMany({
+                    where: { order_id: { in: orderIds } },
+                });
+                console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
+                try {
+                    const deletedPersonalizations = await tx.personalization.deleteMany({
+                        where: { order_id: { in: orderIds } },
+                    });
+                    console.log(`  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`);
+                }
+                catch (err) {
+                    console.log("  ℹ️ Sem personalizações para deletar (ou erro):", err?.message || err);
+                }
+                try {
+                    const deletedPayments = await tx.payment.deleteMany({
+                        where: { order_id: { in: orderIds } },
+                    });
+                    console.log(`  ✓ Pagamentos deletados: ${deletedPayments.count}`);
+                }
+                catch (err) {
+                    console.log("  ℹ️ Erro ao deletar pagamentos (podem não existir):", err?.message || err);
+                }
+                const deletedOrders = await tx.order.deleteMany({
+                    where: { id: { in: orderIds } },
+                });
+                console.log(`  ✓ Pedidos deletados: ${deletedOrders.count}`);
+            });
+            console.log(`✅ [OrderService] ${canceledOrders.length} pedido(s) cancelado(s) deletado(s) com sucesso`);
+            return { deleted: canceledOrders.length };
+        }
+        catch (error) {
+            console.error(`❌ [OrderService] Erro ao deletar pedidos cancelados:`, error);
+            throw new Error(`Erro ao deletar pedidos cancelados: ${error.message}`);
         }
     }
 }

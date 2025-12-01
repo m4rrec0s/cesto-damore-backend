@@ -16,6 +16,18 @@ class OrderCustomizationService {
             selected_layout_id: input.selectedLayoutId,
             ...input.customizationData,
         };
+        // Compute and include label_selected when possible
+        const computedLabel = await this.computeLabelSelected(input.customizationType, input.customizationData, input.customizationRuleId, input.selectedLayoutId);
+        if (computedLabel) {
+            customizationValue.label_selected = computedLabel;
+            // Keep backward compatibility for frontend that reads specific label fields
+            if (input.customizationType === "MULTIPLE_CHOICE") {
+                customizationValue.selected_option_label = computedLabel;
+            }
+            if (input.customizationType === "BASE_LAYOUT") {
+                customizationValue.selected_item_label = computedLabel;
+            }
+        }
         const payload = {
             order_item_id: input.orderItemId,
             customization_id: input.customizationRuleId || "default", // Obrigatório no schema
@@ -63,6 +75,25 @@ class OrderCustomizationService {
         }
         if (input.selectedLayoutId) {
             mergedCustomizationData.selected_layout_id = input.selectedLayoutId;
+        }
+        // Recompute label_selected when updating
+        const updatedLabel = await this.computeLabelSelected(input.customizationType ?? mergedCustomizationData.customization_type, mergedCustomizationData, input.customizationRuleId ?? existing.customization_id, input.selectedLayoutId ?? mergedCustomizationData.selected_layout_id);
+        if (updatedLabel) {
+            mergedCustomizationData.label_selected = updatedLabel;
+            if ((input.customizationType ??
+                mergedCustomizationData.customization_type) === "MULTIPLE_CHOICE") {
+                mergedCustomizationData.selected_option_label = updatedLabel;
+            }
+            if ((input.customizationType ??
+                mergedCustomizationData.customization_type) === "BASE_LAYOUT") {
+                mergedCustomizationData.selected_item_label = updatedLabel;
+            }
+        }
+        else {
+            // If no label can be computed, ensure we don't accidentally keep stale labels
+            delete mergedCustomizationData.label_selected;
+            delete mergedCustomizationData.selected_option_label;
+            delete mergedCustomizationData.selected_item_label;
         }
         const updateData = {
             customization_id: input.customizationRuleId ?? existing.customization_id,
@@ -113,6 +144,11 @@ class OrderCustomizationService {
                 const uploads = await Promise.all(artworks.map((asset) => this.uploadArtwork(asset, { id: customization.id }, targetFolder)));
                 uploadedFiles += uploads.length;
                 const sanitizedData = this.removeBase64FromData(data, uploads);
+                // Defense: ensure no lingering base64 fields anywhere in the JSON
+                const removedFieldsCount = this.removeBase64FieldsRecursive(sanitizedData);
+                if (removedFieldsCount > 0) {
+                    console.log(`✅ Removidos ${removedFieldsCount} campo(s) base64 do payload antes de salvar`);
+                }
                 await prisma_1.default.orderItemCustomization.update({
                     where: { id: customization.id },
                     data: {
@@ -121,6 +157,20 @@ class OrderCustomizationService {
                         google_drive_url: googleDriveService_1.default.getFolderUrl(targetFolder),
                     },
                 });
+                // Verification: read back the saved value and ensure it doesn't contain base64
+                try {
+                    const updated = await prisma_1.default.orderItemCustomization.findUnique({
+                        where: { id: customization.id },
+                        select: { value: true },
+                    });
+                    if (updated &&
+                        /base64[,\s]*$|data:[^;]+;base64,/.test(String(updated.value))) {
+                        console.error("🚨 Detected base64 content in saved customization value after sanitization:", customization.id);
+                    }
+                }
+                catch (verifyErr) {
+                    console.error("Erro ao verificar registro após sanitização:", verifyErr);
+                }
             }
         }
         if (!folderId) {
@@ -156,6 +206,62 @@ class OrderCustomizationService {
         catch (error) {
             return {};
         }
+    }
+    async computeLabelSelected(customizationType, customizationData, customizationRuleId, selectedLayoutId) {
+        if (!customizationData)
+            return undefined;
+        // MULTIPLE_CHOICE — find the option label using provided options or DB rule
+        if (customizationType === "MULTIPLE_CHOICE") {
+            const selectedOption = customizationData.selected_option ||
+                (Array.isArray(customizationData.selected_options)
+                    ? customizationData.selected_options[0]
+                    : undefined);
+            if (!selectedOption)
+                return undefined;
+            // First try options provided by the frontend in the customization data
+            const options = customizationData.options || undefined;
+            if (Array.isArray(options)) {
+                const opt = options.find((o) => o.id === selectedOption);
+                if (opt)
+                    return opt.label || opt.name || opt.title;
+            }
+            // Fallback: fetch customization rule and options from DB
+            if (customizationRuleId) {
+                try {
+                    const rule = await prisma_1.default.customization.findUnique({
+                        where: { id: customizationRuleId },
+                    });
+                    const ruleOptions = rule?.customization_data?.options || [];
+                    const match = ruleOptions.find((o) => o.id === selectedOption);
+                    if (match)
+                        return match.label || match.name || match.title;
+                }
+                catch (error) {
+                    // ignore DB errors and return undefined
+                    console.warn("computeLabelSelected: erro ao buscar customization rule", error);
+                }
+            }
+            return undefined;
+        }
+        // BASE_LAYOUT — use the provided layout id or selected_layout_id to get layout name
+        if (customizationType === "BASE_LAYOUT") {
+            const layoutId = selectedLayoutId ||
+                customizationData.layout_id ||
+                customizationData.base_layout_id;
+            if (!layoutId)
+                return undefined;
+            try {
+                const layout = await prisma_1.default.layout.findUnique({
+                    where: { id: layoutId },
+                });
+                return layout?.name || undefined;
+            }
+            catch (error) {
+                console.warn("computeLabelSelected: erro ao buscar layout", error);
+                return undefined;
+            }
+        }
+        return undefined;
     }
     extractArtworkAssets(data) {
         const assets = [];
@@ -220,6 +326,12 @@ class OrderCustomizationService {
                 google_drive_file_id: uploads[0]?.id,
                 google_drive_url: uploads[0]?.webContentLink,
             };
+            if (uploads[0]) {
+                console.log(`✅ final_artwork sanitized and uploaded: ${uploads[0]?.fileName} (driveId=${uploads[0]?.id})`);
+            }
+            else {
+                console.log(`⚠️ final_artwork sanitized but no upload info found`);
+            }
         }
         if (Array.isArray(sanitized.final_artworks)) {
             sanitized.final_artworks = sanitized.final_artworks.map((entry, index) => ({
@@ -231,6 +343,46 @@ class OrderCustomizationService {
                 google_drive_file_id: uploads[index]?.id,
                 google_drive_url: uploads[index]?.webContentLink,
             }));
+            sanitized.final_artworks.forEach((entry, index) => {
+                const up = uploads[index];
+                if (up) {
+                    console.log(`✅ final_artworks[${index}] sanitized and uploaded: ${up.fileName} (driveId=${up.id})`);
+                }
+                else {
+                    console.log(`⚠️ final_artworks[${index}] sanitized but no upload info found`);
+                }
+            });
+        }
+        // photos may follow final_artwork/final_artworks in the upload sequence.
+        // We must compute the correct upload index offset based on the number of
+        // final_artwork and final_artworks that were present.
+        let uploadIndex = 0;
+        if (sanitized.final_artwork) {
+            uploadIndex += 1;
+        }
+        if (Array.isArray(sanitized.final_artworks)) {
+            uploadIndex += sanitized.final_artworks.length;
+        }
+        if (Array.isArray(sanitized.photos)) {
+            sanitized.photos = sanitized.photos.map((photo, idx) => {
+                const upload = uploads[uploadIndex + idx];
+                const newPhoto = {
+                    ...photo,
+                    base64: undefined,
+                    base64Data: undefined,
+                    mimeType: upload?.mimeType || photo?.mimeType,
+                    fileName: upload?.fileName || photo?.fileName || photo?.original_name,
+                    google_drive_file_id: upload?.id,
+                    google_drive_url: upload?.webContentLink,
+                };
+                if (upload) {
+                    console.log(`✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`);
+                }
+                else {
+                    console.log(`⚠️ Photo sanitized but no upload info found for index ${idx}`);
+                }
+                return newPhoto;
+            });
         }
         return sanitized;
     }
@@ -241,6 +393,26 @@ class OrderCustomizationService {
         }
         const prefixPattern = /^data:[^;]+;base64,/;
         return raw.replace(prefixPattern, "");
+    }
+    removeBase64FieldsRecursive(obj) {
+        if (!obj || typeof obj !== "object")
+            return 0;
+        let removedCount = 0;
+        if (Array.isArray(obj)) {
+            obj.forEach((item) => (removedCount += this.removeBase64FieldsRecursive(item) || 0));
+            return removedCount;
+        }
+        for (const key of Object.keys(obj)) {
+            if (key === "base64" || key === "base64Data") {
+                delete obj[key];
+                continue;
+            }
+            const value = obj[key];
+            if (typeof value === "object" && value !== null) {
+                removedCount += this.removeBase64FieldsRecursive(value) || 0;
+            }
+        }
+        return removedCount;
     }
     resolveExtension(mimeType) {
         const map = {

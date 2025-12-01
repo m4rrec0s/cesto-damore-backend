@@ -70,25 +70,17 @@ function normalizeText(value: string) {
     .toLowerCase();
 }
 
-/**
- * Cria um hash das customizações para detectar itens duplicados
- * Compara product_id + customizações para identificar se é o mesmo item personalizado
- */
 function hashCustomizations(customizations?: any[]): string {
   if (!customizations || customizations.length === 0) {
     return "no-customization";
   }
 
-  // Ordenar por customization_id e criar uma representação em string
   const sorted = [...customizations].sort((a, b) =>
     (a.customization_id || "").localeCompare(b.customization_id || "")
   );
-
-  // Criar hash baseado nos campos relevantes
   const hashData = sorted.map((c) => ({
     id: c.customization_id || "",
     type: c.customization_type || "",
-    // Incluir campos de valor para comparação
     text: c.title || c.text || "",
     option: c.selected_option || "",
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
@@ -104,7 +96,6 @@ function hashCustomizations(customizations?: any[]): string {
 }
 
 class OrderService {
-  // Enriquece as customizações com labels das opções selecionadas
   private enrichCustomizations(orders: any[]) {
     return orders.map((order) => ({
       ...order,
@@ -132,6 +123,22 @@ class OrderService {
               if (selectedOption) {
                 customData.selected_option_label =
                   selectedOption.label || selectedOption.name;
+                // Also expose label_selected for backwards compatibility with API
+                customData.label_selected = customData.selected_option_label;
+              }
+            }
+
+            // If it's a base layout and we have a selected_item, map it to label_selected
+            if (!customData.label_selected && customData.selected_item) {
+              const selected =
+                typeof customData.selected_item === "string"
+                  ? customData.selected_item
+                  : (customData.selected_item as { selected_item?: string })
+                      .selected_item;
+
+              if (selected) {
+                customData.label_selected = selected;
+                customData.selected_item_label = selected;
               }
             }
 
@@ -697,9 +704,7 @@ class OrderService {
     try {
       console.log(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
 
-      // Execute the deletion sequence inside a transaction to keep data consistent
       await prisma.$transaction(async (tx) => {
-        // Re-fetch items inside the transaction for consistent data
         const items = await tx.orderItem.findMany({
           where: { order_id: id },
           select: { id: true },
@@ -772,7 +777,6 @@ class OrderService {
     }
   }
 
-  // Métodos de compatibilidade com o código existente
   async list() {
     return this.getAllOrders();
   }
@@ -802,7 +806,6 @@ class OrderService {
       throw new Error("Pedido não encontrado");
     }
 
-    // Só permite atualizar pedidos PENDING
     if (order.status !== "PENDING") {
       throw new Error("Apenas pedidos pendentes podem ser atualizados");
     }
@@ -1273,9 +1276,6 @@ class OrderService {
     return updated;
   }
 
-  /**
-   * Busca pedido pendente de pagamento do usuário
-   */
   async getPendingOrder(userId: string) {
     if (!userId) {
       throw new Error("ID do usuário é obrigatório");
@@ -1308,9 +1308,6 @@ class OrderService {
     return pendingOrder;
   }
 
-  /**
-   * Cancela um pedido pendente
-   */
   async cancelOrder(orderId: string, userId?: string) {
     if (!orderId) {
       throw new Error("ID do pedido é obrigatório");
@@ -1328,19 +1325,15 @@ class OrderService {
       throw new Error("Pedido não encontrado");
     }
 
-    // Se userId for fornecido, verificar se o pedido pertence ao usuário
     if (userId && order.user_id !== userId) {
       throw new Error("Você não tem permissão para cancelar este pedido");
     }
-
-    // Só permite cancelar pedidos pendentes
     if (order.status !== "PENDING") {
       throw new Error(
         "Apenas pedidos pendentes podem ser cancelados pelo cliente"
       );
     }
 
-    // Cancelar pagamento no Mercado Pago se existir
     if (order.payment?.mercado_pago_id) {
       try {
         const PaymentService = require("./paymentService").default;
@@ -1350,11 +1343,9 @@ class OrderService {
         );
       } catch (error) {
         console.error("Erro ao cancelar pagamento no Mercado Pago:", error);
-        // Continua mesmo se falhar, pois o pedido será marcado como cancelado
       }
     }
 
-    // Deletar registro de Payment se existir
     if (order.payment) {
       try {
         await prisma.payment.delete({
@@ -1363,11 +1354,9 @@ class OrderService {
         console.log(`🗑️ Registro de pagamento deletado para pedido ${orderId}`);
       } catch (error) {
         console.error("Erro ao deletar registro de pagamento:", error);
-        // Continua mesmo se falhar
       }
     }
 
-    // Atualizar status do pedido
     const canceledOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
@@ -1391,17 +1380,12 @@ class OrderService {
     return null;
   }
 
-  /**
-   * Cancela pedidos PENDING antigos do mesmo usuário
-   * Deve ser chamado antes de criar um novo pedido para evitar múltiplos pedidos PENDING
-   */
   async cancelPreviousPendingOrders(userId: string, excludeOrderId?: string) {
     if (!userId) {
       throw new Error("ID do usuário é obrigatório");
     }
 
     try {
-      // Buscar pedidos PENDING do usuário
       const pendingOrders = await prisma.order.findMany({
         where: {
           user_id: userId,
@@ -1452,15 +1436,9 @@ class OrderService {
     }
   }
 
-  /**
-   * Limpa pedidos PENDING abandonados (mais de 24 horas sem pagamento)
-   * Deve ser executado periodicamente (cron job)
-   */
   async cleanupAbandonedOrders() {
     try {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-      // Buscar pedidos PENDING criados há mais de 24h
       const abandonedOrders = await prisma.order.findMany({
         where: {
           status: "PENDING",

@@ -83,7 +83,7 @@ class WhatsAppService {
             message += `📦 Produto: ${itemName}\n`;
             message += `⚠️ Status: *SEM ESTOQUE*\n\n`;
         }
-        message += `⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+        message += `⏰ ${this.formatToBrasiliaTime(new Date())}\n\n`;
         message += `⚡ *Ação necessária:* Reabastecer imediatamente!`;
         const sent = await this.sendMessage(message);
         if (sent) {
@@ -109,7 +109,7 @@ class WhatsAppService {
         }
         message += `📊 Estoque atual: *${currentStock} unidade(s)*\n`;
         message += `🎯 Limite: ${threshold} unidades\n\n`;
-        message += `⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+        message += `⏰ ${this.formatToBrasiliaTime(new Date())}\n\n`;
         if (currentStock <= 2) {
             message += `🔴 *Status: CRÍTICO* - Reabastecer urgente!`;
         }
@@ -187,7 +187,7 @@ class WhatsAppService {
             message += `📈 *Resumo Geral:*\n`;
             message += `• Produtos: ${report.total_products} (${report.products_out_of_stock} sem estoque)\n`;
             message += `• Adicionais: ${report.total_additionals} (${report.additionals_out_of_stock} sem estoque)\n`;
-            message += `⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+            message += `⏰ ${this.formatToBrasiliaTime(new Date())}\n\n`;
             message += `⚡ *Ação necessária:* Reabastecer imediatamente!`;
             if (report.low_stock_items.length > 0) {
                 message += `⚠️ *Itens com Estoque Baixo:* ${report.low_stock_items.length}\n\n`;
@@ -207,7 +207,7 @@ class WhatsAppService {
             else {
                 message += `✅ *Todos os itens estão com estoque adequado!*\n`;
             }
-            message += `\n⏰ ${new Date().toLocaleString("pt-BR")}`;
+            message += `\n⏰ ${this.formatToBrasiliaTime(new Date())}`;
             return await this.sendMessage(message);
         }
         catch (error) {
@@ -237,19 +237,23 @@ class WhatsAppService {
                     .toFixed(2)
                     .replace(".", ",")})\n`;
             });
-            message += `\n👤 *Cliente:*\n`;
-            message += `• Nome: ${orderData.customer.name}\n`;
-            message += `• Email: ${orderData.customer.email}\n`;
+            // Comprador / Destinatário
+            message += `\n👤 *Comprador:* ${orderData.customer.name}\n`;
+            const recipientPhone = orderData.recipientPhone;
+            if (recipientPhone) {
+                message += `📱 *Destinatário:* ${recipientPhone}\n`;
+            }
+            message += `\n• Email: ${orderData.customer.email}\n`;
             const isAnonymous = orderData.send_anonymously === true;
             const complement = orderData.complement;
-            message += `• Telefone: ${orderData.customer.phone}${isAnonymous ? " (Envio anônimo)" : ""}\n`;
+            message += `• Telefone: ${orderData.customer.phone ?? "N/A"}${isAnonymous ? " (Envio anônimo)" : ""}\n`;
             if (orderData.delivery) {
                 message += `\n📍 *Entrega:*\n`;
                 message += `• ${orderData.delivery.address}\n`;
                 message += `• ${orderData.delivery.city} - ${orderData.delivery.state}\n`;
                 message += `• CEP: ${orderData.delivery.zipCode}\n`;
                 if (orderData.delivery.date) {
-                    message += `• Data: ${new Date(orderData.delivery.date).toLocaleDateString("pt-BR")}\n`;
+                    message += `• Data: ${this.formatDateOnlyToBrasilia(orderData.delivery.date)}\n`;
                 }
                 if (complement) {
                     message += `• Complemento: ${complement}\n`;
@@ -260,7 +264,7 @@ class WhatsAppService {
                 message += `\n🎨 *Customizações:*\n`;
                 message += `📸 ${orderData.googleDriveUrl}\n`;
             }
-            message += `\n⏰ ${new Date().toLocaleString("pt-BR")}\n\n`;
+            message += `\n⏰ ${this.formatToBrasiliaTime(new Date())}\n\n`;
             message += `🚀 *Preparar pedido para entrega!*`;
             const sent = await this.sendMessage(message);
             if (sent) {
@@ -270,61 +274,6 @@ class WhatsAppService {
         }
         catch (error) {
             console.error("Erro ao enviar notificação de pedido:", error.message);
-            return false;
-        }
-    }
-    async sendCustomerOrderConfirmation(customerPhone, orderData) {
-        if (!this.isConfigured()) {
-            console.warn("WhatsApp não configurado. Pulando notificação ao cliente.");
-            return false;
-        }
-        try {
-            // Limpar e validar telefone
-            const cleanPhone = customerPhone.replace(/\D/g, "");
-            // Verificar se tem código do país
-            const phoneWithCountry = cleanPhone.startsWith("55")
-                ? cleanPhone
-                : `55${cleanPhone}`;
-            if (phoneWithCountry.length < 12) {
-                console.warn(`Telefone inválido: ${customerPhone}`);
-                return false;
-            }
-            let message = `🎉 *Pedido Confirmado!* 🎉\n\n`;
-            message += `Olá! Seu pagamento foi confirmado com sucesso!\n\n`;
-            message += `📦 *Pedido:* #${orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase()}\n`;
-            message += `💰 *Valor:* R$ ${orderData.totalAmount
-                .toFixed(2)
-                .replace(".", ",")}\n`;
-            message += `💳 *Pagamento:* ${this.formatPaymentMethod(orderData.paymentMethod)}\n\n`;
-            message += `📝 *Seu pedido contém:*\n`;
-            orderData.items.forEach((item) => {
-                message += `• ${item.quantity}x ${item.name}\n`;
-            });
-            if (orderData.delivery) {
-                message += `\n📍 *Entrega:*\n`;
-                message += `• ${orderData.delivery.address}\n`;
-                if (orderData.delivery.date) {
-                    message += `• Data: ${new Date(orderData.delivery.date).toLocaleDateString("pt-BR")}\n`;
-                }
-            }
-            // Adicionar link do Google Drive se houver customizações
-            if (orderData.googleDriveUrl) {
-                message += `\n🎨 *Suas Fotos de Customização:*\n`;
-                message += `📸 Acesse aqui: ${orderData.googleDriveUrl}\n`;
-                message += `\n_Suas fotos foram salvas no Google Drive e ficarão disponíveis para você!_\n`;
-            }
-            message += `\n✨ *Sua cesta está sendo preparada com muito carinho!*\n\n`;
-            message += `Agradecemos pela preferência! ❤️\n`;
-            message += `_Cesto d'Amore_`;
-            // Enviar para o cliente diretamente
-            const sent = await this.sendDirectMessage(phoneWithCountry, message);
-            if (sent) {
-                console.info(`Notificação enviada ao cliente ${phoneWithCountry} - Pedido ${orderData.orderId}`);
-            }
-            return sent;
-        }
-        catch (error) {
-            console.error("Erro ao enviar notificação ao cliente:", error.message);
             return false;
         }
     }
@@ -458,10 +407,7 @@ class WhatsAppService {
                     }
                 }
                 if (orderData.delivery.date) {
-                    const deliveryDate = new Date(orderData.delivery.date);
-                    if (!isNaN(deliveryDate.getTime())) {
-                        message += `\n🗓️ ${deliveryDate.toLocaleDateString("pt-BR")}`;
-                    }
+                    message += `\n🗓️ ${this.formatDateOnlyToBrasilia(orderData.delivery.date)}`;
                 }
                 message += "\n";
             }
@@ -476,7 +422,7 @@ class WhatsAppService {
                 message += `\n🎨 *Customizações:* ${orderData.googleDriveUrl}\n`;
             }
             message += `\n${statusInfo.description}\n`;
-            message += `\n⏰ ${new Date().toLocaleString("pt-BR")}`;
+            message += `\n⏰ ${this.formatToBrasiliaTime(new Date())}`;
             await this.sendMessage(message);
         }
         if (notifyCustomer && orderData.customer.phone) {
@@ -506,10 +452,7 @@ class WhatsAppService {
                         }
                     }
                     if (orderData.delivery.date) {
-                        const deliveryDate = new Date(orderData.delivery.date);
-                        if (!isNaN(deliveryDate.getTime())) {
-                            message += `\n🗓️ Data prevista: ${deliveryDate.toLocaleDateString("pt-BR")}`;
-                        }
+                        message += `\n🗓️ Data prevista: ${this.formatDateOnlyToBrasilia(orderData.delivery.date)}`;
                     }
                 }
                 message += `\n\nQualquer dúvida, estamos por aqui! ❤️\n`;
@@ -520,6 +463,84 @@ class WhatsAppService {
                 console.warn(`Telefone do cliente inválido para notificação: ${orderData.customer.phone}`);
             }
         }
+    }
+    /**
+     * Envia confirmação de pedido APENAS para o comprador (user.phone)
+     * NUNCA envia para o destinatário (recipient_phone)
+     * Inclui horários em timezone de Brasília e link do Google Drive
+     */
+    async sendOrderConfirmation(data) {
+        if (!this.isConfigured()) {
+            console.warn("WhatsApp não configurado. Pulando notificação ao comprador.");
+            return false;
+        }
+        try {
+            const cleanPhone = data.phone.replace(/\D/g, "");
+            const phoneWithCountry = cleanPhone.startsWith("55")
+                ? cleanPhone
+                : `55${cleanPhone}`;
+            if (phoneWithCountry.length < 12) {
+                console.warn(`Telefone inválido: ${data.phone}`);
+                return false;
+            }
+            const createdAtBrasilia = this.formatToBrasiliaTime(data.createdAt);
+            const deliveryDateBrasilia = data.deliveryDate
+                ? this.formatToBrasiliaTime(data.deliveryDate)
+                : "A definir";
+            let message = `🎉 *Pedido Confirmado!* 🎉\n\n`;
+            message += `Olá, ${data.customerName}!\n`;
+            message += `Seu pagamento foi confirmado com sucesso!\n\n`;
+            message += `📦 *Pedido:* #${data.orderNumber}\n`;
+            message += `👤 *Comprador:* ${data.customerName}\n`;
+            if (data.recipientPhone) {
+                message += `📱 *Destinatário:* ${data.recipientPhone}\n`;
+            }
+            message += `\n📅 *Criado em:* ${createdAtBrasilia}\n`;
+            message += `🚚 *Entrega prevista:* ${deliveryDateBrasilia}\n`;
+            message += `\n💰 *Total:* R$ ${data.total
+                .toFixed(2)
+                .replace(".", ",")}\n`;
+            message += `\n📝 *Itens do pedido:*\n`;
+            data.items.forEach((item) => {
+                message += `• ${item.quantity}x ${item.name}\n`;
+            });
+            if (data.googleDriveUrl) {
+                message += `\n🎨 *Suas Personalizações:*\n`;
+                message += `📁 ${data.googleDriveUrl}\n`;
+            }
+            else {
+                message += `\n⏳ *Personalizações sendo processadas...*\n`;
+                message += `_Enviaremos o link das suas fotos em breve!_\n`;
+            }
+            message += `\n✨ *Sua cesta está sendo preparada com muito carinho!*\n\n`;
+            message += `Agradecemos pela preferência! ❤️\n`;
+            message += `_Equipe Cesto d'Amore_`;
+            const sent = await this.sendDirectMessage(phoneWithCountry, message);
+            if (sent) {
+                console.info(`✅ Confirmação enviada ao comprador ${phoneWithCountry} - Pedido #${data.orderNumber}`);
+            }
+            return sent;
+        }
+        catch (error) {
+            console.error("Erro ao enviar confirmação ao comprador:", error.message);
+            return false;
+        }
+    }
+    formatToBrasiliaTime(isoDate) {
+        const date = typeof isoDate === "string" ? new Date(isoDate) : isoDate;
+        return date.toLocaleString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+            dateStyle: "short",
+            timeStyle: "short",
+        });
+    }
+    formatDateOnlyToBrasilia(isoDate) {
+        if (!isoDate)
+            return "";
+        const date = typeof isoDate === "string" ? new Date(isoDate) : isoDate;
+        if (isNaN(date.getTime()))
+            return "";
+        return date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
     }
 }
 exports.default = new WhatsAppService();

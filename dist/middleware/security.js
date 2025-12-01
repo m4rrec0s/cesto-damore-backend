@@ -195,15 +195,13 @@ const validateMercadoPagoWebhook = (req, res, next) => {
                     code: "INVALID_LEGACY_WEBHOOK",
                 });
             }
-            // Normalizar formato antigo para o novo, permitindo o processamento
-            // ⚠️ Estamos aceitando o formato legado (topic/resource) mas o normalizamos para
-            // o novo formato (type + data.id) para processamento subsequente
-            console.warn("⚠️ Aceitando formato antigo e normalizando para processamento", {
-                normalizedType: topic,
-                normalizedResourceId: resourceId,
-            });
+            // Normalize legacy format to the new format (type + data.id)
             type = topic;
             data = { id: resourceId };
+            console.warn("⚠️ Aceitando formato antigo e normalizando para processamento", {
+                normalizedType: type,
+                normalizedResourceId: resourceId,
+            });
         }
         // Suporte para formato com 'action' (ex: payment.updated)
         if (!type && action) {

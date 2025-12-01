@@ -262,16 +262,13 @@ class OrderController {
     }
     async getPendingOrder(req, res) {
         try {
-            // ✅ Corrigido: usar req.params.id ao invés de req.params.userId
             const { id } = req.params;
             if (!id) {
                 return res.status(400).json({ error: "ID do usuário é obrigatório" });
             }
             const pendingOrder = await orderService_1.default.getPendingOrder(id);
             if (!pendingOrder) {
-                return res
-                    .status(404)
-                    .json({ error: "Nenhum pedido pendente encontrado" });
+                return res.status(200).send();
             }
             res.status(200).json(pendingOrder);
         }
@@ -309,6 +306,16 @@ class OrderController {
             if (error.message.includes("obrigatório")) {
                 return res.status(400).json({ error: error.message });
             }
+            res.status(500).json({ error: "Erro interno do servidor" });
+        }
+    }
+    async removeAllCanceledOrders(req, res) {
+        try {
+            const result = await orderService_1.default.deleteAllCanceledOrders();
+            res.json(result);
+        }
+        catch (error) {
+            console.error("Erro ao deletar pedidos cancelados:", error);
             res.status(500).json({ error: "Erro interno do servidor" });
         }
     }

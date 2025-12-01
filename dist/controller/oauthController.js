@@ -185,7 +185,9 @@ class OAuthController {
               Access Token: ${tokens.access_token ? "✅ Obtido" : "❌ Não obtido"}<br>
               Refresh Token: ${tokens.refresh_token ? "✅ Obtido" : "❌ Não obtido"}<br>
               Expira em: ${tokens.expiry_date
-                ? new Date(tokens.expiry_date).toLocaleString("pt-BR")
+                ? new Date(tokens.expiry_date).toLocaleString("pt-BR", {
+                    timeZone: "America/Sao_Paulo",
+                })
                 : "N/A"}
             </div>
 

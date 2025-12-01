@@ -83,7 +83,9 @@ class WebhookNotificationService {
         const message = {
             type: "payment_update",
             orderId,
-            timestamp: new Date().toISOString(),
+            timestamp: new Date().toLocaleString("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+            }),
             ...data,
         };
         // Enviar para todos os clientes conectados
@@ -109,7 +111,9 @@ class WebhookNotificationService {
         const message = {
             type: "payment_error",
             orderId,
-            timestamp: new Date().toISOString(),
+            timestamp: new Date().toLocaleString("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+            }),
             error,
         };
         clients.forEach((client) => {

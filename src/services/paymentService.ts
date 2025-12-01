@@ -536,17 +536,21 @@ export class PaymentService {
           data: { status: "PAID" },
         });
 
-        try {
-          const customizationResult =
-            await orderCustomizationService.finalizeOrderCustomizations(
-              data.orderId
+        // Run finalize in background (non-blocking) so payment flow continues
+        orderCustomizationService
+          .finalizeOrderCustomizations(data.orderId)
+          .then((customizationResult) => {
+            console.log(
+              "✅ Customizações finalizadas com sucesso (background):",
+              customizationResult
             );
-        } catch (customizationError) {
-          console.error(
-            "⚠️ Erro ao finalizar customizações (continuando com notificação):",
-            customizationError
-          );
-        }
+          })
+          .catch((customizationError) => {
+            console.error(
+              "⚠️ Erro ao finalizar customizações em background (continuando com notificação):",
+              customizationError
+            );
+          });
 
         // Enviar notificação de confirmação
         await this.sendOrderConfirmationNotification(data.orderId);
@@ -766,6 +770,25 @@ export class PaymentService {
           grand_total: amount,
         },
       });
+
+      // If payment is approved, finalize any order customizations (upload/sanitize artwork)
+      if (mercadoPagoResult.status === "approved") {
+        // Run finalize in background (non-blocking) so the API call that creates the payment is not blocked
+        orderCustomizationService
+          .finalizeOrderCustomizations(order.id)
+          .then((customizationResult) => {
+            console.log(
+              "✅ Customizações finalizadas com sucesso (background):",
+              customizationResult
+            );
+          })
+          .catch((finalizeErr) => {
+            console.error(
+              "⚠️ Erro ao finalizar customizações após pagamento aprovada (background, continuando):",
+              finalizeErr
+            );
+          });
+      }
 
       return {
         payment_id: paymentRecord.id,
@@ -1023,7 +1046,7 @@ export class PaymentService {
       // ⚠️ IGNORAR webhooks de criação - só processar atualizações de pagamento
       if (data.action === "payment.created") {
         console.log(
-          "ℹ️ Webhook de criação ignorado - aguardando confirmação de pagamento",
+          "Webhook de criação ignorado - aguardando confirmação de pagamento",
           {
             action: data.action,
             paymentId: data.data?.id,
@@ -1098,10 +1121,7 @@ export class PaymentService {
         };
       }
 
-      // ✅ Validação de assinatura já foi feita no middleware (security.ts)
-      // Não precisamos validar novamente aqui
-
-      console.log("📝 Registrando webhook no log interno", {
+      console.log("Pagamento Recebido 💵: Registrando Log", {
         paymentId: resourceId,
         type: webhookType,
         action: data.action || null,
@@ -1280,7 +1300,9 @@ export class PaymentService {
           status: "approved",
           paymentId: dbPayment.id,
           mercadoPagoId: paymentId,
-          approvedAt: new Date().toISOString(),
+          approvedAt: new Date().toLocaleString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+          }),
           paymentMethod: paymentInfo.payment_method_id || undefined,
         });
 
@@ -1288,16 +1310,21 @@ export class PaymentService {
           `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`
         );
 
-        try {
-          await orderCustomizationService.finalizeOrderCustomizations(
-            dbPayment.order_id
-          );
-        } catch (error) {
-          console.error(
-            "⚠️ Erro ao processar customizações, mas pedido foi aprovado:",
-            error
-          );
-        }
+        // Run finalize in background (non-blocking) so webhook processing does not delay
+        orderCustomizationService
+          .finalizeOrderCustomizations(dbPayment.order_id)
+          .then((customizationResult) => {
+            console.log(
+              "✅ Customizações finalizadas com sucesso (background):",
+              customizationResult
+            );
+          })
+          .catch((error) => {
+            console.error(
+              "⚠️ Erro ao processar customizações em background, mas pedido foi aprovado:",
+              error
+            );
+          });
 
         await this.sendOrderConfirmationNotification(dbPayment.order_id);
       }
@@ -1413,25 +1440,22 @@ export class PaymentService {
       (orderData as any).complement = order.complement || undefined;
       await whatsappService.sendOrderConfirmationNotification(orderData);
 
-      const recipientPhone = order.recipient_phone || order.user.phone;
-      if (recipientPhone && !order.send_anonymously) {
-        await whatsappService.sendCustomerOrderConfirmation(recipientPhone, {
-          orderId: order.id,
+      // Enviar confirmação APENAS para o COMPRADOR
+      if (order.user.phone) {
+        await whatsappService.sendOrderConfirmation({
+          phone: order.user.phone,
           orderNumber: order.id.substring(0, 8).toUpperCase(),
-          totalAmount: Number(order.grand_total || order.total || 0),
-          paymentMethod: order.payment_method || "Não informado",
-          items,
+          customerName: order.user.name,
+          recipientPhone: order.recipient_phone || undefined,
+          deliveryDate: order.delivery_date || undefined,
+          createdAt: order.created_at,
           googleDriveUrl,
-          delivery: order.delivery_address
-            ? {
-                address: order.delivery_address,
-                date: order.delivery_date || undefined,
-              }
-            : undefined,
+          items,
+          total: Number(order.grand_total || order.total || 0),
         });
       } else {
         console.warn(
-          "Telefone do destinatário não disponível, não foi possível enviar notificação via WhatsApp."
+          "Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp."
         );
       }
     } catch (error: any) {

@@ -10,6 +10,7 @@ const cors_1 = __importDefault(require("cors"));
 const routes_1 = __importDefault(require("./routes"));
 const node_cron_1 = __importDefault(require("node-cron"));
 const orderService_1 = __importDefault(require("./services/orderService"));
+const paymentService_1 = require("./services/paymentService");
 const prisma_1 = __importDefault(require("./database/prisma"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
@@ -63,4 +64,20 @@ app.listen(PORT, () => {
     console.log(`📡 PORT: ${PORT}`);
     console.log(`🔗 BASE_URL: ${BASE_URL}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+    (async () => {
+        try {
+            await paymentService_1.PaymentService.replayStoredWebhooks();
+        }
+        catch (err) {
+            console.error("Erro ao executar replay de webhooks armazenados:", err);
+        }
+    })();
+});
+node_cron_1.default.schedule("*/5 * * * *", async () => {
+    try {
+        await paymentService_1.PaymentService.replayStoredWebhooks();
+    }
+    catch (err) {
+        console.error("Erro ao executar replay periódico de webhooks armazenados:", err);
+    }
 });

@@ -313,8 +313,6 @@ router.put("/users/:id", multer_1.upload.single("image"), userController_1.defau
 router.delete("/users/:id", userController_1.default.remove);
 // order routes
 router.get("/orders", orderController_1.default.index);
-// ⚠️ IMPORTANTE: Rotas específicas ANTES de rotas genéricas (:id)
-// Rota para buscar pedido pendente do usuário (autenticado)
 router.get("/users/:id/orders/pending", security_1.authenticateToken, orderController_1.default.getPendingOrder);
 // Rota para cancelar pedido (autenticado)
 router.post("/orders/:id/cancel", security_1.authenticateToken, orderController_1.default.cancelOrder);
@@ -324,6 +322,7 @@ router.patch("/orders/:id/status", security_1.authenticateToken, security_1.requ
 router.get("/orders/:id", orderController_1.default.show);
 router.post("/orders", orderController_1.default.create);
 router.delete("/orders/:id", orderController_1.default.remove);
+router.delete("/orders/canceled", orderController_1.default.removeAllCanceledOrders);
 // ========== PAYMENT ROUTES ==========
 router.get("/payment/health", paymentController_1.default.healthCheck);
 router.post("/webhook/mercadopago", security_1.validateMercadoPagoWebhook, paymentController_1.default.handleWebhook);

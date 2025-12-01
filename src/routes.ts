@@ -19,7 +19,10 @@ import orderCustomizationController from "./controller/orderCustomizationControl
 import itemConstraintController from "./controller/itemConstraintController";
 import customizationUploadController from "./controller/customizationUploadController";
 import oauthController from "./controller/oauthController";
+import { PaymentService } from "./services/paymentService";
+import logger from "./utils/logger";
 import googleDriveService from "./services/googleDriveService";
+import prisma from "./database/prisma";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
 import layoutBaseController from "./controller/layoutBaseController";
@@ -55,14 +58,14 @@ router.post(
   upload.single("image"),
   async (req: Request, res: Response) => {
     try {
-      console.log("🧪 [TEST-UPLOAD] Endpoint de teste acionado");
+      logger.info("🧪 [TEST-UPLOAD] Endpoint de teste acionado");
 
       const file = req.file;
       if (!file) {
         return res.status(400).json({ error: "Nenhuma imagem enviada" });
       }
 
-      console.log("🧪 [TEST-UPLOAD] Arquivo recebido:", {
+      logger.info("🧪 [TEST-UPLOAD] Arquivo recebido:", {
         originalname: file.originalname,
         mimetype: file.mimetype,
         size: file.size,
@@ -78,13 +81,13 @@ router.post(
         `TEST-${Date.now()}-${file.originalname}`
       );
 
-      console.log("🧪 [TEST-UPLOAD] Salvando em:", testPath);
+      logger.info("🧪 [TEST-UPLOAD] Salvando em:", testPath);
       fs.writeFileSync(testPath, file.buffer);
-      console.log("🧪 [TEST-UPLOAD] Arquivo salvo! Verificando...");
+      logger.info("🧪 [TEST-UPLOAD] Arquivo salvo! Verificando...");
 
       if (fs.existsSync(testPath)) {
         const stats = fs.statSync(testPath);
-        console.log(
+        logger.info(
           "✅ [TEST-UPLOAD] Arquivo confirmado:",
           stats.size,
           "bytes"
@@ -97,14 +100,14 @@ router.post(
           fileSize: stats.size,
         });
       } else {
-        console.error("❌ [TEST-UPLOAD] Arquivo NÃO foi criado!");
+        logger.error("❌ [TEST-UPLOAD] Arquivo NÃO foi criado!");
         return res.status(500).json({
           success: false,
           message: "Arquivo não foi criado após writeFileSync",
         });
       }
     } catch (error: any) {
-      console.error("❌ [TEST-UPLOAD] Erro:", error);
+      logger.error("❌ [TEST-UPLOAD] Erro:", error);
       return res.status(500).json({
         success: false,
         error: error.message,
@@ -118,7 +121,7 @@ router.post(
 // WEBHOOK DEBUG ENDPOINT (temporário)
 // ============================================
 router.post("/webhook/mercadopago/debug", (req: Request, res: Response) => {
-  console.log("🔍 DEBUG WEBHOOK - Headers:", {
+  logger.info("🔍 DEBUG WEBHOOK - Headers:", {
     "x-signature": req.headers["x-signature"],
     "x-request-id": req.headers["x-request-id"],
     "content-type": req.headers["content-type"],
@@ -133,7 +136,7 @@ router.post("/webhook/mercadopago/debug", (req: Request, res: Response) => {
     paymentId: body?.data?.id || body.resource || null,
     keys: Object.keys(body),
   };
-  console.log("🔍 DEBUG WEBHOOK - Body preview:", bodyPreview);
+  logger.info("🔍 DEBUG WEBHOOK - Body preview:", bodyPreview);
 
   res.status(200).json({
     received: true,
@@ -202,7 +205,63 @@ router.post(
       await googleDriveService.deleteFolder(folderId);
       res.json({ success: true, message: "Drive upload OK" });
     } catch (err: any) {
+      logger.error("Admin Google Drive test failed:", err);
       res.status(500).json({ success: false, error: err.message });
+    }
+  }
+);
+
+// Admin: Reprocess finalization for a specific order or payment
+router.post(
+  "/admin/reprocess-finalization",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const { orderId, paymentId } = req.body;
+      if (!orderId && !paymentId) {
+        return res
+          .status(400)
+          .json({ success: false, error: "orderId or paymentId required" });
+      }
+
+      let targetOrderId = orderId;
+      if (!targetOrderId && paymentId) {
+        const payment = await prisma.payment.findFirst({
+          where: { mercado_pago_id: paymentId },
+        });
+        if (!payment) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Payment not found" });
+        }
+        targetOrderId = payment.order_id;
+      }
+
+      const result = await PaymentService.reprocessFinalizationForOrder(
+        targetOrderId!
+      );
+      return res.json({ success: true, result });
+    } catch (err: any) {
+      logger.error("Erro ao reprocessar finalização manualmente:", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+);
+
+// Admin: Reprocess all missing finalizations
+router.post(
+  "/admin/reprocess-missing",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const { maxAttempts } = req.body || {};
+      await PaymentService.reprocessFailedFinalizations(maxAttempts || 5);
+      return res.json({ success: true, message: "Reprocess started" });
+    } catch (err: any) {
+      logger.error("Erro ao reprocessar finalizar pendentes:", err);
+      return res.status(500).json({ success: false, error: err.message });
     }
   }
 );
@@ -227,7 +286,7 @@ router.get("/images/:filename", (req: Request, res: Response) => {
 
     res.sendFile(filePath);
   } catch (error: any) {
-    console.error("Erro ao servir imagem:", error.message);
+    logger.error("Erro ao servir imagem:", error.message);
     res.status(500).json({
       error: "Erro interno do servidor",
       message: error.message,
@@ -257,7 +316,7 @@ router.get(
 
       res.sendFile(filePath);
     } catch (error: any) {
-      console.error("Erro ao servir arquivo de customização:", error.message);
+      logger.error("Erro ao servir arquivo de customização:", error.message);
       res.status(500).json({
         error: "Erro interno do servidor",
         message: error.message,
@@ -293,7 +352,7 @@ router.get(
 
       res.sendFile(filePath);
     } catch (error: any) {
-      console.error("Erro ao servir arquivo de customização:", error.message);
+      logger.error("Erro ao servir arquivo de customização:", error.message);
       res.status(500).json({
         error: "Erro interno do servidor",
         message: error.message,

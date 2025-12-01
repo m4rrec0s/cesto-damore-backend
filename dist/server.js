@@ -11,6 +11,7 @@ const routes_1 = __importDefault(require("./routes"));
 const node_cron_1 = __importDefault(require("node-cron"));
 const orderService_1 = __importDefault(require("./services/orderService"));
 const paymentService_1 = require("./services/paymentService");
+const logger_1 = __importDefault(require("./utils/logger"));
 const prisma_1 = __importDefault(require("./database/prisma"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
@@ -22,7 +23,7 @@ app.get("/", async (req, res) => {
 app.use(routes_1.default);
 node_cron_1.default.schedule("0 */6 * * *", async () => {
     try {
-        console.log("🕒 [Cron] Iniciando limpeza de pedidos cancelados...");
+        logger_1.default.info("🕒 [Cron] Iniciando limpeza de pedidos cancelados...");
         const twentyFourHoursAgo = new Date();
         twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
         const canceledOrders = await prisma_1.default.order.findMany({
@@ -38,32 +39,32 @@ node_cron_1.default.schedule("0 */6 * * *", async () => {
             },
         });
         if (canceledOrders.length === 0) {
-            console.log("🕒 [Cron] Nenhum pedido cancelado para deletar");
+            logger_1.default.info("🕒 [Cron] Nenhum pedido cancelado para deletar");
             return;
         }
-        console.log(`🕒 [Cron] Deletando ${canceledOrders.length} pedidos cancelados...`);
+        logger_1.default.info(`🕒 [Cron] Deletando ${canceledOrders.length} pedidos cancelados...`);
         for (const order of canceledOrders) {
             try {
                 await orderService_1.default.deleteOrder(order.id);
-                console.log(`✅ [Cron] Pedido cancelado deletado: ${order.id}`);
+                logger_1.default.info(`✅ [Cron] Pedido cancelado deletado: ${order.id}`);
             }
             catch (error) {
-                console.error(`❌ [Cron] Erro ao deletar pedido ${order.id}:`, error);
+                logger_1.default.error(`❌ [Cron] Erro ao deletar pedido ${order.id}:`, error);
             }
         }
-        console.log("✅ [Cron] Limpeza de pedidos cancelados concluída");
+        logger_1.default.info("✅ [Cron] Limpeza de pedidos cancelados concluída");
     }
     catch (error) {
-        console.error("❌ [Cron] Erro na limpeza de pedidos cancelados:", error);
+        logger_1.default.error("❌ [Cron] Erro na limpeza de pedidos cancelados:", error);
     }
 });
 const PORT = process.env.PORT || 3333;
 const BASE_URL = process.env.BASE_URL;
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on ${BASE_URL}`);
-    console.log(`📡 PORT: ${PORT}`);
-    console.log(`🔗 BASE_URL: ${BASE_URL}`);
-    console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+    logger_1.default.info(`🚀 Server running on ${BASE_URL}`);
+    logger_1.default.info(`📡 PORT: ${PORT}`);
+    logger_1.default.info(`🔗 BASE_URL: ${BASE_URL}`);
+    logger_1.default.info(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
     (async () => {
         try {
             await paymentService_1.PaymentService.replayStoredWebhooks();
@@ -72,11 +73,11 @@ app.listen(PORT, () => {
                 await paymentService_1.PaymentService.reprocessFailedFinalizations();
             }
             catch (err) {
-                console.error("Erro ao reprocessar finalizações na inicialização:", err);
+                logger_1.default.error("Erro ao reprocessar finalizações na inicialização:", err);
             }
         }
         catch (err) {
-            console.error("Erro ao executar replay de webhooks armazenados:", err);
+            logger_1.default.error("Erro ao executar replay de webhooks armazenados:", err);
         }
     })();
 });
@@ -86,6 +87,6 @@ node_cron_1.default.schedule("*/5 * * * *", async () => {
         await paymentService_1.PaymentService.reprocessFailedFinalizations();
     }
     catch (err) {
-        console.error("Erro ao executar replay periódico de webhooks armazenados:", err);
+        logger_1.default.error("Erro ao executar replay periódico de webhooks armazenados:", err);
     }
 });

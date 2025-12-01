@@ -1,4 +1,5 @@
 import { Response } from "express";
+import logger from "../utils/logger";
 
 interface WebhookClient {
   orderId: string;
@@ -17,7 +18,7 @@ class WebhookNotificationService {
    * Registra um cliente SSE para receber notificações de um pedido específico
    */
   registerClient(orderId: string, res: Response): void {
-    console.log(`📡 Cliente SSE registrado para pedido: ${orderId}`);
+    logger.info(`📡 Cliente SSE registrado para pedido: ${orderId}`);
 
     // Configurar headers SSE
     res.setHeader("Content-Type", "text/event-stream");
@@ -41,7 +42,7 @@ class WebhookNotificationService {
         // comments are valid SSE to keep NAT/proxy alive
         res.write(`: ping\n\n`);
       } catch (err) {
-        console.warn("🔔 Erro ao enviar ping SSE:", err);
+        logger.warn("🔔 Erro ao enviar ping SSE:", err);
       }
     }, 20000);
 
@@ -52,7 +53,7 @@ class WebhookNotificationService {
 
     // Remover cliente quando a conexão for fechada
     res.on("close", () => {
-      console.log(`❌ Cliente SSE desconectado para pedido: ${orderId}`);
+      logger.info(`❌ Cliente SSE desconectado para pedido: ${orderId}`);
       this.removeClient(orderId, res);
     });
   }
@@ -96,11 +97,11 @@ class WebhookNotificationService {
     const clients = this.clients.get(orderId);
 
     if (!clients || clients.length === 0) {
-      console.log(`ℹ️ Nenhum cliente SSE conectado para pedido: ${orderId}`);
+      logger.info(`ℹ️ Nenhum cliente SSE conectado para pedido: ${orderId}`);
       return;
     }
 
-    console.log(
+    logger.debug(
       `📤 Enviando notificação SSE para ${clients.length} cliente(s) - Pedido: ${orderId}`
     );
 
@@ -117,9 +118,9 @@ class WebhookNotificationService {
     clients.forEach((client, index) => {
       try {
         client.response.write(`data: ${JSON.stringify(message)}\n\n`);
-        console.log(`✅ Notificação enviada para cliente ${index + 1}`);
+        logger.info(`✅ Notificação enviada para cliente ${index + 1}`);
       } catch (error) {
-        console.error(
+        logger.error(
           `❌ Erro ao enviar notificação para cliente ${index + 1}:`,
           error
         );
@@ -157,7 +158,7 @@ class WebhookNotificationService {
       try {
         client.response.write(`data: ${JSON.stringify(message)}\n\n`);
       } catch (error) {
-        console.error("Erro ao enviar notificação de erro:", error);
+        logger.error("Erro ao enviar notificação de erro:", error);
         this.removeClient(orderId, client.response);
       }
     });

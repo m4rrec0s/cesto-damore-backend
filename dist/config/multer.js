@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.convertImagesToWebPLossless = exports.convertImagesToWebP = exports.uploadTemp = exports.uploadAny = exports.upload = void 0;
 const multer_1 = __importDefault(require("multer"));
 const sharp_1 = __importDefault(require("sharp"));
+const logger_1 = __importDefault(require("../utils/logger"));
 const storage = multer_1.default.memoryStorage();
 const isImageByName = (name) => {
     if (!name)
@@ -66,7 +67,7 @@ exports.uploadTemp = (0, multer_1.default)({
 });
 const convertImagesToWebP = async (req, res, next) => {
     try {
-        console.log("🔄 [MIDDLEWARE] convertImagesToWebP iniciado");
+        logger_1.default.debug("🔄 [MIDDLEWARE] convertImagesToWebP iniciado");
         const convert = async (file) => {
             if (!file || !file.buffer) {
                 return file;
@@ -108,8 +109,8 @@ const convertImagesToWebP = async (req, res, next) => {
         next();
     }
     catch (err) {
-        console.error("❌ [MIDDLEWARE] Erro em convertImagesToWebP:", err);
-        console.error("❌ [MIDDLEWARE] Stack:", err.stack);
+        logger_1.default.error("❌ [MIDDLEWARE] Erro em convertImagesToWebP:", err);
+        logger_1.default.error("❌ [MIDDLEWARE] Stack:", err.stack);
         next(err);
     }
 };

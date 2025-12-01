@@ -1,6 +1,7 @@
 import prisma from "../database/prisma";
 import { withRetry } from "../database/prismaRetry";
 import whatsappService from "./whatsappService";
+import logger from "../utils/logger";
 import productComponentService from "./productComponentService";
 
 interface OrderItemData {
@@ -18,7 +19,7 @@ class StockService {
    * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
    */
   async decrementOrderStock(orderItems: OrderItemData[]): Promise<void> {
-    console.log(
+    logger.warn(
       "⚠️ DECREMENTO DE ESTOQUE DESABILITADO - Pedido criado sem alterar estoque"
     );
     return; // ✅ Desabilitado temporariamente
@@ -85,7 +86,7 @@ class StockService {
 
     // LÓGICA LEGADA: Se não tem componentes, decrementar estoque direto do produto
     if (product.stock_quantity === null) {
-      console.warn(`Produto ${product.name} não possui controle de estoque`);
+      logger.warn(`Produto ${product.name} não possui controle de estoque`);
       return;
     }
 
@@ -148,7 +149,7 @@ class StockService {
 
     // Valida estoque total do item
     if (item.stock_quantity === null || item.stock_quantity === undefined) {
-      console.warn(`Item ${item.name} não possui controle de estoque`);
+      logger.warn(`Item ${item.name} não possui controle de estoque`);
       return;
     }
 
@@ -210,7 +211,7 @@ class StockService {
       }
     } catch (error) {
       // Não interrompe o fluxo se a notificação falhar
-      console.error("Erro ao enviar notificação de estoque baixo:", error);
+      logger.error("Erro ao enviar notificação de estoque baixo:", error);
     }
   }
 
@@ -238,7 +239,7 @@ class StockService {
 
         // ✅ Se produto usa components, não validar estoque direto do produto
         if (hasComponents) {
-          console.log(
+          logger.info(
             `⚠️ Produto ${item.product_id} usa sistema de components - validação de estoque via components (já feita anteriormente)`
           );
           // A validação de components já foi feita em validateComponentsStock()
@@ -267,7 +268,7 @@ class StockService {
           }
         }
       } catch (error) {
-        console.error(
+        logger.error(
           `Erro ao validar estoque do produto ${item.product_id}:`,
           error
         );

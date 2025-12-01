@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import PaymentService from "../services/paymentService";
 import prisma from "../database/prisma";
+import logger from "../utils/logger";
 
 export class PaymentController {
   // Map service errors (messages) to HTTP status codes
@@ -305,19 +306,19 @@ export class PaymentController {
         (webhookData?.data && webhookData?.data?.id) ||
         webhookData?.resource ||
         null;
-      console.log(
+      logger.info(
         "📨 PaymentController.handleWebhook - Iniciando processamento",
         { type: incomingType || null, resource: incomingResource || null }
       );
 
       if (process.env.NODE_ENV !== "production") {
         try {
-          console.log(
+          logger.debug(
             "📮 Webhook payload (debug):",
             JSON.stringify(webhookData, null, 2)
           );
         } catch (err) {
-          console.warn("Falha ao imprimir payload do webhook (debug)");
+          logger.warn("Falha ao imprimir payload do webhook (debug)");
         }
       }
 

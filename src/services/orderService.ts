@@ -3,6 +3,7 @@ import stockService from "./stockService";
 import whatsappService from "./whatsappService";
 import productComponentService from "./productComponentService";
 import customerManagementService from "./customerManagementService";
+import logger from "../utils/logger";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -86,9 +87,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-        .map((p: any) => p.temp_file_id || p.preview_url || "")
-        .sort()
-        .join(",")
+          .map((p: any) => p.temp_file_id || p.preview_url || "")
+          .sort()
+          .join(",")
       : "",
   }));
 
@@ -134,7 +135,7 @@ class OrderService {
                 typeof customData.selected_item === "string"
                   ? customData.selected_item
                   : (customData.selected_item as { selected_item?: string })
-                    .selected_item;
+                      .selected_item;
 
               if (selected) {
                 customData.label_selected = selected;
@@ -375,7 +376,7 @@ class OrderService {
   }
 
   async createOrder(data: CreateOrderInput) {
-    console.log("📝 [OrderService] Iniciando criação de pedido - resumo:", {
+    logger.info("📝 [OrderService] Iniciando criação de pedido - resumo:", {
       user_id: data.user_id,
       itemsCount: Array.isArray(data.items) ? data.items.length : 0,
       payment_method: data.payment_method ?? null,
@@ -383,11 +384,11 @@ class OrderService {
     });
 
     if (!data.user_id || data.user_id.trim() === "") {
-      console.error("❌ [OrderService] user_id está vazio ou inválido");
+      logger.error("❌ [OrderService] user_id está vazio ou inválido");
       throw new Error("ID do usuário é obrigatório");
     }
     if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
-      console.error("❌ [OrderService] items está vazio ou inválido");
+      logger.error("❌ [OrderService] items está vazio ou inválido");
       throw new Error("Pelo menos um item é obrigatório");
     }
 
@@ -397,7 +398,7 @@ class OrderService {
       !data.is_draft &&
       (phoneDigits.length < 10 || phoneDigits.length > 13)
     ) {
-      console.error(
+      logger.error(
         "❌ [OrderService] Telefone com tamanho inválido:",
         phoneDigits.length
       );
@@ -409,7 +410,7 @@ class OrderService {
     }
 
     const paymentMethod = normalizeText(String(data.payment_method || ""));
-    console.log(
+    logger.debug(
       "💳 [OrderService] Método de pagamento normalizado:",
       paymentMethod
     );
@@ -443,7 +444,7 @@ class OrderService {
     const normalizedState = data.delivery_state
       ? normalizeText(data.delivery_state)
       : undefined;
-    console.log("🗺️ [OrderService] Estado normalizado:", normalizedState);
+    logger.debug("🗺️ [OrderService] Estado normalizado:", normalizedState);
 
     if (
       !data.is_draft &&
@@ -487,7 +488,8 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1
+              `Item ${i + 1}: adicional ${
+                j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -503,11 +505,11 @@ class OrderService {
     try {
       try {
         await this.cancelPreviousPendingOrders(data.user_id);
-        console.log(
+        logger.info(
           `✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`
         );
       } catch (error) {
-        console.error(
+        logger.error(
           "⚠️ Erro ao cancelar pedidos anteriores (continuando):",
           error instanceof Error ? error.message : error
         );
@@ -557,7 +559,8 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${product.name
+              `Estoque insuficiente para ${
+                product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -772,7 +775,7 @@ class OrderService {
     await this.getOrderById(id);
 
     try {
-      console.log(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
+      logger.info(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
 
       await prisma.$transaction(async (tx) => {
         const items = await tx.orderItem.findMany({
@@ -786,30 +789,30 @@ class OrderService {
             await tx.orderItemCustomization.deleteMany({
               where: { order_item_id: { in: itemIds } },
             });
-          console.log(
+          logger.info(
             `  ✓ Customizações deletadas: ${deletedCustomizations.count}`
           );
 
           const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
             where: { order_item_id: { in: itemIds } },
           });
-          console.log(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
+          logger.info(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
         }
 
         const deletedItems = await tx.orderItem.deleteMany({
           where: { order_id: id },
         });
-        console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
+        logger.info(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
 
         try {
           const deletedPersonalizations = await tx.personalization.deleteMany({
             where: { order_id: id },
           });
-          console.log(
+          logger.info(
             `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`
           );
         } catch (err) {
-          console.log(
+          logger.info(
             "  ℹ️ Sem personalizações para deletar (ou erro):",
             (err as any)?.message || err
           );
@@ -821,12 +824,12 @@ class OrderService {
           });
           if (payment) {
             await tx.payment.delete({ where: { order_id: id } });
-            console.log("  ✓ Pagamento deletado");
+            logger.info("  ✓ Pagamento deletado");
           } else {
-            console.log("  ℹ️ Sem pagamento para deletar");
+            logger.info("  ℹ️ Sem pagamento para deletar");
           }
         } catch (err) {
-          console.log(
+          logger.warn(
             "  ℹ️ Erro ao deletar pagamento (pode não existir):",
             (err as any)?.message || err
           );
@@ -835,14 +838,14 @@ class OrderService {
         await tx.order.delete({ where: { id } });
       });
 
-      console.log(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
+      logger.info(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
 
       return { message: "Pedido deletado com sucesso" };
     } catch (error: any) {
       if (error.message.includes("não encontrado")) {
         throw error;
       }
-      console.error(`❌ [OrderService] Erro ao deletar pedido:`, error);
+      logger.error(`❌ [OrderService] Erro ao deletar pedido:`, error);
       throw new Error(`Erro ao deletar pedido: ${error.message}`);
     }
   }
@@ -1310,9 +1313,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                address: updated.delivery_address,
-                date: updated.delivery_date || undefined,
-              }
+                  address: updated.delivery_address,
+                  date: updated.delivery_date || undefined,
+                }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },

@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
 const prismaRetry_1 = require("../database/prismaRetry");
 const whatsappService_1 = __importDefault(require("./whatsappService"));
+const logger_1 = __importDefault(require("../utils/logger"));
 const productComponentService_1 = __importDefault(require("./productComponentService"));
 class StockService {
     /**
@@ -13,7 +14,7 @@ class StockService {
      * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
      */
     async decrementOrderStock(orderItems) {
-        console.log("⚠️ DECREMENTO DE ESTOQUE DESABILITADO - Pedido criado sem alterar estoque");
+        logger_1.default.warn("⚠️ DECREMENTO DE ESTOQUE DESABILITADO - Pedido criado sem alterar estoque");
         return; // ✅ Desabilitado temporariamente
         /* CÓDIGO ORIGINAL (COMENTADO):
         try {
@@ -65,7 +66,7 @@ class StockService {
         }
         // LÓGICA LEGADA: Se não tem componentes, decrementar estoque direto do produto
         if (product.stock_quantity === null) {
-            console.warn(`Produto ${product.name} não possui controle de estoque`);
+            logger_1.default.warn(`Produto ${product.name} não possui controle de estoque`);
             return;
         }
         // Verifica se tem estoque suficiente
@@ -107,7 +108,7 @@ class StockService {
         // Cores legadas removidas: decrementa sempre do estoque unificado do Item
         // Valida estoque total do item
         if (item.stock_quantity === null || item.stock_quantity === undefined) {
-            console.warn(`Item ${item.name} não possui controle de estoque`);
+            logger_1.default.warn(`Item ${item.name} não possui controle de estoque`);
             return;
         }
         if (item.stock_quantity < quantity) {
@@ -138,7 +139,7 @@ class StockService {
         }
         catch (error) {
             // Não interrompe o fluxo se a notificação falhar
-            console.error("Erro ao enviar notificação de estoque baixo:", error);
+            logger_1.default.error("Erro ao enviar notificação de estoque baixo:", error);
         }
     }
     /**
@@ -159,7 +160,7 @@ class StockService {
                 const hasComponents = Number(componentCount[0]?.count || 0) > 0;
                 // ✅ Se produto usa components, não validar estoque direto do produto
                 if (hasComponents) {
-                    console.log(`⚠️ Produto ${item.product_id} usa sistema de components - validação de estoque via components (já feita anteriormente)`);
+                    logger_1.default.info(`⚠️ Produto ${item.product_id} usa sistema de components - validação de estoque via components (já feita anteriormente)`);
                     // A validação de components já foi feita em validateComponentsStock()
                     // então pulamos a validação do produto direto
                 }
@@ -179,7 +180,7 @@ class StockService {
                 }
             }
             catch (error) {
-                console.error(`Erro ao validar estoque do produto ${item.product_id}:`, error);
+                logger_1.default.error(`Erro ao validar estoque do produto ${item.product_id}:`, error);
                 errors.push(`Erro ao validar produto ${item.product_id}`);
             }
             // Validar adicionais - ✅ Força refresh com $queryRaw

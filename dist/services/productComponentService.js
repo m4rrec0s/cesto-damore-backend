@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../database/prisma"));
+const logger_1 = __importDefault(require("../utils/logger"));
 class ProductComponentService {
     /**
      * Adiciona item como componente de um produto
@@ -176,7 +177,7 @@ class ProductComponentService {
      * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
      */
     async decrementComponentsStock(productId, productQuantity) {
-        console.log(`⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`);
+        logger_1.default.warn(`⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`);
         return; // ✅ Desabilitado temporariamente
         /* CÓDIGO ORIGINAL (COMENTADO):
         const components = await this.getProductComponents(productId);

@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PaymentController = void 0;
 const paymentService_1 = __importDefault(require("../services/paymentService"));
 const prisma_1 = __importDefault(require("../database/prisma"));
+const logger_1 = __importDefault(require("../utils/logger"));
 class PaymentController {
     // Map service errors (messages) to HTTP status codes
     static mapErrorToStatus(err) {
@@ -256,13 +257,13 @@ class PaymentController {
             const incomingResource = (webhookData?.data && webhookData?.data?.id) ||
                 webhookData?.resource ||
                 null;
-            console.log("📨 PaymentController.handleWebhook - Iniciando processamento", { type: incomingType || null, resource: incomingResource || null });
+            logger_1.default.info("📨 PaymentController.handleWebhook - Iniciando processamento", { type: incomingType || null, resource: incomingResource || null });
             if (process.env.NODE_ENV !== "production") {
                 try {
-                    console.log("📮 Webhook payload (debug):", JSON.stringify(webhookData, null, 2));
+                    logger_1.default.debug("📮 Webhook payload (debug):", JSON.stringify(webhookData, null, 2));
                 }
                 catch (err) {
-                    console.warn("Falha ao imprimir payload do webhook (debug)");
+                    logger_1.default.warn("Falha ao imprimir payload do webhook (debug)");
                 }
             }
             await paymentService_1.default.processWebhookNotification(webhookData, headers);

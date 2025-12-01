@@ -7,6 +7,7 @@ import routes from "./routes";
 import cron from "node-cron";
 import orderService from "./services/orderService";
 import { PaymentService } from "./services/paymentService";
+import logger from "./utils/logger";
 import prisma from "./database/prisma";
 
 const app = express();
@@ -23,7 +24,7 @@ app.use(routes);
 
 cron.schedule("0 */6 * * *", async () => {
   try {
-    console.log("🕒 [Cron] Iniciando limpeza de pedidos cancelados...");
+    logger.info("🕒 [Cron] Iniciando limpeza de pedidos cancelados...");
 
     const twentyFourHoursAgo = new Date();
     twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
@@ -42,26 +43,26 @@ cron.schedule("0 */6 * * *", async () => {
     });
 
     if (canceledOrders.length === 0) {
-      console.log("🕒 [Cron] Nenhum pedido cancelado para deletar");
+      logger.info("🕒 [Cron] Nenhum pedido cancelado para deletar");
       return;
     }
 
-    console.log(
+    logger.info(
       `🕒 [Cron] Deletando ${canceledOrders.length} pedidos cancelados...`
     );
 
     for (const order of canceledOrders) {
       try {
         await orderService.deleteOrder(order.id);
-        console.log(`✅ [Cron] Pedido cancelado deletado: ${order.id}`);
+        logger.info(`✅ [Cron] Pedido cancelado deletado: ${order.id}`);
       } catch (error) {
-        console.error(`❌ [Cron] Erro ao deletar pedido ${order.id}:`, error);
+        logger.error(`❌ [Cron] Erro ao deletar pedido ${order.id}:`, error);
       }
     }
 
-    console.log("✅ [Cron] Limpeza de pedidos cancelados concluída");
+    logger.info("✅ [Cron] Limpeza de pedidos cancelados concluída");
   } catch (error) {
-    console.error("❌ [Cron] Erro na limpeza de pedidos cancelados:", error);
+    logger.error("❌ [Cron] Erro na limpeza de pedidos cancelados:", error);
   }
 });
 
@@ -69,10 +70,10 @@ const PORT = process.env.PORT || 3333;
 const BASE_URL = process.env.BASE_URL;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on ${BASE_URL}`);
-  console.log(`📡 PORT: ${PORT}`);
-  console.log(`🔗 BASE_URL: ${BASE_URL}`);
-  console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+  logger.info(`🚀 Server running on ${BASE_URL}`);
+  logger.info(`📡 PORT: ${PORT}`);
+  logger.info(`🔗 BASE_URL: ${BASE_URL}`);
+  logger.info(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
   (async () => {
     try {
       await PaymentService.replayStoredWebhooks();
@@ -80,13 +81,10 @@ app.listen(PORT, () => {
       try {
         await PaymentService.reprocessFailedFinalizations();
       } catch (err) {
-        console.error(
-          "Erro ao reprocessar finalizações na inicialização:",
-          err
-        );
+        logger.error("Erro ao reprocessar finalizações na inicialização:", err);
       }
     } catch (err) {
-      console.error("Erro ao executar replay de webhooks armazenados:", err);
+      logger.error("Erro ao executar replay de webhooks armazenados:", err);
     }
   })();
 });
@@ -96,7 +94,7 @@ cron.schedule("*/5 * * * *", async () => {
     await PaymentService.replayStoredWebhooks();
     await PaymentService.reprocessFailedFinalizations();
   } catch (err) {
-    console.error(
+    logger.error(
       "Erro ao executar replay periódico de webhooks armazenados:",
       err
     );

@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import fs from "fs/promises";
 import path from "path";
+import logger from "../utils/logger";
 import { Readable } from "stream";
 // crypto removed - not required when using only OAuth
 
@@ -63,13 +64,11 @@ class GoogleDriveService {
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) {
-      console.error(
-        "❌ GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET não definidos"
-      );
-      console.error(
+      logger.error("❌ GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET não definidos");
+      logger.error(
         `🔍 GOOGLE_CLIENT_ID: ${clientId ? "definido" : "NÃO DEFINIDO"}`
       );
-      console.error(
+      logger.error(
         `🔍 GOOGLE_CLIENT_SECRET: ${clientSecret ? "definido" : "NÃO DEFINIDO"}`
       );
       throw new Error("Credenciais OAuth2 do Google não configuradas");
@@ -88,7 +87,7 @@ class GoogleDriveService {
 
   private setupOAuth2Client(client: any): void {
     client.on("tokens", async (tokens: any) => {
-      console.log("Tokens atualizados pelo Google");
+      logger.info("Tokens atualizados pelo Google");
 
       const current = client.credentials || {};
       const updated: OAuth2Credentials = { ...current, ...tokens };
@@ -96,9 +95,9 @@ class GoogleDriveService {
       // NUNCA perca o refresh_token
       if (current.refresh_token && !tokens.refresh_token) {
         updated.refresh_token = current.refresh_token;
-        console.log("Refresh token preservado");
+        logger.info("Refresh token preservado");
       } else if (tokens.refresh_token) {
-        console.log("Novo refresh token recebido!");
+        logger.info("Novo refresh token recebido!");
       }
 
       client.setCredentials(updated);
@@ -172,7 +171,7 @@ class GoogleDriveService {
       };
 
       await fs.writeFile(this.tokenPath, JSON.stringify(finalTokens, null, 2));
-      console.log("Tokens salvos com sucesso");
+      logger.info("Tokens salvos com sucesso");
 
       try {
         await this.updateEnvFile(finalTokens);
@@ -228,7 +227,7 @@ class GoogleDriveService {
       }
 
       await fs.writeFile(envPath, envContent, "utf-8");
-      console.log("✅ Arquivo .env atualizado com sucesso");
+      logger.info("✅ Arquivo .env atualizado com sucesso");
     } catch (error) {
       if (process.env.NODE_ENV === "production") {
         console.warn(
@@ -287,9 +286,9 @@ class GoogleDriveService {
       );
     }
 
-    console.log("🔗 Gerando URL de autenticação OAuth2");
-    console.log(`🔗 Redirect URI: ${redirectUri}`);
-    console.log(`🔗 Scopes: ${scopes.join(", ")}`);
+    logger.info("🔗 Gerando URL de autenticação OAuth2");
+    logger.debug(`🔗 Redirect URI: ${redirectUri}`);
+    logger.debug(`🔗 Scopes: ${scopes.join(", ")}`);
 
     const authUrl = this.oauth2Client.generateAuthUrl({
       access_type: "offline",
@@ -299,7 +298,7 @@ class GoogleDriveService {
       redirect_uri: redirectUri,
     });
 
-    console.log(`🔗 URL gerada: ${authUrl.substring(0, 100)}...`);
+    logger.debug(`🔗 URL gerada: ${authUrl.substring(0, 100)}...`);
     return authUrl;
   }
 
@@ -314,7 +313,7 @@ class GoogleDriveService {
 
       return tokens;
     } catch (error: any) {
-      console.error("❌ Erro ao obter tokens:", error.message);
+      logger.error("❌ Erro ao obter tokens:", error.message);
       throw new Error("Falha ao autenticar com Google Drive");
     }
   }
@@ -331,7 +330,7 @@ class GoogleDriveService {
       this.oauth2Client.setCredentials(updatedTokens);
       await this.saveTokens(updatedTokens);
     } catch (error: any) {
-      console.error("❌ Erro ao renovar access token:", error.message);
+      logger.error("❌ Erro ao renovar access token:", error.message);
       throw new Error(
         "Falha ao renovar autenticação. Execute o fluxo OAuth2 novamente via /oauth/authorize"
       );
@@ -354,7 +353,7 @@ class GoogleDriveService {
     }
 
     // Se não temos access_token mas temos refresh_token, o cliente vai atualizar automaticamente na próxima chamada
-    console.log(
+    logger.debug(
       "🔍 Credenciais OAuth2 verificadas - cliente atualizará automaticamente se necessário"
     );
   }
@@ -376,7 +375,7 @@ class GoogleDriveService {
 
       return response.data.id;
     } catch (error: any) {
-      console.error("❌ Erro ao criar pasta no Google Drive:", error.message);
+      logger.error("❌ Erro ao criar pasta no Google Drive:", error.message);
       throw new Error("Falha ao criar pasta de customização no Google Drive");
     }
   }
@@ -391,7 +390,7 @@ class GoogleDriveService {
       }
       // Clear in-memory credentials
       if (this.oauth2Client) this.oauth2Client.credentials = {};
-      console.log("✅ Google Drive tokens cleared");
+      logger.info("✅ Google Drive tokens cleared");
     } catch (err) {
       console.warn("Não foi possível remover token local:", String(err));
     }
@@ -438,7 +437,7 @@ class GoogleDriveService {
         webContentLink: directDownloadUrl,
       };
     } catch (error: any) {
-      console.error("❌ Erro ao fazer upload:", error.message);
+      logger.error("❌ Erro ao fazer upload:", error.message);
       throw new Error("Falha ao fazer upload do arquivo para o Google Drive");
     }
   }

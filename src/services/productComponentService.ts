@@ -1,4 +1,5 @@
 import prisma from "../database/prisma";
+import logger from "../utils/logger";
 
 interface AddComponentInput {
   product_id: string;
@@ -212,7 +213,7 @@ class ProductComponentService {
    * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
    */
   async decrementComponentsStock(productId: string, productQuantity: number) {
-    console.log(
+    logger.warn(
       `⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`
     );
     return; // ✅ Desabilitado temporariamente

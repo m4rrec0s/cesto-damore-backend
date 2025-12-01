@@ -1,6 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.webhookNotificationService = void 0;
+const logger_1 = __importDefault(require("../utils/logger"));
 /**
  * Serviço para gerenciar notificações via Server-Sent Events (SSE)
  * Permite que o frontend receba atualizações em tempo real sobre pagamentos
@@ -13,7 +17,7 @@ class WebhookNotificationService {
      * Registra um cliente SSE para receber notificações de um pedido específico
      */
     registerClient(orderId, res) {
-        console.log(`📡 Cliente SSE registrado para pedido: ${orderId}`);
+        logger_1.default.info(`📡 Cliente SSE registrado para pedido: ${orderId}`);
         // Configurar headers SSE
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
@@ -35,7 +39,7 @@ class WebhookNotificationService {
                 res.write(`: ping\n\n`);
             }
             catch (err) {
-                console.warn("🔔 Erro ao enviar ping SSE:", err);
+                logger_1.default.warn("🔔 Erro ao enviar ping SSE:", err);
             }
         }, 20000);
         // Adicionar cliente à lista
@@ -44,7 +48,7 @@ class WebhookNotificationService {
         this.clients.set(orderId, clients);
         // Remover cliente quando a conexão for fechada
         res.on("close", () => {
-            console.log(`❌ Cliente SSE desconectado para pedido: ${orderId}`);
+            logger_1.default.info(`❌ Cliente SSE desconectado para pedido: ${orderId}`);
             this.removeClient(orderId, res);
         });
     }
@@ -76,10 +80,10 @@ class WebhookNotificationService {
     notifyPaymentUpdate(orderId, data) {
         const clients = this.clients.get(orderId);
         if (!clients || clients.length === 0) {
-            console.log(`ℹ️ Nenhum cliente SSE conectado para pedido: ${orderId}`);
+            logger_1.default.info(`ℹ️ Nenhum cliente SSE conectado para pedido: ${orderId}`);
             return;
         }
-        console.log(`📤 Enviando notificação SSE para ${clients.length} cliente(s) - Pedido: ${orderId}`);
+        logger_1.default.debug(`📤 Enviando notificação SSE para ${clients.length} cliente(s) - Pedido: ${orderId}`);
         const message = {
             type: "payment_update",
             orderId,
@@ -92,10 +96,10 @@ class WebhookNotificationService {
         clients.forEach((client, index) => {
             try {
                 client.response.write(`data: ${JSON.stringify(message)}\n\n`);
-                console.log(`✅ Notificação enviada para cliente ${index + 1}`);
+                logger_1.default.info(`✅ Notificação enviada para cliente ${index + 1}`);
             }
             catch (error) {
-                console.error(`❌ Erro ao enviar notificação para cliente ${index + 1}:`, error);
+                logger_1.default.error(`❌ Erro ao enviar notificação para cliente ${index + 1}:`, error);
                 this.removeClient(orderId, client.response);
             }
         });
@@ -121,7 +125,7 @@ class WebhookNotificationService {
                 client.response.write(`data: ${JSON.stringify(message)}\n\n`);
             }
             catch (error) {
-                console.error("Erro ao enviar notificação de erro:", error);
+                logger_1.default.error("Erro ao enviar notificação de erro:", error);
                 this.removeClient(orderId, client.response);
             }
         });

@@ -7,6 +7,7 @@ exports.IMAGES_DIR = exports.listLocalImages = exports.deleteAdditionalImage = e
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const crypto_1 = __importDefault(require("crypto"));
+const logger_1 = __importDefault(require("../utils/logger"));
 // Pasta de imagens FORA do diretório do código
 // Em produção (Docker): /app/images (mapeado via volume)
 // Em desenvolvimento: ./images (dentro do projeto)
@@ -16,18 +17,18 @@ const IMAGES_DIR = process.env.NODE_ENV === "production"
 exports.IMAGES_DIR = IMAGES_DIR;
 const BASE_URL = process.env.BASE_URL;
 // Log para debug
-console.log("📁 [STORAGE CONFIG]", {
+logger_1.default.info("📁 [STORAGE CONFIG]", {
     NODE_ENV: process.env.NODE_ENV,
     IMAGES_DIR,
     BASE_URL,
 });
 const ensureImagesDirectory = () => {
     if (!fs_1.default.existsSync(IMAGES_DIR)) {
-        console.log(`📁 [STORAGE] Criando diretório: ${IMAGES_DIR}`);
+        logger_1.default.info(`📁 [STORAGE] Criando diretório: ${IMAGES_DIR}`);
         fs_1.default.mkdirSync(IMAGES_DIR, { recursive: true });
     }
     else {
-        console.log(`✅ [STORAGE] Diretório existe: ${IMAGES_DIR}`);
+        logger_1.default.info(`✅ [STORAGE] Diretório existe: ${IMAGES_DIR}`);
     }
 };
 exports.ensureImagesDirectory = ensureImagesDirectory;
@@ -44,28 +45,28 @@ const saveImageLocally = async (buffer, originalName, mimeType) => {
             .find((f) => f.includes(`-${shortHash}-`) ||
             f.includes(`-${shortHash}${extension}`));
         if (existing) {
-            console.log(`♻️ [STORAGE] Imagem já existe: ${existing}`);
+            logger_1.default.info(`♻️ [STORAGE] Imagem já existe: ${existing}`);
             return `${BASE_URL}/images/${existing}`;
         }
         const fileName = `${timestamp}-${shortHash}-${sanitizeFileName(baseFileName)}${extension}`;
         const filePath = path_1.default.join(IMAGES_DIR, fileName);
-        console.log(`💾 [STORAGE] Salvando imagem em: ${filePath}`);
+        logger_1.default.info(`💾 [STORAGE] Salvando imagem em: ${filePath}`);
         fs_1.default.writeFileSync(filePath, buffer);
         if (fs_1.default.existsSync(filePath)) {
             const stats = fs_1.default.statSync(filePath);
-            console.log(`✅ [STORAGE] Imagem salva com sucesso! Tamanho: ${stats.size} bytes`);
-            console.log(`✅ [STORAGE] Caminho completo: ${filePath}`);
+            logger_1.default.info(`✅ [STORAGE] Imagem salva com sucesso! Tamanho: ${stats.size} bytes`);
+            logger_1.default.info(`✅ [STORAGE] Caminho completo: ${filePath}`);
         }
         else {
-            console.error("❌ [STORAGE] ARQUIVO NÃO EXISTE APÓS writeFileSync!");
+            logger_1.default.error("❌ [STORAGE] ARQUIVO NÃO EXISTE APÓS writeFileSync!");
         }
         const imageUrl = `${BASE_URL}/images/${fileName}`;
-        console.log(`🔗 [STORAGE] URL da imagem: ${imageUrl}`);
+        logger_1.default.info(`🔗 [STORAGE] URL da imagem: ${imageUrl}`);
         return imageUrl;
     }
     catch (error) {
-        console.error("❌ [ERRO CRÍTICO] saveImageLocally falhou:", error);
-        console.error("❌ Stack trace:", error.stack);
+        logger_1.default.error("❌ [ERRO CRÍTICO] saveImageLocally falhou:", error);
+        logger_1.default.error("❌ Stack trace:", error.stack);
         throw new Error(`Erro ao salvar imagem: ${error.message}`);
     }
 };
@@ -79,11 +80,11 @@ const deleteImageLocally = async (imageUrl) => {
             return;
         }
         else {
-            console.warn("⚠️ Arquivo não encontrado:", filePath);
+            logger_1.default.warn("⚠️ Arquivo não encontrado:", filePath);
         }
     }
     catch (error) {
-        console.error("❌ Erro ao deletar imagem:", error.message);
+        logger_1.default.error("❌ Erro ao deletar imagem:", error.message);
         throw new Error(`Erro ao deletar imagem: ${error.message}`);
     }
 };
@@ -96,7 +97,7 @@ const deleteProductImage = async (imageUrl) => {
         await (0, exports.deleteImageLocally)(imageUrl);
     }
     catch (error) {
-        console.warn("⚠️ Não foi possível deletar a imagem do produto:", error.message);
+        logger_1.default.warn("⚠️ Não foi possível deletar a imagem do produto:", error.message);
         console.warn("🔄 Produto será deletado mesmo assim");
     }
 };
@@ -109,7 +110,7 @@ const deleteAdditionalImage = async (imageUrl) => {
         await (0, exports.deleteImageLocally)(imageUrl);
     }
     catch (error) {
-        console.warn("⚠️ Não foi possível deletar a imagem adicional:", error.message);
+        logger_1.default.warn("⚠️ Não foi possível deletar a imagem adicional:", error.message);
         console.warn("🔄 Imagem adicional será deletada mesmo assim");
     }
 };
@@ -131,7 +132,7 @@ const listLocalImages = () => {
         });
     }
     catch (error) {
-        console.error("❌ Erro ao listar imagens:", error.message);
+        logger_1.default.error("❌ Erro ao listar imagens:", error.message);
         return [];
     }
 };

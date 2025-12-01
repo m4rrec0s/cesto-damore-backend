@@ -8,6 +8,7 @@ import { mercadoPagoDirectService } from "./mercadoPagoDirectService";
 import whatsappService from "./whatsappService";
 import orderCustomizationService from "./orderCustomizationService";
 import { webhookNotificationService } from "./webhookNotificationService";
+import logger from "../utils/logger";
 
 type OrderWithPaymentDetails = Prisma.OrderGetPayload<{
   include: {
@@ -349,11 +350,11 @@ export class PaymentService {
               where: { id: order.id },
               data: { payment_method: orderPaymentMethod },
             });
-            console.log(
+            logger.info(
               `🛠️ Pedido ${order.id} atualizado com payment_method: ${orderPaymentMethod}`
             );
           } catch (upErr) {
-            console.warn(
+            logger.warn(
               "⚠️ Não foi possível atualizar payment_method do pedido:",
               upErr
             );
@@ -380,12 +381,12 @@ export class PaymentService {
           // Cancelar o pagamento anterior no Mercado Pago (se existir)
           if (order.payment.mercado_pago_id) {
             try {
-              console.log(
+              logger.info(
                 `🔄 Cancelando pagamento anterior: ${order.payment.mercado_pago_id}`
               );
               await this.cancelPayment(order.payment.mercado_pago_id);
             } catch (cancelError) {
-              console.warn(
+              logger.warn(
                 "⚠️ Não foi possível cancelar pagamento anterior:",
                 cancelError
               );
@@ -398,7 +399,7 @@ export class PaymentService {
             where: { id: order.payment.id },
           });
 
-          console.log(
+          logger.info(
             `♻️ Pagamento anterior removido. Criando novo pagamento ${data.paymentMethodId}...`
           );
         }
@@ -1100,13 +1101,50 @@ export class PaymentService {
     }
   }
 
+  /**
+   * Reprocess finalization for a specific order, for admin manual retry.
+   */
+  static async reprocessFinalizationForOrder(orderId: string) {
+    try {
+      const finalizeRes =
+        await orderCustomizationService.finalizeOrderCustomizations(orderId);
+
+      // Update webhook logs for the payment related to this order (if exists)
+      const payment = await prisma.payment.findUnique({
+        where: { order_id: orderId },
+      });
+      if (payment && payment.mercado_pago_id) {
+        const succeeded = !finalizeRes?.base64Detected;
+        await prisma.webhookLog.updateMany({
+          where: { resource_id: payment.mercado_pago_id, topic: "payment" },
+          data: {
+            finalization_succeeded: succeeded,
+            finalization_attempts: { increment: 1 } as any,
+            error_message: succeeded
+              ? undefined
+              : `Base64 left: ${finalizeRes.base64AffectedIds?.join(",")}`,
+          },
+        });
+      }
+
+      return finalizeRes;
+    } catch (error) {
+      logger.error(
+        "Erro ao reprocessar finalização para pedido:",
+        orderId,
+        error
+      );
+      throw error;
+    }
+  }
+
   static async processWebhookNotification(data: any, headers: any) {
     try {
       const isTestWebhook =
         data.live_mode === false && data.data?.id === "123456";
 
       if (isTestWebhook) {
-        console.log("✅ Test webhook received");
+        logger.info("✅ Test webhook received");
         return {
           success: true,
           message: "Test webhook received successfully",
@@ -1115,7 +1153,7 @@ export class PaymentService {
 
       // ⚠️ IGNORAR webhooks de criação - só processar atualizações de pagamento
       if (data.action === "payment.created") {
-        console.log(
+        logger.info(
           "Webhook de criação ignorado - aguardando confirmação de pagamento",
           {
             action: data.action,
@@ -1159,7 +1197,7 @@ export class PaymentService {
       const webhookFormat = data.topic && data.resource ? "legacy" : "new";
 
       // Log minimalista padronizado para facilitar leitura dos eventos
-      console.log("🔔 Webhook recebido", {
+      logger.info("🔔 Webhook recebido", {
         format: webhookFormat,
         type: webhookType,
         action: data.action || null,
@@ -1214,7 +1252,7 @@ export class PaymentService {
           );
         }
 
-        console.log("⚠️ Webhook duplicado ignorado (já processado)", {
+        logger.warn("⚠️ Webhook duplicado ignorado (já processado)", {
           paymentId: resourceId,
           type: webhookType,
           processedAt: existingLog.created_at,
@@ -1225,7 +1263,7 @@ export class PaymentService {
         };
       }
 
-      console.log("Pagamento Recebido 💵: Registrando Log", {
+      logger.info("Pagamento Recebido 💵: Registrando Log", {
         paymentId: resourceId,
         type: webhookType,
         action: data.action || null,
@@ -1284,7 +1322,7 @@ export class PaymentService {
                         )}`,
                   },
                 });
-                console.log(message);
+                logger.info(message);
                 if (finalizeRes?.base64Detected) {
                   console.warn(
                     `Base64 detected in ${finalizeRes.base64AffectedIds?.length} customizations:`,
@@ -1292,7 +1330,7 @@ export class PaymentService {
                   );
                 }
               } catch (finalizeErr: any) {
-                console.error(
+                logger.error(
                   "⚠️ Erro ao finalizar customizações (monitor):",
                   finalizeErr
                 );
@@ -1309,7 +1347,7 @@ export class PaymentService {
                 });
               }
             } catch (err) {
-              console.error("Erro no monitor de finalização de webhook:", err);
+              logger.error("Erro no monitor de finalização de webhook:", err);
             }
           })();
           break;
@@ -1317,7 +1355,7 @@ export class PaymentService {
           await this.processMerchantOrderNotification(resourceId);
           break;
         default:
-          console.log(`ℹ️ Tipo de webhook não processado: ${webhookType}`);
+          logger.info(`ℹ️ Tipo de webhook não processado: ${webhookType}`);
       }
 
       if (processedPayment) {

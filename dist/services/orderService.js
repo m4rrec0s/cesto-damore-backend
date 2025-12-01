@@ -8,6 +8,7 @@ const stockService_1 = __importDefault(require("./stockService"));
 const whatsappService_1 = __importDefault(require("./whatsappService"));
 const productComponentService_1 = __importDefault(require("./productComponentService"));
 const customerManagementService_1 = __importDefault(require("./customerManagementService"));
+const logger_1 = __importDefault(require("../utils/logger"));
 const ORDER_STATUSES = [
     "PENDING",
     "PAID",
@@ -285,31 +286,31 @@ class OrderService {
         }
     }
     async createOrder(data) {
-        console.log("📝 [OrderService] Iniciando criação de pedido - resumo:", {
+        logger_1.default.info("📝 [OrderService] Iniciando criação de pedido - resumo:", {
             user_id: data.user_id,
             itemsCount: Array.isArray(data.items) ? data.items.length : 0,
             payment_method: data.payment_method ?? null,
             delivery_city: data.delivery_city ?? null,
         });
         if (!data.user_id || data.user_id.trim() === "") {
-            console.error("❌ [OrderService] user_id está vazio ou inválido");
+            logger_1.default.error("❌ [OrderService] user_id está vazio ou inválido");
             throw new Error("ID do usuário é obrigatório");
         }
         if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
-            console.error("❌ [OrderService] items está vazio ou inválido");
+            logger_1.default.error("❌ [OrderService] items está vazio ou inválido");
             throw new Error("Pelo menos um item é obrigatório");
         }
         let phoneDigits = (data.recipient_phone || "").replace(/\D/g, "");
         if (!data.is_draft &&
             (phoneDigits.length < 10 || phoneDigits.length > 13)) {
-            console.error("❌ [OrderService] Telefone com tamanho inválido:", phoneDigits.length);
+            logger_1.default.error("❌ [OrderService] Telefone com tamanho inválido:", phoneDigits.length);
             throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
         }
         if (!data.is_draft && !phoneDigits.startsWith("55")) {
             phoneDigits = "55" + phoneDigits;
         }
         const paymentMethod = normalizeText(String(data.payment_method || ""));
-        console.log("💳 [OrderService] Método de pagamento normalizado:", paymentMethod);
+        logger_1.default.debug("💳 [OrderService] Método de pagamento normalizado:", paymentMethod);
         if (!data.is_draft && paymentMethod !== "pix" && paymentMethod !== "card") {
             console.error("❌ [OrderService] Método de pagamento inválido:", paymentMethod);
             throw new Error("Forma de pagamento inválida. Utilize pix ou card");
@@ -332,7 +333,7 @@ class OrderService {
         const normalizedState = data.delivery_state
             ? normalizeText(data.delivery_state)
             : undefined;
-        console.log("🗺️ [OrderService] Estado normalizado:", normalizedState);
+        logger_1.default.debug("🗺️ [OrderService] Estado normalizado:", normalizedState);
         if (!data.is_draft &&
             normalizedState !== "pb" &&
             normalizedState !== "paraiba") {
@@ -374,10 +375,10 @@ class OrderService {
         try {
             try {
                 await this.cancelPreviousPendingOrders(data.user_id);
-                console.log(`✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`);
+                logger_1.default.info(`✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`);
             }
             catch (error) {
-                console.error("⚠️ Erro ao cancelar pedidos anteriores (continuando):", error instanceof Error ? error.message : error);
+                logger_1.default.error("⚠️ Erro ao cancelar pedidos anteriores (continuando):", error instanceof Error ? error.message : error);
             }
             const user = await prisma_1.default.user.findUnique({
                 where: { id: data.user_id },
@@ -571,7 +572,7 @@ class OrderService {
         // Verifica se o pedido existe
         await this.getOrderById(id);
         try {
-            console.log(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
+            logger_1.default.info(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
             await prisma_1.default.$transaction(async (tx) => {
                 const items = await tx.orderItem.findMany({
                     where: { order_id: id },
@@ -582,24 +583,24 @@ class OrderService {
                     const deletedCustomizations = await tx.orderItemCustomization.deleteMany({
                         where: { order_item_id: { in: itemIds } },
                     });
-                    console.log(`  ✓ Customizações deletadas: ${deletedCustomizations.count}`);
+                    logger_1.default.info(`  ✓ Customizações deletadas: ${deletedCustomizations.count}`);
                     const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
                         where: { order_item_id: { in: itemIds } },
                     });
-                    console.log(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
+                    logger_1.default.info(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
                 }
                 const deletedItems = await tx.orderItem.deleteMany({
                     where: { order_id: id },
                 });
-                console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
+                logger_1.default.info(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
                 try {
                     const deletedPersonalizations = await tx.personalization.deleteMany({
                         where: { order_id: id },
                     });
-                    console.log(`  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`);
+                    logger_1.default.info(`  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`);
                 }
                 catch (err) {
-                    console.log("  ℹ️ Sem personalizações para deletar (ou erro):", err?.message || err);
+                    logger_1.default.info("  ℹ️ Sem personalizações para deletar (ou erro):", err?.message || err);
                 }
                 try {
                     const payment = await tx.payment.findUnique({
@@ -607,25 +608,25 @@ class OrderService {
                     });
                     if (payment) {
                         await tx.payment.delete({ where: { order_id: id } });
-                        console.log("  ✓ Pagamento deletado");
+                        logger_1.default.info("  ✓ Pagamento deletado");
                     }
                     else {
-                        console.log("  ℹ️ Sem pagamento para deletar");
+                        logger_1.default.info("  ℹ️ Sem pagamento para deletar");
                     }
                 }
                 catch (err) {
-                    console.log("  ℹ️ Erro ao deletar pagamento (pode não existir):", err?.message || err);
+                    logger_1.default.warn("  ℹ️ Erro ao deletar pagamento (pode não existir):", err?.message || err);
                 }
                 await tx.order.delete({ where: { id } });
             });
-            console.log(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
+            logger_1.default.info(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
             return { message: "Pedido deletado com sucesso" };
         }
         catch (error) {
             if (error.message.includes("não encontrado")) {
                 throw error;
             }
-            console.error(`❌ [OrderService] Erro ao deletar pedido:`, error);
+            logger_1.default.error(`❌ [OrderService] Erro ao deletar pedido:`, error);
             throw new Error(`Erro ao deletar pedido: ${error.message}`);
         }
     }

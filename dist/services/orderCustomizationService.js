@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const crypto_1 = require("crypto");
 const prisma_1 = __importDefault(require("../database/prisma"));
 const googleDriveService_1 = __importDefault(require("./googleDriveService"));
+const logger_1 = __importDefault(require("../utils/logger"));
 class OrderCustomizationService {
     async saveOrderItemCustomization(input) {
         // O schema atual tem apenas: order_item_id, customization_id, value
@@ -105,7 +106,7 @@ class OrderCustomizationService {
         });
     }
     async finalizeOrderCustomizations(orderId) {
-        console.log(`🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`);
+        logger_1.default.debug(`🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`);
         const order = await prisma_1.default.order.findUnique({
             where: { id: orderId },
             include: {
@@ -138,7 +139,7 @@ class OrderCustomizationService {
         };
         for (const item of order.items) {
             for (const customization of item.customizations) {
-                console.log(`🔎 processando customization ${customization.id} do item ${item.id}`);
+                logger_1.default.debug(`🔎 processando customization ${customization.id} do item ${item.id}`);
                 const data = this.parseCustomizationData(customization.value);
                 const artworks = this.extractArtworkAssets(data);
                 if (artworks.length === 0) {
@@ -163,18 +164,18 @@ class OrderCustomizationService {
                                 if (cType === "BASE_LAYOUT") {
                                     sanitizedData.selected_item_label = computed;
                                 }
-                                console.log(`🧭 Recomputed label_selected for customization ${customization.id}: ${computed}`);
+                                logger_1.default.info(`🧭 Recomputed label_selected for customization ${customization.id}: ${computed}`);
                             }
                         }
                     }
                 }
                 catch (err) {
-                    console.warn(`⚠️ Falha ao recomputar label_selected para customization ${customization.id}:`, err);
+                    logger_1.default.warn(`⚠️ Falha ao recomputar label_selected para customization ${customization.id}:`, err);
                 }
                 // Defense: ensure no lingering base64 fields anywhere in the JSON
                 const removedFieldsCount = this.removeBase64FieldsRecursive(sanitizedData);
                 if (removedFieldsCount > 0) {
-                    console.log(`✅ Removidos ${removedFieldsCount} campo(s) base64 do payload antes de salvar`);
+                    logger_1.default.info(`✅ Removidos ${removedFieldsCount} campo(s) base64 do payload antes de salvar`);
                 }
                 await prisma_1.default.orderItemCustomization.update({
                     where: { id: customization.id },
@@ -193,7 +194,7 @@ class OrderCustomizationService {
                     const updatedVal = updated ? String(updated.value) : "";
                     const dataUriPattern = /data:[^;]+;base64,/i;
                     if (updatedVal && dataUriPattern.test(updatedVal)) {
-                        console.error("🚨 Detected data URI / base64 content in saved customization value after sanitization:", customization.id);
+                        logger_1.default.warn("🚨 Detected data URI / base64 content in saved customization value after sanitization:", customization.id);
                         base64Detected = true;
                         base64AffectedIds.push(customization.id);
                         // Try an additional pass: parse and remove any lingering base64 fields and resave
@@ -201,7 +202,7 @@ class OrderCustomizationService {
                             const parsed = JSON.parse(updatedVal);
                             const removed = this.removeBase64FieldsRecursive(parsed);
                             if (removed > 0) {
-                                console.log(`🔁 Re-sanitizing customization ${customization.id}, removed ${removed} lingering base64 fields`);
+                                logger_1.default.info(`🔁 Re-sanitizing customization ${customization.id}, removed ${removed} lingering base64 fields`);
                                 await prisma_1.default.orderItemCustomization.update({
                                     where: { id: customization.id },
                                     data: { value: JSON.stringify(parsed) },
@@ -213,7 +214,7 @@ class OrderCustomizationService {
                                 });
                                 const refVal = refetch ? String(refetch.value) : "";
                                 if (!dataUriPattern.test(refVal)) {
-                                    console.log(`✅ Re-sanitization successful for customization ${customization.id}`);
+                                    logger_1.default.info(`✅ Re-sanitization successful for customization ${customization.id}`);
                                     // remove from base64AffectedIds since it was fixed
                                     const idx = base64AffectedIds.indexOf(customization.id);
                                     if (idx >= 0)
@@ -222,12 +223,12 @@ class OrderCustomizationService {
                             }
                         }
                         catch (err) {
-                            console.warn(`⚠️ Falha ao re-sanitizar customization ${customization.id}:`, err);
+                            logger_1.default.warn(`⚠️ Falha ao re-sanitizar customization ${customization.id}:`, err);
                         }
                     }
                 }
                 catch (verifyErr) {
-                    console.error("Erro ao verificar registro após sanitização:", verifyErr);
+                    logger_1.default.error("Erro ao verificar registro após sanitização:", verifyErr);
                 }
             }
         }
@@ -243,11 +244,11 @@ class OrderCustomizationService {
             base64Detected,
             base64AffectedIds,
         };
-        console.log(`✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles}`);
+        logger_1.default.info(`✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles}`);
         return result;
     }
     async listOrderCustomizations(orderId) {
-        return prisma_1.default.orderItem.findMany({
+        const items = await prisma_1.default.orderItem.findMany({
             where: { order_id: orderId },
             include: {
                 product: {
@@ -259,6 +260,26 @@ class OrderCustomizationService {
                 customizations: true,
             },
         });
+        // Sanitizar valores de customização antes de retornar (remover base64)
+        const sanitizedItems = items.map((item) => ({
+            ...item,
+            customizations: (item.customizations || []).map((c) => {
+                try {
+                    const parsed = JSON.parse(c.value || "{}");
+                    this.removeBase64FieldsRecursive(parsed);
+                    return {
+                        ...c,
+                        value: JSON.stringify(parsed),
+                    };
+                }
+                catch (err) {
+                    // Caso parsing falhe, retornar o registro sem alteração
+                    logger_1.default.warn("Erro ao sanitizar customização ao listar:", c.id, err);
+                    return c;
+                }
+            }),
+        }));
+        return sanitizedItems;
     }
     parseCustomizationData(raw) {
         if (!raw)
@@ -322,7 +343,7 @@ class OrderCustomizationService {
                 return layout?.name || undefined;
             }
             catch (error) {
-                console.warn("computeLabelSelected: erro ao buscar layout", error);
+                logger_1.default.warn("computeLabelSelected: erro ao buscar layout", error);
                 return undefined;
             }
         }
@@ -388,7 +409,9 @@ class OrderCustomizationService {
                         base64: base64Content,
                         base64Data: base64Content,
                         mimeType: image.mimeType || image.mime_type || "image/jpeg",
-                        fileName: image.fileName || image.original_name || `layout-slot-${image.slot || index}.jpg`,
+                        fileName: image.fileName ||
+                            image.original_name ||
+                            `layout-slot-${image.slot || index}.jpg`,
                     });
                 }
             }
@@ -397,11 +420,11 @@ class OrderCustomizationService {
             const hasContent = Boolean(this.getBase64Content(asset));
             if (!hasContent) {
                 // Log curto: evitar imprimir base64
-                console.log("⚠️ Asset de arte final ignorado por estar vazio - file:", asset.fileName || "sem-nome");
+                logger_1.default.debug("⚠️ Asset de arte final ignorado por estar vazio - file:", asset.fileName || "sem-nome");
             }
             return hasContent;
         });
-        console.log(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do LAYOUT_BASE)`);
+        logger_1.default.debug(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do LAYOUT_BASE)`);
         return filteredAssets;
     }
     async uploadArtwork(asset, customization, folderId) {
@@ -434,10 +457,10 @@ class OrderCustomizationService {
                 google_drive_url: uploads[0]?.webContentLink,
             };
             if (uploads[0]) {
-                console.log(`✅ final_artwork sanitized and uploaded: ${uploads[0]?.fileName} (driveId=${uploads[0]?.id})`);
+                logger_1.default.info(`✅ final_artwork sanitized and uploaded: ${uploads[0]?.fileName} (driveId=${uploads[0]?.id})`);
             }
             else {
-                console.log(`⚠️ final_artwork sanitized but no upload info found`);
+                logger_1.default.warn(`⚠️ final_artwork sanitized but no upload info found`);
             }
         }
         if (Array.isArray(sanitized.final_artworks)) {
@@ -453,10 +476,10 @@ class OrderCustomizationService {
             sanitized.final_artworks.forEach((entry, index) => {
                 const up = uploads[index];
                 if (up) {
-                    console.log(`✅ final_artworks[${index}] sanitized and uploaded: ${up.fileName} (driveId=${up.id})`);
+                    logger_1.default.info(`✅ final_artworks[${index}] sanitized and uploaded: ${up.fileName} (driveId=${up.id})`);
                 }
                 else {
-                    console.log(`⚠️ final_artworks[${index}] sanitized but no upload info found`);
+                    logger_1.default.warn(`⚠️ final_artworks[${index}] sanitized but no upload info found`);
                 }
             });
         }
@@ -483,10 +506,10 @@ class OrderCustomizationService {
                     google_drive_url: upload?.webContentLink,
                 };
                 if (upload) {
-                    console.log(`✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`);
+                    logger_1.default.info(`✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`);
                 }
                 else {
-                    console.log(`⚠️ Photo sanitized but no upload info found for index ${idx}`);
+                    logger_1.default.warn(`⚠️ Photo sanitized but no upload info found for index ${idx}`);
                 }
                 return newPhoto;
             });
@@ -507,17 +530,19 @@ class OrderCustomizationService {
                     google_drive_url: upload?.webContentLink,
                 };
                 if (upload) {
-                    console.log(`✅ LAYOUT_BASE image[${idx}] (slot: ${image.slot || 'unknown'}) sanitized and uploaded: ${upload.fileName} (driveId=${upload.id})`);
+                    logger_1.default.info(`✅ LAYOUT_BASE image[${idx}] (slot: ${image.slot || "unknown"}) sanitized and uploaded: ${upload.fileName} (driveId=${upload.id})`);
                 }
                 else {
-                    console.log(`⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`);
+                    logger_1.default.warn(`⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`);
                 }
                 return newImage;
             });
         }
         // ✅ NOVO: Remover base64 do campo text se for uma URL base64
-        if (sanitized.text && typeof sanitized.text === 'string' && sanitized.text.startsWith('data:image')) {
-            console.log("✅ Removendo base64 do campo 'text'");
+        if (sanitized.text &&
+            typeof sanitized.text === "string" &&
+            sanitized.text.startsWith("data:image")) {
+            logger_1.default.info("✅ Removendo base64 do campo 'text'");
             delete sanitized.text;
         }
         return sanitized;

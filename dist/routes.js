@@ -56,7 +56,10 @@ const orderCustomizationController_1 = __importDefault(require("./controller/ord
 const itemConstraintController_1 = __importDefault(require("./controller/itemConstraintController"));
 const customizationUploadController_1 = __importDefault(require("./controller/customizationUploadController"));
 const oauthController_1 = __importDefault(require("./controller/oauthController"));
+const paymentService_1 = require("./services/paymentService");
+const logger_1 = __importDefault(require("./utils/logger"));
 const googleDriveService_1 = __importDefault(require("./services/googleDriveService"));
+const prisma_1 = __importDefault(require("./database/prisma"));
 const itemController_1 = __importDefault(require("./controller/itemController"));
 const productComponentController_1 = __importDefault(require("./controller/productComponentController"));
 const layoutBaseController_1 = __importDefault(require("./controller/layoutBaseController"));
@@ -74,12 +77,12 @@ router.get("/health", healthCheck_1.healthCheckEndpoint);
 // ============================================
 router.post("/debug/test-upload", multer_1.upload.single("image"), async (req, res) => {
     try {
-        console.log("🧪 [TEST-UPLOAD] Endpoint de teste acionado");
+        logger_1.default.info("🧪 [TEST-UPLOAD] Endpoint de teste acionado");
         const file = req.file;
         if (!file) {
             return res.status(400).json({ error: "Nenhuma imagem enviada" });
         }
-        console.log("🧪 [TEST-UPLOAD] Arquivo recebido:", {
+        logger_1.default.info("🧪 [TEST-UPLOAD] Arquivo recebido:", {
             originalname: file.originalname,
             mimetype: file.mimetype,
             size: file.size,
@@ -89,12 +92,12 @@ router.post("/debug/test-upload", multer_1.upload.single("image"), async (req, r
         const path = await Promise.resolve().then(() => __importStar(require("path")));
         const fs = await Promise.resolve().then(() => __importStar(require("fs")));
         const testPath = path.join(process.cwd(), "images", `TEST-${Date.now()}-${file.originalname}`);
-        console.log("🧪 [TEST-UPLOAD] Salvando em:", testPath);
+        logger_1.default.info("🧪 [TEST-UPLOAD] Salvando em:", testPath);
         fs.writeFileSync(testPath, file.buffer);
-        console.log("🧪 [TEST-UPLOAD] Arquivo salvo! Verificando...");
+        logger_1.default.info("🧪 [TEST-UPLOAD] Arquivo salvo! Verificando...");
         if (fs.existsSync(testPath)) {
             const stats = fs.statSync(testPath);
-            console.log("✅ [TEST-UPLOAD] Arquivo confirmado:", stats.size, "bytes");
+            logger_1.default.info("✅ [TEST-UPLOAD] Arquivo confirmado:", stats.size, "bytes");
             return res.status(200).json({
                 success: true,
                 message: "Teste de escrita funcionou!",
@@ -103,7 +106,7 @@ router.post("/debug/test-upload", multer_1.upload.single("image"), async (req, r
             });
         }
         else {
-            console.error("❌ [TEST-UPLOAD] Arquivo NÃO foi criado!");
+            logger_1.default.error("❌ [TEST-UPLOAD] Arquivo NÃO foi criado!");
             return res.status(500).json({
                 success: false,
                 message: "Arquivo não foi criado após writeFileSync",
@@ -111,7 +114,7 @@ router.post("/debug/test-upload", multer_1.upload.single("image"), async (req, r
         }
     }
     catch (error) {
-        console.error("❌ [TEST-UPLOAD] Erro:", error);
+        logger_1.default.error("❌ [TEST-UPLOAD] Erro:", error);
         return res.status(500).json({
             success: false,
             error: error.message,
@@ -123,7 +126,7 @@ router.post("/debug/test-upload", multer_1.upload.single("image"), async (req, r
 // WEBHOOK DEBUG ENDPOINT (temporário)
 // ============================================
 router.post("/webhook/mercadopago/debug", (req, res) => {
-    console.log("🔍 DEBUG WEBHOOK - Headers:", {
+    logger_1.default.info("🔍 DEBUG WEBHOOK - Headers:", {
         "x-signature": req.headers["x-signature"],
         "x-request-id": req.headers["x-request-id"],
         "content-type": req.headers["content-type"],
@@ -137,7 +140,7 @@ router.post("/webhook/mercadopago/debug", (req, res) => {
         paymentId: body?.data?.id || body.resource || null,
         keys: Object.keys(body),
     };
-    console.log("🔍 DEBUG WEBHOOK - Body preview:", bodyPreview);
+    logger_1.default.info("🔍 DEBUG WEBHOOK - Body preview:", bodyPreview);
     res.status(200).json({
         received: true,
         message: "Debug webhook OK",
@@ -177,7 +180,49 @@ router.post("/admin/google-drive/test", security_1.authenticateToken, security_1
         res.json({ success: true, message: "Drive upload OK" });
     }
     catch (err) {
+        logger_1.default.error("Admin Google Drive test failed:", err);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+// Admin: Reprocess finalization for a specific order or payment
+router.post("/admin/reprocess-finalization", security_1.authenticateToken, security_1.requireAdmin, async (req, res) => {
+    try {
+        const { orderId, paymentId } = req.body;
+        if (!orderId && !paymentId) {
+            return res
+                .status(400)
+                .json({ success: false, error: "orderId or paymentId required" });
+        }
+        let targetOrderId = orderId;
+        if (!targetOrderId && paymentId) {
+            const payment = await prisma_1.default.payment.findFirst({
+                where: { mercado_pago_id: paymentId },
+            });
+            if (!payment) {
+                return res
+                    .status(404)
+                    .json({ success: false, error: "Payment not found" });
+            }
+            targetOrderId = payment.order_id;
+        }
+        const result = await paymentService_1.PaymentService.reprocessFinalizationForOrder(targetOrderId);
+        return res.json({ success: true, result });
+    }
+    catch (err) {
+        logger_1.default.error("Erro ao reprocessar finalização manualmente:", err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+// Admin: Reprocess all missing finalizations
+router.post("/admin/reprocess-missing", security_1.authenticateToken, security_1.requireAdmin, async (req, res) => {
+    try {
+        const { maxAttempts } = req.body || {};
+        await paymentService_1.PaymentService.reprocessFailedFinalizations(maxAttempts || 5);
+        return res.json({ success: true, message: "Reprocess started" });
+    }
+    catch (err) {
+        logger_1.default.error("Erro ao reprocessar finalizar pendentes:", err);
+        return res.status(500).json({ success: false, error: err.message });
     }
 });
 // Servir imagens de produtos/adicionais
@@ -198,7 +243,7 @@ router.get("/images/:filename", (req, res) => {
         res.sendFile(filePath);
     }
     catch (error) {
-        console.error("Erro ao servir imagem:", error.message);
+        logger_1.default.error("Erro ao servir imagem:", error.message);
         res.status(500).json({
             error: "Erro interno do servidor",
             message: error.message,
@@ -223,7 +268,7 @@ router.get("/images/customizations/:filename", (req, res) => {
         res.sendFile(filePath);
     }
     catch (error) {
-        console.error("Erro ao servir arquivo de customização:", error.message);
+        logger_1.default.error("Erro ao servir arquivo de customização:", error.message);
         res.status(500).json({
             error: "Erro interno do servidor",
             message: error.message,
@@ -249,7 +294,7 @@ router.get("/images/customizations/:folderId/:filename", (req, res) => {
         res.sendFile(filePath);
     }
     catch (error) {
-        console.error("Erro ao servir arquivo de customização:", error.message);
+        logger_1.default.error("Erro ao servir arquivo de customização:", error.message);
         res.status(500).json({
             error: "Erro interno do servidor",
             message: error.message,

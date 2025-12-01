@@ -1,5 +1,6 @@
 import multer from "multer";
 import sharp from "sharp";
+import logger from "../utils/logger";
 
 const storage = multer.memoryStorage();
 
@@ -71,7 +72,7 @@ export const uploadTemp = multer({
 
 export const convertImagesToWebP = async (req: any, res: any, next: any) => {
   try {
-    console.log("🔄 [MIDDLEWARE] convertImagesToWebP iniciado");
+    logger.debug("🔄 [MIDDLEWARE] convertImagesToWebP iniciado");
 
     const convert = async (file: any) => {
       if (!file || !file.buffer) {
@@ -120,8 +121,8 @@ export const convertImagesToWebP = async (req: any, res: any, next: any) => {
 
     next();
   } catch (err: any) {
-    console.error("❌ [MIDDLEWARE] Erro em convertImagesToWebP:", err);
-    console.error("❌ [MIDDLEWARE] Stack:", err.stack);
+    logger.error("❌ [MIDDLEWARE] Erro em convertImagesToWebP:", err);
+    logger.error("❌ [MIDDLEWARE] Stack:", err.stack);
     next(err);
   }
 };

@@ -1005,6 +1005,21 @@ class OrderService {
       await prisma.$transaction(
         async (tx) => {
           // Remover itens antigos (customizações e adicionais em cascata)
+          const existingItems = await tx.orderItem.findMany({
+            where: { order_id: orderId },
+            select: { id: true },
+          });
+          const itemIds = existingItems.map((i) => i.id);
+
+          if (itemIds.length > 0) {
+            await tx.orderItemCustomization.deleteMany({
+              where: { order_item_id: { in: itemIds } },
+            });
+            await tx.orderItemAdditional.deleteMany({
+              where: { order_item_id: { in: itemIds } },
+            });
+          }
+
           await tx.orderItem.deleteMany({ where: { order_id: orderId } });
 
           const createdItems: { id: string; index: number }[] = [];

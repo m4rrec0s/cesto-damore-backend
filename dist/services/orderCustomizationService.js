@@ -136,30 +136,54 @@ class OrderCustomizationService {
         if (!order) {
             throw new Error("Pedido não encontrado");
         }
-        let folderId = null;
+        let mainFolderId = null;
         let uploadedFiles = 0;
         let base64Detected = false;
         const base64AffectedIds = [];
-        const ensureFolder = async () => {
-            if (folderId)
-                return folderId;
+        const subfolderMap = {}; // Map customization type -> subfolder ID
+        const ensureMainFolder = async () => {
+            if (mainFolderId)
+                return mainFolderId;
             const safeCustomerName = (order.user?.name || "Cliente")
                 .replace(/[^a-zA-Z0-9]/g, "_")
                 .substring(0, 40);
             const folderName = `Pedido_${safeCustomerName}_${new Date().toISOString().split("T")[0]}_${orderId.substring(0, 8)}`;
-            folderId = await googleDriveService_1.default.createFolder(folderName);
-            await googleDriveService_1.default.makeFolderPublic(folderId);
-            return folderId;
+            mainFolderId = await googleDriveService_1.default.createFolder(folderName);
+            await googleDriveService_1.default.makeFolderPublic(mainFolderId);
+            logger_1.default.info(`📁 Pasta principal criada: ${mainFolderId}`);
+            return mainFolderId;
+        };
+        const ensureSubfolder = async (customizationType) => {
+            // Return existing subfolder for this type
+            if (subfolderMap[customizationType]) {
+                return subfolderMap[customizationType];
+            }
+            const mainFolder = await ensureMainFolder();
+            // Map type to folder name
+            const folderNameMap = {
+                IMAGES: "IMAGES",
+                BASE_LAYOUT: "BASE_LAYOUT",
+                MULTIPLE_CHOICE: "MULTIPLE_CHOICE",
+                TEXT: "TEXT",
+                ADDITIONALS: "ADDITIONALS",
+            };
+            const subfolderName = folderNameMap[customizationType] || customizationType;
+            const subfolderId = await googleDriveService_1.default.createFolder(subfolderName, mainFolder);
+            await googleDriveService_1.default.makeFolderPublic(subfolderId);
+            subfolderMap[customizationType] = subfolderId;
+            logger_1.default.info(`📁 Subpasta criada para ${customizationType}: ${subfolderId}`);
+            return subfolderId;
         };
         for (const item of order.items) {
             for (const customization of item.customizations) {
                 logger_1.default.debug(`🔎 processando customization ${customization.id} do item ${item.id}`);
                 const data = this.parseCustomizationData(customization.value);
+                const customizationType = data.customization_type || "DEFAULT";
                 const artworks = this.extractArtworkAssets(data);
                 if (artworks.length === 0) {
                     continue;
                 }
-                const targetFolder = await ensureFolder();
+                const targetFolder = await ensureSubfolder(customizationType);
                 const uploads = await Promise.all(artworks.map((asset) => this.uploadArtwork(asset, { id: customization.id }, targetFolder)));
                 uploadedFiles += uploads.length;
                 const sanitizedData = this.removeBase64FromData(data, uploads);
@@ -246,19 +270,19 @@ class OrderCustomizationService {
                 }
             }
         }
-        if (!folderId) {
+        if (!mainFolderId) {
             return { uploadedFiles: 0 };
         }
-        const folderUrl = googleDriveService_1.default.getFolderUrl(folderId);
+        const folderUrl = googleDriveService_1.default.getFolderUrl(mainFolderId);
         base64Detected = base64AffectedIds.length > 0;
         const result = {
-            folderId,
+            folderId: mainFolderId,
             folderUrl,
             uploadedFiles,
             base64Detected,
             base64AffectedIds,
         };
-        logger_1.default.info(`✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles}`);
+        logger_1.default.info(`✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles} folderId=${mainFolderId}`);
         return result;
     }
     async listOrderCustomizations(orderId) {
@@ -400,33 +424,61 @@ class OrderCustomizationService {
             ? data.final_artworks
             : [];
         multiple.forEach((asset) => assets.push(asset));
-        // ✅ NOVO: Suporte para campo "photos" do frontend
+        // ✅ CORRIGIDO: Suporte para campo "photos" - buscar em preview_url
         const photos = Array.isArray(data?.photos) ? data.photos : [];
         photos.forEach((photo, index) => {
             if (photo && typeof photo === "object") {
-                assets.push({
-                    base64: photo.base64 || photo.base64Data,
-                    base64Data: photo.base64Data || photo.base64,
-                    mimeType: photo.mime_type || photo.mimeType,
-                    fileName: photo.original_name || photo.fileName,
-                });
+                // ✅ CORRIGIDO: preview_url contém o base64
+                const base64Content = photo.preview_url || photo.base64 || photo.base64Data;
+                if (base64Content && typeof base64Content === "string") {
+                    assets.push({
+                        base64: base64Content,
+                        base64Data: base64Content,
+                        mimeType: photo.mime_type || photo.mimeType || "image/jpeg",
+                        fileName: photo.original_name || photo.fileName || `photo-${index + 1}.jpg`,
+                    });
+                }
             }
         });
-        // ✅ NOVO: Suporte para LAYOUT_BASE - extrai imagens dos slots
+        // ✅ CORRIGIDO: Suporte para BASE_LAYOUT - buscar no campo "text"
+        // O campo "text" contém o base64 da preview do layout
+        if (data?.customization_type === "BASE_LAYOUT" && data?.text) {
+            const textContent = data.text;
+            // Verificar se é base64 válido
+            if (typeof textContent === "string" &&
+                (textContent.startsWith("data:image") || /^[A-Za-z0-9+/=]{100,}/.test(textContent))) {
+                assets.push({
+                    base64: textContent,
+                    base64Data: textContent,
+                    mimeType: "image/png",
+                    fileName: `layout-preview-${Date.now()}.png`,
+                });
+                logger_1.default.debug(`✅ BASE_LAYOUT: extraído base64 do campo "text"`);
+            }
+        }
+        // ✅ MANTIDO: Suporte para LAYOUT_BASE com array "images" (se existir)
         const images = Array.isArray(data?.images) ? data.images : [];
         images.forEach((image, index) => {
             if (image && typeof image === "object") {
                 // LAYOUT_BASE pode ter: { slot: string, url: string (base64), ... }
                 const base64Content = image.url || image.base64 || image.base64Data;
-                if (base64Content) {
-                    assets.push({
-                        base64: base64Content,
-                        base64Data: base64Content,
-                        mimeType: image.mimeType || image.mime_type || "image/jpeg",
-                        fileName: image.fileName ||
-                            image.original_name ||
-                            `layout-slot-${image.slot || index}.jpg`,
-                    });
+                if (base64Content && typeof base64Content === "string") {
+                    // Verificar se é base64 válido
+                    const isBase64 = base64Content.startsWith("data:image") ||
+                        /^[A-Za-z0-9+/=]{100,}/.test(base64Content);
+                    if (isBase64) {
+                        assets.push({
+                            base64: base64Content,
+                            base64Data: base64Content,
+                            mimeType: image.mimeType || image.mime_type || "image/jpeg",
+                            fileName: image.fileName ||
+                                image.original_name ||
+                                `layout-slot-${image.slot || index}.jpg`,
+                        });
+                    }
+                    else {
+                        logger_1.default.warn(`⚠️ Imagem do slot ${image.slot || index} não contém base64 válido`);
+                    }
                 }
             }
         });
@@ -438,7 +490,7 @@ class OrderCustomizationService {
             }
             return hasContent;
         });
-        logger_1.default.debug(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do LAYOUT_BASE)`);
+        logger_1.default.debug(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do array images, ${photos.length} de photos, ${data?.customization_type === "BASE_LAYOUT" && data?.text ? "1 do text" : "0 do text"})`);
         return filteredAssets;
     }
     async uploadArtwork(asset, customization, folderId) {

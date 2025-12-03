@@ -200,13 +200,14 @@ class OrderCustomizationService {
       throw new Error("Pedido não encontrado");
     }
 
-    let folderId: string | null = null;
+    let mainFolderId: string | null = null;
     let uploadedFiles = 0;
     let base64Detected = false;
     const base64AffectedIds: string[] = [];
+    const subfolderMap: Record<string, string> = {}; // Map customization type -> subfolder ID
 
-    const ensureFolder = async () => {
-      if (folderId) return folderId;
+    const ensureMainFolder = async () => {
+      if (mainFolderId) return mainFolderId;
 
       const safeCustomerName = (order.user?.name || "Cliente")
         .replace(/[^a-zA-Z0-9]/g, "_")
@@ -216,9 +217,41 @@ class OrderCustomizationService {
         new Date().toISOString().split("T")[0]
       }_${orderId.substring(0, 8)}`;
 
-      folderId = await googleDriveService.createFolder(folderName);
-      await googleDriveService.makeFolderPublic(folderId);
-      return folderId;
+      mainFolderId = await googleDriveService.createFolder(folderName);
+      await googleDriveService.makeFolderPublic(mainFolderId);
+      logger.info(`📁 Pasta principal criada: ${mainFolderId}`);
+      return mainFolderId;
+    };
+
+    const ensureSubfolder = async (customizationType: string) => {
+      // Return existing subfolder for this type
+      if (subfolderMap[customizationType]) {
+        return subfolderMap[customizationType];
+      }
+
+      const mainFolder = await ensureMainFolder();
+
+      // Map type to folder name
+      const folderNameMap: Record<string, string> = {
+        IMAGES: "IMAGES",
+        BASE_LAYOUT: "BASE_LAYOUT",
+        MULTIPLE_CHOICE: "MULTIPLE_CHOICE",
+        TEXT: "TEXT",
+        ADDITIONALS: "ADDITIONALS",
+      };
+
+      const subfolderName =
+        folderNameMap[customizationType] || customizationType;
+      const subfolderId = await googleDriveService.createFolder(
+        subfolderName,
+        mainFolder
+      );
+      await googleDriveService.makeFolderPublic(subfolderId);
+      subfolderMap[customizationType] = subfolderId;
+      logger.info(
+        `📁 Subpasta criada para ${customizationType}: ${subfolderId}`
+      );
+      return subfolderId;
     };
 
     for (const item of order.items) {
@@ -227,13 +260,14 @@ class OrderCustomizationService {
           `🔎 processando customization ${customization.id} do item ${item.id}`
         );
         const data = this.parseCustomizationData(customization.value);
+        const customizationType = data.customization_type || "DEFAULT";
         const artworks = this.extractArtworkAssets(data);
 
         if (artworks.length === 0) {
           continue;
         }
 
-        const targetFolder = await ensureFolder();
+        const targetFolder = await ensureSubfolder(customizationType);
 
         const uploads = await Promise.all(
           artworks.map((asset) =>
@@ -358,15 +392,15 @@ class OrderCustomizationService {
       }
     }
 
-    if (!folderId) {
+    if (!mainFolderId) {
       return { uploadedFiles: 0 };
     }
 
-    const folderUrl = googleDriveService.getFolderUrl(folderId);
+    const folderUrl = googleDriveService.getFolderUrl(mainFolderId);
 
     base64Detected = base64AffectedIds.length > 0;
     const result = {
-      folderId,
+      folderId: mainFolderId,
       folderUrl,
       uploadedFiles,
       base64Detected,
@@ -374,7 +408,7 @@ class OrderCustomizationService {
     };
 
     logger.info(
-      `✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles}`
+      `✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles} folderId=${mainFolderId}`
     );
 
     return result;
@@ -545,14 +579,16 @@ class OrderCustomizationService {
     photos.forEach((photo: any, index: number) => {
       if (photo && typeof photo === "object") {
         // ✅ CORRIGIDO: preview_url contém o base64
-        const base64Content = photo.preview_url || photo.base64 || photo.base64Data;
-        
+        const base64Content =
+          photo.preview_url || photo.base64 || photo.base64Data;
+
         if (base64Content && typeof base64Content === "string") {
           assets.push({
             base64: base64Content,
             base64Data: base64Content,
             mimeType: photo.mime_type || photo.mimeType || "image/jpeg",
-            fileName: photo.original_name || photo.fileName || `photo-${index + 1}.jpg`,
+            fileName:
+              photo.original_name || photo.fileName || `photo-${index + 1}.jpg`,
           } as ArtworkAsset);
         }
       }
@@ -562,18 +598,20 @@ class OrderCustomizationService {
     // O campo "text" contém o base64 da preview do layout
     if (data?.customization_type === "BASE_LAYOUT" && data?.text) {
       const textContent = data.text;
-      
+
       // Verificar se é base64 válido
-      if (typeof textContent === "string" && 
-          (textContent.startsWith("data:image") || /^[A-Za-z0-9+/=]{100,}/.test(textContent))) {
-        
+      if (
+        typeof textContent === "string" &&
+        (textContent.startsWith("data:image") ||
+          /^[A-Za-z0-9+/=]{100,}/.test(textContent))
+      ) {
         assets.push({
           base64: textContent,
           base64Data: textContent,
           mimeType: "image/png",
           fileName: `layout-preview-${Date.now()}.png`,
         } as ArtworkAsset);
-        
+
         logger.debug(`✅ BASE_LAYOUT: extraído base64 do campo "text"`);
       }
     }
@@ -585,12 +623,13 @@ class OrderCustomizationService {
       if (image && typeof image === "object") {
         // LAYOUT_BASE pode ter: { slot: string, url: string (base64), ... }
         const base64Content = image.url || image.base64 || image.base64Data;
-        
+
         if (base64Content && typeof base64Content === "string") {
           // Verificar se é base64 válido
-          const isBase64 = base64Content.startsWith("data:image") || 
-                           /^[A-Za-z0-9+/=]{100,}/.test(base64Content);
-          
+          const isBase64 =
+            base64Content.startsWith("data:image") ||
+            /^[A-Za-z0-9+/=]{100,}/.test(base64Content);
+
           if (isBase64) {
             assets.push({
               base64: base64Content,
@@ -603,7 +642,9 @@ class OrderCustomizationService {
             } as ArtworkAsset);
           } else {
             logger.warn(
-              `⚠️ Imagem do slot ${image.slot || index} não contém base64 válido`
+              `⚠️ Imagem do slot ${
+                image.slot || index
+              } não contém base64 válido`
             );
           }
         }
@@ -623,7 +664,13 @@ class OrderCustomizationService {
     });
 
     logger.debug(
-      `📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do array images, ${photos.length} de photos, ${data?.customization_type === "BASE_LAYOUT" && data?.text ? "1 do text" : "0 do text"})`
+      `📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${
+        images.length
+      } do array images, ${photos.length} de photos, ${
+        data?.customization_type === "BASE_LAYOUT" && data?.text
+          ? "1 do text"
+          : "0 do text"
+      })`
     );
     return filteredAssets;
   }

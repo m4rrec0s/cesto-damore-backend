@@ -1607,6 +1607,7 @@ export class PaymentService {
         await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
 
         // ✅ MUST: finalize customizations BEFORE sending notifications
+        let googleDriveUrl: string | undefined;
         try {
           const finalizeRes =
             await orderCustomizationService.finalizeOrderCustomizations(
@@ -1617,6 +1618,9 @@ export class PaymentService {
               finalizeRes
             )}`
           );
+
+          // Store the folder URL for notifications
+          googleDriveUrl = finalizeRes.folderUrl;
 
           // Update webhook log(s) with finalization result for traceability
           await prisma.webhookLog.updateMany({
@@ -1657,7 +1661,10 @@ export class PaymentService {
             if (
               !PaymentService.notificationSentOrders.has(dbPayment.order_id)
             ) {
-              await this.sendOrderConfirmationNotification(dbPayment.order_id);
+              await this.sendOrderConfirmationNotification(
+                dbPayment.order_id,
+                googleDriveUrl
+              );
               PaymentService.notificationSentOrders.add(dbPayment.order_id);
               setTimeout(
                 () =>
@@ -1712,7 +1719,10 @@ export class PaymentService {
 
   static async processMerchantOrderNotification(merchantOrderId: string) {}
 
-  static async sendOrderConfirmationNotification(orderId: string) {
+  static async sendOrderConfirmationNotification(
+    orderId: string,
+    googleDriveUrl?: string
+  ) {
     try {
       const order = await prisma.order.findUnique({
         where: { id: orderId },
@@ -1740,30 +1750,33 @@ export class PaymentService {
       const items: Array<{ name: string; quantity: number; price: number }> =
         [];
 
-      let googleDriveUrl: string | undefined;
-      try {
-        const customizations = await prisma.orderItemCustomization.findFirst({
-          where: {
-            order_item_id: {
-              in: order.items.map((item) => item.id),
+      // If googleDriveUrl not provided, try to fetch from customizations
+      let finalGoogleDriveUrl = googleDriveUrl;
+      if (!finalGoogleDriveUrl) {
+        try {
+          const customizations = await prisma.orderItemCustomization.findFirst({
+            where: {
+              order_item_id: {
+                in: order.items.map((item) => item.id),
+              },
+              google_drive_url: {
+                not: null,
+              },
             },
-            google_drive_url: {
-              not: null,
+            select: {
+              google_drive_url: true,
             },
-          },
-          select: {
-            google_drive_url: true,
-          },
-        });
+          });
 
-        if (customizations?.google_drive_url) {
-          googleDriveUrl = customizations.google_drive_url;
+          if (customizations?.google_drive_url) {
+            finalGoogleDriveUrl = customizations.google_drive_url;
+          }
+        } catch (error) {
+          console.error(
+            "Erro ao buscar URL do Google Drive para customizações:",
+            error
+          );
         }
-      } catch (error) {
-        console.error(
-          "Erro ao buscar URL do Google Drive para customizações:",
-          error
-        );
       }
 
       order.items.forEach((item) => {
@@ -1788,7 +1801,7 @@ export class PaymentService {
         totalAmount: Number(order.grand_total || order.total || 0),
         paymentMethod: order.payment_method || "Não informado",
         items,
-        googleDriveUrl,
+        googleDriveUrl: finalGoogleDriveUrl,
         recipientPhone: order.recipient_phone || undefined,
         customer: {
           name: order.user.name,
@@ -1822,7 +1835,7 @@ export class PaymentService {
           recipientPhone: order.recipient_phone || undefined,
           deliveryDate: order.delivery_date || undefined,
           createdAt: order.created_at,
-          googleDriveUrl,
+          googleDriveUrl: finalGoogleDriveUrl,
           items,
           total: Number(order.grand_total || order.total || 0),
         });

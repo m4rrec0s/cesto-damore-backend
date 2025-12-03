@@ -358,14 +358,24 @@ class GoogleDriveService {
     );
   }
 
-  async createFolder(folderName: string): Promise<string> {
+  async createFolder(
+    folderName: string,
+    parentFolderId?: string
+  ): Promise<string> {
     try {
       await this.ensureValidToken();
+
+      const parents = [];
+      if (parentFolderId) {
+        parents.push(parentFolderId);
+      } else if (this.rootFolderId) {
+        parents.push(this.rootFolderId);
+      }
 
       const fileMetadata = {
         name: folderName,
         mimeType: "application/vnd.google-apps.folder",
-        parents: this.rootFolderId ? [this.rootFolderId] : [],
+        parents: parents.length > 0 ? parents : [],
       };
 
       const response = await this.drive.files.create({

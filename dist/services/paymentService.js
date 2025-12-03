@@ -1229,9 +1229,12 @@ class PaymentService {
                 });
                 await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
                 // ✅ MUST: finalize customizations BEFORE sending notifications
+                let googleDriveUrl;
                 try {
                     const finalizeRes = await orderCustomizationService_1.default.finalizeOrderCustomizations(dbPayment.order_id);
                     logger_1.default.info(`✅ finalizeOrderCustomizations result: ${JSON.stringify(finalizeRes)}`);
+                    // Store the folder URL for notifications
+                    googleDriveUrl = finalizeRes.folderUrl;
                     // Update webhook log(s) with finalization result for traceability
                     await prisma_1.default.webhookLog.updateMany({
                         where: { resource_id: paymentId, topic: "payment" },
@@ -1260,7 +1263,7 @@ class PaymentService {
                         console.log(`📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`);
                         // Send group + buyer notifications only AFTER Drive link is ready
                         if (!PaymentService.notificationSentOrders.has(dbPayment.order_id)) {
-                            await this.sendOrderConfirmationNotification(dbPayment.order_id);
+                            await this.sendOrderConfirmationNotification(dbPayment.order_id, googleDriveUrl);
                             PaymentService.notificationSentOrders.add(dbPayment.order_id);
                             setTimeout(() => PaymentService.notificationSentOrders.delete(dbPayment.order_id), 1000 * 60 * 15);
                         }
@@ -1301,7 +1304,7 @@ class PaymentService {
         }
     }
     static async processMerchantOrderNotification(merchantOrderId) { }
-    static async sendOrderConfirmationNotification(orderId) {
+    static async sendOrderConfirmationNotification(orderId, googleDriveUrl) {
         try {
             const order = await prisma_1.default.order.findUnique({
                 where: { id: orderId },
@@ -1325,27 +1328,30 @@ class PaymentService {
                 return;
             }
             const items = [];
-            let googleDriveUrl;
-            try {
-                const customizations = await prisma_1.default.orderItemCustomization.findFirst({
-                    where: {
-                        order_item_id: {
-                            in: order.items.map((item) => item.id),
+            // If googleDriveUrl not provided, try to fetch from customizations
+            let finalGoogleDriveUrl = googleDriveUrl;
+            if (!finalGoogleDriveUrl) {
+                try {
+                    const customizations = await prisma_1.default.orderItemCustomization.findFirst({
+                        where: {
+                            order_item_id: {
+                                in: order.items.map((item) => item.id),
+                            },
+                            google_drive_url: {
+                                not: null,
+                            },
                         },
-                        google_drive_url: {
-                            not: null,
+                        select: {
+                            google_drive_url: true,
                         },
-                    },
-                    select: {
-                        google_drive_url: true,
-                    },
-                });
-                if (customizations?.google_drive_url) {
-                    googleDriveUrl = customizations.google_drive_url;
+                    });
+                    if (customizations?.google_drive_url) {
+                        finalGoogleDriveUrl = customizations.google_drive_url;
+                    }
                 }
-            }
-            catch (error) {
-                console.error("Erro ao buscar URL do Google Drive para customizações:", error);
+                catch (error) {
+                    console.error("Erro ao buscar URL do Google Drive para customizações:", error);
+                }
             }
             order.items.forEach((item) => {
                 items.push({
@@ -1367,7 +1373,8 @@ class PaymentService {
                 totalAmount: Number(order.grand_total || order.total || 0),
                 paymentMethod: order.payment_method || "Não informado",
                 items,
-                googleDriveUrl,
+                googleDriveUrl: finalGoogleDriveUrl,
+                recipientPhone: order.recipient_phone || undefined,
                 customer: {
                     name: order.user.name,
                     email: order.user.email,
@@ -1399,7 +1406,7 @@ class PaymentService {
                     recipientPhone: order.recipient_phone || undefined,
                     deliveryDate: order.delivery_date || undefined,
                     createdAt: order.created_at,
-                    googleDriveUrl,
+                    googleDriveUrl: finalGoogleDriveUrl,
                     items,
                     total: Number(order.grand_total || order.total || 0),
                 });

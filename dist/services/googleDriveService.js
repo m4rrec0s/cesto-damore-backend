@@ -235,13 +235,20 @@ class GoogleDriveService {
         // Se não temos access_token mas temos refresh_token, o cliente vai atualizar automaticamente na próxima chamada
         logger_1.default.debug("🔍 Credenciais OAuth2 verificadas - cliente atualizará automaticamente se necessário");
     }
-    async createFolder(folderName) {
+    async createFolder(folderName, parentFolderId) {
         try {
             await this.ensureValidToken();
+            const parents = [];
+            if (parentFolderId) {
+                parents.push(parentFolderId);
+            }
+            else if (this.rootFolderId) {
+                parents.push(this.rootFolderId);
+            }
             const fileMetadata = {
                 name: folderName,
                 mimeType: "application/vnd.google-apps.folder",
-                parents: this.rootFolderId ? [this.rootFolderId] : [],
+                parents: parents.length > 0 ? parents : [],
             };
             const response = await this.drive.files.create({
                 requestBody: fileMetadata,

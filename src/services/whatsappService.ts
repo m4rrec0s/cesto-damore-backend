@@ -433,31 +433,34 @@ class WhatsAppService {
 
     teamMessage += `\n👤 *Comprador:* ${orderData.customer.name}\n`;
     if (orderData.customer.phone) {
-      teamMessage += `📱 *Telefone do comprador:* ${orderData.customer.phone}\n`;
+      teamMessage += `📱 *Tel. Comprador:* ${orderData.customer.phone}\n`;
     }
-    if (orderData.recipientPhone) {
-      teamMessage += `📱 *Destinatário:* ${orderData.recipientPhone}\n`;
-    }
-    teamMessage += `\n• Email: ${orderData.customer.email}\n`;
+    teamMessage += `✉️ *Email:* ${orderData.customer.email}\n`;
 
     const isAnonymous = orderData.send_anonymously === true;
     const complement = orderData.complement;
-    teamMessage += `• Telefone: ${orderData.customer.phone ?? "N/A"}${
-      isAnonymous ? " (Envio anônimo)" : ""
-    }\n`;
+
+    if (orderData.recipientPhone) {
+      teamMessage += `\n🎁 *Destinatário:*\n`;
+      teamMessage += `📱 ${orderData.recipientPhone}${
+        isAnonymous ? " _(Envio anônimo)_" : ""
+      }\n`;
+    } else if (isAnonymous) {
+      teamMessage += `\n🎁 *Destinatário:* _(Envio anônimo)_\n`;
+    }
 
     if (orderData.delivery) {
-      teamMessage += `\n📍 *Entrega:*\n`;
-      teamMessage += `• ${orderData.delivery.address}\n`;
-      teamMessage += `• ${orderData.delivery.city} - ${orderData.delivery.state}\n`;
-      teamMessage += `• CEP: ${orderData.delivery.zipCode}\n`;
-      if (orderData.delivery.date) {
-        teamMessage += `• Data: ${this.formatDateOnlyToBrasilia(
-          orderData.delivery.date
-        )}\n`;
-      }
+      teamMessage += `\n📍 *Endereço de Entrega:*\n`;
+      teamMessage += `${orderData.delivery.address}\n`;
+      teamMessage += `${orderData.delivery.city} - ${orderData.delivery.state} | CEP: ${orderData.delivery.zipCode}\n`;
       if (complement) {
-        teamMessage += `• Complemento: ${complement}\n`;
+        teamMessage += `_Complemento: ${complement}_\n`;
+      }
+      if (orderData.delivery.date) {
+        teamMessage += `\n⏰ *Data/Hora de Entrega:*\n`;
+        teamMessage += `${this.formatToBrasiliaTime(
+          orderData.delivery.date as any
+        )}\n`;
       }
     }
 
@@ -472,35 +475,72 @@ class WhatsAppService {
     // Customer message
     const createdAtBrasilia = this.formatToBrasiliaTime(new Date());
     let deliveryDateBrasilia = "A definir";
+    let deliveryTimeBrasilia = "";
     if (orderData.delivery && orderData.delivery.date) {
-      deliveryDateBrasilia = this.formatToBrasiliaTime(
-        orderData.delivery.date as any
-      );
+      const deliveryDateTime = new Date(orderData.delivery.date);
+      deliveryDateBrasilia = this.formatDateOnlyToBrasilia(deliveryDateTime);
+      deliveryTimeBrasilia = deliveryDateTime.toLocaleTimeString("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     }
 
-    let customerMessage = `🎉 *Pedido Confirmado!* 🎉\n\n`;
-    customerMessage += `Olá, ${orderData.customer.name}!\n`;
+    let customerMessage = `🎉 *PEDIDO CONFIRMADO!* 🎉\n\n`;
+    customerMessage += `Olá, *${orderData.customer.name}*! ✨\n`;
     customerMessage += `Seu pagamento foi confirmado com sucesso!\n\n`;
-    customerMessage += `📦 *Pedido:* #${orderLabel}\n`;
-    customerMessage += `👤 *Comprador:* ${orderData.customer.name}\n`;
-    if (orderData.recipientPhone) {
-      customerMessage += `📱 *Destinatário:* ${orderData.recipientPhone}\n`;
-    }
-    customerMessage += `\n📅 *Criado em:* ${createdAtBrasilia}\n`;
-    customerMessage += `🚚 *Entrega prevista:* ${deliveryDateBrasilia}\n`;
-    customerMessage += `\n💰 *Total:* R$ ${totalFormatted}\n`;
-    customerMessage += `\n📝 *Itens do pedido:*\n`;
-    orderData.items.forEach((item) => {
-      customerMessage += `• ${item.quantity}x ${item.name}\n`;
-    });
-    if (orderData.googleDriveUrl) {
-      customerMessage += `\n🎨 *Suas Personalizações:*\n`;
-      customerMessage += `📁 ${orderData.googleDriveUrl}\n`;
+
+    // Informações principais do pedido
+    customerMessage += `═══════════════════════════════\n`;
+    customerMessage += `📦 *PEDIDO #${orderLabel}*\n`;
+    customerMessage += `═══════════════════════════════\n\n`;
+
+    // Datas
+    customerMessage += `📅 *Data do Pedido:* ${createdAtBrasilia}\n`;
+    if (deliveryTimeBrasilia) {
+      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} às ${deliveryTimeBrasilia}\n\n`;
     } else {
-      customerMessage += `\n⏳ *Personalizações sendo processadas...*\n`;
-      customerMessage += `_Enviaremos o link das suas fotos em breve!_\n`;
+      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia}\n\n`;
     }
-    customerMessage += `\n✨ *Sua cesta está sendo preparada com muito carinho!*\n\n`;
+
+    // Destinatário (se diferente do comprador ou anônimo)
+    if (orderData.recipientPhone || orderData.send_anonymously) {
+      customerMessage += `🎁 *Para:* `;
+      if (orderData.send_anonymously) {
+        customerMessage += `_Entrega Anônima_`;
+      }
+      if (orderData.recipientPhone) {
+        customerMessage += `${orderData.recipientPhone}`;
+      }
+      customerMessage += `\n\n`;
+    }
+
+    // Itens
+    customerMessage += `📦 *Seu Pedido:*\n`;
+    orderData.items.forEach((item) => {
+      const itemTotal = (item.quantity * item.price)
+        .toFixed(2)
+        .replace(".", ",");
+      customerMessage += `• ${item.quantity}x ${item.name} - R$ ${itemTotal}\n`;
+    });
+
+    // Total
+    customerMessage += `\n💰 *TOTAL: R$ ${totalFormatted}*\n`;
+    customerMessage += `💳 *Pagamento:* ${this.formatPaymentMethod(
+      orderData.paymentMethod || "Não especificado"
+    )}\n\n`;
+
+    // Personalizações ou link
+    if (orderData.googleDriveUrl) {
+      customerMessage += `🎨 *Suas Personalizações:*\n`;
+      customerMessage += `📁 ${orderData.googleDriveUrl}\n\n`;
+    } else {
+      customerMessage += `⏳ *Personalizações sendo processadas...*\n`;
+      customerMessage += `_Enviaremos o link das suas fotos em breve!_\n\n`;
+    }
+
+    // Mensagem final
+    customerMessage += `✨ *Sua cesta está sendo preparada com muito carinho!*\n\n`;
     customerMessage += `Agradecemos pela preferência! ❤️\n`;
     customerMessage += `_Equipe Cesto d'Amore_`;
 

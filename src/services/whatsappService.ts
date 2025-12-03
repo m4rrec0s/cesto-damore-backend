@@ -442,11 +442,15 @@ class WhatsAppService {
 
     if (orderData.recipientPhone) {
       teamMessage += `\n🎁 *Destinatário:*\n`;
-      teamMessage += `📱 ${orderData.recipientPhone}${
-        isAnonymous ? " _(Envio anônimo)_" : ""
-      }\n`;
+      teamMessage += `📱 ${orderData.recipientPhone}`;
+      if (isAnonymous) {
+        teamMessage += ` _(Envio Anônimo)_`;
+      }
+      teamMessage += `\n`;
     } else if (isAnonymous) {
-      teamMessage += `\n🎁 *Destinatário:* _(Envio anônimo)_\n`;
+      teamMessage += `\n🎁 *Destinatário:* _(Envio Anônimo - Sem número do destinatário)_\n`;
+    } else {
+      teamMessage += `\n🎁 *Destinatário:* _(A definir)_\n`;
     }
 
     if (orderData.delivery) {

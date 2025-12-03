@@ -1789,6 +1789,7 @@ export class PaymentService {
         paymentMethod: order.payment_method || "Não informado",
         items,
         googleDriveUrl,
+        recipientPhone: order.recipient_phone || undefined,
         customer: {
           name: order.user.name,
           email: order.user.email,

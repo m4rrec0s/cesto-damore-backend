@@ -539,37 +539,73 @@ class OrderCustomizationService {
 
     multiple.forEach((asset: any) => assets.push(asset as ArtworkAsset));
 
-    // ✅ NOVO: Suporte para campo "photos" do frontend
+    // ✅ CORRIGIDO: Suporte para campo "photos" - buscar em preview_url
     const photos = Array.isArray(data?.photos) ? data.photos : [];
 
     photos.forEach((photo: any, index: number) => {
       if (photo && typeof photo === "object") {
-        assets.push({
-          base64: photo.base64 || photo.base64Data,
-          base64Data: photo.base64Data || photo.base64,
-          mimeType: photo.mime_type || photo.mimeType,
-          fileName: photo.original_name || photo.fileName,
-        } as ArtworkAsset);
+        // ✅ CORRIGIDO: preview_url contém o base64
+        const base64Content = photo.preview_url || photo.base64 || photo.base64Data;
+        
+        if (base64Content && typeof base64Content === "string") {
+          assets.push({
+            base64: base64Content,
+            base64Data: base64Content,
+            mimeType: photo.mime_type || photo.mimeType || "image/jpeg",
+            fileName: photo.original_name || photo.fileName || `photo-${index + 1}.jpg`,
+          } as ArtworkAsset);
+        }
       }
     });
 
-    // ✅ NOVO: Suporte para LAYOUT_BASE - extrai imagens dos slots
+    // ✅ CORRIGIDO: Suporte para BASE_LAYOUT - buscar no campo "text"
+    // O campo "text" contém o base64 da preview do layout
+    if (data?.customization_type === "BASE_LAYOUT" && data?.text) {
+      const textContent = data.text;
+      
+      // Verificar se é base64 válido
+      if (typeof textContent === "string" && 
+          (textContent.startsWith("data:image") || /^[A-Za-z0-9+/=]{100,}/.test(textContent))) {
+        
+        assets.push({
+          base64: textContent,
+          base64Data: textContent,
+          mimeType: "image/png",
+          fileName: `layout-preview-${Date.now()}.png`,
+        } as ArtworkAsset);
+        
+        logger.debug(`✅ BASE_LAYOUT: extraído base64 do campo "text"`);
+      }
+    }
+
+    // ✅ MANTIDO: Suporte para LAYOUT_BASE com array "images" (se existir)
     const images = Array.isArray(data?.images) ? data.images : [];
 
     images.forEach((image: any, index: number) => {
       if (image && typeof image === "object") {
         // LAYOUT_BASE pode ter: { slot: string, url: string (base64), ... }
         const base64Content = image.url || image.base64 || image.base64Data;
-        if (base64Content) {
-          assets.push({
-            base64: base64Content,
-            base64Data: base64Content,
-            mimeType: image.mimeType || image.mime_type || "image/jpeg",
-            fileName:
-              image.fileName ||
-              image.original_name ||
-              `layout-slot-${image.slot || index}.jpg`,
-          } as ArtworkAsset);
+        
+        if (base64Content && typeof base64Content === "string") {
+          // Verificar se é base64 válido
+          const isBase64 = base64Content.startsWith("data:image") || 
+                           /^[A-Za-z0-9+/=]{100,}/.test(base64Content);
+          
+          if (isBase64) {
+            assets.push({
+              base64: base64Content,
+              base64Data: base64Content,
+              mimeType: image.mimeType || image.mime_type || "image/jpeg",
+              fileName:
+                image.fileName ||
+                image.original_name ||
+                `layout-slot-${image.slot || index}.jpg`,
+            } as ArtworkAsset);
+          } else {
+            logger.warn(
+              `⚠️ Imagem do slot ${image.slot || index} não contém base64 válido`
+            );
+          }
         }
       }
     });
@@ -587,7 +623,7 @@ class OrderCustomizationService {
     });
 
     logger.debug(
-      `📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do LAYOUT_BASE)`
+      `📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do array images, ${photos.length} de photos, ${data?.customization_type === "BASE_LAYOUT" && data?.text ? "1 do text" : "0 do text"})`
     );
     return filteredAssets;
   }

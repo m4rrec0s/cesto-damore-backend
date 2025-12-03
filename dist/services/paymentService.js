@@ -374,17 +374,49 @@ class PaymentService {
                     where: { id: data.orderId },
                     data: { status: "PAID" },
                 });
-                // Run finalize in background (non-blocking) so payment flow continues
-                orderCustomizationService_1.default
-                    .finalizeOrderCustomizations(data.orderId)
-                    .then((customizationResult) => {
-                    console.log("✅ Customizações finalizadas com sucesso (background):", customizationResult);
-                })
-                    .catch((customizationError) => {
-                    console.error("⚠️ Erro ao finalizar customizações em background (continuando com notificação):", customizationError);
-                });
-                // Enviar notificação de confirmação
-                await this.sendOrderConfirmationNotification(data.orderId);
+                // Finalize customizations first (upload to Drive), then notify
+                try {
+                    const finalizeRes = await orderCustomizationService_1.default.finalizeOrderCustomizations(data.orderId);
+                    logger_1.default.info(`✅ finalizeOrderCustomizations result (transparent checkout): ${JSON.stringify(finalizeRes)}`);
+                    // Only send WhatsApp if we have a folder URL (or no files to upload but no error)
+                    const willNotify = !!finalizeRes.folderUrl ||
+                        (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
+                    // Always send SSE update so frontend knows the order is PAID
+                    webhookNotificationService_1.webhookNotificationService.notifyPaymentUpdate(data.orderId, {
+                        status: "approved",
+                        paymentId: paymentRecord.id,
+                        mercadoPagoId: String(paymentResponse.id),
+                        approvedAt: new Date().toLocaleString("pt-BR", {
+                            timeZone: "America/Sao_Paulo",
+                        }),
+                        paymentMethod: paymentData.payment_method_id || undefined,
+                    });
+                    if (willNotify) {
+                        if (!PaymentService.notificationSentOrders.has(data.orderId)) {
+                            await this.sendOrderConfirmationNotification(data.orderId);
+                            PaymentService.notificationSentOrders.add(data.orderId);
+                            setTimeout(() => PaymentService.notificationSentOrders.delete(data.orderId), 1000 * 60 * 15);
+                        }
+                        else {
+                            logger_1.default.info(`🟡 Notificação de pedido já enviada (cache) para ${data.orderId}, pulando.`);
+                        }
+                    }
+                    else {
+                        logger_1.default.warn(`⚠️ Finalize não ready (transparent checkout) for order ${data.orderId}, skipping WhatsApp send`);
+                    }
+                }
+                catch (err) {
+                    console.error("⚠️ Erro na finalização das customizações (transparent checkout):", err);
+                    webhookNotificationService_1.webhookNotificationService.notifyPaymentUpdate(data.orderId, {
+                        status: "approved",
+                        paymentId: paymentRecord.id,
+                        mercadoPagoId: String(paymentResponse.id),
+                        approvedAt: new Date().toLocaleString("pt-BR", {
+                            timeZone: "America/Sao_Paulo",
+                        }),
+                        paymentMethod: paymentData.payment_method_id || undefined,
+                    });
+                }
             }
             return {
                 payment_id: paymentResponse.id,
@@ -969,6 +1001,7 @@ class PaymentService {
                 case "payment":
                     processedPayment = await this.processPaymentNotification(resourceId);
                     // Kick off background finalization monitoring: non-blocking
+                    // Only run finalization monitor if there's no record of a successful finalization yet
                     (async () => {
                         try {
                             // Attempt to find DB payment and order
@@ -979,6 +1012,18 @@ class PaymentService {
                             if (!dbPayment || !dbPayment.order_id)
                                 return;
                             const orderId = dbPayment.order_id;
+                            // Check the webhookLog to avoid re-finalization if already succeeded
+                            const existingFinalized = await prisma_1.default.webhookLog.findFirst({
+                                where: {
+                                    resource_id: resourceId,
+                                    topic: webhookType,
+                                    finalization_succeeded: true,
+                                },
+                            });
+                            if (existingFinalized) {
+                                logger_1.default.debug(`🟢 Finalização já registrada (webhookLog) para resource=${resourceId}, skipping monitor.`);
+                                return;
+                            }
                             // Run finalize again (idempotent) in background and update webhookLog with finalization result
                             try {
                                 const finalizeRes = await orderCustomizationService_1.default.finalizeOrderCustomizations(orderId);
@@ -1145,8 +1190,9 @@ class PaymentService {
                 return false;
             }
             const newStatus = this.mapPaymentStatus(paymentInfo.status);
-            await prisma_1.default.payment.update({
-                where: { id: dbPayment.id },
+            // Use conditional update to avoid duplicate processing across concurrent webhook handlers
+            const updateResult = await prisma_1.default.payment.updateMany({
+                where: { id: dbPayment.id, status: { not: newStatus } },
                 data: {
                     status: newStatus,
                     payment_method: paymentInfo.payment_method_id,
@@ -1166,34 +1212,80 @@ class PaymentService {
                     webhook_attempts: dbPayment.webhook_attempts + 1,
                 },
             });
+            if (updateResult.count === 0) {
+                // Another process has already updated this payment to the target status -> skip send/finalize
+                console.log(`⚠️ Pagamento ${dbPayment.id} já atualizado para ${newStatus} por outro processo - pulando notificações e finalização`);
+                return true;
+            }
+            const updatedPayment = await prisma_1.default.payment.findUnique({
+                where: { id: dbPayment.id },
+            });
             console.log(`💾 DB updated payment ${dbPayment.id} -> ${newStatus}`);
             if (paymentInfo.status === "approved") {
+                // Update order status
                 await prisma_1.default.order.update({
                     where: { id: dbPayment.order_id },
                     data: { status: "PAID" },
                 });
                 await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
-                // 🔔 Notificar frontend via SSE sobre pagamento aprovado
-                webhookNotificationService_1.webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
-                    status: "approved",
-                    paymentId: dbPayment.id,
-                    mercadoPagoId: paymentId,
-                    approvedAt: new Date().toLocaleString("pt-BR", {
-                        timeZone: "America/Sao_Paulo",
-                    }),
-                    paymentMethod: paymentInfo.payment_method_id || undefined,
-                });
-                console.log(`📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`);
-                // Run finalize in background (non-blocking) so webhook processing does not delay
-                orderCustomizationService_1.default
-                    .finalizeOrderCustomizations(dbPayment.order_id)
-                    .then((customizationResult) => {
-                    console.log("✅ Customizações finalizadas com sucesso (background):", customizationResult);
-                })
-                    .catch((error) => {
-                    console.error("⚠️ Erro ao processar customizações em background, mas pedido foi aprovado:", error);
-                });
-                await this.sendOrderConfirmationNotification(dbPayment.order_id);
+                // ✅ MUST: finalize customizations BEFORE sending notifications
+                try {
+                    const finalizeRes = await orderCustomizationService_1.default.finalizeOrderCustomizations(dbPayment.order_id);
+                    logger_1.default.info(`✅ finalizeOrderCustomizations result: ${JSON.stringify(finalizeRes)}`);
+                    // Update webhook log(s) with finalization result for traceability
+                    await prisma_1.default.webhookLog.updateMany({
+                        where: { resource_id: paymentId, topic: "payment" },
+                        data: {
+                            finalization_succeeded: finalizeRes.base64Detected ? false : true,
+                            finalization_attempts: { increment: 1 },
+                            error_message: finalizeRes.base64Detected
+                                ? `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(",")}`
+                                : undefined,
+                        },
+                    });
+                    // Only notify if finalization produced a drive link (or no artifacts but no errors). Prefer: only notify if googleDrive link found.
+                    const willNotify = !!finalizeRes.folderUrl ||
+                        (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
+                    if (willNotify) {
+                        // 🔔 Notificar frontend via SSE sobre pagamento aprovado
+                        webhookNotificationService_1.webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
+                            status: "approved",
+                            paymentId: dbPayment.id,
+                            mercadoPagoId: paymentId,
+                            approvedAt: new Date().toLocaleString("pt-BR", {
+                                timeZone: "America/Sao_Paulo",
+                            }),
+                            paymentMethod: paymentInfo.payment_method_id || undefined,
+                        });
+                        console.log(`📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`);
+                        // Send group + buyer notifications only AFTER Drive link is ready
+                        if (!PaymentService.notificationSentOrders.has(dbPayment.order_id)) {
+                            await this.sendOrderConfirmationNotification(dbPayment.order_id);
+                            PaymentService.notificationSentOrders.add(dbPayment.order_id);
+                            setTimeout(() => PaymentService.notificationSentOrders.delete(dbPayment.order_id), 1000 * 60 * 15);
+                        }
+                        else {
+                            logger_1.default.info(`🟡 Notificação de pedido já enviada (cache) para ${dbPayment.order_id}, pulando.`);
+                        }
+                    }
+                    else {
+                        logger_1.default.warn(`⚠️ Finalização não retornou link do Drive; pulando envio de notificações para order ${dbPayment.order_id}`);
+                    }
+                }
+                catch (err) {
+                    logger_1.default.error("⚠️ Erro na finalização das customizações antes do envio de notificações:", err);
+                    // Still try to notify to frontend that payment was approved (without whatsapp)
+                    webhookNotificationService_1.webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
+                        status: "approved",
+                        paymentId: dbPayment.id,
+                        mercadoPagoId: paymentId,
+                        approvedAt: new Date().toLocaleString("pt-BR", {
+                            timeZone: "America/Sao_Paulo",
+                        }),
+                        paymentMethod: paymentInfo.payment_method_id || undefined,
+                    });
+                    logger_1.default.warn(`📤 Sent SSE notification despite finalization failure for order ${dbPayment.order_id}`);
+                }
             }
             if (["cancelled", "rejected"].includes(paymentInfo.status)) {
                 await prisma_1.default.order.update({
@@ -1294,7 +1386,10 @@ class PaymentService {
             // Include flags and complement for notification's business logic
             orderData.send_anonymously = order.send_anonymously || false;
             orderData.complement = order.complement || undefined;
-            await whatsappService_1.default.sendOrderConfirmationNotification(orderData);
+            await whatsappService_1.default.sendOrderConfirmationNotification(orderData, {
+                notifyTeam: true,
+                notifyCustomer: false,
+            });
             // Enviar confirmação APENAS para o COMPRADOR
             if (order.user.phone) {
                 await whatsappService_1.default.sendOrderConfirmation({
@@ -1429,4 +1524,6 @@ class PaymentService {
     }
 }
 exports.PaymentService = PaymentService;
+// In-memory guard to avoid duplicate confirmation sends within same process
+PaymentService.notificationSentOrders = new Set();
 exports.default = PaymentService;

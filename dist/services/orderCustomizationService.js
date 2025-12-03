@@ -34,6 +34,13 @@ class OrderCustomizationService {
             customization_id: input.customizationRuleId || "default", // Obrigatório no schema
             value: JSON.stringify(customizationValue),
         };
+        try {
+            const containsBase64 = /data:[^;]+;base64,/.test(payload.value);
+            logger_1.default.debug(`🔍 [saveOrderItemCustomization] containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${input.customizationRuleId}`);
+        }
+        catch (err) {
+            /* ignore logging errors */
+        }
         return prisma_1.default.orderItemCustomization.create({
             data: payload,
         });
@@ -100,6 +107,13 @@ class OrderCustomizationService {
             customization_id: input.customizationRuleId ?? existing.customization_id,
             value: JSON.stringify(mergedCustomizationData),
         };
+        try {
+            const containsBase64 = /data:[^;]+;base64,/.test(updateData.value);
+            logger_1.default.debug(`🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${input.customizationRuleId ?? existing.customization_id}`);
+        }
+        catch (err) {
+            /* ignore logging errors */
+        }
         return prisma_1.default.orderItemCustomization.update({
             where: { id: customizationId },
             data: updateData,

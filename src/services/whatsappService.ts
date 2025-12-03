@@ -304,111 +304,207 @@ class WhatsAppService {
     }
   }
 
-  /**
-   * Envia notificação de pedido confirmado (após pagamento aprovado)
-   */
-  async sendOrderConfirmationNotification(orderData: {
-    orderId: string;
-    orderNumber?: string;
-    totalAmount: number;
-    paymentMethod: string;
-    items: Array<{
-      name: string;
-      quantity: number;
-      price: number;
-    }>;
-    customer: {
-      name: string;
-      email: string;
-      phone?: string;
-    };
-    delivery?: {
-      address: string;
-      city: string;
-      state: string;
-      zipCode: string;
-      date?: Date;
-    };
-    googleDriveUrl?: string;
-  }): Promise<boolean> {
+  async sendOrderConfirmationNotification(
+    orderData: {
+      orderId: string;
+      orderNumber?: string;
+      totalAmount: number;
+      paymentMethod?: string;
+      items: Array<{
+        name: string;
+        quantity: number;
+        price: number;
+      }>;
+      customer: {
+        name: string;
+        email: string;
+        phone?: string;
+      };
+      delivery?: {
+        address: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        date?: Date;
+      };
+      googleDriveUrl?: string;
+      recipientPhone?: string;
+    },
+    options: { notifyTeam?: boolean; notifyCustomer?: boolean } = {
+      notifyTeam: true,
+      notifyCustomer: false,
+    }
+  ): Promise<boolean> {
     if (!this.isConfigured()) {
       console.warn("WhatsApp não configurado. Pulando notificação de pedido.");
       return false;
     }
 
     try {
-      let message = `✅ *NOVO PEDIDO CONFIRMADO* ✅\n\n`;
+      const { teamMessage, customerMessage } =
+        this.buildOrderConfirmationMessages(orderData);
 
-      message += `📦 *Pedido #${
-        orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase()
-      }*\n`;
-      message += `💰 Valor: R$ ${orderData.totalAmount
-        .toFixed(2)
-        .replace(".", ",")}\n`;
-      message += `💳 Pagamento: ${this.formatPaymentMethod(
-        orderData.paymentMethod
-      )}\n\n`;
+      const { notifyTeam = true, notifyCustomer = false } = options;
 
-      message += `📝 *Itens:*\n`;
-      orderData.items.forEach((item) => {
-        const itemTotal = item.quantity * item.price;
-        message += `• ${item.quantity}x ${item.name} (R$ ${itemTotal
-          .toFixed(2)
-          .replace(".", ",")})\n`;
-      });
+      let teamSent = false;
+      let customerSent = false;
 
-      // Comprador / Destinatário
-      message += `\n👤 *Comprador:* ${orderData.customer.name}\n`;
-      const recipientPhone = (orderData as any).recipientPhone as
-        | string
-        | undefined;
-      if (recipientPhone) {
-        message += `📱 *Destinatário:* ${recipientPhone}\n`;
-      }
-
-      message += `\n• Email: ${orderData.customer.email}\n`;
-      const isAnonymous = (orderData as any).send_anonymously === true;
-      const complement = (orderData as any).complement as string | undefined;
-
-      message += `• Telefone: ${orderData.customer.phone ?? "N/A"}${
-        isAnonymous ? " (Envio anônimo)" : ""
-      }\n`;
-
-      if (orderData.delivery) {
-        message += `\n📍 *Entrega:*\n`;
-        message += `• ${orderData.delivery.address}\n`;
-        message += `• ${orderData.delivery.city} - ${orderData.delivery.state}\n`;
-        message += `• CEP: ${orderData.delivery.zipCode}\n`;
-        if (orderData.delivery.date) {
-          message += `• Data: ${this.formatDateOnlyToBrasilia(
-            orderData.delivery.date
-          )}\n`;
-        }
-        if (complement) {
-          message += `• Complemento: ${complement}\n`;
+      if (notifyTeam && this.isConfigured()) {
+        const sent = await this.sendMessage(teamMessage);
+        if (sent) {
+          console.info(
+            `Notificação de pedido ${orderData.orderId} enviada com sucesso`
+          );
+          teamSent = true;
         }
       }
 
-      // Adicionar link do Google Drive se houver customizações
-      if (orderData.googleDriveUrl) {
-        message += `\n🎨 *Customizações:*\n`;
-        message += `📸 ${orderData.googleDriveUrl}\n`;
+      if (notifyCustomer) {
+        // Send direct message to the customer or the provided recipient phone
+        const targetPhone =
+          orderData.recipientPhone ?? orderData.customer.phone;
+        if (targetPhone) {
+          const cleanPhone = (targetPhone as string).replace(/\D/g, "");
+          const phoneWithCountry = cleanPhone.startsWith("55")
+            ? cleanPhone
+            : `55${cleanPhone}`;
+          if (phoneWithCountry.length >= 12) {
+            customerSent = await this.sendDirectMessage(
+              phoneWithCountry,
+              customerMessage
+            );
+          } else {
+            console.warn(
+              `Telefone inválido para notificação ao cliente: ${targetPhone}`
+            );
+          }
+        }
       }
 
-      message += `\n⏰ ${this.formatToBrasiliaTime(new Date())}\n\n`;
-      message += `🚀 *Preparar pedido para entrega!*`;
-
-      const sent = await this.sendMessage(message);
-      if (sent) {
-        console.info(
-          `Notificação de pedido ${orderData.orderId} enviada com sucesso`
-        );
-      }
-      return sent;
+      return teamSent || customerSent;
     } catch (error: any) {
       console.error("Erro ao enviar notificação de pedido:", error.message);
       return false;
     }
+  }
+
+  private buildOrderConfirmationMessages(orderData: {
+    orderId: string;
+    orderNumber?: string;
+    totalAmount: number;
+    paymentMethod?: string;
+    items: Array<{ name: string; quantity: number; price: number }>;
+    customer: { name: string; email: string; phone?: string };
+    delivery?: {
+      address: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+      date?: Date;
+    };
+    googleDriveUrl?: string;
+    recipientPhone?: string;
+    send_anonymously?: boolean;
+    complement?: string;
+  }) {
+    const orderLabel =
+      orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase();
+    const totalFormatted = orderData.totalAmount.toFixed(2).replace(".", ",");
+
+    // Team message
+    let teamMessage = `✅ *NOVO PEDIDO CONFIRMADO* ✅\n\n`;
+    teamMessage += `📦 *Pedido #${orderLabel}*\n`;
+    teamMessage += `💰 Valor: R$ ${totalFormatted}\n`;
+    if (orderData.paymentMethod) {
+      teamMessage += `💳 Pagamento: ${this.formatPaymentMethod(
+        orderData.paymentMethod
+      )}\n\n`;
+    } else {
+      teamMessage += `\n`;
+    }
+
+    teamMessage += `📝 *Itens:*\n`;
+    orderData.items.forEach((item) => {
+      const itemTotal = item.quantity * item.price;
+      teamMessage += `• ${item.quantity}x ${item.name} (R$ ${itemTotal
+        .toFixed(2)
+        .replace(".", ",")})\n`;
+    });
+
+    teamMessage += `\n👤 *Comprador:* ${orderData.customer.name}\n`;
+    if (orderData.customer.phone) {
+      teamMessage += `📱 *Telefone do comprador:* ${orderData.customer.phone}\n`;
+    }
+    if (orderData.recipientPhone) {
+      teamMessage += `📱 *Destinatário:* ${orderData.recipientPhone}\n`;
+    }
+    teamMessage += `\n• Email: ${orderData.customer.email}\n`;
+
+    const isAnonymous = orderData.send_anonymously === true;
+    const complement = orderData.complement;
+    teamMessage += `• Telefone: ${orderData.customer.phone ?? "N/A"}${
+      isAnonymous ? " (Envio anônimo)" : ""
+    }\n`;
+
+    if (orderData.delivery) {
+      teamMessage += `\n📍 *Entrega:*\n`;
+      teamMessage += `• ${orderData.delivery.address}\n`;
+      teamMessage += `• ${orderData.delivery.city} - ${orderData.delivery.state}\n`;
+      teamMessage += `• CEP: ${orderData.delivery.zipCode}\n`;
+      if (orderData.delivery.date) {
+        teamMessage += `• Data: ${this.formatDateOnlyToBrasilia(
+          orderData.delivery.date
+        )}\n`;
+      }
+      if (complement) {
+        teamMessage += `• Complemento: ${complement}\n`;
+      }
+    }
+
+    if (orderData.googleDriveUrl) {
+      teamMessage += `\n🎨 *Customizações:*\n`;
+      teamMessage += `📸 ${orderData.googleDriveUrl}\n`;
+    }
+
+    teamMessage += `\n⏰ ${this.formatToBrasiliaTime(new Date())}\n\n`;
+    teamMessage += `🚀 *Preparar pedido para entrega!*`;
+
+    // Customer message
+    const createdAtBrasilia = this.formatToBrasiliaTime(new Date());
+    let deliveryDateBrasilia = "A definir";
+    if (orderData.delivery && orderData.delivery.date) {
+      deliveryDateBrasilia = this.formatToBrasiliaTime(
+        orderData.delivery.date as any
+      );
+    }
+
+    let customerMessage = `🎉 *Pedido Confirmado!* 🎉\n\n`;
+    customerMessage += `Olá, ${orderData.customer.name}!\n`;
+    customerMessage += `Seu pagamento foi confirmado com sucesso!\n\n`;
+    customerMessage += `📦 *Pedido:* #${orderLabel}\n`;
+    customerMessage += `👤 *Comprador:* ${orderData.customer.name}\n`;
+    if (orderData.recipientPhone) {
+      customerMessage += `📱 *Destinatário:* ${orderData.recipientPhone}\n`;
+    }
+    customerMessage += `\n📅 *Criado em:* ${createdAtBrasilia}\n`;
+    customerMessage += `🚚 *Entrega prevista:* ${deliveryDateBrasilia}\n`;
+    customerMessage += `\n💰 *Total:* R$ ${totalFormatted}\n`;
+    customerMessage += `\n📝 *Itens do pedido:*\n`;
+    orderData.items.forEach((item) => {
+      customerMessage += `• ${item.quantity}x ${item.name}\n`;
+    });
+    if (orderData.googleDriveUrl) {
+      customerMessage += `\n🎨 *Suas Personalizações:*\n`;
+      customerMessage += `📁 ${orderData.googleDriveUrl}\n`;
+    } else {
+      customerMessage += `\n⏳ *Personalizações sendo processadas...*\n`;
+      customerMessage += `_Enviaremos o link das suas fotos em breve!_\n`;
+    }
+    customerMessage += `\n✨ *Sua cesta está sendo preparada com muito carinho!*\n\n`;
+    customerMessage += `Agradecemos pela preferência! ❤️\n`;
+    customerMessage += `_Equipe Cesto d'Amore_`;
+
+    return { teamMessage, customerMessage };
   }
 
   /**

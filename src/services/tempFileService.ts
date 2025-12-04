@@ -58,7 +58,7 @@ class TempFileService {
       fs.writeFileSync(filepath, buffer);
 
       // Construir URL para acesso
-      const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+      const baseUrl = process.env.BASE_URL as string;
       const url = `${baseUrl}/uploads/temp/${filename}`;
 
       logger.debug(

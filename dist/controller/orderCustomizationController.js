@@ -65,6 +65,9 @@ class OrderCustomizationController {
     }
     /**
      * Processa recursivamente o payload para converter base64 em URLs temporárias
+     * Detecta e converte:
+     * - { base64: "data:...", ... }
+     * - { photos: [{ base64: "...", ...}, ...] }
      */
     async processBase64InData(data) {
         if (!data)
@@ -77,19 +80,44 @@ class OrderCustomizationController {
         if (typeof data === "object") {
             const processed = {};
             for (const [key, value] of Object.entries(data)) {
-                // Se for campo com base64
+                // ✅ SPECIAL CASE: Se for array de fotos, processar cada item
+                if (key === "photos" && Array.isArray(value)) {
+                    logger_1.default.debug(`🔄 [processBase64InData] Detectado array "photos" com ${value.length} itens`);
+                    processed[key] = await Promise.all(value.map(async (photo, idx) => {
+                        if (photo && typeof photo === "object" && photo.base64) {
+                            logger_1.default.info(`   [${idx}] Foto com base64 detectada, convertendo...`);
+                            const url = await this.convertBase64ToFile(photo.base64, photo.original_name || `photo-${idx}`);
+                            if (url) {
+                                logger_1.default.info(`   [${idx}] ✅ Convertida para: ${url}`);
+                                return {
+                                    ...photo,
+                                    preview_url: url,
+                                    base64: undefined,
+                                };
+                            }
+                            else {
+                                logger_1.default.warn(`   [${idx}] ⚠️ Falha ao converter`);
+                                return photo;
+                            }
+                        }
+                        return photo;
+                    }));
+                    continue;
+                }
+                // Se for campo com base64 ou artwork
                 if ((key.includes("base64") ||
                     key === "artwork" ||
-                    key === "finalArtwork" ||
-                    key.includes("photo")) &&
-                    typeof value === "object") {
+                    key === "finalArtwork") &&
+                    typeof value === "object" &&
+                    !Array.isArray(value)) {
                     const obj = value;
                     // Se tiver campo base64, converter para URL
                     if (obj.base64 && typeof obj.base64 === "string") {
+                        logger_1.default.info(`🔄 [processBase64InData] Detectado base64 em "${key}"`);
                         const url = await this.convertBase64ToFile(obj.base64, obj.fileName || "artwork");
                         if (url) {
                             processed[key] = { ...obj, preview_url: url, base64: undefined };
-                            logger_1.default.debug(`✅ Convertido ${key} base64 para URL: ${url}`);
+                            logger_1.default.debug(`✅ Convertido "${key}" para URL: ${url}`);
                         }
                         else {
                             processed[key] = obj;

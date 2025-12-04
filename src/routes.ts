@@ -486,7 +486,7 @@ router.patch(
 
 router.get("/orders/:id", orderController.show);
 router.post("/orders", orderController.create);
-router.delete("/orders/:id", orderController.remove);
+router.delete("/orders/:id", authenticateToken, orderController.remove);
 router.delete("/orders/canceled", orderController.removeAllCanceledOrders);
 
 // ========== PAYMENT ROUTES ==========

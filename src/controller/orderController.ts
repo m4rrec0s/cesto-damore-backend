@@ -124,7 +124,34 @@ class OrderController {
   async remove(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      const userId = (req as any).user?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
+      // Verificar se o usuário autenticado é dono do pedido
+      const order = await orderService.getOrderById(id);
+      if (order.user_id !== userId) {
+        console.warn(
+          `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`
+        );
+        return res.status(403).json({
+          error: "Você não tem permissão para deletar este pedido",
+        });
+      }
+
+      // Apenas permitir deletar pedidos PENDING (rascunhos)
+      if (order.status !== "PENDING") {
+        return res.status(400).json({
+          error: `Apenas pedidos pendentes podem ser deletados. Status atual: ${order.status}`,
+        });
+      }
+
       const result = await orderService.deleteOrder(id);
+      console.log(
+        `✅ [remove] Pedido ${id} deletado com sucesso por usuário ${userId}`
+      );
       res.json(result);
     } catch (error: any) {
       console.error("Erro ao deletar pedido:", error);

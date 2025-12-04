@@ -446,7 +446,8 @@ class OrderCustomizationService {
             const textContent = data.text;
             // Verificar se é base64 válido
             if (typeof textContent === "string" &&
-                (textContent.startsWith("data:image") || /^[A-Za-z0-9+/=]{100,}/.test(textContent))) {
+                (textContent.startsWith("data:image") ||
+                    /^[A-Za-z0-9+/=]{100,}/.test(textContent))) {
                 assets.push({
                     base64: textContent,
                     base64Data: textContent,
@@ -490,7 +491,9 @@ class OrderCustomizationService {
             }
             return hasContent;
         });
-        logger_1.default.debug(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do array images, ${photos.length} de photos, ${data?.customization_type === "BASE_LAYOUT" && data?.text ? "1 do text" : "0 do text"})`);
+        logger_1.default.debug(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do array images, ${photos.length} de photos, ${data?.customization_type === "BASE_LAYOUT" && data?.text
+            ? "1 do text"
+            : "0 do text"})`);
         return filteredAssets;
     }
     async uploadArtwork(asset, customization, folderId) {

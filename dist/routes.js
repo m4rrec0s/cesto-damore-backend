@@ -366,7 +366,7 @@ router.put("/orders/:id/metadata", security_1.authenticateToken, orderController
 router.patch("/orders/:id/status", security_1.authenticateToken, security_1.requireAdmin, orderController_1.default.updateStatus);
 router.get("/orders/:id", orderController_1.default.show);
 router.post("/orders", orderController_1.default.create);
-router.delete("/orders/:id", orderController_1.default.remove);
+router.delete("/orders/:id", security_1.authenticateToken, orderController_1.default.remove);
 router.delete("/orders/canceled", orderController_1.default.removeAllCanceledOrders);
 // ========== PAYMENT ROUTES ==========
 router.get("/payment/health", paymentController_1.default.healthCheck);

@@ -33,27 +33,33 @@ class OrderCustomizationController {
      */
     async convertBase64ToFile(base64String, fileName = "artwork") {
         try {
+            logger_1.default.info(`🔄 [convertBase64ToFile] Iniciando conversão: ${fileName}`);
             let buffer;
             // Se começar com data:, extrair apenas o conteúdo base64
             if (base64String.startsWith("data:")) {
+                logger_1.default.debug(`   Base64 com prefixo data:, extraindo...`);
                 const matches = base64String.match(/data:[^;]+;base64,(.+)/);
                 if (!matches) {
                     logger_1.default.warn(`❌ Formato base64 inválido: ${base64String.substring(0, 50)}`);
                     return null;
                 }
                 buffer = Buffer.from(matches[1], "base64");
+                logger_1.default.info(`   ✅ Base64 decodificado: ${buffer.length} bytes`);
             }
             else {
                 // Raw base64
+                logger_1.default.debug(`   Raw base64, decodificando...`);
                 buffer = Buffer.from(base64String, "base64");
+                logger_1.default.info(`   ✅ Base64 raw decodificado: ${buffer.length} bytes`);
             }
             // Salvar arquivo em /app/storage/temp
+            logger_1.default.info(`   💾 Salvando arquivo via tempFileService...`);
             const result = await tempFileService_1.default.saveFile(buffer, fileName);
-            logger_1.default.info(`✅ Base64 convertido para arquivo: ${result.filename}`);
+            logger_1.default.info(`✅ [convertBase64ToFile] Sucesso! URL: ${result.url}`);
             return result.url;
         }
         catch (error) {
-            logger_1.default.error(`❌ Erro ao converter base64: ${error.message}`);
+            logger_1.default.error(`❌ [convertBase64ToFile] Erro: ${error.message}`, error.stack);
             return null;
         }
     }
@@ -144,7 +150,12 @@ class OrderCustomizationController {
                 itemId: zod_1.z.string().uuid({ message: "Identificador inválido" }),
             });
             const { orderId, itemId } = paramsSchema.parse(req.params);
+            logger_1.default.info(`🎯 [saveOrderItemCustomization] orderId=${orderId}, itemId=${itemId}`);
             const payload = customizationPayloadSchema.parse(req.body);
+            logger_1.default.info(`📦 Payload recebido: tipo=${payload.customizationType}`);
+            logger_1.default.debug(`   finalArtwork? ${!!payload.finalArtwork}`);
+            logger_1.default.debug(`   finalArtworks? ${!!payload.finalArtworks}`);
+            logger_1.default.debug(`   finalArtwork.base64? ${payload.finalArtwork ? !!payload.finalArtwork.base64 : "N/A"}`);
             await orderCustomizationService_1.default.ensureOrderItem(orderId, itemId);
             // ✅ NOVO: Processar base64 antes de salvar
             logger_1.default.info(`📝 Processando customização com base64... tipo=${payload.customizationType}`);
@@ -153,6 +164,7 @@ class OrderCustomizationController {
             };
             // Se tiver finalArtwork com base64, converter para arquivo
             if (payload.finalArtwork && payload.finalArtwork.base64) {
+                logger_1.default.info(`🔄 Detectado finalArtwork com base64! Convertendo... fileName=${payload.finalArtwork.fileName}`);
                 const url = await this.convertBase64ToFile(payload.finalArtwork.base64, payload.finalArtwork.fileName || "artwork");
                 if (url) {
                     customizationData.final_artwork = {
@@ -162,24 +174,38 @@ class OrderCustomizationController {
                     };
                     logger_1.default.info(`✅ finalArtwork convertido para: ${url}`);
                 }
+                else {
+                    logger_1.default.warn(`⚠️ Falha ao converter finalArtwork base64`);
+                }
             }
             else if (payload.finalArtwork) {
+                logger_1.default.info(`ℹ️ finalArtwork sem base64, usando como está: ${JSON.stringify(payload.finalArtwork).substring(0, 100)}`);
                 customizationData.final_artwork = payload.finalArtwork;
+            }
+            else {
+                logger_1.default.debug(`ℹ️ Sem finalArtwork no payload`);
             }
             // Se tiver finalArtworks (array), converter cada um
             if (payload.finalArtworks && Array.isArray(payload.finalArtworks)) {
-                customizationData.final_artworks = await Promise.all(payload.finalArtworks.map(async (artwork) => {
+                logger_1.default.info(`🔄 Processando array de ${payload.finalArtworks.length} artworks...`);
+                customizationData.final_artworks = await Promise.all(payload.finalArtworks.map(async (artwork, idx) => {
                     if (artwork.base64) {
-                        const url = await this.convertBase64ToFile(artwork.base64, artwork.fileName || "artwork");
+                        logger_1.default.info(`   [${idx}] Convertendo artwork com base64...`);
+                        const url = await this.convertBase64ToFile(artwork.base64, artwork.fileName || `artwork-${idx}`);
                         if (url) {
-                            logger_1.default.info(`✅ finalArtwork (array) convertido para: ${url}`);
+                            logger_1.default.info(`   [${idx}] ✅ Convertido para: ${url}`);
                             return {
                                 ...artwork,
                                 preview_url: url,
                                 base64: undefined,
                             };
                         }
+                        else {
+                            logger_1.default.warn(`   [${idx}] ⚠️ Falha na conversão`);
+                            return artwork;
+                        }
                     }
+                    logger_1.default.debug(`   [${idx}] Sem base64, passando como está`);
                     return artwork;
                 }));
             }

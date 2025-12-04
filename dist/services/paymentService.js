@@ -582,11 +582,70 @@ class PaymentService {
                 // Run finalize in background (non-blocking) so the API call that creates the payment is not blocked
                 orderCustomizationService_1.default
                     .finalizeOrderCustomizations(order.id)
-                    .then((customizationResult) => {
-                    console.log("✅ Customizações finalizadas com sucesso (background):", customizationResult);
+                    .then(async (customizationResult) => {
+                    logger_1.default.info("✅ Customizações finalizadas com sucesso (background):", customizationResult);
+                    // ✅ NOVO: Salvar Drive folder info no banco e enviar WhatsApp
+                    if (customizationResult.folderId) {
+                        try {
+                            // Recarregar ordem com usuário para enviar WhatsApp
+                            const orderWithUser = await prisma_1.default.order.findUnique({
+                                where: { id: order.id },
+                                include: {
+                                    user: true,
+                                    items: {
+                                        include: { product: true },
+                                    },
+                                },
+                            });
+                            if (!orderWithUser) {
+                                logger_1.default.error(`Ordem não encontrada: ${order.id}`);
+                                return;
+                            }
+                            await prisma_1.default.order.update({
+                                where: { id: order.id },
+                                data: {
+                                    google_drive_folder_id: customizationResult.folderId,
+                                    google_drive_folder_url: customizationResult.folderUrl,
+                                    customizations_drive_processed: true,
+                                    customizations_drive_processed_at: new Date(),
+                                },
+                            });
+                            logger_1.default.info(`📁 Ordem ${order.id} atualizada com Drive folder: ${customizationResult.folderId}`);
+                            // ✅ NOVO: Enviar WhatsApp com link do Drive
+                            if (orderWithUser.user?.phone) {
+                                try {
+                                    const items = orderWithUser.items.map((item) => ({
+                                        name: item.product?.name || "Produto",
+                                        quantity: item.quantity || 1,
+                                        price: item.product?.price || 0,
+                                    }));
+                                    await whatsappService_1.default.sendOrderConfirmation({
+                                        orderNumber: orderWithUser.id
+                                            .substring(0, 8)
+                                            .toUpperCase(),
+                                        phone: orderWithUser.user.phone,
+                                        customerName: orderWithUser.user.name || "Cliente",
+                                        deliveryDate: orderWithUser.delivery_date || new Date(),
+                                        createdAt: orderWithUser.created_at,
+                                        recipientPhone: orderWithUser.recipient_phone || undefined,
+                                        items,
+                                        total: orderWithUser.grand_total || orderWithUser.total || 0,
+                                        googleDriveUrl: customizationResult.folderUrl,
+                                    });
+                                    logger_1.default.info(`📱 WhatsApp enviado para ${orderWithUser.user.phone} com link do Drive`);
+                                }
+                                catch (whatsappErr) {
+                                    logger_1.default.warn(`⚠️ Erro ao enviar WhatsApp para ${orderWithUser.user?.phone}:`, whatsappErr);
+                                }
+                            }
+                        }
+                        catch (updateErr) {
+                            logger_1.default.error(`⚠️ Erro ao atualizar ordem com Drive folder:`, updateErr);
+                        }
+                    }
                 })
                     .catch((finalizeErr) => {
-                    console.error("⚠️ Erro ao finalizar customizações após pagamento aprovada (background, continuando):", finalizeErr);
+                    logger_1.default.error("⚠️ Erro ao finalizar customizações após pagamento aprovada (background, continuando):", finalizeErr);
                 });
             }
             return {

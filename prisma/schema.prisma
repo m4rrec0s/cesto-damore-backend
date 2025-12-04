@@ -97,23 +97,27 @@ model ProductAdditional {
 }
 
 model Order {
-  id               String      @id @default(uuid())
-  user_id          String
-  status           OrderStatus @default(PENDING)
-  discount         Float       @default(0)
-  total            Float       @map("total_price")
-  delivery_address String?
-  delivery_city    String?
-  delivery_state   String?
-  delivery_date    DateTime?
-  shipping_price   Float?
-  payment_method   String?
-  grand_total      Float?
-  recipient_phone  String? // Número do destinatário da cesta
-  complement       String? // Complemento do endereço (apartamento, bloco, referência)
-  send_anonymously Boolean?    @default(false) // Indica se o envio será anônimo
-  created_at       DateTime    @default(now())
-  updated_at       DateTime    @updatedAt
+  id                                String      @id @default(uuid())
+  user_id                           String
+  status                            OrderStatus @default(PENDING)
+  discount                          Float       @default(0)
+  total                             Float       @map("total_price")
+  delivery_address                  String?
+  delivery_city                     String?
+  delivery_state                    String?
+  delivery_date                     DateTime?
+  shipping_price                    Float?
+  payment_method                    String?
+  grand_total                       Float?
+  recipient_phone                   String? // Número do destinatário da cesta
+  complement                        String? // Complemento do endereço (apartamento, bloco, referência)
+  send_anonymously                  Boolean?    @default(false) // Indica se o envio será anônimo
+  google_drive_folder_id            String? // ID da pasta criada no Google Drive
+  google_drive_folder_url           String? // URL compartilhável da pasta no Drive
+  customizations_drive_processed    Boolean     @default(false) // Se as customizações foram processadas e enviadas para Drive
+  customizations_drive_processed_at DateTime? // Data/hora do processamento
+  created_at                        DateTime    @default(now())
+  updated_at                        DateTime    @updatedAt
 
   user             User              @relation(fields: [user_id], references: [id])
   items            OrderItem[]

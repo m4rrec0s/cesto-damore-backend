@@ -1086,4 +1086,55 @@ router.patch(
   customerManagementController.updateName
 );
 
+// ============================================
+// TEMPORARY FILES MANAGEMENT
+// ============================================
+
+import tempFileController from "./controller/tempFileController";
+
+// Upload de arquivo temporário (durante customização)
+// POST /api/temp/upload
+router.post(
+  "/temp/upload",
+  upload.single("image"),
+  convertImagesToWebP,
+  tempFileController.upload
+);
+
+// Lista arquivos temporários (admin only)
+// GET /api/temp/files
+router.get(
+  "/temp/files",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.listFiles
+);
+
+// Deleta um arquivo temporário específico
+// DELETE /api/temp/files/:filename
+router.delete(
+  "/temp/files/:filename",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.deleteFile
+);
+
+// Limpeza automática de arquivos antigos (admin only)
+// DELETE /api/temp/cleanup?hours=48
+router.delete(
+  "/temp/cleanup",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.cleanup
+);
+
+// Deleta arquivos temporários associados a um pedido
+// POST /api/temp/cleanup-by-order
+router.post(
+  "/temp/cleanup-by-order",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.cleanupByOrder
+);
+
 export default router;

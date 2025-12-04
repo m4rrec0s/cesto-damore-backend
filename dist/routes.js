@@ -524,4 +524,23 @@ router.patch("/customers/:phone/service-status", security_1.authenticateToken, s
 router.patch("/customers/:phone/customer-status", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.updateCustomerStatus);
 // Atualizar nome do cliente
 router.patch("/customers/:phone/name", security_1.authenticateToken, security_1.requireAdmin, customerManagementController_1.default.updateName);
+// ============================================
+// TEMPORARY FILES MANAGEMENT
+// ============================================
+const tempFileController_1 = __importDefault(require("./controller/tempFileController"));
+// Upload de arquivo temporário (durante customização)
+// POST /api/temp/upload
+router.post("/temp/upload", multer_1.upload.single("image"), multer_1.convertImagesToWebP, tempFileController_1.default.upload);
+// Lista arquivos temporários (admin only)
+// GET /api/temp/files
+router.get("/temp/files", security_1.authenticateToken, security_1.requireAdmin, tempFileController_1.default.listFiles);
+// Deleta um arquivo temporário específico
+// DELETE /api/temp/files/:filename
+router.delete("/temp/files/:filename", security_1.authenticateToken, security_1.requireAdmin, tempFileController_1.default.deleteFile);
+// Limpeza automática de arquivos antigos (admin only)
+// DELETE /api/temp/cleanup?hours=48
+router.delete("/temp/cleanup", security_1.authenticateToken, security_1.requireAdmin, tempFileController_1.default.cleanup);
+// Deleta arquivos temporários associados a um pedido
+// POST /api/temp/cleanup-by-order
+router.post("/temp/cleanup-by-order", security_1.authenticateToken, security_1.requireAdmin, tempFileController_1.default.cleanupByOrder);
 exports.default = router;

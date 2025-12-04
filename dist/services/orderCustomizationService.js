@@ -7,6 +7,20 @@ const crypto_1 = require("crypto");
 const prisma_1 = __importDefault(require("../database/prisma"));
 const googleDriveService_1 = __importDefault(require("./googleDriveService"));
 const logger_1 = __importDefault(require("../utils/logger"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const axios_1 = __importDefault(require("axios"));
+/**
+ * Serviço para gerenciar customizações de pedidos
+ *
+ * NOVO FLUXO (após migração para temp files):
+ * 1. Frontend faz upload de imagens para /temp/upload (salva em /storage/temp)
+ * 2. Frontend envia customização com URLs temporárias (não base64)
+ * 3. Backend salva URLs temporárias no banco
+ * 4. Webhook pós-pagamento: finalizeOrderCustomizations() busca arquivos do temp
+ * 5. Faz upload para Google Drive
+ * 6. Deleta arquivos temporários
+ */
 class OrderCustomizationService {
     async saveOrderItemCustomization(input) {
         // O schema atual tem apenas: order_item_id, customization_id, value
@@ -15,6 +29,8 @@ class OrderCustomizationService {
             customization_type: input.customizationType,
             title: input.title,
             selected_layout_id: input.selectedLayoutId,
+            // ✅ NOVO: Dados chegam com URLs temporárias em vez de base64
+            // O customizationData já contém as URLs do /uploads/temp/
             ...input.customizationData,
         };
         // Compute and include label_selected when possible
@@ -35,8 +51,10 @@ class OrderCustomizationService {
             value: JSON.stringify(customizationValue),
         };
         try {
+            // ✅ LOG: Agora deve ter URLs de temp files em vez de base64
+            const hasTempUrls = /\/uploads\/temp\//.test(payload.value);
             const containsBase64 = /data:[^;]+;base64,/.test(payload.value);
-            logger_1.default.debug(`🔍 [saveOrderItemCustomization] containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${input.customizationRuleId}`);
+            logger_1.default.debug(`🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${input.customizationRuleId}`);
         }
         catch (err) {
             /* ignore logging errors */
@@ -179,12 +197,14 @@ class OrderCustomizationService {
                 logger_1.default.debug(`🔎 processando customization ${customization.id} do item ${item.id}`);
                 const data = this.parseCustomizationData(customization.value);
                 const customizationType = data.customization_type || "DEFAULT";
-                const artworks = this.extractArtworkAssets(data);
-                if (artworks.length === 0) {
+                // ✅ NOVO: extractArtworkAssets agora retorna Promise<{ url, filename, mimeType }[]>
+                const artworkUrls = await this.extractArtworkAssets(data);
+                if (artworkUrls.length === 0) {
                     continue;
                 }
                 const targetFolder = await ensureSubfolder(customizationType);
-                const uploads = await Promise.all(artworks.map((asset) => this.uploadArtwork(asset, { id: customization.id }, targetFolder)));
+                // ✅ NOVO: uploadArtworkFromUrl em vez de uploadArtwork
+                const uploads = await Promise.all(artworkUrls.map((asset) => this.uploadArtworkFromUrl(asset, { id: customization.id }, targetFolder)));
                 uploadedFiles += uploads.length;
                 const sanitizedData = this.removeBase64FromData(data, uploads);
                 // Recompute label_selected for BASE_LAYOUT / MULTIPLE_CHOICE if missing
@@ -412,89 +432,147 @@ class OrderCustomizationService {
         }
         return undefined;
     }
-    extractArtworkAssets(data) {
+    async extractArtworkAssets(data) {
         const assets = [];
-        // Suporte para campo "final_artwork" (antigo)
-        const single = data?.final_artwork;
-        if (single) {
-            assets.push(single);
-        }
-        // Suporte para campo "final_artworks" (antigo)
-        const multiple = Array.isArray(data?.final_artworks)
-            ? data.final_artworks
-            : [];
-        multiple.forEach((asset) => assets.push(asset));
-        // ✅ CORRIGIDO: Suporte para campo "photos" - buscar em preview_url
+        // ✅ NOVO: Buscar URLs de arquivos temporários em vez de base64
+        // Suporte para campo "photos" - buscar URLs temporárias
         const photos = Array.isArray(data?.photos) ? data.photos : [];
         photos.forEach((photo, index) => {
             if (photo && typeof photo === "object") {
-                // ✅ CORRIGIDO: preview_url contém o base64
-                const base64Content = photo.preview_url || photo.base64 || photo.base64Data;
-                if (base64Content && typeof base64Content === "string") {
-                    assets.push({
-                        base64: base64Content,
-                        base64Data: base64Content,
-                        mimeType: photo.mime_type || photo.mimeType || "image/jpeg",
-                        fileName: photo.original_name || photo.fileName || `photo-${index + 1}.jpg`,
-                    });
-                }
-            }
-        });
-        // ✅ CORRIGIDO: Suporte para BASE_LAYOUT - buscar no campo "text"
-        // O campo "text" contém o base64 da preview do layout
-        if (data?.customization_type === "BASE_LAYOUT" && data?.text) {
-            const textContent = data.text;
-            // Verificar se é base64 válido
-            if (typeof textContent === "string" &&
-                (textContent.startsWith("data:image") ||
-                    /^[A-Za-z0-9+/=]{100,}/.test(textContent))) {
-                assets.push({
-                    base64: textContent,
-                    base64Data: textContent,
-                    mimeType: "image/png",
-                    fileName: `layout-preview-${Date.now()}.png`,
-                });
-                logger_1.default.debug(`✅ BASE_LAYOUT: extraído base64 do campo "text"`);
-            }
-        }
-        // ✅ MANTIDO: Suporte para LAYOUT_BASE com array "images" (se existir)
-        const images = Array.isArray(data?.images) ? data.images : [];
-        images.forEach((image, index) => {
-            if (image && typeof image === "object") {
-                // LAYOUT_BASE pode ter: { slot: string, url: string (base64), ... }
-                const base64Content = image.url || image.base64 || image.base64Data;
-                if (base64Content && typeof base64Content === "string") {
-                    // Verificar se é base64 válido
-                    const isBase64 = base64Content.startsWith("data:image") ||
-                        /^[A-Za-z0-9+/=]{100,}/.test(base64Content);
-                    if (isBase64) {
+                // ✅ NOVO: Buscar URL temporária em preview_url ou base64 (para compatibilidade)
+                let imageUrl = photo.preview_url || photo.base64 || photo.base64Data;
+                if (imageUrl && typeof imageUrl === "string") {
+                    // Se for base64, ignorar (devia ter sido migrado)
+                    if (!imageUrl.startsWith("data:") && !imageUrl.startsWith("blob:")) {
                         assets.push({
-                            base64: base64Content,
-                            base64Data: base64Content,
-                            mimeType: image.mimeType || image.mime_type || "image/jpeg",
-                            fileName: image.fileName ||
-                                image.original_name ||
-                                `layout-slot-${image.slot || index}.jpg`,
+                            url: imageUrl,
+                            filename: photo.original_name ||
+                                photo.fileName ||
+                                `photo-${index + 1}.jpg`,
+                            mimeType: photo.mime_type || photo.mimeType || "image/jpeg",
                         });
                     }
                     else {
-                        logger_1.default.warn(`⚠️ Imagem do slot ${image.slot || index} não contém base64 válido`);
+                        logger_1.default.warn(`⚠️ Photo ${index} ainda contém base64/blob (devia ter sido migrado)`);
                     }
                 }
             }
         });
-        const filteredAssets = assets.filter((asset) => {
-            const hasContent = Boolean(this.getBase64Content(asset));
-            if (!hasContent) {
-                // Log curto: evitar imprimir base64
-                logger_1.default.debug("⚠️ Asset de arte final ignorado por estar vazio - file:", asset.fileName || "sem-nome");
+        // Suporte para BASE_LAYOUT - buscar URL ou base64 do campo "text"
+        if (data?.customization_type === "BASE_LAYOUT" && data?.text) {
+            const textContent = data.text;
+            if (typeof textContent === "string") {
+                // Se for URL temporária
+                if (textContent.startsWith("/uploads/temp/") ||
+                    textContent.startsWith("http")) {
+                    assets.push({
+                        url: textContent,
+                        filename: `layout-preview-${Date.now()}.png`,
+                        mimeType: "image/png",
+                    });
+                }
+                // Se for base64, manter suporte (caso chegue durante transição)
+                else if (textContent.startsWith("data:image")) {
+                    logger_1.default.warn(`⚠️ BASE_LAYOUT ainda contém base64 em campo 'text' (devia ter sido migrado)`);
+                    // Será processado no método uploadArtwork que mantém suporte a base64
+                    assets.push({
+                        url: textContent,
+                        filename: `layout-preview-${Date.now()}.png`,
+                        mimeType: "image/png",
+                    });
+                }
             }
-            return hasContent;
+        }
+        // Suporte para "images" array (compatibilidade)
+        const images = Array.isArray(data?.images) ? data.images : [];
+        images.forEach((image, index) => {
+            if (image && typeof image === "object") {
+                let imageUrl = image.url || image.base64 || image.base64Data;
+                if (imageUrl && typeof imageUrl === "string") {
+                    if (!imageUrl.startsWith("data:") && !imageUrl.startsWith("blob:")) {
+                        assets.push({
+                            url: imageUrl,
+                            filename: image.fileName ||
+                                image.original_name ||
+                                `layout-slot-${image.slot || index}.jpg`,
+                            mimeType: image.mimeType || image.mime_type || "image/jpeg",
+                        });
+                    }
+                }
+            }
         });
-        logger_1.default.debug(`📦 extractArtworkAssets: ${filteredAssets.length} assets extraídos (${images.length} do array images, ${photos.length} de photos, ${data?.customization_type === "BASE_LAYOUT" && data?.text
-            ? "1 do text"
-            : "0 do text"})`);
-        return filteredAssets;
+        logger_1.default.debug(`📦 extractArtworkAssets: ${assets.length} assets extraídos (${photos.length} photos, ${images.length} images)`);
+        return assets;
+    }
+    /**
+     * ✅ NOVO: Upload de arquivo a partir de URL temporária (armazenado em /storage/temp)
+     * Busca o arquivo da VPS e faz upload para o Google Drive
+     */
+    async uploadArtworkFromUrl(asset, customization, folderId) {
+        try {
+            const { url, filename, mimeType } = asset;
+            logger_1.default.debug(`📤 uploadArtworkFromUrl: ${filename} (${url}) -> Drive folder ${folderId}`);
+            let fileBuffer = null;
+            // Se for URL temporária local (/uploads/temp/...)
+            if (url.startsWith("/uploads/temp/")) {
+                const tempFileName = url.replace("/uploads/temp/", "");
+                const baseStorageDir = process.env.NODE_ENV === "production"
+                    ? "/app/storage"
+                    : path_1.default.join(process.cwd(), "storage");
+                const filePath = path_1.default.join(baseStorageDir, "temp", tempFileName);
+                // Validação de segurança: garantir que não está tentando fazer path traversal
+                if (!filePath.startsWith(path_1.default.join(baseStorageDir, "temp"))) {
+                    throw new Error(`Invalid file path: ${filePath}`);
+                }
+                if (!fs_1.default.existsSync(filePath)) {
+                    logger_1.default.error(`❌ Arquivo temporário não encontrado: ${filePath}`);
+                    throw new Error(`Temporary file not found: ${tempFileName}`);
+                }
+                fileBuffer = fs_1.default.readFileSync(filePath);
+                logger_1.default.debug(`✅ Arquivo lido do temp: ${tempFileName} (${fileBuffer.length} bytes)`);
+            }
+            // Se for URL HTTP (para compatibilidade/fallback)
+            else if (url.startsWith("http")) {
+                logger_1.default.debug(`📥 Baixando arquivo de URL: ${url}`);
+                const response = await axios_1.default.get(url, {
+                    responseType: "arraybuffer",
+                    timeout: 30000,
+                });
+                fileBuffer = Buffer.from(response.data);
+                logger_1.default.debug(`✅ Arquivo baixado: ${fileBuffer.length} bytes`);
+            }
+            // Se for base64 (para compatibilidade durante migração)
+            else if (url.startsWith("data:")) {
+                logger_1.default.warn(`⚠️ Asset ainda contém base64 (devia ter sido migrado): ${filename}`);
+                // Extrair base64
+                const matches = url.match(/data:[^;]*;base64,(.*)/);
+                if (!matches || !matches[1]) {
+                    throw new Error("Invalid base64 format");
+                }
+                fileBuffer = Buffer.from(matches[1], "base64");
+            }
+            else {
+                throw new Error(`Unsupported URL format: ${url}`);
+            }
+            if (!fileBuffer) {
+                throw new Error("Failed to load file buffer");
+            }
+            // Upload para Google Drive
+            const extension = this.resolveExtension(mimeType);
+            const fileName = filename ||
+                `customization-${customization.id.slice(0, 8)}-${(0, crypto_1.randomUUID)().slice(0, 8)}.${extension}`;
+            const upload = await googleDriveService_1.default.uploadBuffer(fileBuffer, fileName, folderId, mimeType);
+            logger_1.default.info(`✅ Arquivo enviado para Drive: ${fileName} (id=${upload.id}, size=${fileBuffer.length})`);
+            return {
+                ...upload,
+                mimeType,
+                fileName,
+            };
+        }
+        catch (error) {
+            logger_1.default.error(`❌ Erro ao fazer upload de artwork: ${asset.filename}`, error);
+            throw error;
+        }
     }
     async uploadArtwork(asset, customization, folderId) {
         const base64Content = this.getBase64Content(asset);

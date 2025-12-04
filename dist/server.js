@@ -13,10 +13,17 @@ const orderService_1 = __importDefault(require("./services/orderService"));
 const paymentService_1 = require("./services/paymentService");
 const logger_1 = __importDefault(require("./utils/logger"));
 const prisma_1 = __importDefault(require("./database/prisma"));
+const tempFileService_1 = __importDefault(require("./services/tempFileService"));
+const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: "50mb" }));
 app.use(express_1.default.urlencoded({ extended: true, limit: "50mb" }));
+const baseStorageDir = process.env.NODE_ENV === "production" ? "/app/storage" : "storage";
+const tempDir = path_1.default.join(process.cwd(), baseStorageDir, "temp");
+app.use("/uploads/temp", express_1.default.static(tempDir));
+const imagesDir = path_1.default.join(process.cwd(), "images");
+app.use("/images", express_1.default.static(imagesDir));
 app.get("/", async (req, res) => {
     return res.json({ message: "Cesto d'Amore Backend is running!" });
 });
@@ -88,5 +95,20 @@ node_cron_1.default.schedule("*/5 * * * *", async () => {
     }
     catch (err) {
         logger_1.default.error("Erro ao executar replay periódico de webhooks armazenados:", err);
+    }
+});
+// ============================================
+// CRON JOB - Limpeza de arquivos temporários
+// ============================================
+// Executa a cada 6 horas (0 */6 * * *)
+node_cron_1.default.schedule("0 */6 * * *", async () => {
+    try {
+        logger_1.default.info("🕒 [Cron] Iniciando limpeza de arquivos temporários...");
+        // Limpar arquivos com mais de 48 horas
+        const result = tempFileService_1.default.cleanupOldFiles(48);
+        logger_1.default.info(`✅ [Cron] Limpeza de arquivos temporários concluída: ${result.deleted} deletados, ${result.failed} falharam`);
+    }
+    catch (error) {
+        logger_1.default.error("❌ [Cron] Erro na limpeza de arquivos temporários:", error);
     }
 });

@@ -333,28 +333,33 @@ class OrderCustomizationController {
         );
       }
 
-      // ✅ NOVO: Processar recursivamente qualquer base64 nos dados
-      let processedData = await this.processBase64InData(customizationData);
-
-      // ✅ FIX BASE_LAYOUT: Processar imagem final se existir
+      // ✅ FIX BASE_LAYOUT: Processar imagem em data.image ANTES de processBase64InData
       if (
         payload.customizationType === "BASE_LAYOUT" &&
-        processedData.image &&
-        processedData.image.base64
+        customizationData.image &&
+        typeof customizationData.image === "object" &&
+        customizationData.image.base64
       ) {
         logger.info(
-          `🔄 [BASE_LAYOUT] Detectado image com base64, convertendo...`
+          `🔄 [BASE_LAYOUT] Detectado image.base64 em data.image, convertendo...`
         );
         const url = await this.convertBase64ToFile(
-          processedData.image.base64,
-          processedData.image.fileName || "base-layout-image"
+          customizationData.image.base64,
+          customizationData.image.fileName || "base-layout-image"
         );
         if (url) {
           logger.info(`✅ [BASE_LAYOUT] Imagem convertida para: ${url}`);
-          const { base64, ...imageSemBase64 } = processedData.image;
-          processedData.image = { ...imageSemBase64, preview_url: url };
+          const { base64, ...imageSemBase64 } = customizationData.image;
+          customizationData.image = { ...imageSemBase64, preview_url: url };
+        } else {
+          logger.warn(`⚠️ [BASE_LAYOUT] Falha ao converter imagem`);
+          const { base64, ...imageSemBase64 } = customizationData.image;
+          customizationData.image = imageSemBase64;
         }
       }
+
+      // ✅ NOVO: Processar recursivamente qualquer base64 nos dados
+      let processedData = await this.processBase64InData(customizationData);
 
       const record = await orderCustomizationService.saveOrderItemCustomization(
         {

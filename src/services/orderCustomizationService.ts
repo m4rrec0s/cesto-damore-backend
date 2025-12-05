@@ -197,6 +197,44 @@ class OrderCustomizationService {
     });
   }
 
+  /**
+   * ✅ NOVO: Após fazer upload para Google Drive, deletar arquivos temporários
+   * Extrai filenames de /uploads/temp/ URLs e deleta os arquivos
+   */
+  private async deleteUploadedTempFiles(
+    assets: Array<{ url: string; filename?: string }>
+  ): Promise<void> {
+    try {
+      const tempFileService = require("./tempFileService").default;
+      const tempFilesToDelete: string[] = [];
+
+      for (const asset of assets) {
+        // Se a URL é do temp storage, extrair o filename
+        if (asset.url && asset.url.includes("/uploads/temp/")) {
+          const filename = asset.url.split("/uploads/temp/").pop();
+          if (filename && filename.length > 0) {
+            tempFilesToDelete.push(filename);
+          }
+        }
+      }
+
+      if (tempFilesToDelete.length > 0) {
+        logger.info(
+          `🗑️ [finalizeOrderCustomizations] Deletando ${tempFilesToDelete.length} arquivos temporários...`
+        );
+        const result = tempFileService.deleteFiles(tempFilesToDelete);
+        logger.info(
+          `✅ [finalizeOrderCustomizations] ${result.deleted} temp files deletados, ${result.failed} falharam`
+        );
+      }
+    } catch (error: any) {
+      logger.warn(
+        `⚠️ Erro ao deletar temp files após upload: ${error.message}`
+      );
+      // Não falha o processo se não conseguir deletar
+    }
+  }
+
   async finalizeOrderCustomizations(orderId: string): Promise<FinalizeResult> {
     logger.debug(
       `🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`
@@ -422,6 +460,49 @@ class OrderCustomizationService {
     }
 
     const folderUrl = googleDriveService.getFolderUrl(mainFolderId);
+
+    // ✅ NOVO: Deletar temp files após finalização completa
+    try {
+      const allAssets: Array<{ url: string; filename?: string }> = [];
+
+      for (const item of order.items) {
+        for (const customization of item.customizations) {
+          const data = this.parseCustomizationData(customization.value);
+
+          // Coletar preview_url de todos os campos possíveis
+          if (data?.photos && Array.isArray(data.photos)) {
+            data.photos.forEach((p: any) => {
+              if (p.preview_url) {
+                allAssets.push({
+                  url: p.preview_url,
+                  filename: p.temp_file_id,
+                });
+              }
+            });
+          }
+          if (data?.final_artwork?.preview_url) {
+            allAssets.push({ url: data.final_artwork.preview_url });
+          }
+          if (data?.final_artworks && Array.isArray(data.final_artworks)) {
+            data.final_artworks.forEach((a: any) => {
+              if (a.preview_url) {
+                allAssets.push({ url: a.preview_url });
+              }
+            });
+          }
+          if (data?.image?.preview_url) {
+            allAssets.push({ url: data.image.preview_url });
+          }
+        }
+      }
+
+      if (allAssets.length > 0) {
+        await this.deleteUploadedTempFiles(allAssets);
+      }
+    } catch (error: any) {
+      logger.warn(`⚠️ Erro ao limpar temp files: ${error.message}`);
+      // Não falha o processo se não conseguir deletar
+    }
 
     base64Detected = base64AffectedIds.length > 0;
     const result = {

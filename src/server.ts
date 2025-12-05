@@ -18,9 +18,12 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-const baseStorageDir =
-  process.env.NODE_ENV === "production" ? "/app/storage" : "storage";
-const tempDir = path.join(process.cwd(), baseStorageDir, "temp");
+// ✅ FIX: Usar caminho absoluto em produção, relativo em dev
+const tempDir =
+  process.env.NODE_ENV === "production"
+    ? "/app/storage/temp"
+    : path.join(process.cwd(), "storage", "temp");
+logger.info(`📂 [Server] Serving temp files from: ${tempDir}`);
 app.use("/uploads/temp", express.static(tempDir));
 
 const imagesDir = path.join(process.cwd(), "images");

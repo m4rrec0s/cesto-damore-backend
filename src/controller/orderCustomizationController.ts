@@ -257,6 +257,14 @@ class OrderCustomizationController {
         }`
       );
 
+      // ✅ DEBUG: Log do payload.data para BASE_LAYOUT
+      if (payload.customizationType === "BASE_LAYOUT") {
+        logger.debug(
+          `📦 [BASE_LAYOUT] Payload.data:`,
+          JSON.stringify(payload.data).substring(0, 500)
+        );
+      }
+
       await orderCustomizationService.ensureOrderItem(orderId, itemId);
 
       // ✅ NOVO: Processar base64 antes de salvar
@@ -356,6 +364,12 @@ class OrderCustomizationController {
           const { base64, ...imageSemBase64 } = customizationData.image;
           customizationData.image = imageSemBase64;
         }
+      } else if (payload.customizationType === "BASE_LAYOUT") {
+        // ✅ DEBUG: Se é BASE_LAYOUT mas não tem image.base64, logar para investigar
+        logger.warn(
+          `⚠️ [BASE_LAYOUT] Sem image.base64! customizationData:`,
+          JSON.stringify(customizationData).substring(0, 300)
+        );
       }
 
       // ✅ NOVO: Processar recursivamente qualquer base64 nos dados

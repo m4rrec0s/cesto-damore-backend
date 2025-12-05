@@ -428,6 +428,7 @@ model OrderItemCustomization {
   value                  String // JSON com os detalhes da customização aplicada
   google_drive_folder_id String? // ID da pasta no Google Drive com as artes
   google_drive_url       String? // URL pública da pasta no Google Drive
+  additional_time_hours  Int     @default(0) // Tempo adicional (em horas) desta customização (ex: de um BASE_LAYOUT)
 
   orderItem     OrderItem      @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
   customization Customization? @relation(fields: [customization_id], references: [id])

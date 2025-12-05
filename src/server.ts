@@ -18,7 +18,6 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// ✅ FIX: Usar caminho absoluto em produção, relativo em dev
 const tempDir =
   process.env.NODE_ENV === "production"
     ? "/app/storage/temp"
@@ -56,7 +55,6 @@ cron.schedule("0 */6 * * *", async () => {
     });
 
     if (canceledOrders.length === 0) {
-      logger.info("🕒 [Cron] Nenhum pedido cancelado para deletar");
       return;
     }
 
@@ -90,7 +88,6 @@ app.listen(PORT, () => {
   (async () => {
     try {
       await PaymentService.replayStoredWebhooks();
-      // On startup, reprocess any failed finalizations (e.g., webhooks processed but finalization failed)
       try {
         await PaymentService.reprocessFailedFinalizations();
       } catch (err) {
@@ -114,15 +111,10 @@ cron.schedule("*/5 * * * *", async () => {
   }
 });
 
-// ============================================
-// CRON JOB - Limpeza de arquivos temporários
-// ============================================
-// Executa a cada 6 horas (0 */6 * * *)
 cron.schedule("0 */6 * * *", async () => {
   try {
     logger.info("🕒 [Cron] Iniciando limpeza de arquivos temporários...");
 
-    // Limpar arquivos com mais de 48 horas
     const result = tempFileService.cleanupOldFiles(48);
 
     logger.info(
@@ -130,5 +122,116 @@ cron.schedule("0 */6 * * *", async () => {
     );
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de arquivos temporários:", error);
+  }
+});
+
+cron.schedule("*/20 * * * *", async () => {
+  try {
+    logger.info("🕒 [Cron] Iniciando detecção de imagens órfãs BASE_LAYOUT...");
+
+    const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000);
+
+    const orphanedCustomizations = await prisma.orderItemCustomization.findMany(
+      {
+        where: {
+          created_at: {
+            lt: twentyMinutesAgo,
+          },
+          // ✅ FIXADO: Buscar todas customizações e filtrar órfãs em memória
+          // pois Prisma não permite null check diretamente em foreign keys
+        },
+        select: {
+          id: true,
+          value: true,
+          created_at: true,
+          order_item_id: true, // Para filtrar órfãs
+        },
+      }
+    );
+
+    // ✅ NOVO: Filtrar apenas customizações órfãs (sem order_item_id)
+    const orphaned = orphanedCustomizations.filter(
+      (c: any) => !c.order_item_id
+    );
+
+    if (orphaned.length === 0) {
+      logger.debug("ℹ️ [Cron] Nenhuma customização órfã encontrada");
+      return;
+    }
+
+    logger.info(
+      `🕒 [Cron] Encontradas ${orphaned.length} customização(ões) órfã(s)...`
+    );
+
+    let cleanedCount = 0;
+    const tempFilesToDelete: string[] = [];
+
+    for (const customization of orphaned) {
+      try {
+        const value = JSON.parse(customization.value);
+
+        if (value.photos && Array.isArray(value.photos)) {
+          value.photos.forEach((photo: any) => {
+            if (
+              photo.preview_url &&
+              photo.preview_url.includes("/uploads/temp/")
+            ) {
+              const filename = photo.preview_url.split("/uploads/temp/").pop();
+              if (filename) tempFilesToDelete.push(filename);
+            }
+          });
+        }
+
+        if (value.final_artwork && value.final_artwork.preview_url) {
+          const url = value.final_artwork.preview_url;
+          if (url.includes("/uploads/temp/")) {
+            const filename = url.split("/uploads/temp/").pop();
+            if (filename) tempFilesToDelete.push(filename);
+          }
+        }
+
+        if (value.final_artworks && Array.isArray(value.final_artworks)) {
+          value.final_artworks.forEach((artwork: any) => {
+            if (
+              artwork.preview_url &&
+              artwork.preview_url.includes("/uploads/temp/")
+            ) {
+              const filename = artwork.preview_url
+                .split("/uploads/temp/")
+                .pop();
+              if (filename) tempFilesToDelete.push(filename);
+            }
+          });
+        }
+
+        await prisma.orderItemCustomization.delete({
+          where: { id: customization.id },
+        });
+
+        logger.debug(`✅ Customização órfã deletada: ${customization.id}`);
+        cleanedCount++;
+      } catch (err) {
+        logger.warn(
+          `⚠️ Erro ao processar customização órfã ${customization.id}:`,
+          err
+        );
+      }
+    }
+
+    if (tempFilesToDelete.length > 0) {
+      const result = tempFileService.deleteFiles(tempFilesToDelete);
+      logger.info(
+        `🗑️ Arquivos temporários deletados: ${result.deleted}, falharam: ${result.failed}`
+      );
+    }
+
+    logger.info(
+      `✅ [Cron] Limpeza de imagens órfãs concluída: ${cleanedCount} customização(ões) deletada(s)`
+    );
+  } catch (error) {
+    logger.error(
+      "❌ [Cron] Erro na limpeza de imagens órfãs BASE_LAYOUT:",
+      error
+    );
   }
 });

@@ -3,6 +3,7 @@ import stockService from "./stockService";
 import whatsappService from "./whatsappService";
 import productComponentService from "./productComponentService";
 import customerManagementService from "./customerManagementService";
+import googleDriveService from "./googleDriveService";
 import logger from "../utils/logger";
 
 const ORDER_STATUSES = [
@@ -766,6 +767,36 @@ class OrderService {
     }
   }
 
+  /**
+   * ✅ NOVO: Deleta pastas do Google Drive associadas ao pedido
+   * Remove pasta raiz + subpastas de customização
+   */
+  private async deleteOrderGoogleDriveFolders(orderId: string): Promise<void> {
+    try {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { google_drive_folder_id: true },
+      });
+
+      if (!order?.google_drive_folder_id) {
+        logger.debug(`ℹ️ Pedido ${orderId} não tem pasta no Google Drive`);
+        return;
+      }
+
+      // ✅ Deletar pasta raiz (com cascata de subpastas)
+      await googleDriveService.deleteFolder(order.google_drive_folder_id);
+      logger.info(
+        `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`
+      );
+    } catch (err) {
+      logger.warn(
+        `⚠️ Erro ao deletar pasta Google Drive do pedido ${orderId}:`,
+        err
+      );
+      // Não bloquear deleção do pedido se Drive falhar
+    }
+  }
+
   async deleteOrder(id: string) {
     if (!id) {
       throw new Error("ID do pedido é obrigatório");
@@ -776,6 +807,9 @@ class OrderService {
 
     try {
       logger.info(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
+
+      // ✅ NOVO: Deletar pastas do Google Drive ANTES de deletar do banco
+      await this.deleteOrderGoogleDriveFolders(id);
 
       // ✅ NOVO: Buscar arquivos temporários antes de deletar customizações
       const tempFilesToDelete: string[] = [];
@@ -1407,6 +1441,75 @@ class OrderService {
       }
     }
 
+    // ✅ NOVO: Limpar recursos quando pedido é ENTREGUE
+    if (normalizedStatus === "DELIVERED") {
+      try {
+        logger.info(
+          `📦 [OrderService] Pedido ${id} marcado como ENTREGUE - limpando recursos...`
+        );
+
+        // Deletar Google Drive folder
+        if (updated.google_drive_folder_id) {
+          await googleDriveService
+            .deleteFolder(updated.google_drive_folder_id)
+            .then(() => {
+              logger.info(
+                `✅ Pasta Google Drive deletada: ${updated.google_drive_folder_id}`
+              );
+            })
+            .catch((err) => {
+              logger.warn(
+                `⚠️ Erro ao deletar pasta Drive ${updated.google_drive_folder_id}:`,
+                err
+              );
+            });
+        }
+
+        // ✅ Deletar OrderItemCustomization (mantém OrderItem e Order)
+        const customizationsDeleted =
+          await prisma.orderItemCustomization.deleteMany({
+            where: {
+              order_item_id: {
+                in: updated.items.map((item) => item.id),
+              },
+            },
+          });
+
+        logger.info(
+          `🗑️ ${customizationsDeleted.count} customização(ões) deletada(s)`
+        );
+
+        // ✅ Deletar Personalization (canvas/imagens geradas)
+        const personalizationsDeleted = await prisma.personalization.deleteMany(
+          {
+            where: {
+              order_id: id,
+            },
+          }
+        );
+
+        logger.info(
+          `🗑️ ${personalizationsDeleted.count} personalização(ões) deletada(s)`
+        );
+
+        // ✅ Temp files já foram deletados no momento do upload (em orderCustomizationService)
+        // Apenas verificar para registrar em logs
+        logger.debug(
+          `📝 [OrderService] Arquivos temporários já foram deletados durante finalização`
+        );
+
+        logger.info(
+          `✅ [OrderService] Limpeza de recursos do pedido ${id} concluída`
+        );
+      } catch (err) {
+        logger.warn(
+          `⚠️ Erro na limpeza de recursos do pedido entregue ${id}:`,
+          err
+        );
+        // Não bloquear - pedido continua sendo retornado
+      }
+    }
+
     // Retornar via getOrderById para garantir sanitização
     return this.getOrderById(id);
   }
@@ -1587,7 +1690,12 @@ class OrderService {
             lt: twentyFourHoursAgo,
           },
         },
-        select: { id: true, user_id: true, created_at: true },
+        select: {
+          id: true,
+          user_id: true,
+          created_at: true,
+          google_drive_folder_id: true, // ✅ NOVO
+        },
       });
 
       if (abandonedOrders.length === 0) {
@@ -1600,6 +1708,27 @@ class OrderService {
       console.log(
         `🧹 [OrderService] Limpando ${abandonedOrders.length} pedido(s) abandonado(s)`
       );
+
+      // ✅ NOVO: Deletar pastas Google Drive em paralelo
+      const driveDeletePromises = abandonedOrders
+        .filter((order) => order.google_drive_folder_id)
+        .map((order) =>
+          googleDriveService
+            .deleteFolder(order.google_drive_folder_id!)
+            .then(() => {
+              logger.info(
+                `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`
+              );
+            })
+            .catch((err) => {
+              logger.warn(
+                `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
+                err
+              );
+              // Não bloquear limpeza se Drive falhar
+            })
+        );
+      await Promise.all(driveDeletePromises);
 
       let cleanedCount = 0;
       for (const order of abandonedOrders) {
@@ -1632,7 +1761,7 @@ class OrderService {
     try {
       const canceledOrders = await prisma.order.findMany({
         where: { status: "CANCELED" },
-        select: { id: true },
+        select: { id: true, google_drive_folder_id: true },
       });
 
       if (canceledOrders.length === 0) {
@@ -1645,6 +1774,27 @@ class OrderService {
       console.log(
         `🗑️ [OrderService] Iniciando deleção de ${canceledOrders.length} pedido(s) cancelado(s)`
       );
+
+      // ✅ NOVO: Deletar pastas Google Drive em paralelo ANTES de deletar do banco
+      const driveDeletePromises = canceledOrders
+        .filter((order) => order.google_drive_folder_id)
+        .map((order) =>
+          googleDriveService
+            .deleteFolder(order.google_drive_folder_id!)
+            .then(() => {
+              logger.info(
+                `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`
+              );
+            })
+            .catch((err) => {
+              logger.warn(
+                `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
+                err
+              );
+              // Não bloquear deleção se Drive falhar
+            })
+        );
+      await Promise.all(driveDeletePromises);
 
       await prisma.$transaction(async (tx) => {
         const orderIds = canceledOrders.map((order) => order.id);

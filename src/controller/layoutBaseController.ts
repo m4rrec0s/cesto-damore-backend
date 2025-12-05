@@ -5,12 +5,16 @@ import googleDriveService from "../services/googleDriveService";
 const DRIVE_FOLDERS = {
   CANECA: process.env.GOOGLE_DRIVE_CUP_FOLDER_ID!,
   QUADRO: process.env.GOOGLE_DRIVE_FRAME_FOLDER_ID!,
+  QUEBRA_CABECA:
+    process.env.GOOGLE_DRIVE_PUZZLE_FOLDER_ID ||
+    process.env.GOOGLE_DRIVE_CUP_FOLDER_ID!,
 };
 
 class LayoutBaseController {
   async create(req: Request, res: Response) {
     try {
-      const { name, item_type, width, height, slots } = req.body;
+      const { name, item_type, width, height, slots, additional_time } =
+        req.body;
 
       // Validar campos obrigatórios
       if (!name || !item_type || !width || !height) {
@@ -20,9 +24,10 @@ class LayoutBaseController {
       }
 
       // Validar tipo de item
-      if (!["CANECA", "QUADRO"].includes(item_type)) {
+      if (!["CANECA", "QUADRO", "QUEBRA_CABECA"].includes(item_type)) {
         return res.status(400).json({
-          error: "Tipo de item inválido. Valores permitidos: CANECA, QUADRO",
+          error:
+            "Tipo de item inválido. Valores permitidos: CANECA, QUADRO, QUEBRA_CABECA",
         });
       }
 
@@ -60,6 +65,7 @@ class LayoutBaseController {
         width: parseInt(width),
         height: parseInt(height),
         slots: parsedSlots,
+        additional_time: additional_time ? parseInt(additional_time) : 0,
       });
 
       return res.status(201).json(layoutBase);
@@ -105,7 +111,8 @@ class LayoutBaseController {
   async update(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const { name, item_type, width, height, slots } = req.body;
+      const { name, item_type, width, height, slots, additional_time } =
+        req.body;
 
       const updateData: {
         name?: string;
@@ -113,17 +120,21 @@ class LayoutBaseController {
         width?: number;
         height?: number;
         slots?: any;
+        additional_time?: number;
       } = {};
 
       if (name) updateData.name = name;
       if (width) updateData.width = parseInt(width);
       if (height) updateData.height = parseInt(height);
       if (slots) updateData.slots = JSON.parse(slots);
+      if (additional_time !== undefined)
+        updateData.additional_time = parseInt(additional_time);
 
       if (req.file && item_type) {
-        if (!["CANECA", "QUADRO"].includes(item_type)) {
+        if (!["CANECA", "QUADRO", "QUEBRA_CABECA"].includes(item_type)) {
           return res.status(400).json({
-            error: "Tipo de item inválido. Valores permitidos: CANECA, QUADRO",
+            error:
+              "Tipo de item inválido. Valores permitidos: CANECA, QUADRO, QUEBRA_CABECA",
           });
         }
 

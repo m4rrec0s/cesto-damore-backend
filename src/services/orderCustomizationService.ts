@@ -129,6 +129,28 @@ class OrderCustomizationService {
     // Parsear o valor existente
     const existingData = this.parseCustomizationData(existing.value);
 
+    // ✅ NOVO: Coletar URLs temporárias antigas para deletar se forem substituídas
+    const oldTempFiles: string[] = [];
+
+    // Coletar arquivos antigos que serão substituídos
+    if (
+      input.customizationData?.image?.preview_url &&
+      existingData.image?.preview_url &&
+      input.customizationData.image.preview_url !==
+        existingData.image.preview_url
+    ) {
+      // Se o novo canvas preview é diferente do antigo, deletar o antigo
+      if (existingData.image.preview_url.includes("/uploads/temp/")) {
+        const oldFilename = existingData.image.preview_url
+          .split("/uploads/temp/")
+          .pop();
+        if (oldFilename) oldTempFiles.push(oldFilename);
+        logger.debug(
+          `🗑️ [updateOrderItemCustomization] Marcando canvas antigo para deleção: ${oldFilename}`
+        );
+      }
+    }
+
     // Mesclar com novos dados de customização
     const mergedCustomizationData = {
       ...existingData,
@@ -191,10 +213,28 @@ class OrderCustomizationService {
       /* ignore logging errors */
     }
 
-    return prisma.orderItemCustomization.update({
+    const result = await prisma.orderItemCustomization.update({
       where: { id: customizationId },
       data: updateData,
     });
+
+    // ✅ NOVO: Deletar arquivos temporários antigos (não bloqueia se falhar)
+    if (oldTempFiles.length > 0) {
+      try {
+        const tempFileService = require("./tempFileService").default;
+        const deleteResult = tempFileService.deleteFiles(oldTempFiles);
+        logger.debug(
+          `🗑️ [updateOrderItemCustomization] ${deleteResult.deleted} arquivos antigos deletados, ${deleteResult.failed} falharam`
+        );
+      } catch (error: any) {
+        logger.warn(
+          `⚠️ Erro ao deletar arquivos antigos na atualização: ${error.message}`
+        );
+        // Não falha o processo se não conseguir deletar
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -853,6 +893,36 @@ class OrderCustomizationService {
       logger.info(
         `✅ Arquivo enviado para Drive: ${fileName} (id=${upload.id}, size=${fileBuffer.length})`
       );
+
+      // ✅ NOVO: Deletar arquivo temporário imediatamente após upload bem-sucedido
+      if (url.startsWith("/uploads/temp/")) {
+        try {
+          const tempFileName = url.replace("/uploads/temp/", "");
+          const baseStorageDir =
+            process.env.NODE_ENV === "production"
+              ? "/app/storage"
+              : path.join(process.cwd(), "storage");
+          const filePath = path.join(baseStorageDir, "temp", tempFileName);
+
+          // Validação de segurança
+          if (!filePath.startsWith(path.join(baseStorageDir, "temp"))) {
+            throw new Error(`Invalid file path: ${filePath}`);
+          }
+
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            logger.info(
+              `🗑️ Arquivo temporário deletado após upload: ${tempFileName} → ${fileName}`
+            );
+          }
+        } catch (err) {
+          logger.warn(
+            `⚠️ Erro ao deletar arquivo temporário após upload (${url}):`,
+            err
+          );
+          // Não bloquear - arquivo será limpo pelo cron de 48h
+        }
+      }
 
       return {
         ...upload,

@@ -100,34 +100,40 @@ class OrderCustomizationController {
           );
           processed[key] = await Promise.all(
             value.map(async (photo: any, idx: number) => {
-              if (photo && typeof photo === "object" && photo.base64) {
+              if (!photo || typeof photo !== "object") {
+                return photo;
+              }
+
+              const { base64, ...photoSemBase64 } = photo;
+
+              if (base64 && photo.preview_url) {
+                logger.debug(
+                  `   [${idx}] Foto com preview_url detectada, removendo base64`
+                );
+                return photoSemBase64;
+              }
+
+              if (base64) {
                 logger.info(
                   `   [${idx}] Foto com base64 detectada, convertendo...`
                 );
                 const url = await this.convertBase64ToFile(
-                  photo.base64,
+                  base64,
                   photo.original_name || `photo-${idx}`
                 );
                 if (url) {
                   logger.info(`   [${idx}] ✅ Convertida para: ${url}`);
-                  // ✅ Deletar base64 do objeto
-                  const { base64, ...photoSemBase64 } = photo;
                   return {
                     ...photoSemBase64,
                     preview_url: url,
                   };
                 } else {
-                  logger.warn(`   [${idx}] ⚠️ Falha ao converter`);
-                  const { base64, ...photoSemBase64 } = photo;
+                  logger.warn(`   [${idx}] ⚠️ Falha ao converter base64`);
                   return photoSemBase64;
                 }
               }
-              // ✅ IMPORTANTE: Deletar base64 mesmo que não tenha URL
-              if (photo && typeof photo === "object" && photo.base64) {
-                const { base64, ...photoSemBase64 } = photo;
-                return photoSemBase64;
-              }
-              return photo;
+
+              return photoSemBase64;
             })
           );
           continue;
@@ -144,41 +150,47 @@ class OrderCustomizationController {
         ) {
           const obj = value as any;
 
-          // Se tiver campo base64, converter para URL
-          if (obj.base64 && typeof obj.base64 === "string") {
+          // ✅ CRÍTICO: SEMPRE deletar base64 primeiro
+          const { base64: objBase64, ...objSemBase64 } = obj;
+
+          // Se tinha base64 e consegue converter
+          if (objBase64 && typeof objBase64 === "string") {
             logger.info(
               `🔄 [processBase64InData] Detectado base64 em "${key}"`
             );
             const url = await this.convertBase64ToFile(
-              obj.base64,
+              objBase64,
               obj.fileName || "artwork"
             );
             if (url) {
-              // ✅ Deletar base64 do objeto
-              const { base64, ...objSemBase64 } = obj;
               processed[key] = { ...objSemBase64, preview_url: url };
               logger.debug(`✅ Convertido "${key}" para URL: ${url}`);
             } else {
-              // ✅ Se falhar na conversão, ainda assim deletar base64
-              const { base64, ...objSemBase64 } = obj;
+              // Falha na conversão, retornar sem base64 mesmo assim
+              logger.warn(
+                `⚠️ Falha ao converter base64 em "${key}", retornando sem base64`
+              );
               processed[key] = objSemBase64;
             }
           } else {
-            // ✅ Se tiver objeto sem base64, processar recursivamente E deletar se houver base64 aninhado
-            const processedObj = await this.processBase64InData(value);
-            // Deletar base64 de qualquer nível
-            const { base64, ...objSemBase64 } = processedObj;
-            processed[key] = objSemBase64;
+            // Sem base64 ou não é string, processar recursivamente
+            const processedObj = await this.processBase64InData(objSemBase64);
+            processed[key] = processedObj;
           }
         } else if (typeof value === "object" && value !== null) {
           // ✅ Processar recursivamente
           const processedValue = await this.processBase64InData(value);
-          // ✅ Se for objeto, deletar base64
+          // ✅ CRÍTICO: SEMPRE deletar base64 de qualquer objeto
           if (
             typeof processedValue === "object" &&
             !Array.isArray(processedValue)
           ) {
-            const { base64, ...valueSemBase64 } = processedValue;
+            const { base64: nestedBase64, ...valueSemBase64 } = processedValue;
+            if (nestedBase64) {
+              logger.debug(
+                `🗑️ [processBase64InData] Removendo base64 aninhado em "${key}"`
+              );
+            }
             processed[key] = valueSemBase64;
           } else {
             processed[key] = processedValue;
@@ -373,7 +385,17 @@ class OrderCustomizationController {
       }
 
       // ✅ NOVO: Processar recursivamente qualquer base64 nos dados
+      logger.debug(
+        `📝 [ANTES processBase64InData] customizationData para ${payload.customizationType}:`,
+        JSON.stringify(customizationData).substring(0, 500)
+      );
+
       let processedData = await this.processBase64InData(customizationData);
+
+      logger.debug(
+        `✅ [DEPOIS processBase64InData] customizationData para ${payload.customizationType}:`,
+        JSON.stringify(processedData).substring(0, 500)
+      );
 
       const record = await orderCustomizationService.saveOrderItemCustomization(
         {

@@ -823,12 +823,12 @@ router.get(
 // ========== CUSTOMIZATION IMAGE UPLOAD ROUTES ==========
 
 // Upload de imagem para preview de customização (Admin)
+// ✅ NÃO converter para WebP - manter formato original
 router.post(
   "/customization/upload-image",
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  convertImagesToWebP,
   customizationUploadController.uploadImage
 );
 

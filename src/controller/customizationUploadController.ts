@@ -1,12 +1,14 @@
 import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
-import { IMAGES_DIR } from "../config/localStorage";
+import tempFileService from "../services/tempFileService";
+import logger from "../utils/logger";
 
 class CustomizationUploadController {
   /**
    * POST /api/customization/upload-image
-   * Upload de imagem para preview de regras de customização
+   * Upload de imagem para customização (salva em /app/storage/temp)
+   * NÃO converte para WebP - mantém formato original
    */
   async uploadImage(req: Request, res: Response) {
     try {
@@ -19,37 +21,27 @@ class CustomizationUploadController {
 
       const file = req.file;
 
-      // Garantir que a pasta existe
-      const customizationDir = path.join(IMAGES_DIR, "customizations");
+      // ✅ NOVO: Usar tempFileService em vez de salvar em /app/images
+      // Mantém o buffer original (sem conversão para WebP)
+      const result = await tempFileService.saveFile(
+        file.buffer,
+        file.originalname
+      );
 
-      if (!fs.existsSync(customizationDir)) {
-        fs.mkdirSync(customizationDir, { recursive: true });
-      }
-
-      // Gerar nome único para o arquivo
-      const timestamp = Date.now();
-      const sanitizedOriginalName = file.originalname
-        .replace(/[^a-zA-Z0-9._-]/g, "_")
-        .toLowerCase();
-      const filename = `${timestamp}-${sanitizedOriginalName}`;
-      const filepath = path.join(customizationDir, filename);
-
-      // Salvar arquivo
-      fs.writeFileSync(filepath, file.buffer);
-
-      // Retornar URL completa usando BASE_URL do .env
-      const baseUrl = process.env.BASE_URL || "";
-      const imageUrl = `${baseUrl}/images/customizations/${filename}`;
+      logger.info(
+        `✅ [customizationUploadController] Imagem de customização salva: ${result.filename}`
+      );
 
       return res.status(201).json({
         success: true,
-        imageUrl,
-        filename,
+        imageUrl: result.url,
+        filename: result.filename,
         mimeType: file.mimetype,
         size: file.size,
+        originalName: file.originalname,
       });
     } catch (error: any) {
-      console.error("Erro ao fazer upload de imagem:", error);
+      logger.error("❌ [customizationUploadController] Erro ao fazer upload:", error);
       return res.status(500).json({
         error: "Erro ao fazer upload da imagem",
         details: error.message,
@@ -59,7 +51,7 @@ class CustomizationUploadController {
 
   /**
    * DELETE /api/customization/image/:filename
-   * Remove uma imagem de customização
+   * Remove uma imagem de customização do temp storage
    */
   async deleteImage(req: Request, res: Response) {
     try {
@@ -71,22 +63,23 @@ class CustomizationUploadController {
         });
       }
 
-      const filepath = path.join(IMAGES_DIR, "customizations", filename);
+      // ✅ NOVO: Usar tempFileService para deletar
+      const deleted = tempFileService.deleteFile(filename);
 
-      if (!fs.existsSync(filepath)) {
+      if (!deleted) {
         return res.status(404).json({
-          error: "Arquivo não encontrado",
+          error: "Arquivo não encontrado ou não pôde ser deletado",
         });
       }
 
-      fs.unlinkSync(filepath);
+      logger.info(`✅ [customizationUploadController] Imagem deletada: ${filename}`);
 
       return res.json({
         success: true,
         message: "Imagem removida com sucesso",
       });
     } catch (error: any) {
-      console.error("Erro ao remover imagem:", error);
+      logger.error("❌ [customizationUploadController] Erro ao deletar:", error);
       return res.status(500).json({
         error: "Erro ao remover imagem",
         details: error.message,

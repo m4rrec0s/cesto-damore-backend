@@ -77,6 +77,7 @@ class OrderCustomizationController {
    * Detecta e converte:
    * - { base64: "data:...", ... }
    * - { photos: [{ base64: "...", ...}, ...] }
+   * ✅ IMPORTANTE: Remove base64 do payload, mantém apenas preview_url
    */
   private async processBase64InData(data: any): Promise<any> {
     if (!data) return data;
@@ -108,10 +109,11 @@ class OrderCustomizationController {
                 );
                 if (url) {
                   logger.info(`   [${idx}] ✅ Convertida para: ${url}`);
+                  // ✅ Retornar objeto SEM o campo base64 (deletar ele)
+                  const { base64, ...photoSemBase64 } = photo;
                   return {
-                    ...photo,
+                    ...photoSemBase64,
                     preview_url: url,
-                    base64: undefined,
                   };
                 } else {
                   logger.warn(`   [${idx}] ⚠️ Falha ao converter`);
@@ -144,7 +146,9 @@ class OrderCustomizationController {
               obj.fileName || "artwork"
             );
             if (url) {
-              processed[key] = { ...obj, preview_url: url, base64: undefined };
+              // ✅ Deletar base64 do objeto
+              const { base64, ...objSemBase64 } = obj;
+              processed[key] = { ...objSemBase64, preview_url: url };
               logger.debug(`✅ Convertido "${key}" para URL: ${url}`);
             } else {
               processed[key] = obj;
@@ -249,10 +253,11 @@ class OrderCustomizationController {
           payload.finalArtwork.fileName || "artwork"
         );
         if (url) {
+          // ✅ Deletar base64 do objeto
+          const { base64, ...artworkSemBase64 } = payload.finalArtwork;
           customizationData.final_artwork = {
-            ...payload.finalArtwork,
+            ...artworkSemBase64,
             preview_url: url,
-            base64: undefined,
           };
           logger.info(`✅ finalArtwork convertido para: ${url}`);
         } else {
@@ -264,9 +269,9 @@ class OrderCustomizationController {
             payload.finalArtwork
           ).substring(0, 100)}`
         );
-        customizationData.final_artwork = payload.finalArtwork;
-      } else {
-        logger.debug(`ℹ️ Sem finalArtwork no payload`);
+        // ✅ Mesmo sem base64, deletar o campo se existir
+        const { base64, ...artworkSemBase64 } = payload.finalArtwork;
+        customizationData.final_artwork = artworkSemBase64;
       }
 
       // Se tiver finalArtworks (array), converter cada um
@@ -284,10 +289,11 @@ class OrderCustomizationController {
               );
               if (url) {
                 logger.info(`   [${idx}] ✅ Convertido para: ${url}`);
+                // ✅ Deletar base64 do objeto
+                const { base64, ...artworkSemBase64 } = artwork;
                 return {
-                  ...artwork,
+                  ...artworkSemBase64,
                   preview_url: url,
-                  base64: undefined,
                 };
               } else {
                 logger.warn(`   [${idx}] ⚠️ Falha na conversão`);
@@ -295,7 +301,9 @@ class OrderCustomizationController {
               }
             }
             logger.debug(`   [${idx}] Sem base64, passando como está`);
-            return artwork;
+            // ✅ Deletar base64 mesmo sem conversão
+            const { base64, ...artworkSemBase64 } = artwork;
+            return artworkSemBase64;
           })
         );
       }

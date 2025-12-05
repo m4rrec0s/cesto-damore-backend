@@ -777,6 +777,49 @@ class OrderService {
     try {
       logger.info(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
 
+      // ✅ NOVO: Buscar arquivos temporários antes de deletar customizações
+      const tempFilesToDelete: string[] = [];
+      const customizationsToDelete = await prisma.orderItemCustomization.findMany({
+        where: {
+          orderItem: { order_id: id },
+        },
+        select: { value: true },
+      });
+
+      for (const customization of customizationsToDelete) {
+        try {
+          const value = JSON.parse(customization.value);
+          // Buscar preview_url em fotos
+          if (value.photos && Array.isArray(value.photos)) {
+            value.photos.forEach((photo: any) => {
+              if (photo.preview_url && photo.preview_url.includes("/uploads/temp/")) {
+                const filename = photo.preview_url.split("/uploads/temp/").pop();
+                if (filename) tempFilesToDelete.push(filename);
+              }
+            });
+          }
+          // Buscar preview_url em final_artwork
+          if (value.final_artwork && value.final_artwork.preview_url) {
+            const url = value.final_artwork.preview_url;
+            if (url.includes("/uploads/temp/")) {
+              const filename = url.split("/uploads/temp/").pop();
+              if (filename) tempFilesToDelete.push(filename);
+            }
+          }
+          // Buscar preview_url em final_artworks (array)
+          if (value.final_artworks && Array.isArray(value.final_artworks)) {
+            value.final_artworks.forEach((artwork: any) => {
+              if (artwork.preview_url && artwork.preview_url.includes("/uploads/temp/")) {
+                const filename = artwork.preview_url.split("/uploads/temp/").pop();
+                if (filename) tempFilesToDelete.push(filename);
+              }
+            });
+          }
+        } catch (err) {
+          logger.warn(`⚠️ Erro ao parsear customização:`, err);
+        }
+      }
+
       await prisma.$transaction(async (tx) => {
         const items = await tx.orderItem.findMany({
           where: { order_id: id },
@@ -837,6 +880,15 @@ class OrderService {
 
         await tx.order.delete({ where: { id } });
       });
+
+      // ✅ NOVO: Deletar arquivos temporários após deletar pedido do banco
+      if (tempFilesToDelete.length > 0) {
+        const tempFileService = require("../services/tempFileService").default;
+        const result = tempFileService.deleteFiles(tempFilesToDelete);
+        logger.info(
+          `🗑️ Arquivos temporários deletados: ${result.deleted}, falharam: ${result.failed}`
+        );
+      }
 
       logger.info(`✅ [OrderService] Pedido ${id} deletado com sucesso`);
 

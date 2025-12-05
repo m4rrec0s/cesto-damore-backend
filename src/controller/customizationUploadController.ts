@@ -41,7 +41,10 @@ class CustomizationUploadController {
         originalName: file.originalname,
       });
     } catch (error: any) {
-      logger.error("❌ [customizationUploadController] Erro ao fazer upload:", error);
+      logger.error(
+        "❌ [customizationUploadController] Erro ao fazer upload:",
+        error
+      );
       return res.status(500).json({
         error: "Erro ao fazer upload da imagem",
         details: error.message,
@@ -72,14 +75,19 @@ class CustomizationUploadController {
         });
       }
 
-      logger.info(`✅ [customizationUploadController] Imagem deletada: ${filename}`);
+      logger.info(
+        `✅ [customizationUploadController] Imagem deletada: ${filename}`
+      );
 
       return res.json({
         success: true,
         message: "Imagem removida com sucesso",
       });
     } catch (error: any) {
-      logger.error("❌ [customizationUploadController] Erro ao deletar:", error);
+      logger.error(
+        "❌ [customizationUploadController] Erro ao deletar:",
+        error
+      );
       return res.status(500).json({
         error: "Erro ao remover imagem",
         details: error.message,

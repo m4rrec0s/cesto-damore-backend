@@ -779,12 +779,13 @@ class OrderService {
 
       // ✅ NOVO: Buscar arquivos temporários antes de deletar customizações
       const tempFilesToDelete: string[] = [];
-      const customizationsToDelete = await prisma.orderItemCustomization.findMany({
-        where: {
-          orderItem: { order_id: id },
-        },
-        select: { value: true },
-      });
+      const customizationsToDelete =
+        await prisma.orderItemCustomization.findMany({
+          where: {
+            orderItem: { order_id: id },
+          },
+          select: { value: true },
+        });
 
       for (const customization of customizationsToDelete) {
         try {
@@ -792,8 +793,13 @@ class OrderService {
           // Buscar preview_url em fotos
           if (value.photos && Array.isArray(value.photos)) {
             value.photos.forEach((photo: any) => {
-              if (photo.preview_url && photo.preview_url.includes("/uploads/temp/")) {
-                const filename = photo.preview_url.split("/uploads/temp/").pop();
+              if (
+                photo.preview_url &&
+                photo.preview_url.includes("/uploads/temp/")
+              ) {
+                const filename = photo.preview_url
+                  .split("/uploads/temp/")
+                  .pop();
                 if (filename) tempFilesToDelete.push(filename);
               }
             });
@@ -809,8 +815,13 @@ class OrderService {
           // Buscar preview_url em final_artworks (array)
           if (value.final_artworks && Array.isArray(value.final_artworks)) {
             value.final_artworks.forEach((artwork: any) => {
-              if (artwork.preview_url && artwork.preview_url.includes("/uploads/temp/")) {
-                const filename = artwork.preview_url.split("/uploads/temp/").pop();
+              if (
+                artwork.preview_url &&
+                artwork.preview_url.includes("/uploads/temp/")
+              ) {
+                const filename = artwork.preview_url
+                  .split("/uploads/temp/")
+                  .pop();
                 if (filename) tempFilesToDelete.push(filename);
               }
             });

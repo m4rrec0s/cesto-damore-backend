@@ -137,25 +137,21 @@ cron.schedule("*/20 * * * *", async () => {
           created_at: {
             lt: twentyMinutesAgo,
           },
-          // ✅ FIXADO: Buscar todas customizações e filtrar órfãs em memória
-          // pois Prisma não permite null check diretamente em foreign keys
         },
         select: {
           id: true,
           value: true,
           created_at: true,
-          order_item_id: true, // Para filtrar órfãs
+          order_item_id: true,
         },
       }
     );
 
-    // ✅ NOVO: Filtrar apenas customizações órfãs (sem order_item_id)
     const orphaned = orphanedCustomizations.filter(
       (c: any) => !c.order_item_id
     );
 
     if (orphaned.length === 0) {
-      logger.debug("ℹ️ [Cron] Nenhuma customização órfã encontrada");
       return;
     }
 

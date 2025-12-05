@@ -894,35 +894,9 @@ class OrderCustomizationService {
         `✅ Arquivo enviado para Drive: ${fileName} (id=${upload.id}, size=${fileBuffer.length})`
       );
 
-      // ✅ NOVO: Deletar arquivo temporário imediatamente após upload bem-sucedido
-      if (url.startsWith("/uploads/temp/")) {
-        try {
-          const tempFileName = url.replace("/uploads/temp/", "");
-          const baseStorageDir =
-            process.env.NODE_ENV === "production"
-              ? "/app/storage"
-              : path.join(process.cwd(), "storage");
-          const filePath = path.join(baseStorageDir, "temp", tempFileName);
-
-          // Validação de segurança
-          if (!filePath.startsWith(path.join(baseStorageDir, "temp"))) {
-            throw new Error(`Invalid file path: ${filePath}`);
-          }
-
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-            logger.info(
-              `🗑️ Arquivo temporário deletado após upload: ${tempFileName} → ${fileName}`
-            );
-          }
-        } catch (err) {
-          logger.warn(
-            `⚠️ Erro ao deletar arquivo temporário após upload (${url}):`,
-            err
-          );
-          // Não bloquear - arquivo será limpo pelo cron de 48h
-        }
-      }
+      // ⚠️ NOTA: Temp files deletados no final do ciclo de vida (status DELIVERED)
+      // Não deletar aqui pois causa erro 404 ao fazer requisições HTTP
+      // A deleção é feita em updateOrderStatus quando status = DELIVERED
 
       return {
         ...upload,

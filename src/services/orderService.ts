@@ -5,6 +5,8 @@ import productComponentService from "./productComponentService";
 import customerManagementService from "./customerManagementService";
 import googleDriveService from "./googleDriveService";
 import logger from "../utils/logger";
+import fs from "fs";
+import path from "path";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -1492,11 +1494,78 @@ class OrderService {
           `🗑️ ${personalizationsDeleted.count} personalização(ões) deletada(s)`
         );
 
-        // ✅ Temp files já foram deletados no momento do upload (em orderCustomizationService)
-        // Apenas verificar para registrar em logs
-        logger.debug(
-          `📝 [OrderService] Arquivos temporários já foram deletados durante finalização`
-        );
+        // ✅ NOVO: Deletar arquivos temporários da VPS
+        // Buscar customizações antes de deletar para coletar temp files
+        const customizationsBeforeDeletion =
+          await prisma.orderItemCustomization.findMany({
+            where: {
+              order_item_id: {
+                in: updated.items.map((item) => item.id),
+              },
+            },
+          });
+
+        const baseStorageDir =
+          process.env.NODE_ENV === "production"
+            ? "/app/storage"
+            : path.join(process.cwd(), "storage");
+
+        let tempFilesDeleted = 0;
+
+        for (const customization of customizationsBeforeDeletion) {
+          try {
+            const data = customization.value
+              ? JSON.parse(customization.value)
+              : {};
+            const tempFiles: string[] = [];
+
+            // Coletar URLs de temp files
+            if (data.image?.preview_url?.startsWith("/uploads/temp/")) {
+              tempFiles.push(data.image.preview_url);
+            }
+            if (data.photos && Array.isArray(data.photos)) {
+              data.photos.forEach((photo: any) => {
+                if (photo.preview_url?.startsWith("/uploads/temp/")) {
+                  tempFiles.push(photo.preview_url);
+                }
+              });
+            }
+
+            // Deletar cada arquivo
+            for (const tempUrl of tempFiles) {
+              try {
+                const tempFileName = tempUrl.replace("/uploads/temp/", "");
+                const filePath = path.join(
+                  baseStorageDir,
+                  "temp",
+                  tempFileName
+                );
+
+                // Validação de segurança
+                if (
+                  filePath.startsWith(path.join(baseStorageDir, "temp")) &&
+                  fs.existsSync(filePath)
+                ) {
+                  fs.unlinkSync(filePath);
+                  logger.info(
+                    `🗑️ Arquivo temporário deletado: ${tempFileName}`
+                  );
+                  tempFilesDeleted++;
+                }
+              } catch (err) {
+                logger.warn(`⚠️ Erro ao deletar temp file (${tempUrl}):`, err);
+              }
+            }
+          } catch (err) {
+            logger.warn(`⚠️ Erro ao processar customização para cleanup:`, err);
+          }
+        }
+
+        if (tempFilesDeleted > 0) {
+          logger.info(
+            `🗑️ ${tempFilesDeleted} arquivo(s) temporário(s) deletado(s)`
+          );
+        }
 
         logger.info(
           `✅ [OrderService] Limpeza de recursos do pedido ${id} concluída`

@@ -36,8 +36,6 @@ app.use(routes);
 
 cron.schedule("0 */6 * * *", async () => {
   try {
-    logger.info("🕒 [Cron] Iniciando limpeza de pedidos cancelados...");
-
     const twentyFourHoursAgo = new Date();
     twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
 
@@ -113,10 +111,7 @@ cron.schedule("*/5 * * * *", async () => {
 
 cron.schedule("0 */6 * * *", async () => {
   try {
-    logger.info("🕒 [Cron] Iniciando limpeza de arquivos temporários...");
-
     const result = tempFileService.cleanupOldFiles(48);
-
     logger.info(
       `✅ [Cron] Limpeza de arquivos temporários concluída: ${result.deleted} deletados, ${result.failed} falharam`
     );
@@ -127,8 +122,6 @@ cron.schedule("0 */6 * * *", async () => {
 
 cron.schedule("*/20 * * * *", async () => {
   try {
-    logger.info("🕒 [Cron] Iniciando detecção de imagens órfãs BASE_LAYOUT...");
-
     const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000);
 
     const orphanedCustomizations = await prisma.orderItemCustomization.findMany(
@@ -198,6 +191,18 @@ cron.schedule("*/20 * * * *", async () => {
               if (filename) tempFilesToDelete.push(filename);
             }
           });
+        }
+
+        // ✅ NOVO: Buscar arquivo em text (BASE_LAYOUT)
+        if (
+          (value.customization_type === "BASE_LAYOUT" ||
+            value.customizationType === "BASE_LAYOUT") &&
+          value.text &&
+          typeof value.text === "string" &&
+          value.text.includes("/uploads/temp/")
+        ) {
+          const filename = value.text.split("/uploads/temp/").pop();
+          if (filename) tempFilesToDelete.push(filename);
         }
 
         await prisma.orderItemCustomization.delete({

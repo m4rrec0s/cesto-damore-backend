@@ -90,9 +90,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-          .map((p: any) => p.temp_file_id || p.preview_url || "")
-          .sort()
-          .join(",")
+        .map((p: any) => p.temp_file_id || p.preview_url || "")
+        .sort()
+        .join(",")
       : "",
   }));
 
@@ -138,7 +138,7 @@ class OrderService {
                 typeof customData.selected_item === "string"
                   ? customData.selected_item
                   : (customData.selected_item as { selected_item?: string })
-                      .selected_item;
+                    .selected_item;
 
               if (selected) {
                 customData.label_selected = selected;
@@ -491,8 +491,7 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${
-                j + 1
+              `Item ${i + 1}: adicional ${j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -562,8 +561,7 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${
-                product.name
+              `Estoque insuficiente para ${product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -861,6 +859,18 @@ class OrderService {
                 if (filename) tempFilesToDelete.push(filename);
               }
             });
+          }
+
+          // ✅ NOVO: Buscar arquivo em text (BASE_LAYOUT)
+          if (
+            (value.customization_type === "BASE_LAYOUT" ||
+              value.customizationType === "BASE_LAYOUT") &&
+            value.text &&
+            typeof value.text === "string" &&
+            value.text.includes("/uploads/temp/")
+          ) {
+            const filename = value.text.split("/uploads/temp/").pop();
+            if (filename) tempFilesToDelete.push(filename);
           }
         } catch (err) {
           logger.warn(`⚠️ Erro ao parsear customização:`, err);
@@ -1427,9 +1437,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                  address: updated.delivery_address,
-                  date: updated.delivery_date || undefined,
-                }
+                address: updated.delivery_address,
+                date: updated.delivery_date || undefined,
+              }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },

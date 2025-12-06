@@ -1601,7 +1601,6 @@ export class PaymentService {
       }
     } catch (error: any) {
       if (error.code === "ENOENT") {
-        console.info("No offline webhook file to replay");
         return;
       }
       console.error("Erro ao reprocessar webhooks armazenados:", error);

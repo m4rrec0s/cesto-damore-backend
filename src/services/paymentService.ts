@@ -216,8 +216,9 @@ export class PaymentService {
         {
           id: order.id,
           title: `Pedido ${order.id}`,
-          description: `Pagamento ${orderPaymentMethod === "pix" ? "PIX" : "Cartão"
-            } - ${order.items.length} item(s)`,
+          description: `Pagamento ${
+            orderPaymentMethod === "pix" ? "PIX" : "Cartão"
+          } - ${order.items.length} item(s)`,
           quantity: 1,
           unit_price: summary.grandTotal,
         },
@@ -297,7 +298,8 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao criar preferência:", error);
       throw new Error(
-        `Falha ao criar preferência de pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
+        `Falha ao criar preferência de pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
     }
@@ -373,13 +375,19 @@ export class PaymentService {
           throw new Error("Pedido já possui pagamento aprovado");
         }
 
-        // ✅ MUDANÇA: Permitir alterar entre PIX e CARD se o pagamento ainda está pendente
+        // ✅ MUDANÇA: Permitir nova tentativa se o pagamento ainda está pendente, em processamento OU foi rejeitado
         if (
           order.payment.status === "PENDING" ||
-          order.payment.status === "IN_PROCESS"
+          order.payment.status === "IN_PROCESS" ||
+          order.payment.status === "REJECTED" ||
+          order.payment.status === "CANCELLED"
         ) {
-          // Cancelar o pagamento anterior no Mercado Pago (se existir)
-          if (order.payment.mercado_pago_id) {
+          // Cancelar o pagamento anterior no Mercado Pago (se existir e não estiver rejeitado/cancelado)
+          if (
+            order.payment.mercado_pago_id &&
+            order.payment.status !== "REJECTED" &&
+            order.payment.status !== "CANCELLED"
+          ) {
             try {
               logger.info(
                 `🔄 Cancelando pagamento anterior: ${order.payment.mercado_pago_id}`
@@ -400,7 +408,7 @@ export class PaymentService {
           });
 
           logger.info(
-            `♻️ Pagamento anterior removido. Criando novo pagamento ${data.paymentMethodId}...`
+            `♻️ Pagamento anterior removido (status era: ${order.payment.status}). Criando novo pagamento ${data.paymentMethodId}...`
           );
         }
       }
@@ -418,8 +426,9 @@ export class PaymentService {
 
       const paymentData: any = {
         transaction_amount: roundCurrency(summary.grandTotal),
-        description: `Pedido ${order.id.substring(0, 8)} - ${order.items.length
-          } item(s)`,
+        description: `Pedido ${order.id.substring(0, 8)} - ${
+          order.items.length
+        } item(s)`,
         payment_method_id: data.paymentMethodId,
         payer: {
           email: data.payerEmail,
@@ -498,8 +507,9 @@ export class PaymentService {
         paymentData.statement_descriptor = "CESTO D'AMORE";
       }
 
-      const idempotencyKey = `${data.paymentMethodId}-${data.orderId
-        }-${randomUUID()}`;
+      const idempotencyKey = `${data.paymentMethodId}-${
+        data.orderId
+      }-${randomUUID()}`;
 
       const paymentResponse = await payment.create({
         body: paymentData,
@@ -669,7 +679,9 @@ export class PaymentService {
       }
 
       // Create error with cause preserved for controller to extract friendly message
-      const paymentError = new Error(`Falha ao processar pagamento: ${errorMessage}`) as any;
+      const paymentError = new Error(
+        `Falha ao processar pagamento: ${errorMessage}`
+      ) as any;
       if (error && typeof error === "object") {
         const mpError = error as any;
         paymentError.cause = mpError.cause;
@@ -765,15 +777,15 @@ export class PaymentService {
 
       const cardMetadata =
         mercadoPagoResult.first_six_digits ||
-          mercadoPagoResult.last_four_digits ||
-          mercadoPagoResult.cardholder_name
+        mercadoPagoResult.last_four_digits ||
+        mercadoPagoResult.cardholder_name
           ? {
-            card: {
-              first_six_digits: mercadoPagoResult.first_six_digits,
-              last_four_digits: mercadoPagoResult.last_four_digits,
-              cardholder_name: mercadoPagoResult.cardholder_name,
-            },
-          }
+              card: {
+                first_six_digits: mercadoPagoResult.first_six_digits,
+                last_four_digits: mercadoPagoResult.last_four_digits,
+                cardholder_name: mercadoPagoResult.cardholder_name,
+              },
+            }
           : null;
 
       const paymentRecord = await prisma.payment.upsert({
@@ -933,7 +945,8 @@ export class PaymentService {
     } catch (error) {
       console.error("❌ Erro ao criar pagamento:", error);
       throw new Error(
-        `Falha ao criar pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
+        `Falha ao criar pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
     }
@@ -1026,7 +1039,8 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao buscar métodos de pagamento:", error);
       throw new Error(
-        `Falha ao buscar métodos de pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
+        `Falha ao buscar métodos de pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
     }
@@ -1144,7 +1158,8 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao buscar pagamento:", error);
       throw new Error(
-        `Falha ao buscar pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
+        `Falha ao buscar pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
     }
@@ -1211,8 +1226,8 @@ export class PaymentService {
               error_message: succeeded
                 ? undefined
                 : `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
-                  ","
-                )}`,
+                    ","
+                  )}`,
             },
           });
         } catch (err: any) {
@@ -1473,8 +1488,8 @@ export class PaymentService {
                     error_message: succeeded
                       ? undefined
                       : `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
-                        ","
-                      )}`,
+                          ","
+                        )}`,
                   },
                 });
                 logger.info(message);
@@ -1552,7 +1567,7 @@ export class PaymentService {
           };
           await fs.appendFile(
             process.env.WEBHOOK_OFFLINE_LOG_FILE ||
-            "./webhook_offline_log.ndjson",
+              "./webhook_offline_log.ndjson",
             JSON.stringify(logEntry) + "\n"
           );
           console.warn(
@@ -1641,7 +1656,8 @@ export class PaymentService {
       });
 
       console.log(
-        `🔎 dbPayment found: ${dbPayment ? dbPayment.id : "null"} status: ${dbPayment ? dbPayment.status : "N/A"
+        `🔎 dbPayment found: ${dbPayment ? dbPayment.id : "null"} status: ${
+          dbPayment ? dbPayment.status : "N/A"
         }`
       );
 
@@ -1671,8 +1687,8 @@ export class PaymentService {
           last_webhook_at: paymentInfo.date_created
             ? new Date(paymentInfo.date_created)
             : paymentInfo.date_approved
-              ? new Date(paymentInfo.date_approved)
-              : new Date(),
+            ? new Date(paymentInfo.date_approved)
+            : new Date(),
           webhook_attempts: dbPayment.webhook_attempts + 1,
         },
       });
@@ -1723,8 +1739,8 @@ export class PaymentService {
               finalization_attempts: { increment: 1 } as any,
               error_message: finalizeRes.base64Detected
                 ? `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
-                  ","
-                )}`
+                    ","
+                  )}`
                 : undefined,
             },
           });
@@ -1810,7 +1826,7 @@ export class PaymentService {
     }
   }
 
-  static async processMerchantOrderNotification(merchantOrderId: string) { }
+  static async processMerchantOrderNotification(merchantOrderId: string) {}
 
   static async sendOrderConfirmationNotification(
     orderId: string,
@@ -1903,12 +1919,12 @@ export class PaymentService {
         },
         delivery: order.delivery_address
           ? {
-            address: order.delivery_address,
-            city: order.user.city || "",
-            state: order.user.state || "",
-            zipCode: order.user.zip_code || "",
-            date: order.delivery_date || undefined,
-          }
+              address: order.delivery_address,
+              city: order.user.city || "",
+              state: order.user.state || "",
+              zipCode: order.user.zip_code || "",
+              date: order.delivery_date || undefined,
+            }
           : undefined,
       };
       // Include flags and complement for notification's business logic
@@ -2042,7 +2058,8 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao cancelar pagamento:", error);
       throw new Error(
-        `Falha ao cancelar pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
+        `Falha ao cancelar pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
     }

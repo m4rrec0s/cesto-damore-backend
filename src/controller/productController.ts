@@ -122,6 +122,24 @@ class ProductController {
       const { id } = req.params;
       const data = { ...req.body };
 
+      // Converter categories se vier como string (multipart/form-data)
+      if (typeof data.categories === "string") {
+        try {
+          data.categories = JSON.parse(data.categories);
+        } catch (e) {
+          // Se não for JSON válido, tentar dividir por vírgula
+          data.categories = data.categories
+            .split(",")
+            .map((c: string) => c.trim())
+            .filter(Boolean);
+        }
+      }
+
+      // Garantir que categories é um array
+      if (!Array.isArray(data.categories)) {
+        data.categories = [];
+      }
+
       const file = ((): any => {
         if (req.file) return req.file;
         if (Array.isArray(req.files) && req.files.length) return req.files[0];

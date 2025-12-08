@@ -4,6 +4,57 @@ import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
 export class PaymentController {
+  // Map MercadoPago status_detail codes to friendly messages
+  private static mercadoPagoErrorMessages: Record<string, string> = {
+    cc_rejected_bad_filled_card_number: "Número do cartão incorreto. Verifique e tente novamente.",
+    cc_rejected_bad_filled_security_code: "Código de segurança (CVV) incorreto. Verifique e tente novamente.",
+    cc_rejected_bad_filled_date: "Data de validade incorreta. Verifique e tente novamente.",
+    cc_rejected_bad_filled_other: "Verifique os dados do cartão e tente novamente.",
+    cc_rejected_insufficient_amount: "Saldo insuficiente. Tente com outro cartão ou forma de pagamento.",
+    cc_rejected_max_attempts: "Você atingiu o limite de tentativas. Aguarde alguns minutos.",
+    cc_rejected_duplicated_payment: "Pagamento duplicado. Verifique se já não foi cobrado anteriormente.",
+    cc_rejected_card_disabled: "Cartão desabilitado. Entre em contato com seu banco.",
+    cc_rejected_call_for_authorize: "Pagamento não autorizado. Entre em contato com seu banco para autorizar.",
+    cc_rejected_blacklist: "Pagamento não autorizado por motivos de segurança.",
+    cc_rejected_high_risk: "Pagamento recusado por medidas de segurança.",
+    cc_rejected_other_reason: "Pagamento não autorizado. Tente outro cartão ou forma de pagamento.",
+    pending_contingency: "Pagamento em análise. Aguarde a confirmação.",
+    pending_review_manual: "Pagamento em análise manual. Aguarde a confirmação.",
+  };
+
+  // Extract friendly error message from MercadoPago error
+  private static extractMercadoPagoError(error: unknown): string | null {
+    if (!error || typeof error !== "object") return null;
+
+    const err = error as any;
+
+    // Check for status_detail in cause or response
+    let statusDetail: string | null = null;
+
+    if (err.cause?.status_detail) {
+      statusDetail = err.cause.status_detail;
+    } else if (err.response?.status_detail) {
+      statusDetail = err.response.status_detail;
+    } else if (Array.isArray(err.cause)) {
+      // MercadoPago sometimes returns cause as an array
+      const firstCause = err.cause[0];
+      if (firstCause?.code) {
+        statusDetail = firstCause.code;
+      }
+    }
+
+    if (statusDetail && this.mercadoPagoErrorMessages[statusDetail]) {
+      return this.mercadoPagoErrorMessages[statusDetail];
+    }
+
+    // Check for description in cause array
+    if (Array.isArray(err.cause) && err.cause[0]?.description) {
+      return err.cause[0].description;
+    }
+
+    return null;
+  }
+
   // Map service errors (messages) to HTTP status codes
   private static mapErrorToStatus(err: unknown) {
     if (!(err instanceof Error)) return 500;
@@ -201,10 +252,24 @@ export class PaymentController {
       });
     } catch (error) {
       console.error("Erro ao processar checkout transparente:", error);
+
+      // Try to extract a friendly MercadoPago error message
+      const friendlyMessage = PaymentController.extractMercadoPagoError(error);
+
+      // Extract status_detail for debugging
+      let statusDetail: string | undefined;
+      if (error && typeof error === "object") {
+        const err = error as any;
+        statusDetail = err.cause?.status_detail ||
+          err.response?.status_detail ||
+          (Array.isArray(err.cause) ? err.cause[0]?.code : undefined);
+      }
+
       const status = PaymentController.mapErrorToStatus(error);
       res.status(status).json({
-        error: "Falha ao processar pagamento",
+        error: friendlyMessage || "Falha ao processar pagamento",
         details: error instanceof Error ? error.message : "Erro desconhecido",
+        status_detail: statusDetail,
       });
     }
   }

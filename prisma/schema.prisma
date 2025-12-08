@@ -22,6 +22,7 @@ model User {
   firebaseUId String?  @unique
   image_url   String?
   phone       String?
+  document    String? // CPF ou CNPJ do usuário
   address     String?
   city        String?
   state       String?

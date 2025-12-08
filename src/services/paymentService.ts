@@ -1183,6 +1183,18 @@ export class PaymentService {
             continue;
           }
 
+          // ✅ NOVO: Só reprocessar se o pagamento foi APPROVED
+          if (dbPayment.status !== "APPROVED") {
+            console.warn(
+              `Reprocess: pagamento ${paymentId} não aprovado (status: ${dbPayment.status}), pulando.`
+            );
+            await prisma.webhookLog.updateMany({
+              where: { id: log.id },
+              data: { finalization_attempts: { increment: 1 } as any },
+            });
+            continue;
+          }
+
           console.log(
             `🔁 Reprocessando finalização - orderId=${dbPayment.order_id}`
           );
@@ -1414,6 +1426,15 @@ export class PaymentService {
                 include: { order: true },
               });
               if (!dbPayment || !dbPayment.order_id) return;
+
+              // ✅ NOVO: Só finalizar se o pagamento foi APPROVED
+              if (dbPayment.status !== "APPROVED") {
+                logger.debug(
+                  `🔴 Pagamento ${resourceId} não aprovado (status: ${dbPayment.status}), pulando finalização.`
+                );
+                return;
+              }
+
               const orderId = dbPayment.order_id;
               // Check the webhookLog to avoid re-finalization if already succeeded
               const existingFinalized = await prisma.webhookLog.findFirst({

@@ -1,120 +1,140 @@
 import prisma from "../database/prisma";
 
 class AIProductService {
-  async getLightweightProducts(query?: any) {
-    try {
-      // Extrair parâmetros de busca
-      const {
-        keywords,
-        occasion,
-        price_max,
-        tag,
-        available,
-        q,
-      } = query || {};
+  /**
+   * Constrói filtro WHERE combinando múltiplos critérios com lógica AND/OR correta
+   */
+  private buildWhereFilter(query: any): any {
+    // Validar query
+    query = query || {};
 
-      // Construir filtro base
-      const where: any = {
-        is_active: true,
-        type: { name: { equals: "Cestas", mode: "insensitive" } }
-      };
+    const where: any = {
+      is_active: true,
+      type: { name: { equals: "Cestas", mode: "insensitive" } },
+    };
 
-      // Filtro de texto (keywords ou q)
-      const searchTerm = keywords || q;
-      if (searchTerm) {
-        where.OR = [
+    // Lista de ANDs para combinar múltiplos filtros
+    const andConditions: any[] = [];
+
+    // 1. FILTRO DE TEXTO (keywords ou q) - usa OR
+    const searchTerm = query.keywords || query.q;
+    if (searchTerm) {
+      andConditions.push({
+        OR: [
           { name: { contains: searchTerm, mode: "insensitive" } },
           { description: { contains: searchTerm, mode: "insensitive" } },
           {
             categories: {
               some: {
-                category: { name: { contains: searchTerm, mode: "insensitive" } },
-              },
-            },
-          },
-        ];
-      }
-
-      // Filtro de ocasião
-      if (occasion) {
-        // Mapeamento de ocasiões para categorias reais do banco
-        const occasionToCategoryMap: { [key: string]: string[] } = {
-          "namorados": ["Romântica"],
-          "aniversario": ["Aniversário"],
-          "dia-das-maes": ["Romântica"], // Pode ser romântico também
-          "natal": ["Cesto Express", "Simples"], // Cestas gerais para Natal
-          "formatura": ["Simples", "Bar"],
-          "infantil": ["Infantil"],
-          "flores": ["Floricultura"],
-        };
-
-        const categoryNames = occasionToCategoryMap[occasion.toLowerCase()] || [];
-
-        if (categoryNames.length > 0) {
-          const occasionFilter = {
-            categories: {
-              some: {
                 category: {
-                  name: { in: categoryNames },
+                  name: { contains: searchTerm, mode: "insensitive" },
                 },
               },
             },
-          };
+          },
+        ],
+      });
+    }
 
-          // Combine with existing filters using AND
-          if (where.OR) {
-            // If there's already an OR (from searchTerm), combine both with AND
-            where.AND = [{ OR: where.OR }, occasionFilter];
-            delete where.OR;
-          } else if (where.AND) {
-            // If there's already an AND array, add to it
-            where.AND.push(occasionFilter);
-          } else {
-            // Otherwise, just merge the occasion filter
-            Object.assign(where, occasionFilter);
-          }
-        }
-      }
+    // 2. FILTRO DE OCASIÃO
+    if (query.occasion) {
+      const occasionToCategoryMap: { [key: string]: string[] } = {
+        namorados: ["Romântica"],
+        aniversario: ["Aniversário"],
+        "dia-das-maes": ["Romântica"],
+        "dia-dos-pais": ["Masculino"],
+        natal: ["Cesto Express", "Simples", "Natal"],
+        formatura: ["Simples"],
+        infantil: ["Infantil"],
+        flores: ["Floricultura"],
+        casamento: ["Romântica"],
+        pascoa: ["Simples"],
+      };
 
-      // Filtro de preço máximo
-      if (price_max) {
-        where.price = { lte: parseFloat(price_max) };
-      }
+      const categoryNames =
+        occasionToCategoryMap[query.occasion.toLowerCase()] || [];
 
-      // Filtro de tag
-      if (tag) {
-        const tagTerm = tag.replace(/-/g, " ");
-        const tagFilter = {
+      // Se não encontrar no mapa, busca por texto também
+      if (categoryNames.length > 0) {
+        andConditions.push({
+          categories: {
+            some: {
+              category: {
+                name: { in: categoryNames },
+              },
+            },
+          },
+        });
+      } else {
+        // Fallback: busca por ocasião como texto
+        andConditions.push({
           OR: [
+            { name: { contains: query.occasion, mode: "insensitive" } },
+            { description: { contains: query.occasion, mode: "insensitive" } },
             {
-              components: {
+              categories: {
                 some: {
-                  item: {
-                    OR: [
-                      { name: { contains: tagTerm, mode: "insensitive" } },
-                      { type: { contains: tagTerm, mode: "insensitive" } },
-                    ],
+                  category: {
+                    name: { contains: query.occasion, mode: "insensitive" },
                   },
                 },
               },
             },
-            { name: { contains: tagTerm, mode: "insensitive" } },
           ],
-        };
-
-        if (where.AND) {
-          where.AND.push(tagFilter);
-        } else if (where.OR) {
-          where.AND = [tagFilter];
-        } else {
-          Object.assign(where, tagFilter);
-        }
+        });
       }
+    }
 
-      // Filtro de disponibilidade
-      if (available === "true") {
-        where.stock_quantity = { gt: 0 };
+    // 3. FILTRO DE PREÇO MÁXIMO
+    if (query.price_max) {
+      const maxPrice = parseFloat(query.price_max);
+      if (!isNaN(maxPrice)) {
+        andConditions.push({
+          price: { lte: maxPrice },
+        });
       }
+    }
+
+    // 4. FILTRO DE TAG (em componentes ou nome)
+    if (query.tag) {
+      const tagTerm = query.tag.replace(/-/g, " ");
+      andConditions.push({
+        OR: [
+          {
+            components: {
+              some: {
+                item: {
+                  name: { contains: tagTerm, mode: "insensitive" },
+                },
+              },
+            },
+          },
+          {
+            name: { contains: tagTerm, mode: "insensitive" },
+          },
+        ],
+      });
+    }
+
+    // 5. FILTRO DE DISPONIBILIDADE
+    if (query.available === "true") {
+      andConditions.push({
+        stock_quantity: { gt: 0 },
+      });
+    }
+
+    // 6. COMBINAR TODOS OS FILTROS COM AND
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
+    }
+
+    return where;
+  }
+
+  async getLightweightProducts(query?: any) {
+    try {
+      // Construir filtro com lógica corrigida
+      const where = this.buildWhereFilter(query || {});
 
       const products = await prisma.product.findMany({
         where,
@@ -207,17 +227,21 @@ class AIProductService {
       const otherProducts: any[] = [];
 
       lightweightProducts.forEach((p: any) => {
-        // Precisamos checar os dados originais para a busca de keywords, 
-        // mas lightweightProducts já está formatado. 
+        // Precisamos checar os dados originais para a busca de keywords,
+        // mas lightweightProducts já está formatado.
         // Vamos usar o objeto formatado mesmo, pois ele tem name, description e components (nomes).
 
         // Reconstruindo verificação baseada no objeto formatado
         const text = (
-          p.name + " " + p.description + " " + p.components.join(" ")
+          p.name +
+          " " +
+          p.description +
+          " " +
+          p.components.join(" ")
         ).toLowerCase();
 
-        const isPremium = premiumKeywords.some(k => text.includes(k));
-        const isStandard = standardKeywords.some(k => text.includes(k));
+        const isPremium = premiumKeywords.some((k) => text.includes(k));
+        const isStandard = standardKeywords.some((k) => text.includes(k));
 
         if (isPremium) {
           premiumProducts.push(p);
@@ -241,7 +265,7 @@ class AIProductService {
       const sortedProducts = [
         ...premiumProducts,
         ...standardProducts,
-        ...otherProducts
+        ...otherProducts,
       ];
 
       // Gerar filtros dinâmicos
@@ -276,7 +300,6 @@ class AIProductService {
       throw new Error(`Erro ao buscar produtos leves: ${error.message}`);
     }
   }
-
 
   async getProductDetail(idOrSlug: string) {
     try {
@@ -352,9 +375,7 @@ class AIProductService {
             pa.additional.type === "polaroid" ||
             pa.additional.name.toLowerCase().includes("foto"),
           customization_type:
-            pa.additional.customizations.length > 0
-              ? "configurable"
-              : "simple",
+            pa.additional.customizations.length > 0 ? "configurable" : "simple",
         })),
       };
     } catch (error: any) {
@@ -367,100 +388,8 @@ class AIProductService {
    */
   async searchProducts(query: any) {
     try {
-      const {
-        keywords,
-        occasion,
-        price_max,
-        tag,
-        has_custom_photo,
-        available,
-        q,
-      } = query;
-
-      const where: any = { is_active: true, type: { name: { equals: "Cestas", mode: "insensitive" } } };
-
-      // Filtro de texto (keywords ou q)
-      const searchTerm = keywords || q;
-      if (searchTerm) {
-        where.OR = [
-          { name: { contains: searchTerm, mode: "insensitive" } },
-          { description: { contains: searchTerm, mode: "insensitive" } },
-          {
-            categories: {
-              some: {
-                category: { name: { contains: searchTerm, mode: "insensitive" } },
-              },
-            },
-          },
-        ];
-      }
-
-      // Filtro de ocasião
-      if (occasion) {
-        const occasionTerm = occasion.replace(/-/g, " ");
-        const occasionFilter = {
-          OR: [
-            {
-              is_active: true,
-              type: { name: { equals: "Cestas", mode: "insensitive" } },
-              categories: {
-                some: {
-                  category: {
-                    name: { contains: occasionTerm, mode: "insensitive" },
-                  },
-                },
-              },
-            },
-            { name: { contains: occasionTerm, mode: "insensitive" } },
-            { description: { contains: occasionTerm, mode: "insensitive" } },
-          ],
-        };
-
-        if (where.OR) {
-          where.AND = [occasionFilter];
-        } else {
-          Object.assign(where, occasionFilter);
-        }
-      }
-
-      // Filtro de preço máximo
-      if (price_max) {
-        where.price = { lte: parseFloat(price_max) };
-      }
-
-      // Filtro de tag
-      if (tag) {
-        const tagTerm = tag.replace(/-/g, " ");
-        const tagFilter = {
-          OR: [
-            {
-              components: {
-                some: {
-                  item: {
-                    OR: [
-                      { name: { contains: tagTerm, mode: "insensitive" } },
-                      { type: { name: { equals: "Cestas", mode: "insensitive" } } },
-                    ],
-                  },
-                },
-              },
-            },
-            { name: { contains: tagTerm, mode: "insensitive" } },
-          ],
-        };
-
-        if (where.AND) {
-          where.AND.push(tagFilter);
-        } else if (where.OR) {
-          where.AND = [tagFilter];
-        } else {
-          Object.assign(where, tagFilter);
-        }
-      }
-
-      if (available === "true") {
-        where.stock_quantity = { gt: 0 };
-      }
+      // Usar o mesmo buildWhereFilter para consistência
+      const where = this.buildWhereFilter(query || {});
 
       const products = await prisma.product.findMany({
         where,
@@ -482,7 +411,7 @@ class AIProductService {
           name: p.name,
           price: p.price,
           image: p.image_url ? this.formatImageUrl(p.image_url, baseUrl) : null,
-          match_score: searchTerm ? 0.95 : 1.0,
+          match_score: query.keywords || query.q ? 0.95 : 1.0,
         })),
       };
     } catch (error: any) {
@@ -514,7 +443,10 @@ class AIProductService {
     // Como slugs não estão no banco, buscamos todos e filtramos
     // Para catálogos pequenos (<1000 itens) isso é performático o suficiente
     const products = await prisma.product.findMany({
-      where: { is_active: true, type: { name: { equals: "Cestas", mode: "insensitive" } } },
+      where: {
+        is_active: true,
+        type: { name: { equals: "Cestas", mode: "insensitive" } },
+      },
       select: { id: true, name: true },
     });
 
@@ -573,34 +505,102 @@ class AIProductService {
       [];
     const description = (product.description || "").toLowerCase();
     const name = product.name.toLowerCase();
+    const components =
+      product.components
+        ?.map((c: any) => c.item.name.toLowerCase())
+        .join(" ") || "";
 
-    const allText = [...categories, description, name].join(" ");
+    // Combinar todos os textos para análise
+    const allText = `${name} ${description} ${categories.join(
+      " "
+    )} ${components}`;
 
-    if (
-      allText.includes("aniversário") ||
-      allText.includes("aniversario") ||
-      allText.includes("festa")
-    )
-      occasions.push("Aniversario");
-    if (allText.includes("casamento") || allText.includes("noivos"))
-      occasions.push("Casamento");
-    if (allText.includes("namorados") || allText.includes("amor"))
-      occasions.push("Namorados");
-    if (allText.includes("mães") || allText.includes("maes"))
-      occasions.push("Dia-das-Maes");
-    if (allText.includes("pais")) occasions.push("Dia-dos-Pais");
-    if (allText.includes("natal")) occasions.push("Natal");
-    if (allText.includes("páscoa") || allText.includes("pascoa"))
-      occasions.push("Pascoa");
-    if (allText.includes("formatura")) occasions.push("Formatura");
-    if (allText.includes("bebê") || allText.includes("bebe"))
-      occasions.push("Nascimento");
+    // Mapa de palavras-chave para ocasiões com prioridade
+    const occasionPatterns: Array<{
+      keywords: string[];
+      occasion: string;
+    }> = [
+      {
+        keywords: [
+          "aniversário",
+          "aniversario",
+          "festa",
+          "bolo",
+          "balão",
+          "balao",
+        ],
+        occasion: "Aniversario",
+      },
+      {
+        keywords: ["namorado", "amor", "amoroso", "casal", "dois"],
+        occasion: "Namorados",
+      },
+      {
+        keywords: ["mãe", "mae", "mãezinha", "maezinha"],
+        occasion: "Dia-das-Maes",
+      },
+      {
+        keywords: ["pai", "papai", "paizinho"],
+        occasion: "Dia-dos-Pais",
+      },
+      {
+        keywords: ["natal", "natalino", "papai noel", "noel"],
+        occasion: "Natal",
+      },
+      {
+        keywords: ["páscoa", "pascoa", "coelho", "ovos"],
+        occasion: "Pascoa",
+      },
+      {
+        keywords: ["casamento", "noivos", "noiva", "noivo"],
+        occasion: "Casamento",
+      },
+      {
+        keywords: ["formatura", "formaturas", "formando"],
+        occasion: "Formatura",
+      },
+      {
+        keywords: [
+          "bebê",
+          "bebe",
+          "bebe",
+          "nascimento",
+          "baby",
+          "recém-nascido",
+        ],
+        occasion: "Nascimento",
+      },
+      {
+        keywords: ["infantil", "criança", "criancas", "crianças", "brinquedo"],
+        occasion: "Infantil",
+      },
+      {
+        keywords: ["flor", "flores", "floricultura", "buquê", "buque"],
+        occasion: "Flores",
+      },
+      {
+        keywords: ["agradecimento", "obrigado", "valeu"],
+        occasion: "Agradecimento",
+      },
+    ];
 
+    // Verificar cada padrão
+    occasionPatterns.forEach((pattern) => {
+      const hasKeyword = pattern.keywords.some((keyword) =>
+        allText.includes(keyword)
+      );
+      if (hasKeyword) {
+        occasions.push(pattern.occasion);
+      }
+    });
+
+    // Se não encontrou nenhuma ocasião, retorna "Geral"
     if (occasions.length === 0) {
       occasions.push("Geral");
     }
 
-    return occasions;
+    // Remover duplicatas mantendo ordem
+    return Array.from(new Set(occasions));
   }
 }
 

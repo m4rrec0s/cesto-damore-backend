@@ -1431,95 +1431,8 @@ export class PaymentService {
       switch (webhookType) {
         case "payment":
           processedPayment = await this.processPaymentNotification(resourceId);
-          // Kick off background finalization monitoring: non-blocking
-          // Only run finalization monitor if there's no record of a successful finalization yet
-          (async () => {
-            try {
-              // Attempt to find DB payment and order
-              const dbPayment = await prisma.payment.findFirst({
-                where: { mercado_pago_id: resourceId },
-                include: { order: true },
-              });
-              if (!dbPayment || !dbPayment.order_id) return;
-
-              // ✅ NOVO: Só finalizar se o pagamento foi APPROVED
-              if (dbPayment.status !== "APPROVED") {
-                logger.debug(
-                  `🔴 Pagamento ${resourceId} não aprovado (status: ${dbPayment.status}), pulando finalização.`
-                );
-                return;
-              }
-
-              const orderId = dbPayment.order_id;
-              // Check the webhookLog to avoid re-finalization if already succeeded
-              const existingFinalized = await prisma.webhookLog.findFirst({
-                where: {
-                  resource_id: resourceId,
-                  topic: webhookType,
-                  finalization_succeeded: true,
-                },
-              });
-              if (existingFinalized) {
-                logger.debug(
-                  `🟢 Finalização já registrada (webhookLog) para resource=${resourceId}, skipping monitor.`
-                );
-                return;
-              }
-              // Run finalize again (idempotent) in background and update webhookLog with finalization result
-              try {
-                const finalizeRes =
-                  await orderCustomizationService.finalizeOrderCustomizations(
-                    orderId
-                  );
-                const succeeded = !finalizeRes?.base64Detected;
-                const message = succeeded
-                  ? `🔁 Finalização para order ${orderId} concluída (webhook monitor)`
-                  : `⚠️ Finalização incompleta (base64 detectado) para order ${orderId} (monitor)`;
-                await prisma.webhookLog.updateMany({
-                  where: {
-                    resource_id: resourceId,
-                    topic: webhookType,
-                  },
-                  data: {
-                    finalization_succeeded: succeeded,
-                    finalization_attempts: {
-                      increment: 1,
-                    } as any,
-                    error_message: succeeded
-                      ? undefined
-                      : `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
-                          ","
-                        )}`,
-                  },
-                });
-                logger.info(message);
-                if (finalizeRes?.base64Detected) {
-                  console.warn(
-                    `Base64 detected in ${finalizeRes.base64AffectedIds?.length} customizations:`,
-                    finalizeRes.base64AffectedIds
-                  );
-                }
-              } catch (finalizeErr: any) {
-                logger.error(
-                  "⚠️ Erro ao finalizar customizações (monitor):",
-                  finalizeErr
-                );
-                await prisma.webhookLog.updateMany({
-                  where: {
-                    resource_id: resourceId,
-                    topic: webhookType,
-                  },
-                  data: {
-                    finalization_succeeded: false,
-                    finalization_attempts: { increment: 1 } as any,
-                    error_message: String(finalizeErr?.message || finalizeErr),
-                  },
-                });
-              }
-            } catch (err) {
-              logger.error("Erro no monitor de finalização de webhook:", err);
-            }
-          })();
+          // ✅ REMOVIDO: Webhook monitor foi removido para evitar duplicação
+          // finalizeOrderCustomizations agora é chamada UMA VEZ em processPaymentNotification
           break;
         case "merchant_order":
           await this.processMerchantOrderNotification(resourceId);
@@ -1715,7 +1628,47 @@ export class PaymentService {
 
         await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
 
-        // ✅ MUST: finalize customizations BEFORE sending notifications
+        // ✅ VERIFICAÇÃO DE IDEMPOTÊNCIA: Verificar se já foi finalizado com sucesso
+        const existingFinalized = await prisma.webhookLog.findFirst({
+          where: {
+            resource_id: paymentId,
+            topic: "payment",
+            finalization_succeeded: true,
+          },
+        });
+
+        if (existingFinalized) {
+          logger.info(
+            `🟢 Customizações já finalizadas para ${dbPayment.order_id} (via webhookLog), pulando finalização.`
+          );
+          // Still send notifications if not already sent
+          if (!PaymentService.notificationSentOrders.has(dbPayment.order_id)) {
+            try {
+              const finalGoogleDriveUrl = await this.getOrderGoogleDriveUrl(
+                dbPayment.order_id
+              );
+              await this.sendOrderConfirmationNotification(
+                dbPayment.order_id,
+                finalGoogleDriveUrl
+              );
+              PaymentService.notificationSentOrders.add(dbPayment.order_id);
+              setTimeout(
+                () =>
+                  PaymentService.notificationSentOrders.delete(
+                    dbPayment.order_id
+                  ),
+                1000 * 60 * 15
+              );
+            } catch (err) {
+              logger.warn(
+                `⚠️ Erro ao enviar notificação após finalização anterior: ${err}`
+              );
+            }
+          }
+          return true;
+        }
+
+        // ✅ MUST: finalize customizations BEFORE sending notifications (apenas se não foi feito antes)
         let googleDriveUrl: string | undefined;
         try {
           const finalizeRes =
@@ -2062,6 +2015,49 @@ export class PaymentService {
           error instanceof Error ? error.message : "Erro desconhecido"
         }`
       );
+    }
+  }
+
+  /**
+   * ✅ NOVO: Busca URL do Google Drive da ordem (pasta raiz ou primeira customização)
+   */
+  private static async getOrderGoogleDriveUrl(
+    orderId: string
+  ): Promise<string | undefined> {
+    try {
+      // Tentar buscar pasta raiz primeiro
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { google_drive_folder_url: true },
+      });
+
+      if (order?.google_drive_folder_url) {
+        return order.google_drive_folder_url;
+      }
+
+      // Fallback: buscar primeira customização com URL
+      const customization = await prisma.orderItemCustomization.findFirst({
+        where: {
+          order_item_id: {
+            in: (
+              await prisma.orderItem.findMany({
+                where: { order_id: orderId },
+                select: { id: true },
+              })
+            ).map((i) => i.id),
+          },
+          google_drive_url: { not: null },
+        },
+        select: { google_drive_url: true },
+      });
+
+      return customization?.google_drive_url || undefined;
+    } catch (err) {
+      logger.warn(
+        `⚠️ Erro ao buscar URL do Google Drive para ${orderId}:`,
+        err
+      );
+      return undefined;
     }
   }
 

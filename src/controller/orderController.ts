@@ -207,6 +207,7 @@ class OrderController {
         delivery_state,
         recipient_phone,
         delivery_date,
+        shipping_price, // ✅ NOVO
       } = req.body;
 
       if (!id) {
@@ -230,6 +231,7 @@ class OrderController {
         delivery_state,
         recipient_phone,
         delivery_date,
+        shipping_price, // ✅ NOVO
       });
       res.json(updated);
     } catch (error: any) {

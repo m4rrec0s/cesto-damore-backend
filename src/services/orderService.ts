@@ -1246,6 +1246,7 @@ class OrderService {
       delivery_state?: string | null;
       recipient_phone?: string | null;
       delivery_date?: Date | string | null;
+      shipping_price?: number; // ✅ NOVO: permitir atualizar frete
     }
   ) {
     if (!orderId) {
@@ -1329,6 +1330,26 @@ class OrderService {
       ) {
         throw new Error("Atualmente só entregamos na Paraíba (PB)");
       }
+    }
+
+    // ✅ NOVO: Atualizar frete e recalcular total
+    if (typeof data.shipping_price === "number") {
+      if (data.shipping_price < 0) {
+        throw new Error("O valor do frete não pode ser negativo");
+      }
+      updateData.shipping_price = data.shipping_price;
+
+      // Recalcular grand_total
+      const currentTotal = order.total;
+      const currentDiscount = order.discount || 0;
+      const newGrandTotal = parseFloat(
+        (currentTotal - currentDiscount + data.shipping_price).toFixed(2)
+      );
+
+      if (newGrandTotal <= 0) {
+        throw new Error("Valor final do pedido deve ser maior que zero");
+      }
+      updateData.grand_total = newGrandTotal;
     }
 
     await prisma.order.update({ where: { id: orderId }, data: updateData });

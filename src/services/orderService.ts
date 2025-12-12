@@ -22,6 +22,22 @@ interface OrderFilter {
   status?: string;
 }
 
+interface PaginationParams {
+  page?: number;
+  limit?: number;
+}
+
+interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+}
+
 interface UpdateStatusOptions {
   notifyCustomer?: boolean;
 }
@@ -90,9 +106,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-        .map((p: any) => p.temp_file_id || p.preview_url || "")
-        .sort()
-        .join(",")
+          .map((p: any) => p.temp_file_id || p.preview_url || "")
+          .sort()
+          .join(",")
       : "",
   }));
 
@@ -138,7 +154,7 @@ class OrderService {
                 typeof customData.selected_item === "string"
                   ? customData.selected_item
                   : (customData.selected_item as { selected_item?: string })
-                    .selected_item;
+                      .selected_item;
 
               if (selected) {
                 customData.label_selected = selected;
@@ -261,37 +277,64 @@ class OrderService {
     };
   }
 
-  async getAllOrders(filter?: OrderFilter) {
+  async getAllOrders(filter?: OrderFilter, pagination?: PaginationParams) {
     try {
-      const orders = await prisma.order.findMany({
-        include: {
-          items: {
-            include: {
-              additionals: {
-                include: {
-                  additional: true,
+      const page = pagination?.page || 1;
+      const limit = pagination?.limit || 50;
+      const skip = (page - 1) * limit;
+
+      const [orders, total] = await Promise.all([
+        prisma.order.findMany({
+          include: {
+            items: {
+              include: {
+                additionals: {
+                  include: {
+                    additional: true,
+                  },
                 },
+                product: true,
+                customizations: true,
               },
-              product: true,
-              customizations: true,
             },
+            user: true,
+            payment: true,
           },
-          user: true,
-          payment: true,
-        },
-        where: {
-          status: this.buildStatusWhere(filter),
-        },
-        orderBy: {
-          created_at: "desc",
-        },
-      });
+          where: {
+            status: this.buildStatusWhere(filter),
+          },
+          orderBy: {
+            created_at: "desc",
+          },
+          skip,
+          take: limit,
+        }),
+        prisma.order.count({
+          where: {
+            status: this.buildStatusWhere(filter),
+          },
+        }),
+      ]);
 
       // Enriquecer customizações com labels das opções
       const enriched = this.enrichCustomizations(orders);
 
       // Sanitizar base64 antes de retornar
-      return this.sanitizeBase64FromCustomizations(enriched);
+      const sanitized = this.sanitizeBase64FromCustomizations(enriched);
+
+      const totalPages = Math.ceil(total / limit);
+      const hasMore = page < totalPages;
+
+      return {
+        data: sanitized,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasMore,
+        },
+      };
     } catch (error: any) {
       throw new Error(`Erro ao buscar pedidos: ${error.message}`);
     }
@@ -491,7 +534,8 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1
+              `Item ${i + 1}: adicional ${
+                j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -561,7 +605,8 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${product.name
+              `Estoque insuficiente para ${
+                product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -959,8 +1004,8 @@ class OrderService {
     }
   }
 
-  async list() {
-    return this.getAllOrders();
+  async list(pagination?: PaginationParams) {
+    return this.getAllOrders(undefined, pagination);
   }
 
   async getById(id: string) {
@@ -1458,9 +1503,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                address: updated.delivery_address,
-                date: updated.delivery_date || undefined,
-              }
+                  address: updated.delivery_address,
+                  date: updated.delivery_date || undefined,
+                }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },

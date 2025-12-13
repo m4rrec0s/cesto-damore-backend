@@ -247,7 +247,7 @@ class OrderCustomizationController {
     }
   }
 
-  async saveOrderItemCustomization(req: Request, res: Response) {
+  saveOrderItemCustomization = async (req: Request, res: Response) => {
     try {
       const paramsSchema = z.object({
         orderId: z.string().uuid({ message: "Identificador inválido" }),
@@ -424,7 +424,7 @@ class OrderCustomizationController {
         details: error.message,
       });
     }
-  }
+  };
 }
 
 export default new OrderCustomizationController();

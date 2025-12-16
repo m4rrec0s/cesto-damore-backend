@@ -72,6 +72,7 @@ type CreateOrderInput = {
   items: CreateOrderItem[];
   is_draft?: boolean;
   send_anonymously?: boolean;
+  delivery_method?: "delivery" | "pickup";
 };
 
 const ACCEPTED_CITIES: Record<string, { pix: number; card: number }> = {
@@ -106,9 +107,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-          .map((p: any) => p.temp_file_id || p.preview_url || "")
-          .sort()
-          .join(",")
+        .map((p: any) => p.temp_file_id || p.preview_url || "")
+        .sort()
+        .join(",")
       : "",
   }));
 
@@ -154,7 +155,7 @@ class OrderService {
                 typeof customData.selected_item === "string"
                   ? customData.selected_item
                   : (customData.selected_item as { selected_item?: string })
-                      .selected_item;
+                    .selected_item;
 
               if (selected) {
                 customData.label_selected = selected;
@@ -427,6 +428,7 @@ class OrderService {
       itemsCount: Array.isArray(data.items) ? data.items.length : 0,
       payment_method: data.payment_method ?? null,
       delivery_city: data.delivery_city ?? null,
+      delivery_method: data.delivery_method ?? "delivery",
     });
 
     if (!data.user_id || data.user_id.trim() === "") {
@@ -534,8 +536,7 @@ class OrderService {
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${
-                j + 1
+              `Item ${i + 1}: adicional ${j + 1
               } deve possuir quantidade maior que zero`
             );
           }
@@ -605,8 +606,7 @@ class OrderService {
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${
-                product.name
+              `Estoque insuficiente para ${product.name
               }:\n${validation.errors.join("\n")}`
             );
           }
@@ -691,6 +691,7 @@ class OrderService {
           send_anonymously: data.send_anonymously || false,
           delivery_city: orderData.delivery_city, // ✅ NOVO: Salvar cidade
           delivery_state: orderData.delivery_state, // ✅ NOVO: Salvar estado
+          delivery_method: orderData.delivery_method || "delivery",
         },
       });
 
@@ -1503,9 +1504,9 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                  address: updated.delivery_address,
-                  date: updated.delivery_date || undefined,
-                }
+                address: updated.delivery_address,
+                date: updated.delivery_date || undefined,
+              }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },

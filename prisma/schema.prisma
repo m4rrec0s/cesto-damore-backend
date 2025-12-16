@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
@@ -22,7 +16,6 @@ model User {
   firebaseUId String?  @unique
   image_url   String?
   phone       String?
-  document    String? // CPF ou CNPJ do usuário
   address     String?
   city        String?
   state       String?
@@ -30,40 +23,42 @@ model User {
   role        String   @default("client")
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
-
-  orders Order[]
+  document    String?
+  orders      Order[]
 }
 
 model Product {
-  id                   String   @id @default(uuid())
-  name                 String
-  description          String?
-  price                Float
-  discount             Float?   @default(0)
-  stock_quantity       Int? // Calculado automaticamente baseado nos componentes
-  is_active            Boolean  @default(true)
-  image_url            String?
-  allows_customization Boolean  @default(false)
-  production_time      Int?     @default(0)
-  created_at           DateTime @default(now())
-  updated_at           DateTime @updatedAt
+  id                     String                 @id @default(uuid())
+  name                   String
+  description            String?
+  price                  Float
+  discount               Float?                 @default(0)
+  stock_quantity         Int?
+  is_active              Boolean                @default(true)
+  image_url              String?
+  allows_customization   Boolean                @default(false)
+  created_at             DateTime               @default(now())
+  updated_at             DateTime               @updatedAt
+  type_id                String
+  production_time        Int?                   @default(0)
+  embedding              Unsupported("vector")?
+  embedding_generated_at DateTime?              @db.Timestamp(6)
+  orderItems             OrderItem[]
+  type                   ProductType            @relation(fields: [type_id], references: [id])
+  additionals            ProductAdditional[]
+  categories             ProductCategory[]
+  components             ProductComponent[]
 
-  type_id String
-  type    ProductType @relation(fields: [type_id], references: [id])
-
-  orderItems  OrderItem[]
-  additionals ProductAdditional[]
-  categories  ProductCategory[]
-  components  ProductComponent[] // Itens que compõem este produto
+  @@index([embedding], map: "idx_product_embedding")
+  @@index([embedding], map: "product_embedding_idx")
 }
 
 model ProductType {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   name       String
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now()) @updatedAt
-
-  products Product[]
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now()) @updatedAt
+  products   Product[]
 }
 
 model Category {
@@ -76,315 +71,253 @@ model ProductCategory {
   product_id  String
   category_id String
   created_at  DateTime @default(now())
+  category    Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
-  product  Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  category Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
-
-  @@id([product_id, category_id]) // PK composta
+  @@id([product_id, category_id])
 }
 
 model ProductAdditional {
   product_id    String
   additional_id String
-  custom_price  Float? // Preço quando vendido como adicional deste produto
+  custom_price  Float?
   is_active     Boolean  @default(true)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
+  additional    Item     @relation(fields: [additional_id], references: [id])
+  product       Product  @relation(fields: [product_id], references: [id])
 
-  product    Product @relation(fields: [product_id], references: [id])
-  additional Item    @relation(fields: [additional_id], references: [id])
-
-  @@id([product_id, additional_id]) // PK composta
+  @@id([product_id, additional_id])
 }
 
 model Order {
-  id                                String      @id @default(uuid())
+  id                                String            @id @default(uuid())
   user_id                           String
-  status                            OrderStatus @default(PENDING)
-  discount                          Float       @default(0)
-  total                             Float       @map("total_price")
+  status                            OrderStatus       @default(PENDING)
+  discount                          Float             @default(0)
+  total                             Float             @map("total_price")
   delivery_address                  String?
-  delivery_city                     String?
-  delivery_state                    String?
   delivery_date                     DateTime?
   shipping_price                    Float?
   payment_method                    String?
   grand_total                       Float?
-  recipient_phone                   String? // Número do destinatário da cesta
-  complement                        String? // Complemento do endereço (apartamento, bloco, referência)
-  send_anonymously                  Boolean?    @default(false) // Indica se o envio será anônimo
-  google_drive_folder_id            String? // ID da pasta criada no Google Drive
-  google_drive_folder_url           String? // URL compartilhável da pasta no Drive
-  customizations_drive_processed    Boolean     @default(false) // Se as customizações foram processadas e enviadas para Drive
-  customizations_drive_processed_at DateTime? // Data/hora do processamento
-  created_at                        DateTime    @default(now())
-  updated_at                        DateTime    @updatedAt
-
-  user             User              @relation(fields: [user_id], references: [id])
-  items            OrderItem[]
-  payment          Payment?
-  personalizations Personalization[] // Personalizações deste pedido
+  recipient_phone                   String?
+  created_at                        DateTime          @default(now())
+  updated_at                        DateTime          @updatedAt
+  complement                        String?
+  send_anonymously                  Boolean?          @default(false)
+  delivery_city                     String?
+  delivery_state                    String?
+  delivery_method                   String?           @default("delivery")
+  customizations_drive_processed    Boolean           @default(false)
+  customizations_drive_processed_at DateTime?
+  google_drive_folder_id            String?
+  google_drive_folder_url           String?
+  user                              User              @relation(fields: [user_id], references: [id])
+  items                             OrderItem[]
+  payment                           Payment?
+  personalizations                  Personalization[]
 }
 
 model OrderItem {
-  id         String @id @default(uuid())
-  order_id   String
-  product_id String
-  quantity   Int
-  price      Float
-
-  order   Order   @relation(fields: [order_id], references: [id])
-  product Product @relation(fields: [product_id], references: [id])
-
+  id             String                   @id @default(uuid())
+  order_id       String
+  product_id     String
+  quantity       Int
+  price          Float
+  order          Order                    @relation(fields: [order_id], references: [id])
+  product        Product                  @relation(fields: [product_id], references: [id])
   additionals    OrderItemAdditional[]
   customizations OrderItemCustomization[]
 }
 
 model OrderItemAdditional {
-  id            String @id @default(uuid())
+  id            String    @id @default(uuid())
   order_item_id String
   additional_id String
   quantity      Int
   price         Float
-
-  orderItem  OrderItem @relation(fields: [order_item_id], references: [id])
-  additional Item      @relation(fields: [additional_id], references: [id])
+  additional    Item      @relation(fields: [additional_id], references: [id])
+  orderItem     OrderItem @relation(fields: [order_item_id], references: [id])
 }
 
 model Payment {
   id                  String        @id @default(uuid())
   order_id            String        @unique
-  mercado_pago_id     String?       @unique // ID do pagamento no Mercado Pago
-  preference_id       String? // ID da preferência de pagamento
-  payment_method      String? // Método de pagamento usado
-  payment_type        String? // Tipo de pagamento (credit_card, debit_card, etc.)
+  mercado_pago_id     String?       @unique
+  preference_id       String?
+  payment_method      String?
+  payment_type        String?
   status              PaymentStatus @default(PENDING)
   transaction_amount  Float
-  net_received_amount Float? // Valor líquido recebido (após taxas)
-  fee_details         String? // Detalhes das taxas (JSON)
-  external_reference  String? // Referência externa
+  net_received_amount Float?
+  fee_details         String?
+  external_reference  String?
   webhook_attempts    Int           @default(0)
   last_webhook_at     DateTime?
   approved_at         DateTime?
   created_at          DateTime      @default(now())
   updated_at          DateTime      @updatedAt
-
-  order Order @relation(fields: [order_id], references: [id])
+  order               Order         @relation(fields: [order_id], references: [id])
 }
 
 model FinancialSummary {
   id                     String   @id @default(uuid())
-  date                   DateTime @unique @db.Date // Data do resumo (por dia)
-  total_sales            Float    @default(0) // Total de vendas do dia
-  total_net_revenue      Float    @default(0) // Receita líquida (após taxas)
-  total_fees             Float    @default(0) // Total de taxas pagas
-  total_orders           Int      @default(0) // Número de pedidos
-  approved_orders        Int      @default(0) // Pedidos aprovados
-  canceled_orders        Int      @default(0) // Pedidos cancelados
-  pending_orders         Int      @default(0) // Pedidos pendentes
-  total_products_sold    Int      @default(0) // Total de produtos vendidos
-  total_additionals_sold Int      @default(0) // Total de adicionais vendidos
+  date                   DateTime @unique @db.Date
+  total_sales            Float    @default(0)
+  total_net_revenue      Float    @default(0)
+  total_fees             Float    @default(0)
+  total_orders           Int      @default(0)
+  approved_orders        Int      @default(0)
+  canceled_orders        Int      @default(0)
+  pending_orders         Int      @default(0)
+  total_products_sold    Int      @default(0)
+  total_additionals_sold Int      @default(0)
   created_at             DateTime @default(now())
   updated_at             DateTime @updatedAt
 }
 
 model WebhookLog {
   id                     String   @id @default(uuid())
-  payment_id             String? // ID do pagamento relacionado
-  topic                  String // Tópico do webhook (payment, merchant_order, etc.)
-  resource_id            String // ID do recurso
-  raw_data               String // Dados brutos do webhook (JSON)
+  payment_id             String?
+  topic                  String
+  resource_id            String
+  raw_data               String
   processed              Boolean  @default(false)
-  finalization_succeeded Boolean? @default(false)
-  finalization_attempts  Int      @default(0)
   error_message          String?
   created_at             DateTime @default(now())
+  finalization_attempts  Int      @default(0)
+  finalization_succeeded Boolean? @default(false)
 }
-
-enum PaymentStatus {
-  PENDING // Pendente
-  APPROVED // Aprovado
-  AUTHORIZED // Autorizado
-  IN_PROCESS // Em processamento
-  IN_MEDIATION // Em mediação
-  REJECTED // Rejeitado
-  CANCELLED // Cancelado
-  REFUNDED // Reembolsado
-  CHARGED_BACK // Chargeback
-}
-
-enum OrderStatus {
-  PENDING
-  PAID
-  SHIPPED
-  DELIVERED
-  CANCELED
-}
-
-// ================ FEED CONFIGURATION MODELS ================
 
 model FeedConfiguration {
-  id         String   @id @default(uuid())
+  id         String        @id @default(uuid())
   name       String
-  is_active  Boolean  @default(true)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  banners  FeedBanner[]
-  sections FeedSection[]
+  is_active  Boolean       @default(true)
+  created_at DateTime      @default(now())
+  updated_at DateTime      @updatedAt
+  banners    FeedBanner[]
+  sections   FeedSection[]
 }
 
 model FeedBanner {
-  id             String   @id @default(uuid())
-  feed_config_id String
-  title          String
-  subtitle       String?
-  image_url      String
-  link_url       String?
-  text_color     String?  @default("#FFFFFF")
-  is_active      Boolean  @default(true)
-  display_order  Int      @default(0)
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
-
+  id                String            @id @default(uuid())
+  feed_config_id    String
+  title             String
+  subtitle          String?
+  image_url         String
+  link_url          String?
+  text_color        String?           @default("#FFFFFF")
+  is_active         Boolean           @default(true)
+  display_order     Int               @default(0)
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
   feedConfiguration FeedConfiguration @relation(fields: [feed_config_id], references: [id], onDelete: Cascade)
 }
 
 model FeedSection {
-  id             String          @id @default(uuid())
-  feed_config_id String
-  title          String
-  section_type   FeedSectionType
-  is_visible     Boolean         @default(true)
-  display_order  Int             @default(0)
-  created_at     DateTime        @default(now())
-  updated_at     DateTime        @updatedAt
-
+  id                String            @id @default(uuid())
+  feed_config_id    String
+  title             String
+  section_type      FeedSectionType
+  is_visible        Boolean           @default(true)
+  display_order     Int               @default(0)
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
   feedConfiguration FeedConfiguration @relation(fields: [feed_config_id], references: [id], onDelete: Cascade)
   items             FeedSectionItem[]
 }
 
 model FeedSectionItem {
-  id              String   @id @default(uuid())
+  id              String      @id @default(uuid())
   feed_section_id String
   item_type       String
   item_id         String
-  display_order   Int      @default(0)
-  is_featured     Boolean  @default(false)
+  display_order   Int         @default(0)
+  is_featured     Boolean     @default(false)
   custom_title    String?
   custom_subtitle String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  feedSection FeedSection @relation(fields: [feed_section_id], references: [id], onDelete: Cascade)
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+  feedSection     FeedSection @relation(fields: [feed_section_id], references: [id], onDelete: Cascade)
 }
-
-enum FeedSectionType {
-  RECOMMENDED_PRODUCTS
-  DISCOUNTED_PRODUCTS
-  FEATURED_CATEGORIES
-  FEATURED_ADDITIONALS
-  CUSTOM_PRODUCTS
-  NEW_ARRIVALS
-  BEST_SELLERS
-}
-
-// ================ LAYOUT BASE & PERSONALIZATION MODELS ================
 
 model LayoutBase {
-  id              String @id @default(uuid())
-  name            String
-  item_type       String // "caneca" | "quadro" | ...
-  image_url       String // URL da imagem base (PNG com transparência/espaço)
-  width           Int // px reais da imagem base
-  height          Int
-  slots           Json // array de SlotDef (posições em percentual)
-  additional_time Int    @default(0) // Tempo adicional de produção em horas
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
+  id               String            @id @default(uuid())
+  name             String
+  item_type        String
+  image_url        String
+  width            Int
+  height           Int
+  slots            Json
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+  additional_time  Int               @default(0)
   items            Item[]
   personalizations Personalization[]
 }
 
 model Personalization {
-  id              String  @id @default(uuid())
+  id              String     @id @default(uuid())
   order_id        String
   item_id         String
   layout_base_id  String
-  config_json     Json // cores, variações, metadata de texto
-  images          Json // [{ slotId, tempUrl, width, height, originalName }]
-  final_image_url String? // URL do PNG composto salvo no Drive
-
-  created_at DateTime @default(now())
-
-  order       Order      @relation(fields: [order_id], references: [id], onDelete: Cascade)
-  item        Item       @relation(fields: [item_id], references: [id])
-  layout_base LayoutBase @relation(fields: [layout_base_id], references: [id])
+  config_json     Json
+  images          Json
+  final_image_url String?
+  created_at      DateTime   @default(now())
+  item            Item       @relation(fields: [item_id], references: [id])
+  layout_base     LayoutBase @relation(fields: [layout_base_id], references: [id])
+  order           Order      @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
   @@index([order_id])
   @@index([item_id])
 }
 
-// ================ ITEM MODEL ================
-
 model Item {
-  id                   String  @id @default(uuid())
+  id                   String                @id @default(uuid())
   name                 String
   description          String?
-  type                 String  @default("outros")
-  stock_quantity       Int     @default(0) // Estoque total do item
-  base_price           Float   @default(0) // Preço base do item
-  discount             Float?  @default(0) // NOVO: Desconto quando vendido como adicional
+  type                 String                @default("outros")
+  stock_quantity       Int                   @default(0)
+  base_price           Float                 @default(0)
+  discount             Float?                @default(0)
   image_url            String?
-  allows_customization Boolean @default(false) // Se permite customização
-  layout_base_id       String? // FK opcional para LayoutBase
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  layout_base      LayoutBase?           @relation(fields: [layout_base_id], references: [id])
-  customizations   Customization[] // Customizações disponíveis para este item
-  components       ProductComponent[] // Produtos que usam este item
-  additionals      ProductAdditional[] // Produtos que usam este item como adicional
-  orderItems       OrderItemAdditional[] // Itens de pedido que usam este item como adicional
-  personalizations Personalization[] // Personalizações feitas neste item
+  allows_customization Boolean               @default(false)
+  layout_base_id       String?
+  created_at           DateTime              @default(now())
+  updated_at           DateTime              @updatedAt
+  customizations       Customization[]
+  layout_base          LayoutBase?           @relation(fields: [layout_base_id], references: [id])
+  orderItems           OrderItemAdditional[]
+  personalizations     Personalization[]
+  additionals          ProductAdditional[]
+  components           ProductComponent[]
 }
 
 model Customization {
-  id                 String            @id @default(uuid())
-  name               String
-  description        String?
-  item_id            String
-  price              Float             @default(0) // Custo adicional da customização
-  isRequired         Boolean           @default(false) // Se a customização é obrigatória
-  type               CustomizationType
-  customization_data Json // Dados da customização em formato JSON
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
+  id                     String                   @id @default(uuid())
+  name                   String
+  description            String?
+  item_id                String
+  price                  Float                    @default(0)
+  isRequired             Boolean                  @default(false)
+  type                   CustomizationType
+  customization_data     Json
+  created_at             DateTime                 @default(now())
+  updated_at             DateTime                 @updatedAt
   item                   Item                     @relation(fields: [item_id], references: [id], onDelete: Cascade)
   OrderItemCustomization OrderItemCustomization[]
 }
 
-enum CustomizationType {
-  BASE_LAYOUT // Cliente escolhe um layout pronto
-  TEXT // Cliente modifica texto (datas, nomes, frases)
-  IMAGES // Cliente anexa imagens em posições específicas do layout
-  MULTIPLE_CHOICE // Cliente escolhe entre múltiplas opções
-}
-
 model Layout {
-  id          String @id @default(uuid())
+  id          String   @id @default(uuid())
   item_id     String
   name        String
   image_url   String
-  layout_data Json // Dados do layout em formato JSON
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  layout_data Json
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
   @@index([item_id])
 }
@@ -397,7 +330,7 @@ model ItemConstraint {
   related_item_id   String
   related_item_type String
   related_item_name String?
-  constraint_type   String   @default("REQUIRES") // REQUIRES ou MUTUALLY_EXCLUSIVE
+  constraint_type   String   @default("REQUIRES")
   message           String?
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
@@ -410,12 +343,11 @@ model ProductComponent {
   id         String   @id @default(uuid())
   product_id String
   item_id    String
-  quantity   Int      @default(1) // Quantidade deste item no produto
+  quantity   Int      @default(1)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
-
-  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  item    Item    @relation(fields: [item_id], references: [id], onDelete: Cascade)
+  item       Item     @relation(fields: [item_id], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, item_id])
   @@index([product_id])
@@ -423,17 +355,59 @@ model ProductComponent {
 }
 
 model OrderItemCustomization {
-  id                     String  @id @default(uuid())
+  id                     String         @id @default(uuid())
   order_item_id          String
-  customization_id       String? // Tornado opcional para permitir customizações sem FK rígida
-  value                  String // JSON com os detalhes da customização aplicada
-  google_drive_folder_id String? // ID da pasta no Google Drive com as artes
-  google_drive_url       String? // URL pública da pasta no Google Drive
-  additional_time_hours  Int     @default(0) // Tempo adicional (em horas) desta customização (ex: de um BASE_LAYOUT)
+  customization_id       String?
+  value                  String
+  google_drive_folder_id String?
+  google_drive_url       String?
+  created_at             DateTime       @default(now())
+  updated_at             DateTime       @updatedAt
+  additional_time_hours  Int            @default(0)
+  customization          Customization? @relation(fields: [customization_id], references: [id])
+  orderItem              OrderItem      @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+}
 
-  orderItem     OrderItem      @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
-  customization Customization? @relation(fields: [customization_id], references: [id])
+model n8n_vectors {
+  id        String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  text      String?
+  metadata  Json?
+  embedding Unsupported("vector")?
+}
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  AUTHORIZED
+  IN_PROCESS
+  IN_MEDIATION
+  REJECTED
+  CANCELLED
+  REFUNDED
+  CHARGED_BACK
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELED
+}
+
+enum FeedSectionType {
+  RECOMMENDED_PRODUCTS
+  DISCOUNTED_PRODUCTS
+  FEATURED_CATEGORIES
+  FEATURED_ADDITIONALS
+  CUSTOM_PRODUCTS
+  NEW_ARRIVALS
+  BEST_SELLERS
+}
+
+enum CustomizationType {
+  BASE_LAYOUT
+  TEXT
+  IMAGES
+  MULTIPLE_CHOICE
 }

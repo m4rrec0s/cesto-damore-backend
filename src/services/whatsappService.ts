@@ -208,10 +208,10 @@ class WhatsAppService {
               item.type,
               item.color_name
                 ? {
-                    name: item.color_name,
-                    hex: item.color_hex_code || "",
-                    additionalName: item.additional_name || "",
-                  }
+                  name: item.color_name,
+                  hex: item.color_hex_code || "",
+                  additionalName: item.additional_name || "",
+                }
                 : undefined
             );
           } else {
@@ -224,10 +224,10 @@ class WhatsAppService {
               item.type,
               item.color_name
                 ? {
-                    name: item.color_name,
-                    hex: item.color_hex_code || "",
-                    additionalName: item.additional_name || "",
-                  }
+                  name: item.color_name,
+                  hex: item.color_hex_code || "",
+                  additionalName: item.additional_name || "",
+                }
                 : undefined
             );
           }
@@ -329,6 +329,7 @@ class WhatsAppService {
       };
       googleDriveUrl?: string;
       recipientPhone?: string;
+      deliveryMethod?: string;
     },
     options: { notifyTeam?: boolean; notifyCustomer?: boolean } = {
       notifyTeam: true,
@@ -406,6 +407,7 @@ class WhatsAppService {
     recipientPhone?: string;
     send_anonymously?: boolean;
     complement?: string;
+    deliveryMethod?: string;
   }) {
     const orderLabel =
       orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase();
@@ -468,6 +470,11 @@ class WhatsAppService {
       }
     }
 
+    if (orderData.deliveryMethod === "pickup") {
+      teamMessage += `\n📍 *Retirada na Loja*\n`;
+      teamMessage += `Endereço: https://maps.app.goo.gl/YwimXyog4pTBeEjP8?g_st=aw\n`;
+    }
+
     if (orderData.googleDriveUrl) {
       teamMessage += `\n🎨 *Customizações:*\n`;
       teamMessage += `📸 ${orderData.googleDriveUrl}\n`;
@@ -505,6 +512,11 @@ class WhatsAppService {
       customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} às ${deliveryTimeBrasilia}\n\n`;
     } else {
       customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia}\n\n`;
+    }
+
+    if (orderData.deliveryMethod === "pickup") {
+      customerMessage += `📍 *Retirada na Loja*\n`;
+      customerMessage += `🗺️ Localização: https://maps.app.goo.gl/YwimXyog4pTBeEjP8?g_st=aw\n\n`;
     }
 
     // Destinatário (se diferente do comprador ou anônimo)
@@ -777,7 +789,8 @@ class WhatsAppService {
         message += `${statusInfo.customerHint}\n`;
 
         if (orderData.googleDriveUrl) {
-          message += `\n🎨 Acesse suas customizações: ${orderData.googleDriveUrl}\n`;
+          // REMOVIDO: Link do Drive apenas na confirmação
+          // message += `\n🎨 Acesse suas customizações: ${orderData.googleDriveUrl}\n`;
         }
 
         if (orderData.delivery) {

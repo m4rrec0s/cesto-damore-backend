@@ -135,28 +135,54 @@ export const authenticateToken = async (
   }
 };
 
+// ✅ SEGURANÇA: Validação robusta de role ADMIN
 export const requireAdmin = (
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ) => {
   if (!req.user) {
+    console.warn("🚫 [SECURITY] Tentativa de acesso admin sem autenticação", {
+      ip: req.ip,
+      method: req.method,
+      path: req.path,
+      timestamp: new Date().toISOString(),
+    });
     return res.status(401).json({
       error: "Usuário não autenticado",
       code: "NOT_AUTHENTICATED",
     });
   }
 
+  // ✅ Validação dupla: verificar que role é exatamente "admin"
+  // Não aceitar null, undefined ou qualquer outro valor
   if (req.user.role !== "admin") {
+    console.warn("🚫 [SECURITY] Acesso admin negado - permissão insuficiente", {
+      userId: req.user.id,
+      userRole: req.user.role || "undefined",
+      ip: req.ip,
+      method: req.method,
+      path: req.path,
+      timestamp: new Date().toISOString(),
+    });
     return res.status(403).json({
       error: "Acesso negado - permissão de administrador necessária",
       code: "ADMIN_REQUIRED",
       details: {
-        userRole: req.user.role,
+        userRole: req.user.role || "undefined",
         requiredRole: "admin",
       },
     });
   }
+
+  // ✅ Log de auditoria: acesso admin permitido
+  console.log("✅ [SECURITY] Acesso admin permitido", {
+    userId: req.user.id,
+    userEmail: req.user.email,
+    method: req.method,
+    path: req.path,
+    timestamp: new Date().toISOString(),
+  });
 
   next();
 };

@@ -44,6 +44,14 @@ interface ArtworkAsset {
  */
 class OrderCustomizationService {
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
+    // ✅ NOVO: Buscar customização existente para fazer upsert
+    const existing = await prisma.orderItemCustomization.findFirst({
+      where: {
+        order_item_id: input.orderItemId,
+        customization_id: input.customizationRuleId || "default",
+      },
+    });
+
     // O schema atual tem apenas: order_item_id, customization_id, value
     // Vamos salvar todos os dados extras no campo "value" como JSON
     const customizationValue: any = {
@@ -54,6 +62,84 @@ class OrderCustomizationService {
       // O customizationData já contém as URLs do /uploads/temp/
       ...input.customizationData,
     };
+
+    // ✅ NOVO: Se está atualizando, coletar arquivos antigos para deletar
+    const oldTempFiles: string[] = [];
+    if (existing) {
+      try {
+        const existingData = this.parseCustomizationData(existing.value);
+
+        // Verificar e marcar arquivos antigos de BASE_LAYOUT para deleção
+        if (input.customizationType === "BASE_LAYOUT") {
+          // Preview/artwork antigo
+          if (
+            existingData.image?.preview_url &&
+            existingData.image.preview_url.includes("/uploads/temp/") &&
+            input.customizationData.image?.preview_url !==
+              existingData.image.preview_url
+          ) {
+            const oldFilename = existingData.image.preview_url
+              .split("/uploads/temp/")
+              .pop();
+            if (oldFilename) oldTempFiles.push(oldFilename);
+            logger.debug(
+              `🗑️ [saveOrderItemCustomization] Marcando artwork antigo: ${oldFilename}`
+            );
+          }
+
+          // Imagens antigas do layout (se houver array de images)
+          if (existingData.images && Array.isArray(existingData.images)) {
+            existingData.images.forEach((img: any) => {
+              if (img.preview_url?.includes("/uploads/temp/")) {
+                const oldFilename = img.preview_url
+                  .split("/uploads/temp/")
+                  .pop();
+                if (oldFilename) {
+                  // Verificar se essa imagem ainda existe nas novas
+                  const stillExists = input.customizationData.images?.some(
+                    (newImg: any) => newImg.preview_url === img.preview_url
+                  );
+                  if (!stillExists) {
+                    oldTempFiles.push(oldFilename);
+                    logger.debug(
+                      `🗑️ [saveOrderItemCustomization] Marcando imagem antiga: ${oldFilename}`
+                    );
+                  }
+                }
+              }
+            });
+          }
+        }
+
+        // Verificar fotos antigas de IMAGES
+        if (input.customizationType === "IMAGES" && existingData.photos) {
+          const oldPhotos = Array.isArray(existingData.photos)
+            ? existingData.photos
+            : [];
+          oldPhotos.forEach((photo: any) => {
+            if (photo.preview_url?.includes("/uploads/temp/")) {
+              const oldFilename = photo.preview_url
+                .split("/uploads/temp/")
+                .pop();
+              if (oldFilename) {
+                // Verificar se essa foto ainda existe nas novas
+                const stillExists = input.customizationData.photos?.some(
+                  (newPhoto: any) => newPhoto.preview_url === photo.preview_url
+                );
+                if (!stillExists) {
+                  oldTempFiles.push(oldFilename);
+                  logger.debug(
+                    `🗑️ [saveOrderItemCustomization] Marcando foto antiga: ${oldFilename}`
+                  );
+                }
+              }
+            }
+          });
+        }
+      } catch (err) {
+        logger.warn("⚠️ Erro ao coletar arquivos antigos para deleção:", err);
+      }
+    }
 
     // Compute and include label_selected when possible
     const computedLabel = await this.computeLabelSelected(
@@ -91,9 +177,46 @@ class OrderCustomizationService {
       /* ignore logging errors */
     }
 
-    return prisma.orderItemCustomization.create({
-      data: payload,
+    // ✅ UPSERT: Atualizar se existir, criar se não
+    const record = await prisma.orderItemCustomization.upsert({
+      where: {
+        // Usar unique constraint composto (precisa existir no schema do Prisma)
+        order_item_id_customization_id: {
+          order_item_id: input.orderItemId,
+          customization_id: input.customizationRuleId || "default",
+        },
+      },
+      update: {
+        value: payload.value,
+        updated_at: new Date(),
+      },
+      create: payload,
     });
+
+    // ✅ DELETAR arquivos antigos após upsert bem-sucedido
+    if (oldTempFiles.length > 0) {
+      logger.info(
+        `🗑️ Deletando ${oldTempFiles.length} arquivos antigos substituídos`
+      );
+      for (const filename of oldTempFiles) {
+        try {
+          const fs = await import("fs/promises");
+          const path = await import("path");
+          const filePath = path.join(
+            process.cwd(),
+            "uploads",
+            "temp",
+            filename
+          );
+          await fs.unlink(filePath);
+          logger.debug(`✅ Deletado: ${filename}`);
+        } catch (err) {
+          logger.warn(`⚠️ Erro ao deletar ${filename}:`, err);
+        }
+      }
+    }
+
+    return record;
   }
 
   async ensureOrderItem(orderId: string, orderItemId: string) {

@@ -108,11 +108,11 @@ model Order {
   send_anonymously                  Boolean?          @default(false)
   delivery_city                     String?
   delivery_state                    String?
-  delivery_method                   String?           @default("delivery")
   customizations_drive_processed    Boolean           @default(false)
   customizations_drive_processed_at DateTime?
   google_drive_folder_id            String?
   google_drive_folder_url           String?
+  delivery_method                   String?           @default("delivery")
   user                              User              @relation(fields: [user_id], references: [id])
   items                             OrderItem[]
   payment                           Payment?
@@ -366,6 +366,8 @@ model OrderItemCustomization {
   additional_time_hours  Int            @default(0)
   customization          Customization? @relation(fields: [customization_id], references: [id])
   orderItem              OrderItem      @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+
+  @@unique([order_item_id, customization_id], name: "order_item_id_customization_id")
 }
 
 model n8n_vectors {

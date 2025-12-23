@@ -50,6 +50,80 @@ const router = Router();
 // Health check endpoint
 router.get("/health", healthCheckEndpoint);
 
+router.get("/preview", (req: Request, res: Response) => {
+  try {
+    const imgParam = req.query.img as string;
+
+    if (!imgParam) {
+      return res.status(400).json({
+        error: "Parâmetro 'img' obrigatório",
+        example: "/preview?img=produto.webp",
+      });
+    }
+
+    // Validação simples: permitir apenas caracteres alfanuméricos, hífens e pontos
+    if (!/^[a-zA-Z0-9._\-/]+$/.test(imgParam)) {
+      return res.status(400).json({ error: "Nome de arquivo inválido" });
+    }
+
+    // Construir URL completa da imagem
+    const baseUrl = process.env.BASE_URL || "https://api.cestodamore.com.br";
+    const imageUrl = `${baseUrl}/images/${imgParam}`;
+
+    // Metadata para a página
+    const title = "Cesto d'Amore - Produto";
+    const description =
+      "Confira nosso produto especial disponível agora na Cesto d'Amore";
+
+    // Dimensões recomendadas para OG:Image (mínimo 1200x627, ideal para WhatsApp)
+    const imageWidth = 1200;
+    const imageHeight = 627;
+
+    // HTML com meta tags Open Graph otimizadas para WhatsApp
+    const html = `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <meta name="description" content="${description}">
+    
+    <!-- Open Graph Meta Tags (para WhatsApp, Facebook, etc) -->
+    <meta property="og:title" content="${title}">
+    <meta property="og:description" content="${description}">
+    <meta property="og:image" content="${imageUrl}">
+    <meta property="og:image:width" content="${imageWidth}">
+    <meta property="og:image:height" content="${imageHeight}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="${baseUrl}/preview?img=${encodeURIComponent(
+      imgParam
+    )}">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="${title}">
+    <meta name="twitter:description" content="${description}">
+    <meta name="twitter:image" content="${imageUrl}">
+</head>
+<body>
+    <img src="${imageUrl}" alt="${title}" loading="eager" style="width:80%;height:auto;">
+</body>
+</html>
+    `.trim();
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600"); // Cache por 1 hora
+    res.send(html);
+  } catch (error: any) {
+    logger.error("❌ [PREVIEW] Erro ao renderizar preview:", error);
+    res.status(500).json({
+      error: "Erro ao renderizar preview",
+      message: error.message,
+    });
+  }
+});
+
 // ============================================
 // DEBUG ENDPOINT - Upload de teste
 // ============================================

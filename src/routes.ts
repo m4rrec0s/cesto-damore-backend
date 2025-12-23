@@ -70,18 +70,10 @@ router.get("/preview", (req: Request, res: Response) => {
     const baseUrl = process.env.BASE_URL || "https://api.cestodamore.com.br";
     const imageUrl = `${baseUrl}/images/${imgParam}`;
 
-    // Metadata para a página
+    // Metadata essencial para Open Graph
     const title = "Cesto d'Amore - Produto";
-    const description =
-      "Confira nosso produto especial disponível agora na Cesto d'Amore";
 
-    // Dimensões recomendadas para OG:Image (mínimo 1200x627, ideal para WhatsApp)
-    const imageWidth = 1200;
-    const imageHeight = 627;
-
-    // HTML com meta tags Open Graph otimizadas para WhatsApp
-    const encodedImg = encodeURIComponent(imgParam);
-    const previewUrl = `${baseUrl}/preview?img=${encodedImg}`;
+    // HTML com meta tags Open Graph otimizadas
     const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -89,22 +81,9 @@ router.get("/preview", (req: Request, res: Response) => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title}</title>
-    <meta name="description" content="${description}">
-    
-    <!-- Open Graph Meta Tags (para WhatsApp, Facebook, etc) -->
     <meta property="og:title" content="${title}">
-    <meta property="og:description" content="${description}">
     <meta property="og:image" content="${imageUrl}">
-    <meta property="og:image:width" content="${imageWidth}">
-    <meta property="og:image:height" content="${imageHeight}">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="${previewUrl}">
-    
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="${title}">
-    <meta name="twitter:description" content="${description}">
-    <meta name="twitter:image" content="${imageUrl}">
 </head>
 <body>
     <img src="${imageUrl}" alt="${title}" loading="eager" style="width:80%;height:auto;">

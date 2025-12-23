@@ -80,6 +80,8 @@ router.get("/preview", (req: Request, res: Response) => {
     const imageHeight = 627;
 
     // HTML com meta tags Open Graph otimizadas para WhatsApp
+    const encodedImg = encodeURIComponent(imgParam);
+    const previewUrl = `${baseUrl}/preview?img=${encodedImg}`;
     const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -96,9 +98,7 @@ router.get("/preview", (req: Request, res: Response) => {
     <meta property="og:image:width" content="${imageWidth}">
     <meta property="og:image:height" content="${imageHeight}">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="${baseUrl}/preview?img=${encodeURIComponent(
-      imgParam
-    )}">
+    <meta property="og:url" content="${previewUrl}">
     
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">

@@ -76,7 +76,7 @@ class OrderCustomizationService {
             existingData.image?.preview_url &&
             existingData.image.preview_url.includes("/uploads/temp/") &&
             input.customizationData.image?.preview_url !==
-              existingData.image.preview_url
+            existingData.image.preview_url
           ) {
             const oldFilename = existingData.image.preview_url
               .split("/uploads/temp/")
@@ -219,6 +219,72 @@ class OrderCustomizationService {
     return record;
   }
 
+  /**
+   * ✅ NOVO: Consolida dados de customização para revisão no carrinho/checkout
+   * Busca itens do pedido, seus produtos, regras disponíveis por componente e dados preenchidos.
+   */
+  async getOrderReviewData(orderId: string) {
+    const orderItems = await prisma.orderItem.findMany({
+      where: { order_id: orderId },
+      include: {
+        product: {
+          include: {
+            components: {
+              include: {
+                item: {
+                  include: {
+                    customizations: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        customizations: true,
+      },
+    });
+
+    return orderItems.map((item) => {
+      const allAvailable: any[] = [];
+
+      if (item.product.components) {
+        for (const component of item.product.components) {
+          const itemCustomizations = component.item.customizations || [];
+          const mapped = itemCustomizations.map((c) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+            isRequired: c.isRequired,
+            itemId: component.item_id,
+            itemName: component.item.name || "Item",
+            componentId: component.id,
+          }));
+          allAvailable.push(...mapped);
+        }
+      }
+
+      return {
+        orderItemId: item.id,
+        productId: item.product_id,
+        productName: item.product.name,
+        availableCustomizations: allAvailable,
+        filledCustomizations: item.customizations.map((c: any) => {
+          let parsedValue = {};
+          try {
+            parsedValue = JSON.parse(c.value || "{}");
+          } catch (e) {
+            logger.warn(`⚠️ Falha ao parsear value da customização ${c.id}`);
+          }
+
+          return {
+            ...c,
+            value: parsedValue,
+          };
+        }),
+      };
+    });
+  }
+
   async ensureOrderItem(orderId: string, orderItemId: string) {
     const orderItem = await prisma.orderItem.findFirst({
       where: {
@@ -260,7 +326,7 @@ class OrderCustomizationService {
       input.customizationData?.image?.preview_url &&
       existingData.image?.preview_url &&
       input.customizationData.image.preview_url !==
-        existingData.image.preview_url
+      existingData.image.preview_url
     ) {
       // Se o novo canvas preview é diferente do antigo, deletar o antigo
       if (existingData.image.preview_url.includes("/uploads/temp/")) {
@@ -328,8 +394,7 @@ class OrderCustomizationService {
     try {
       const containsBase64 = /data:[^;]+;base64,/.test(updateData.value);
       logger.debug(
-        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${
-          input.customizationType
+        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${input.customizationType
         }, ruleId=${input.customizationRuleId ?? existing.customization_id}`
       );
     } catch (err) {
@@ -459,9 +524,8 @@ class OrderCustomizationService {
         .replace(/[^a-zA-Z0-9]/g, "_")
         .substring(0, 40);
 
-      const folderName = `Pedido_${safeCustomerName}_${
-        new Date().toISOString().split("T")[0]
-      }_${orderId.substring(0, 8)}`;
+      const folderName = `Pedido_${safeCustomerName}_${new Date().toISOString().split("T")[0]
+        }_${orderId.substring(0, 8)}`;
 
       mainFolderId = await googleDriveService.createFolder(folderName);
       await googleDriveService.makeFolderPublic(mainFolderId);
@@ -1209,10 +1273,8 @@ class OrderCustomizationService {
 
         if (upload) {
           logger.info(
-            `✅ LAYOUT_BASE image[${idx}] (slot: ${
-              image.slot || "unknown"
-            }) sanitized and uploaded: ${upload.fileName} (driveId=${
-              upload.id
+            `✅ LAYOUT_BASE image[${idx}] (slot: ${image.slot || "unknown"
+            }) sanitized and uploaded: ${upload.fileName} (driveId=${upload.id
             })`
           );
         } else {

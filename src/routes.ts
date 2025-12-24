@@ -18,6 +18,7 @@ import customizationController from "./controller/customizationController";
 import orderCustomizationController from "./controller/orderCustomizationController";
 import itemConstraintController from "./controller/itemConstraintController";
 import customizationUploadController from "./controller/customizationUploadController";
+import customizationReviewController from "./controller/customizationReviewController";
 import oauthController from "./controller/oauthController";
 import { PaymentService } from "./services/paymentService";
 import logger from "./utils/logger";
@@ -875,12 +876,10 @@ router.get(
 
 // ========== CUSTOMIZATION IMAGE UPLOAD ROUTES ==========
 
-// Upload de imagem para preview de customização (Admin)
+// Upload de imagem para preview de customização (Público - para clientes durante customização)
 // ✅ NÃO converter para WebP - manter formato original
 router.post(
   "/customization/upload-image",
-  authenticateToken,
-  requireAdmin,
   upload.single("image"),
   customizationUploadController.uploadImage
 );
@@ -1009,6 +1008,9 @@ router.post(
 
 // Gerar preview de customizações (público - para clientes)
 router.post("/customizations/preview", customizationController.buildPreview);
+
+// Consolidar dados de customização para revisão (público - para clientes)
+router.get("/customization/review/:orderId", customizationReviewController.getReviewData);
 
 // Listar layouts base
 router.get("/layouts", layoutBaseController.list);

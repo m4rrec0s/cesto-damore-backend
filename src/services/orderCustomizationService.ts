@@ -244,7 +244,9 @@ class OrderCustomizationService {
       },
     });
 
-    return orderItems.map((item) => {
+    logger.info(`📋 [OrderCustomizationService] Encontrados ${orderItems.length} itens no pedido ${orderId}`);
+
+    const result = orderItems.map((item) => {
       const allAvailable: any[] = [];
 
       if (item.product.components) {
@@ -263,26 +265,34 @@ class OrderCustomizationService {
         }
       }
 
+      const filledCustomizations = item.customizations.map((c: any) => {
+        let parsedValue = {};
+        try {
+          parsedValue = JSON.parse(c.value || "{}");
+        } catch (e) {
+          logger.warn(`⚠️ Falha ao parsear value da customização ${c.id}`);
+        }
+
+        return {
+          id: c.id,
+          order_item_id: c.order_item_id,
+          customization_id: c.customization_id, // CORRIGIDO: Era customization_rule_id (que não existe no Prisma)
+          value: parsedValue,
+        };
+      });
+
+      logger.info(`📦 Item ${item.id}: ${allAvailable.length} regras, ${filledCustomizations.length} preenchidas`);
+
       return {
         orderItemId: item.id,
         productId: item.product_id,
         productName: item.product.name,
         availableCustomizations: allAvailable,
-        filledCustomizations: item.customizations.map((c: any) => {
-          let parsedValue = {};
-          try {
-            parsedValue = JSON.parse(c.value || "{}");
-          } catch (e) {
-            logger.warn(`⚠️ Falha ao parsear value da customização ${c.id}`);
-          }
-
-          return {
-            ...c,
-            value: parsedValue,
-          };
-        }),
+        filledCustomizations: filledCustomizations,
       };
     });
+
+    return result;
   }
 
   async ensureOrderItem(orderId: string, orderItemId: string) {

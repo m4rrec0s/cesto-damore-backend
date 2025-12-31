@@ -13,6 +13,7 @@ interface WebhookClient {
  */
 class WebhookNotificationService {
   private clients: Map<string, WebhookClient[]> = new Map();
+  private readonly CLIENT_TIMEOUT = 5 * 60 * 1000; // 5 minutos de timeout
 
   /**
    * Registra um cliente SSE para receber notificações de um pedido específico
@@ -22,9 +23,15 @@ class WebhookNotificationService {
 
     // Configurar headers SSE
     res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader(
+      "Cache-Control",
+      "no-cache, no-store, must-revalidate, max-age=0"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("X-Accel-Buffering", "no"); // Para nginx
 
     // Flush headers when possible to ensure client starts receiving data immediately
     try {
@@ -46,6 +53,16 @@ class WebhookNotificationService {
       }
     }, 20000);
 
+    // Configurar timeout para desconectar automaticamente após período de inatividade
+    const timeoutHandle = setTimeout(() => {
+      logger.info(`⏱️ Timeout SSE para pedido ${orderId} - fechando conexão`);
+      try {
+        res.end();
+      } catch {
+        /* ignore */
+      }
+    }, this.CLIENT_TIMEOUT);
+
     // Adicionar cliente à lista
     const clients = this.clients.get(orderId) || [];
     clients.push({ orderId, response: res, pingInterval });
@@ -54,6 +71,7 @@ class WebhookNotificationService {
     // Remover cliente quando a conexão for fechada
     res.on("close", () => {
       logger.info(`❌ Cliente SSE desconectado para pedido: ${orderId}`);
+      clearTimeout(timeoutHandle);
       this.removeClient(orderId, res);
     });
   }
@@ -179,6 +197,47 @@ class WebhookNotificationService {
         clientCount: clients.length,
       })),
     };
+  }
+
+  /**
+   * Limpa conexões mortas (para manutenção periódica)
+   */
+  cleanupDeadConnections(): void {
+    let totalCleaned = 0;
+
+    this.clients.forEach((clients, orderId) => {
+      const activePreviously = clients.length;
+      const filtered = clients.filter((client) => {
+        try {
+          // Tentar escrever um comentário para verificar se a conexão está viva
+          client.response.write(`: health-check\n\n`);
+          return true;
+        } catch {
+          // Conexão está morta, remover
+          if (client.pingInterval) {
+            clearInterval(client.pingInterval);
+            client.pingInterval = null;
+          }
+          totalCleaned++;
+          return false;
+        }
+      });
+
+      if (filtered.length === 0) {
+        this.clients.delete(orderId);
+        logger.info(
+          `🧹 Removidas ${activePreviously} conexão(ões) morta(s) do pedido ${orderId}`
+        );
+      } else if (filtered.length < activePreviously) {
+        this.clients.set(orderId, filtered);
+      }
+    });
+
+    if (totalCleaned > 0) {
+      logger.info(
+        `🧹 Limpeza de SSE: ${totalCleaned} conexão(ões) morta(s) removida(s)`
+      );
+    }
   }
 }
 

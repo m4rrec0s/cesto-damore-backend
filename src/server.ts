@@ -7,6 +7,7 @@ import routes from "./routes";
 import cron from "node-cron";
 import orderService from "./services/orderService";
 import { PaymentService } from "./services/paymentService";
+import { webhookNotificationService } from "./services/webhookNotificationService";
 import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
@@ -117,6 +118,14 @@ cron.schedule("0 */6 * * *", async () => {
     );
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de arquivos temporários:", error);
+  }
+});
+
+cron.schedule("*/10 * * * *", () => {
+  try {
+    webhookNotificationService.cleanupDeadConnections();
+  } catch (error) {
+    logger.error("❌ [Cron] Erro na limpeza de conexões SSE:", error);
   }
 });
 

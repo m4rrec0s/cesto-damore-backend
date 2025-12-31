@@ -743,15 +743,19 @@ class OrderService {
             const isValidUUID =
               customization_id && uuidRegex.test(customization_id);
 
+            // ✅ NOVO: Sanitizar base64 antes de salvar no banco
+            const customizationDataToSave = {
+              customization_type,
+              title,
+              ...(customization_data || {}),
+              ...otherFields,
+            };
+            this.removeBase64Recursive(customizationDataToSave);
+
             customizationsBatch.push({
               order_item_id: orderItem.id,
               customization_id: isValidUUID ? customization_id : null,
-              value: JSON.stringify({
-                customization_type,
-                title,
-                ...(customization_data || {}),
-                ...otherFields,
-              }),
+              value: JSON.stringify(customizationDataToSave),
             });
           }
         }
@@ -770,16 +774,9 @@ class OrderService {
         `✅ [OrderService.createOrder] inserted items in ${createDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`
       );
 
-      // ========== DECREMENTAR ESTOQUE ==========
-      try {
-        if (!data.is_draft) {
-          await stockService.decrementOrderStock(items);
-        }
-      } catch (stockError: unknown) {
-        console.error("❌ Erro ao decrementar estoque:", stockError);
-        // Log o erro mas não falha o pedido, pois já foi criado
-        // Idealmente, deveria ter uma transação para reverter
-      }
+      // ========== DECREMENTO DE ESTOQUE REMOVIDO DA CRIAÇÃO ==========
+      // O estoque agora é decrementado apenas após a confirmação do pagamento
+      // via updateOrderStatus("PAID") ou processamento de webhook.
 
       // Sincronizar cliente com n8n (não bloqueia o pedido se falhar)
       try {
@@ -1453,6 +1450,29 @@ class OrderService {
         payment: true,
       },
     });
+
+    // ✅ NOVO: Decrementar estoque quando o pedido for pago
+    if (normalizedStatus === "PAID" && current.status !== "PAID") {
+      try {
+        logger.info(`📦 [OrderService] Pedido ${id} pago - decrementando estoque...`);
+
+        // Transformar items para o formato esperado pelo stockService
+        const stockItems = updated.items.map(item => ({
+          product_id: item.product_id,
+          quantity: item.quantity,
+          additionals: item.additionals.map(ad => ({
+            additional_id: ad.additional_id,
+            quantity: ad.quantity
+          }))
+        }));
+
+        await stockService.decrementOrderStock(stockItems);
+        logger.info(`✅ Estoque decrementado para o pedido ${id}`);
+      } catch (stockError) {
+        logger.error(`❌ Erro crítico ao decrementar estoque do pedido ${id}:`, stockError);
+        // O pedido permanece PAID, mas o erro é registrado para intervenção manual se necessário
+      }
+    }
 
     if (options.notifyCustomer !== false) {
       try {

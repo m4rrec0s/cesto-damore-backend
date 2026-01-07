@@ -91,10 +91,10 @@ export const authenticateToken = async (
       console.error("❌ Usuário não encontrado no banco:", {
         decodedToken: decodedToken
           ? {
-              userId: decodedToken.userId,
-              uid: decodedToken.uid,
-              email: decodedToken.email,
-            }
+            userId: decodedToken.userId,
+            uid: decodedToken.uid,
+            email: decodedToken.email,
+          }
           : null,
       });
       return res.status(401).json({
@@ -196,19 +196,19 @@ export const validateMercadoPagoWebhook = (
     // Log seguro da estrutura do webhook
     const bodyPreview = req.body
       ? {
-          // Formato novo
-          type:
-            req.body.type || req.body.action?.split(".")[0] || req.body.topic,
-          action: req.body.action,
-          live_mode: req.body.live_mode,
-          paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
-          // Formato antigo
-          topic: req.body.topic,
-          resource: req.body.resource,
-          // Meta
-          hasData: !!req.body.data,
-          keys: Object.keys(req.body),
-        }
+        // Formato novo
+        type:
+          req.body.type || req.body.action?.split(".")[0] || req.body.topic,
+        action: req.body.action,
+        live_mode: req.body.live_mode,
+        paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
+        // Formato antigo
+        topic: req.body.topic,
+        resource: req.body.resource,
+        // Meta
+        hasData: !!req.body.data,
+        keys: Object.keys(req.body),
+      }
       : "body vazio";
 
     console.log("🔔 Webhook recebido do Mercado Pago", {
@@ -553,4 +553,34 @@ export const logFinancialOperation = (operation: string) => {
 
     next();
   };
+};
+
+export const validateAIAgentKey = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const apiKey = req.headers["x-ai-api-key"] || req.headers["X-AI-API-Key"];
+  const validKey = process.env.AI_AGENT_API_KEY;
+
+  if (!validKey) {
+    console.error("❌ AI_AGENT_API_KEY não configurado no servidor");
+    return res.status(500).json({
+      error: "Erro de configuração de segurança",
+      code: "SECURITY_CONFIG_ERROR",
+    });
+  }
+
+  if (apiKey !== validKey) {
+    console.warn("🚫 [SECURITY] Tentativa de acesso à IA com chave inválida", {
+      ip: req.ip,
+      path: req.path,
+    });
+    return res.status(401).json({
+      error: "Acesso não autorizado - Chave de API inválida",
+      code: "INVALID_AI_API_KEY",
+    });
+  }
+
+  next();
 };

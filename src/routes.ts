@@ -29,6 +29,7 @@ import productComponentController from "./controller/productComponentController"
 import layoutBaseController from "./controller/layoutBaseController";
 import customerManagementController from "./controller/customerManagementController";
 import aiProductController from "./controller/aiProductController";
+import aiAgentController from "./controller/aiAgentController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import {
   upload,
@@ -43,6 +44,7 @@ import {
   paymentRateLimit,
   validatePaymentData,
   logFinancialOperation,
+  validateAIAgentKey,
 } from "./middleware/security";
 import { healthCheckEndpoint } from "./middleware/healthCheck";
 
@@ -226,6 +228,13 @@ router.get(
 router.get("/ai/products/light", aiProductController.getLightweightProducts);
 router.get("/ai/products/detail/:id", aiProductController.getProductDetail);
 router.get("/ai/products/info", aiProductController.getEndpointInfo);
+
+// ============================================
+// AI AGENT ROUTES (Conversação com MCP)
+// ============================================
+
+router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
+router.get("/ai/agent/history/:sessionId", validateAIAgentKey, aiAgentController.getHistory);
 
 // ============================================
 // GOOGLE DRIVE OAUTH2

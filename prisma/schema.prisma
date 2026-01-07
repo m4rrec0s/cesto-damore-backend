@@ -370,11 +370,72 @@ model OrderItemCustomization {
   @@unique([order_item_id, customization_id], name: "order_item_id_customization_id")
 }
 
+model AIAgentSession {
+  id             String           @id @default(uuid())
+  user_id        String?
+  customer_phone String?
+  expires_at     DateTime
+  created_at     DateTime         @default(now())
+  messages       AIAgentMessage[]
+
+  @@index([customer_phone])
+}
+
+model AIAgentMessage {
+  id           String         @id @default(uuid())
+  session_id   String
+  role         String // 'user', 'assistant', 'system', 'tool'
+  content      String
+  name         String? // For tool names
+  tool_call_id String?
+  tool_calls   String? // Store JSON array of tool calls for assistant role
+  created_at   DateTime       @default(now())
+  session      AIAgentSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@index([session_id])
+}
+
+model CustomerMemory {
+  id             String   @id @default(uuid())
+  customer_phone String   @unique
+  summary        String
+  updated_at     DateTime @updatedAt
+  expires_at     DateTime // 15 days from update
+}
+
 model n8n_vectors {
   id        String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   text      String?
   metadata  Json?
   embedding Unsupported("vector")?
+}
+
+model Holiday {
+  id             String   @id @default(uuid())
+  name           String
+  start_date     DateTime @db.Date
+  end_date       DateTime @db.Date
+  closure_type   String   @default("full_day") // 'full_day' ou 'custom'
+  duration_hours Int? // Se closure_type = 'custom'
+  description    String?
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([start_date])
+}
+
+model AISessionProductHistory {
+  id           String   @id @default(uuid())
+  session_id   String
+  product_id   String
+  sent_count   Int      @default(1)
+  last_sent_at DateTime @default(now())
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@unique([session_id, product_id])
+  @@index([session_id])
 }
 
 enum PaymentStatus {

@@ -74,7 +74,7 @@ class MCPClientService {
     );
   }
 
-  async callTool(name: string, args: any) {
+  async callTool(name: string, args: any): Promise<any> {
     try {
       await this.ensureConnected();
       if (!this.client) throw new Error("MCP Client not initialized");

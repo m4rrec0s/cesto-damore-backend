@@ -374,6 +374,7 @@ model AIAgentSession {
   id             String           @id @default(uuid())
   user_id        String?
   customer_phone String?
+  is_blocked     Boolean          @default(false)
   expires_at     DateTime
   created_at     DateTime         @default(now())
   messages       AIAgentMessage[]

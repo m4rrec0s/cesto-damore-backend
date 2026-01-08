@@ -159,6 +159,28 @@ class AIAgentService {
     customerName?: string
   ) {
     const session = await this.getSession(sessionId, customerPhone);
+
+    // Check if session is blocked (transfered to human)
+    if (session.is_blocked) {
+      // If blocked, we return a fake stream that says nothing or a specific message
+      // But usually we just want to stop the AI from responding.
+      const mockStream = {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            choices: [
+              {
+                delta: {
+                  content:
+                    "Este atendimento foi transferido para um atendente humano. Por favor, aguarde o retorno. ❤️",
+                },
+              },
+            ],
+          };
+        },
+      };
+      return mockStream;
+    }
+
     const phone = customerPhone || session.customer_phone;
 
     let memory = null;
@@ -368,8 +390,10 @@ ${memory ? `💭 Histórico: ${memory.summary}` : ""}
 
 3. **proc_closing_protocol** ✅
    QUANDO: Cliente diz "Quero essa", "Vou levar", "Como compro?"
-   O QUE FAZER: Siga os 8 passos EXATAMENTE (cesta → data → endereço → pagamento → frete → personalização → resumo → notifique)
-   NUNCA: Pule etapas ou pergunte tudo de uma vez
+   O QUE FAZER: Siga os 8 passos EXATAMENTE (cesta → data → endereço → pagamento → cálculo → resumo → notifique → bloqueie)
+   ⚠️ CRÍTICO: Use a tool \`math_calculator\` para somar cesta + frete e mostrar o valor exato no resumo.
+   ⚠️ NOTIFICAÇÃO: O \`customer_context\` deve seguir o formato de lista (Pedido, Total, Entrega, Frete).
+   ⚠️ BLOQUEIO: SEMPRE chame \`block_session\` após notificar o suporte.
 
 4. **proc_consultar_diretrizes** 📋
    QUANDO: Antes de recomendar, falar sobre customização, explicar prazos, etc
@@ -382,8 +406,8 @@ ${memory ? `💭 Histórico: ${memory.summary}` : ""}
 3. Identifique ocasião/item → Chame consultarCatalogo.
 4. Recomende 2 cestas EXATAS (ranking) → Mostre com formatação perfeita.
 5. Cliente escolhe → ATIVE proc_closing_protocol (8 passos).
-6. Siga cada passo do closing → Valide quando necessário.
-7. Final do closing → Notifique suporte com all_details.
+6. Siga cada passo do closing → Use \`math_calculator\` e peça confirmação final do resumo.
+7. Final do closing → Notifique suporte com TODOS os detalhes e chame \`block_session\`.
 
 ## RESTRIÇÕES CRÍTICAS PARA TOOLS
 
@@ -397,10 +421,15 @@ ${memory ? `💭 Histórico: ${memory.summary}` : ""}
 - NUNCA calcule para cartão/débito
 - SEMPRE pergunte: "PIX ou Cartão?"
 
+🚫 MATH_CALCULATOR:
+- Use para somar o valor final (Cesta + Frete) e garantir precisão matemática.
+
 🚫 NOTIFY_HUMAN_SUPPORT:
-- Use APENAS ao final do closing (8º passo)
-- Incluir TODOS os dados do cliente
-- Nunca bloqueie o fluxo sem razão válida
+- Use APENAS ao final do closing (7º passo) APÓS confirmação do cliente.
+- O campo \`customer_context\` deve ser detalhado e organizado (Pedido, Total, Entrega, Frete).
+
+🚫 BLOCK_SESSION:
+- SEMPRE chame após \`notify_human_support\` para encerrar o ciclo do Agente de IA na sessão \`${sessionId}\`.
 
 🚫 CONSULTARCATALOGO:
 - Siempre apresente exatamente 2 opções.

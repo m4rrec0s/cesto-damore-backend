@@ -400,15 +400,17 @@ ${memory ? `💭 Histórico: ${memory.summary}` : ""}
 
 2. **proc_calculo_frete** 🚚
    QUANDO: Cliente confirmou cesta + cidade + MÉTODO DE PAGAMENTO
-   O QUE FAZER: Só calcule frete se cliente disser "PIX"
-   ❌ CRÍTICO: NUNCA calcule sem perguntar o método primeiro!
-   Se for cartão/débito: Avise que atendente dirá o valor
+   O QUE FAZER: Só calcule frete APÓS perguntar "PIX ou Cartão?".
+   ❌ CRÍTICO: NUNCA deduza o método de pagamento. Pergunte sempre.
+   Se for PIX: Use \`calculate_freight\`.
+   Se for CARTÃO em CG: Use \`calculate_freight\` (será R$ 10,00).
+   Se for CARTÃO fora de CG: Avise que atendente dirá o valor.
 
 3. **proc_closing_protocol** ✅
    QUANDO: Cliente diz "Quero essa", "Vou levar", "Como compro?"
-   O QUE FAZER: Siga os 8 passos EXATAMENTE (cesta → data → endereço → pagamento → cálculo → resumo → notifique → bloqueie)
+   O QUE FAZER: Siga os 9 passos EXATAMENTE (Cesta → Data → Endereço → Pagamento → Frete → Cálculo → Resumo → Notifique → Bloqueie)
    ⚠️ CRÍTICO: Use a tool \`math_calculator\` para somar cesta + frete e mostrar o valor exato no resumo.
-   ⚠️ NOTIFICAÇÃO: O \`customer_context\` deve seguir o formato de lista (Pedido, Total, Entrega, Frete).
+   ⚠️ NOTIFICAÇÃO: O \`customer_context\` DEVE conter: Pedido, Itens, Total, Entrega, Endereço e Frete. NUNCA envie vazio.
    ⚠️ BLOQUEIO: SEMPRE chame \`block_session\` após notificar o suporte.
 
 4. **proc_consultar_diretrizes** 📋
@@ -560,12 +562,12 @@ Seja sempre carinhosa, empática e prestativa. Siga os procedimentos com natural
         }
 
         const toolResultMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-          {
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content:
-              typeof result === "string" ? result : JSON.stringify(result),
-          };
+        {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content:
+            typeof result === "string" ? result : JSON.stringify(result),
+        };
 
         messages.push(toolResultMessage);
 

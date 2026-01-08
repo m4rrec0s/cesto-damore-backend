@@ -89,11 +89,10 @@ router.get("/preview", (req: Request, res: Response) => {
     <meta property="og:type" content="website">
 </head>
 <body>
-    <img src="${imageUrl}" alt="${title}" loading="eager" style="width:80%;height:auto;">
+    <img src="${imageUrl}" alt="${title}" loading="eager" style="width:80%;height:80%;aspect-ratio:1;">
 </body>
 </html>
     `.trim();
-
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=3600"); // Cache por 1 hora
     res.send(html);
@@ -234,7 +233,11 @@ router.get("/ai/products/info", aiProductController.getEndpointInfo);
 // ============================================
 
 router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
-router.get("/ai/agent/history/:sessionId", validateAIAgentKey, aiAgentController.getHistory);
+router.get(
+  "/ai/agent/history/:sessionId",
+  validateAIAgentKey,
+  aiAgentController.getHistory
+);
 
 // ============================================
 // GOOGLE DRIVE OAUTH2
@@ -1019,7 +1022,10 @@ router.post(
 router.post("/customizations/preview", customizationController.buildPreview);
 
 // Consolidar dados de customização para revisão (público - para clientes)
-router.get("/customization/review/:orderId", customizationReviewController.getReviewData);
+router.get(
+  "/customization/review/:orderId",
+  customizationReviewController.getReviewData
+);
 
 // Listar layouts base
 router.get("/layouts", layoutBaseController.list);

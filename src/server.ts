@@ -76,6 +76,63 @@ cron.schedule("0 */6 * * *", async () => {
   }
 });
 
+cron.schedule("*/10 * * * *", async () => {
+  try {
+    const now = new Date();
+
+    const expiredSessionIds = await prisma.aIAgentSession.findMany({
+      where: {
+        expires_at: {
+          lt: now,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (expiredSessionIds.length > 0) {
+      const ids = expiredSessionIds.map((s) => s.id);
+
+      await prisma.aIAgentMessage.deleteMany({
+        where: {
+          session_id: { in: ids },
+        },
+      });
+
+      await prisma.aISessionProductHistory.deleteMany({
+        where: {
+          session_id: { in: ids },
+        },
+      });
+
+      const expiredCount = await prisma.aIAgentSession.deleteMany({
+        where: {
+          id: { in: ids },
+        },
+      });
+
+      logger.info(
+        `🕒 [Cron] Limpeza concluída: ${expiredCount.count} sessões e seus dados removidos`
+      );
+    }
+
+    const expiredMemories = await prisma.customerMemory.deleteMany({
+      where: {
+        expires_at: {
+          lt: now,
+        },
+      },
+    });
+
+    if (expiredMemories.count > 0) {
+      logger.info(
+        `🕒 [Cron] Deletadas ${expiredMemories.count} memórias de clientes expiradas`
+      );
+    }
+  } catch (error) {
+    logger.error("❌ [Cron] Erro na limpeza de dados expirados:", error);
+  }
+});
+
 const PORT = process.env.PORT || 3333;
 const BASE_URL = process.env.BASE_URL;
 

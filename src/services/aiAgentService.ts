@@ -90,7 +90,21 @@ class AIAgentService {
     });
 
     if (!session || isPast(session.expires_at)) {
-      // Create new session if expired or not found
+      if (session) {
+        logger.info(
+          `🧹 [AIAgent] Deletando sessão expirada e mensagens: ${sessionId}`
+        );
+
+        await prisma.aIAgentMessage.deleteMany({
+          where: { session_id: sessionId },
+        });
+        await prisma.aISessionProductHistory.deleteMany({
+          where: { session_id: sessionId },
+        });
+
+        await prisma.aIAgentSession.delete({ where: { id: sessionId } });
+      }
+
       session = await prisma.aIAgentSession.create({
         data: {
           id: sessionId,
@@ -112,6 +126,8 @@ class AIAgentService {
     });
 
     if (memory && isPast(memory.expires_at)) {
+      logger.info(`🧹 [AIAgent] Deletando memória expirada para: ${phone}`);
+      await prisma.customerMemory.delete({ where: { customer_phone: phone } });
       return null;
     }
 

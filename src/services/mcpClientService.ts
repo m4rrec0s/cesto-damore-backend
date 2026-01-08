@@ -32,6 +32,10 @@ class MCPClientService {
         },
         {
           capabilities: {},
+          // Aumentar timeout para 45 segundos (padrão é curto)
+          // Isso evita o erro -32001 Request timed out em ferramentas pesadas
+          /* @ts-ignore */
+          timeout: 45000,
         }
       );
 

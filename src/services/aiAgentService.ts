@@ -479,7 +479,13 @@ Seja sempre meiga, objetiva e confiante. Siga os procedimentos à risca! 💕`,
           );
         }
 
-        const result = await mcpClientService.callTool(name, args);
+        let result: any;
+        try {
+          result = await mcpClientService.callTool(name, args);
+        } catch (error: any) {
+          logger.error(`❌ Error executing MCP tool ${name}: ${error.message}`);
+          result = `Erro ao executar ferramenta ${name}: ${error.message}. Por favor, tente novamente ou use outra abordagem.`;
+        }
 
         // Track sent products to avoid repetition (extract from JSON response)
         if (name === "consultarCatalogo" && typeof result === "string") {

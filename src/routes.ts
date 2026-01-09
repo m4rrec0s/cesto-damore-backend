@@ -87,9 +87,27 @@ router.get("/preview", (req: Request, res: Response) => {
     <meta property="og:title" content="${title}">
     <meta property="og:image" content="${imageUrl}">
     <meta property="og:type" content="website">
+    <style>
+      body { 
+        margin: 0; 
+        background-color: #f9f9f9; 
+        display: flex; 
+        justify-content: center; 
+        align-items: center; 
+        min-height: 100vh;
+      }
+      img { 
+        width: 100%; 
+        max-width: 500px; 
+        aspect-ratio: 1 / 1; 
+        object-fit: cover; 
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      }
+    </style>
 </head>
 <body>
-    <img src="${imageUrl}" alt="${title}" loading="eager" style="width:80%;height:80%;aspect-ratio:1;">
+    <img src="${imageUrl}" alt="${title}" loading="eager">
 </body>
 </html>
     `.trim();

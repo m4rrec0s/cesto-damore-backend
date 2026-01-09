@@ -204,10 +204,8 @@ class AIAgentService {
       memory = await this.getCustomerMemory(phone);
     }
 
-    // Get sent products to avoid repetition
     const sentProductIds = await this.getSentProductsInSession(sessionId);
 
-    // Get current time info in São Paulo timezone (Brasil/Fortaleza for Campina Grande)
     const now = new Date();
     const timeInCampina = new Intl.DateTimeFormat("pt-BR", {
       timeZone: "America/Fortaleza",
@@ -232,7 +230,6 @@ class AIAgentService {
       day: "2-digit",
     }).format(new Date(Date.now() + 86400000));
 
-    // Save user message
     await prisma.aIAgentMessage.create({
       data: {
         session_id: sessionId,
@@ -241,24 +238,13 @@ class AIAgentService {
       },
     });
 
-    // Load updated history for LLM
     const history = await prisma.aIAgentMessage.findMany({
       where: { session_id: sessionId },
       orderBy: { created_at: "asc" },
     });
 
-    // STRATEGY: Use only the last 5 messages to avoid LLM hallucinations from context overload.
-    // This combines with long-term memory (customerMemory) which provides summarized context.
-    // Benefits:
-    // - Prevents token bloat in prompt
-    // - Reduces hallucination risk from excessive context
-    // - Maintains conversation coherence via customerMemory summary
-    // - Full history is available in DB if needed for analytics
-    //
-    // IMPORTANT: Ensure tool messages are always preceded by their assistant message with tool_calls
     const recentHistory = this.filterHistoryForContext(history);
 
-    // Prepare messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
@@ -315,17 +301,13 @@ A ferramenta retorna: exatos[], fallback[], ranking, tipo_resultado
 6. ✅ SE USAR FALLBACK: "Não encontrei muitas cestas com [termo], mas essas têm características similares:"
 
 ### PASSO 4: FORMATAÇÃO (OBRIGATÓRIO)
+Para cada produto, siga rigorosamente este formato:
 \`\`\`
-[URL_EXATA]
-**[NOME_EXATO]** - R$ [PREÇO]
-[DESCRIÇÃO_EXATA_DO_BANCO]
-
-[URL_EXATA]
-**[NOME_EXATO]** - R$ [PREÇO]
-[DESCRIÇÃO_EXATA_DO_BANCO]
-
-Produção imediata no mesmo dia (dentro do horário comercial) ✅
+- [URL_DA_IMAGEM]
+- _Opção [RANKING]:_ *[NOME_DO_PRODUTO]* - *R$ [PREÇO]*
+- [DESCRIÇÃO_DO_PRODUTO]
 \`\`\`
+Use o valor do ranking fornecido pela tool \`consultarCatalogo\`.
 
 ### PASSO 5: FINALIZADOR OBRIGATÓRIO
 Sempre finalize com: "Produção imediata no mesmo dia (dentro do horário comercial) ✅"
@@ -377,10 +359,12 @@ Que momento especial! Para celebrar este aniversário, selecionei essas duas op�
 
 https://api.cestodamore.com.br/images/1763162430204-quadro.webp
 **La Cesto d'Amore Quadro** - R$ 174,90
+
 Cesta com quadro personalizado, 8 fotos polaroides, fio de LED, chocolates LACTA, pelúcia de coração e balão. Perfeita para impressionar! 💕
 
 https://api.cestodamore.com.br/images/1763212174587-caneca.webp
 **La Cesto d'Amore Caneca** - R$ 149,90
+
 Cesta com caneca personalizada, 8 polaroides, fio de LED, chocolates e pelúcia. Opção moderna e carinhosa! ❤️
 
 Produção imediata no mesmo dia (dentro do horário comercial) ✅
@@ -562,12 +546,12 @@ Seja sempre carinhosa, empática e prestativa. Siga os procedimentos com natural
         }
 
         const toolResultMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-        {
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content:
-            typeof result === "string" ? result : JSON.stringify(result),
-        };
+          {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content:
+              typeof result === "string" ? result : JSON.stringify(result),
+          };
 
         messages.push(toolResultMessage);
 

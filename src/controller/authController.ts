@@ -139,6 +139,22 @@ class AuthController {
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
+
+  async verify2fa(req: Request, res: Response) {
+    try {
+      const { email, code } = req.body;
+
+      if (!email || !code) {
+        return res.status(400).json({ error: "Email e código são obrigatórios" });
+      }
+
+      const result = await authService.verify2FA(email, code);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Erro na verificação 2FA:", error);
+      res.status(401).json({ error: error.message });
+    }
+  }
 }
 
 export default new AuthController();

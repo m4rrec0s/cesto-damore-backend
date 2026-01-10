@@ -20,8 +20,10 @@ model User {
   city        String?
   state       String?
   zip_code    String?
-  role        String   @default("client")
-  created_at  DateTime @default(now())
+  role                   String   @default("client")
+  two_factor_code        String?
+  two_factor_expires_at  DateTime?
+  created_at             DateTime @default(now())
   updated_at  DateTime @updatedAt
   document    String?
   orders      Order[]
@@ -379,7 +381,7 @@ model AIAgentSession {
   created_at     DateTime         @default(now())
   messages       AIAgentMessage[]
 
-  @@index([customer_phone])
+  @@unique([customer_phone])
 }
 
 model AIAgentMessage {

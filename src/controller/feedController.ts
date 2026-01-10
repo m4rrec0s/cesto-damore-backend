@@ -214,6 +214,26 @@ class FeedController {
     }
   }
 
+  async getAllBanners(req: Request, res: Response) {
+    try {
+      const banners = await feedService.getAllBanners();
+      res.json(banners);
+    } catch (error: any) {
+      console.error("Erro ao buscar banners:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
+
+  async getAllSections(req: Request, res: Response) {
+    try {
+      const sections = await feedService.getAllSections();
+      res.json(sections);
+    } catch (error: any) {
+      console.error("Erro ao buscar seções:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
+
   async createSection(req: Request, res: Response) {
     try {
       const data = req.body;

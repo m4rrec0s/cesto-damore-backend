@@ -276,7 +276,38 @@ class FeedService {
     }
   }
 
+  async getAllBanners() {
+    try {
+      const banners = await withRetry(() =>
+        prisma.feedBanner.findMany({
+          orderBy: { display_order: "asc" },
+        })
+      );
+      return banners;
+    } catch (error: any) {
+      throw new Error(`Erro ao buscar banners: ${error.message}`);
+    }
+  }
+
   // ============== FEED SECTION METHODS ==============
+
+  async getAllSections() {
+    try {
+      const sections = await withRetry(() =>
+        prisma.feedSection.findMany({
+          include: {
+            items: {
+              orderBy: { display_order: "asc" },
+            },
+          },
+          orderBy: { display_order: "asc" },
+        })
+      );
+      return sections;
+    } catch (error: any) {
+      throw new Error(`Erro ao buscar seções: ${error.message}`);
+    }
+  }
 
   async createFeedSection(data: CreateFeedSectionInput) {
     if (!data.feed_config_id) {

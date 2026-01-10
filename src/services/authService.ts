@@ -213,6 +213,27 @@ class AuthService {
         });
       }
 
+      // 🔐 Check if 2FA is needed (Admin role)
+      if (user.role.toLowerCase() === "admin") {
+        const twoFactorCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            two_factor_code: twoFactorCode,
+            two_factor_expires_at: expiresAt,
+          },
+        });
+
+        console.log(`🔐 [2FA] Código gerado para ${email}: ${twoFactorCode}`);
+
+        return {
+          requires2FA: true,
+          email: user.email,
+        };
+      }
+
       // Criar tokens
       const sessionToken = await createCustomToken(uid);
       const appToken = createAppJWT(user.id, user.email);
@@ -232,6 +253,41 @@ class AuthService {
       }
       throw error;
     }
+  }
+
+  async verify2FA(email: string, code: string) {
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      throw new Error("Usuário não encontrado");
+    }
+
+    if (
+      !user.two_factor_code ||
+      user.two_factor_code !== code ||
+      !user.two_factor_expires_at ||
+      user.two_factor_expires_at < new Date()
+    ) {
+      throw new Error("Código 2FA inválido ou expirado");
+    }
+
+    // Clear code after successful verification
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        two_factor_code: null,
+        two_factor_expires_at: null,
+      },
+    });
+
+    const sessionToken = await createCustomToken(user.firebaseUId!);
+    const appToken = createAppJWT(user.id, user.email);
+
+    return {
+      user,
+      sessionToken,
+      appToken,
+    };
   }
 }
 

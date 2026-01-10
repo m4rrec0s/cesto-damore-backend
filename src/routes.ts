@@ -20,6 +20,8 @@ import itemConstraintController from "./controller/itemConstraintController";
 import customizationUploadController from "./controller/customizationUploadController";
 import customizationReviewController from "./controller/customizationReviewController";
 import oauthController from "./controller/oauthController";
+import statusController from "./controller/statusController";
+import aiSummaryService from "./services/aiSummaryService";
 import { PaymentService } from "./services/paymentService";
 import logger from "./utils/logger";
 import googleDriveService from "./services/googleDriveService";
@@ -498,6 +500,7 @@ router.delete("/types/:id", typeController.remove);
 // auth routes
 router.post("/auth/google", authController.google);
 router.post("/auth/login", authController.login);
+router.post("/auth/verify-2fa", authController.verify2fa);
 router.post("/auth/register", upload.single("image"), authController.register);
 router.post("/auth/refresh", authenticateToken, authController.refreshToken); // Novo: renovar token
 
@@ -690,6 +693,28 @@ router.get(
   PaymentController.getFinancialSummary
 );
 
+// Novos Endpoints de Status e Inteligência
+router.get(
+  "/admin/status",
+  authenticateToken,
+  requireAdmin,
+  statusController.getBusinessStatus
+);
+
+router.get(
+  "/admin/ai/summary",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const summary = await aiSummaryService.generateWeeklySummary();
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
 // ========== FEED ROUTES ==========
 
 // Rota pública para obter feed (sem autenticação)
@@ -737,6 +762,13 @@ router.delete(
 );
 
 // Feed Banner Routes (Admin only)
+router.get(
+  "/admin/feed/banners",
+  authenticateToken,
+  requireAdmin,
+  feedController.getAllBanners
+);
+
 router.post(
   "/admin/feed/banners",
   authenticateToken,
@@ -763,6 +795,13 @@ router.delete(
 );
 
 // Feed Section Routes (Admin only)
+router.get(
+  "/admin/feed/sections",
+  authenticateToken,
+  requireAdmin,
+  feedController.getAllSections
+);
+
 router.post(
   "/admin/feed/sections",
   authenticateToken,

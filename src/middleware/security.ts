@@ -156,10 +156,10 @@ export const requireAdmin = (
 
   // ✅ Validação dupla: verificar que role é exatamente "admin"
   // Não aceitar null, undefined ou qualquer outro valor
-  if (req.user.role !== "admin") {
+  if (req.user.role && req.user.role.toLowerCase() !== "admin") {
     console.warn("🚫 [SECURITY] Acesso admin negado - permissão insuficiente", {
       userId: req.user.id,
-      userRole: req.user.role || "undefined",
+      userRole: req.user.role,
       ip: req.ip,
       method: req.method,
       path: req.path,
@@ -169,7 +169,7 @@ export const requireAdmin = (
       error: "Acesso negado - permissão de administrador necessária",
       code: "ADMIN_REQUIRED",
       details: {
-        userRole: req.user.role || "undefined",
+        userRole: req.user.role,
         requiredRole: "admin",
       },
     });

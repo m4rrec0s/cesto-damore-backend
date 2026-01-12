@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import statusService from "./statusService";
 import logger from "../utils/logger";
+import prisma from "../database/prisma";
+import { startOfDay, endOfDay, isMonday } from "date-fns";
 
 class AISummaryService {
     private openai: OpenAI;
@@ -12,8 +14,62 @@ class AISummaryService {
         });
     }
 
-    async generateWeeklySummary() {
+    async getWeeklySummary(forceRefresh: boolean = false) {
         try {
+            const now = new Date();
+            const monday = isMonday(now);
+
+            // Se não for segunda-feira e não for forçado, tenta buscar o último resumo do banco
+            if (!monday && !forceRefresh) {
+                const lastSummary = await prisma.aISummary.findFirst({
+                    orderBy: { created_at: 'desc' }
+                });
+
+                if (lastSummary) {
+                    return {
+                        summary: lastSummary.summary,
+                        generated_at: lastSummary.created_at,
+                        period_start: lastSummary.period_start,
+                        period_end: lastSummary.period_end,
+                        from_cache: true
+                    };
+                }
+            }
+
+            // Se for segunda-feira (ou refresh forçado), verificamos se já geramos um hoje
+            if (monday && !forceRefresh) {
+                const todaySummary = await prisma.aISummary.findFirst({
+                    where: {
+                        created_at: {
+                            gte: startOfDay(now),
+                            lte: endOfDay(now)
+                        }
+                    }
+                });
+
+                if (todaySummary) {
+                    return {
+                        summary: todaySummary.summary,
+                        generated_at: todaySummary.created_at,
+                        period_start: todaySummary.period_start,
+                        period_end: todaySummary.period_end,
+                        from_cache: true
+                    };
+                }
+            }
+
+            // Caso contrário (ou se forçado), gera um novo
+            return this.generateAndSaveSummary();
+        } catch (error: any) {
+            logger.error("Erro no getWeeklySummary:", error);
+            throw error;
+        }
+    }
+
+    private async generateAndSaveSummary() {
+        try {
+            logger.info("Gerando novo resumo AI semanal...");
+
             // Buscar dados dos últimos 7 dias para o resumo
             const statusData = await statusService.getBusinessStatus(7);
             const topProducts = await statusService.getTopSellingProducts(5);
@@ -54,10 +110,23 @@ class AISummaryService {
                 temperature: 0.7,
             });
 
+            const summaryContent = response.choices[0].message.content || "";
+
+            // Salvar no banco de dados
+            const savedSummary = await prisma.aISummary.create({
+                data: {
+                    summary: summaryContent,
+                    period_start: statusData.period.startDate,
+                    period_end: statusData.period.endDate,
+                }
+            });
+
             return {
-                summary: response.choices[0].message.content,
-                generated_at: new Date(),
-                period: statusData.period
+                summary: savedSummary.summary,
+                generated_at: savedSummary.created_at,
+                period_start: savedSummary.period_start,
+                period_end: savedSummary.period_end,
+                from_cache: false
             };
         } catch (error: any) {
             logger.error("Erro ao gerar resumo AI:", error);

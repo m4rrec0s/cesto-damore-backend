@@ -441,6 +441,15 @@ model AISessionProductHistory {
   @@index([session_id])
 }
 
+model AISummary {
+  id            String   @id @default(uuid())
+  summary       String   @db.Text
+  period_start  DateTime
+  period_end    DateTime
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
+
 enum PaymentStatus {
   PENDING
   APPROVED

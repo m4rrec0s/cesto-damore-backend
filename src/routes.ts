@@ -707,7 +707,8 @@ router.get(
   requireAdmin,
   async (req: Request, res: Response) => {
     try {
-      const summary = await aiSummaryService.generateWeeklySummary();
+      const forceRefresh = req.query.force_refresh === "true";
+      const summary = await aiSummaryService.getWeeklySummary(forceRefresh);
       res.json(summary);
     } catch (error: any) {
       res.status(500).json({ error: error.message });

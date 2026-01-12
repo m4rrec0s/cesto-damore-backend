@@ -49,18 +49,22 @@ class ProductController {
     try {
       const data = { ...req.body };
 
-      // Converter categories se vier como string (multipart/form-data)
-      if (typeof data.categories === "string") {
-        try {
-          data.categories = JSON.parse(data.categories);
-        } catch (e) {
-          // Se não for JSON válido, tentar dividir por vírgula
-          data.categories = data.categories
-            .split(",")
-            .map((c: string) => c.trim())
-            .filter(Boolean);
+      // Converter arrays se vierem como string (multipart/form-data)
+      const arraysToParse = ["categories", "components", "additionals"];
+      arraysToParse.forEach((key) => {
+        if (typeof data[key] === "string") {
+          try {
+            data[key] = JSON.parse(data[key]);
+          } catch (e) {
+            if (key === "categories") {
+              data[key] = data[key]
+                .split(",")
+                .map((c: string) => c.trim())
+                .filter(Boolean);
+            }
+          }
         }
-      }
+      });
 
       // Garantir que categories é um array
       if (!Array.isArray(data.categories)) {
@@ -122,18 +126,22 @@ class ProductController {
       const { id } = req.params;
       const data = { ...req.body };
 
-      // Converter categories se vier como string (multipart/form-data)
-      if (typeof data.categories === "string") {
-        try {
-          data.categories = JSON.parse(data.categories);
-        } catch (e) {
-          // Se não for JSON válido, tentar dividir por vírgula
-          data.categories = data.categories
-            .split(",")
-            .map((c: string) => c.trim())
-            .filter(Boolean);
+      // Converter arrays se vierem como string (multipart/form-data)
+      const arraysToParse = ["categories", "components", "additionals"];
+      arraysToParse.forEach((key) => {
+        if (typeof data[key] === "string") {
+          try {
+            data[key] = JSON.parse(data[key]);
+          } catch (e) {
+            if (key === "categories") {
+              data[key] = data[key]
+                .split(",")
+                .map((c: string) => c.trim())
+                .filter(Boolean);
+            }
+          }
         }
-      }
+      });
 
       // Garantir que categories é um array
       if (!Array.isArray(data.categories)) {

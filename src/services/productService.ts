@@ -207,7 +207,7 @@ class ProductService {
     try {
       await this.validateCategories(data.categories);
 
-      const { additionals, categories, ...rest } = data as any;
+      const { additionals, categories, components, ...rest } = data as any;
       const normalized: any = { ...rest };
 
       normalized.price = this.normalizePrice(normalized.price);
@@ -234,9 +234,32 @@ class ProductService {
 
       if (Array.isArray(additionals) && additionals.length) {
         await Promise.all(
-          additionals.map((addId: string) =>
-            prisma.productAdditional.create({
-              data: { product_id: created.id, additional_id: addId },
+          additionals.map((add: any) => {
+            const additional_id = typeof add === "string" ? add : add.item_id;
+            const custom_price =
+              typeof add === "string" ? null : add.custom_price;
+            return prisma.productAdditional.create({
+              data: {
+                product_id: created.id,
+                additional_id,
+                custom_price: custom_price
+                  ? parseFloat(String(custom_price))
+                  : null,
+              },
+            });
+          })
+        );
+      }
+
+      if (Array.isArray(components) && components.length) {
+        await Promise.all(
+          components.map((comp: any) =>
+            prisma.productComponent.create({
+              data: {
+                product_id: created.id,
+                item_id: comp.item_id,
+                quantity: comp.quantity || 1,
+              },
             })
           )
         );
@@ -263,7 +286,7 @@ class ProductService {
     const currentProduct = await this.getProductById(id);
 
     try {
-      const { additionals, categories, ...rest } = data as any;
+      const { additionals, categories, components, ...rest } = data as any;
       const normalized: any = { ...rest };
 
       // Validar categorias se fornecidas
@@ -324,9 +347,35 @@ class ProductService {
           where: { product_id: id },
         });
         await Promise.all(
-          additionals.map((addId: string) =>
-            prisma.productAdditional.create({
-              data: { product_id: id, additional_id: addId },
+          additionals.map((add: any) => {
+            const additional_id = typeof add === "string" ? add : add.item_id;
+            const custom_price =
+              typeof add === "string" ? null : add.custom_price;
+            return prisma.productAdditional.create({
+              data: {
+                product_id: id,
+                additional_id,
+                custom_price: custom_price
+                  ? parseFloat(String(custom_price))
+                  : null,
+              },
+            });
+          })
+        );
+      }
+
+      if (Array.isArray(components)) {
+        await prisma.productComponent.deleteMany({
+          where: { product_id: id },
+        });
+        await Promise.all(
+          components.map((comp: any) =>
+            prisma.productComponent.create({
+              data: {
+                product_id: id,
+                item_id: comp.item_id,
+                quantity: comp.quantity || 1,
+              },
             })
           )
         );

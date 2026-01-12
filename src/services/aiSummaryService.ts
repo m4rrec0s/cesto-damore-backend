@@ -83,8 +83,11 @@ class AISummaryService {
       - Receita Líquida: R$ ${statusData.totals.total_net_revenue.toFixed(2)}
       - Taxas Pagas: R$ ${statusData.totals.total_fees.toFixed(2)}
       - Total de Pedidos: ${statusData.totals.total_orders}
-      - Pedidos Aprovados: ${statusData.totals.approved_orders}
+      - Pedidos Aprovados (Pagos/Entregues): ${statusData.totals.approved_orders}
+      - Pedidos Pendentes: ${statusData.totals.pending_orders}
       - Pedidos Cancelados: ${statusData.totals.canceled_orders}
+      - Total de Itens Vendidos: ${statusData.totals.total_products_sold}
+      - Total de Adicionais/Extras Vendidos: ${statusData.totals.total_additionals_sold}
       - Ticket Médio: R$ ${statusData.metrics.averageTicket.toFixed(2)}
       - Taxa de Conversão: ${statusData.metrics.conversionRate.toFixed(2)}%
       - Projeção Mensal Baseada nesta Semana: R$ ${statusData.metrics.monthlyProjection.toFixed(2)}

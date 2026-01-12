@@ -163,7 +163,9 @@ class AuthService {
     if (googlePicture && user.image_url !== googlePicture) {
       updateData.image_url = googlePicture;
     }
-    await prisma.user.update({
+
+    // 🔥 FIX: Capture returned updated user
+    user = await prisma.user.update({
       where: { firebaseUId: uid },
       data: updateData,
     });
@@ -215,7 +217,9 @@ class AuthService {
 
       // 🔐 Check if 2FA is needed (Admin role)
       if (user.role.toLowerCase() === "admin") {
-        const twoFactorCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const twoFactorCode = Math.floor(
+          100000 + Math.random() * 900000
+        ).toString();
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
         await prisma.user.update({

@@ -163,21 +163,6 @@ model Payment {
   order               Order         @relation(fields: [order_id], references: [id])
 }
 
-model FinancialSummary {
-  id                     String   @id @default(uuid())
-  date                   DateTime @unique @db.Date
-  total_sales            Float    @default(0)
-  total_net_revenue      Float    @default(0)
-  total_fees             Float    @default(0)
-  total_orders           Int      @default(0)
-  approved_orders        Int      @default(0)
-  canceled_orders        Int      @default(0)
-  pending_orders         Int      @default(0)
-  total_products_sold    Int      @default(0)
-  total_additionals_sold Int      @default(0)
-  created_at             DateTime @default(now())
-  updated_at             DateTime @updatedAt
-}
 
 model WebhookLog {
   id                     String   @id @default(uuid())

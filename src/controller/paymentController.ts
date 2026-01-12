@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import PaymentService from "../services/paymentService";
+import statusService from "../services/statusService";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
@@ -527,76 +528,36 @@ export class PaymentController {
    */
   static async getFinancialSummary(req: Request, res: Response) {
     try {
-      const { startDate, endDate, period = "daily" } = req.query;
+      const { startDate, endDate } = req.query;
 
-      // Verificar se é admin (implementar verificação de role)
-      const isAdmin = (req as any).user?.role === "admin"; // Assumindo role no user
+      // Verificar se é admin
+      const isAdmin = (req as any).user?.role === "admin";
       if (!isAdmin) {
         return res.status(403).json({
           error: "Acesso negado - apenas administradores",
         });
       }
 
-      let start = new Date();
-      let end = new Date();
-
+      let days = 30;
       if (startDate && endDate) {
-        start = new Date(startDate as string);
-        end = new Date(endDate as string);
-      } else {
-        // Default: últimos 30 dias
-        start.setDate(start.getDate() - 30);
+        const start = new Date(startDate as string);
+        const end = new Date(endDate as string);
+        days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
       }
 
-      const summary = await prisma.financialSummary.findMany({
-        where: {
-          date: {
-            gte: start,
-            lte: end,
-          },
-        },
-        orderBy: {
-          date: "desc",
-        },
-      });
-
-      // Calcular totais
-      const totals = summary.reduce(
-        (acc, day) => ({
-          total_sales: acc.total_sales + day.total_sales,
-          total_net_revenue: acc.total_net_revenue + day.total_net_revenue,
-          total_fees: acc.total_fees + day.total_fees,
-          total_orders: acc.total_orders + day.total_orders,
-          approved_orders: acc.approved_orders + day.approved_orders,
-          canceled_orders: acc.canceled_orders + day.canceled_orders,
-          pending_orders: acc.pending_orders + day.pending_orders,
-          total_products_sold:
-            acc.total_products_sold + day.total_products_sold,
-          total_additionals_sold:
-            acc.total_additionals_sold + day.total_additionals_sold,
-        }),
-        {
-          total_sales: 0,
-          total_net_revenue: 0,
-          total_fees: 0,
-          total_orders: 0,
-          approved_orders: 0,
-          canceled_orders: 0,
-          pending_orders: 0,
-          total_products_sold: 0,
-          total_additionals_sold: 0,
-        }
-      );
+      const status = await statusService.getBusinessStatus(days);
 
       res.json({
         success: true,
         data: {
           period: {
-            start,
-            end,
+            start: status.period.startDate,
+            end: status.period.endDate,
+            days: status.period.days
           },
-          daily_summary: summary,
-          totals,
+          daily_summary: status.daily_data,
+          totals: status.totals,
+          metrics: status.metrics
         },
       });
     } catch (error) {

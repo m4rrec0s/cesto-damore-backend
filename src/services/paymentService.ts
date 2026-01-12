@@ -1627,8 +1627,6 @@ export class PaymentService {
         // Update order status via OrderService to trigger stock decrement
         await orderService.updateOrderStatus(dbPayment.order_id, "PAID");
 
-        await this.updateFinancialSummary(dbPayment.order_id, paymentInfo);
-
         // ✅ VERIFICAÇÃO DE IDEMPOTÊNCIA: Verificar se já foi finalizado com sucesso
         const existingFinalized = await prisma.webhookLog.findFirst({
           where: {
@@ -1938,64 +1936,6 @@ export class PaymentService {
     }
   }
 
-  static async updateFinancialSummary(orderId: string, paymentInfo: any) {
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const order = await this.loadOrderWithDetails(orderId);
-
-      if (!order) return;
-
-      const summary = this.calculateOrderSummary(order);
-
-      const totalProductsSold = order.items.reduce(
-        (sum: number, item: any) => sum + item.quantity,
-        0
-      );
-      const totalAdditionalsSold = order.items.reduce(
-        (sum: number, item: any) =>
-          sum +
-          item.additionals.reduce(
-            (subSum: number, add: any) => subSum + add.quantity,
-            0
-          ),
-        0
-      );
-
-      const netReceived = roundCurrency(
-        paymentInfo?.transaction_details?.net_received_amount ?? 0
-      );
-      const totalFees = roundCurrency(summary.grandTotal - netReceived);
-
-      await prisma.financialSummary.upsert({
-        where: { date: today },
-        update: {
-          total_sales: { increment: summary.grandTotal },
-          total_net_revenue: { increment: netReceived },
-          total_fees: { increment: totalFees },
-          total_orders: { increment: 1 },
-          approved_orders: { increment: 1 },
-          total_products_sold: { increment: totalProductsSold },
-          total_additionals_sold: { increment: totalAdditionalsSold },
-        },
-        create: {
-          date: today,
-          total_sales: summary.grandTotal,
-          total_net_revenue: netReceived,
-          total_fees: totalFees,
-          total_orders: 1,
-          approved_orders: 1,
-          pending_orders: 0,
-          canceled_orders: 0,
-          total_products_sold: totalProductsSold,
-          total_additionals_sold: totalAdditionalsSold,
-        },
-      });
-    } catch (error) {
-      console.error("Erro ao atualizar resumo financeiro:", error);
-    }
-  }
 
   static validateWebhook(data: any, headers: any): boolean {
     try {

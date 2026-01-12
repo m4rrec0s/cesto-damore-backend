@@ -8,30 +8,34 @@ class StatusService {
         const startDate = subDays(now, days);
 
         try {
-            const summaries = await withRetry(() =>
-                prisma.financialSummary.findMany({
+            // Buscar todos os pedidos do período
+            const orders = await withRetry(() =>
+                prisma.order.findMany({
                     where: {
-                        date: {
+                        created_at: {
                             gte: startDate,
                         },
                     },
-                    orderBy: { date: "asc" },
+                    include: {
+                        payment: true,
+                        items: {
+                            include: {
+                                additionals: true
+                            }
+                        }
+                    },
+                    orderBy: { created_at: "asc" },
                 })
             );
 
-            const totals = summaries.reduce(
-                (acc, curr) => ({
-                    total_sales: acc.total_sales + curr.total_sales,
-                    total_net_revenue: acc.total_net_revenue + curr.total_net_revenue,
-                    total_fees: acc.total_fees + curr.total_fees,
-                    total_orders: acc.total_orders + curr.total_orders,
-                    approved_orders: acc.approved_orders + curr.approved_orders,
-                    canceled_orders: acc.canceled_orders + curr.canceled_orders,
-                    pending_orders: acc.pending_orders + curr.pending_orders,
-                    total_products_sold: acc.total_products_sold + curr.total_products_sold,
-                    total_additionals_sold: acc.total_additionals_sold + curr.total_additionals_sold,
-                }),
-                {
+            // Agrupar por dia para o gráfico (daily_data)
+            const dailyMap = new Map();
+
+            // Inicializar o mapa com zeros para todos os dias do período
+            for (let i = 0; i <= days; i++) {
+                const dateKey = subDays(now, i).toISOString().split('T')[0];
+                dailyMap.set(dateKey, {
+                    date: dateKey,
                     total_sales: 0,
                     total_net_revenue: 0,
                     total_fees: 0,
@@ -41,7 +45,77 @@ class StatusService {
                     pending_orders: 0,
                     total_products_sold: 0,
                     total_additionals_sold: 0,
+                });
+            }
+
+            const totals = {
+                total_sales: 0,
+                total_net_revenue: 0,
+                total_fees: 0,
+                total_orders: orders.length,
+                approved_orders: 0,
+                canceled_orders: 0,
+                pending_orders: 0,
+                total_products_sold: 0,
+                total_additionals_sold: 0,
+            };
+
+            orders.forEach(order => {
+                const dateKey = order.created_at.toISOString().split('T')[0];
+                const dayData = dailyMap.get(dateKey) || {
+                    date: dateKey,
+                    total_sales: 0,
+                    total_net_revenue: 0,
+                    total_fees: 0,
+                    total_orders: 0,
+                    approved_orders: 0,
+                    canceled_orders: 0,
+                    pending_orders: 0,
+                    total_products_sold: 0,
+                    total_additionals_sold: 0,
+                };
+
+                dayData.total_orders++;
+
+                if (order.status === 'PAID' || order.status === 'SHIPPED' || order.status === 'DELIVERED') {
+                    const orderValue = order.grand_total || order.total || 0;
+                    const netValue = order.payment?.net_received_amount || orderValue * 0.95; // Fallback 5% taxa
+                    const fees = orderValue - netValue;
+
+                    dayData.approved_orders++;
+                    dayData.total_sales += orderValue;
+                    dayData.total_net_revenue += netValue;
+                    dayData.total_fees += fees;
+
+                    totals.approved_orders++;
+                    totals.total_sales += orderValue;
+                    totals.total_net_revenue += netValue;
+                    totals.total_fees += fees;
+
+                    // Contagem de produtos e adicionais
+                    order.items.forEach(item => {
+                        dayData.total_products_sold += item.quantity;
+                        totals.total_products_sold += item.quantity;
+
+                        item.additionals.forEach(add => {
+                            dayData.total_additionals_sold += add.quantity;
+                            totals.total_additionals_sold += add.quantity;
+                        });
+                    });
+                } else if (order.status === 'CANCELED') {
+                    dayData.canceled_orders++;
+                    totals.canceled_orders++;
+                } else if (order.status === 'PENDING') {
+                    dayData.pending_orders++;
+                    totals.pending_orders++;
                 }
+
+                dailyMap.set(dateKey, dayData);
+            });
+
+            // Converter o mapa para array ordenado por data
+            const summaries = Array.from(dailyMap.values()).sort((a: any, b: any) =>
+                new Date(a.date).getTime() - new Date(b.date).getTime()
             );
 
             // Ticket Médio
@@ -61,9 +135,6 @@ class StatusService {
 
             const daysInMonth = differenceInDays(endOfMonth(now), startOfMonth(now)) + 1;
             const monthlyProjection = dailyAverage * daysInMonth;
-
-            // Tendência (comparado aos 30 dias anteriores se disponível)
-            // Por enquanto, vamos retornar apenas os dados atuais e a projeção.
 
             return {
                 period: {

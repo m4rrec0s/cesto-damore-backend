@@ -29,6 +29,8 @@ import prisma from "./database/prisma";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
 import layoutBaseController from "./controller/layoutBaseController";
+import dynamicLayoutController from "./controller/dynamicLayoutController";
+import elementBankController from "./controller/elementBankController";
 import customerManagementController from "./controller/customerManagementController";
 import aiProductController from "./controller/aiProductController";
 import aiAgentController from "./controller/aiAgentController";
@@ -1263,6 +1265,132 @@ router.post(
   authenticateToken,
   requireAdmin,
   tempFileController.cleanupByOrder
+);
+
+// ===== DYNAMIC LAYOUTS ROUTES (v2) =====
+
+// Criar novo layout dinâmico
+router.post(
+  "/api/layouts/dynamic",
+  authenticateToken,
+  dynamicLayoutController.create
+);
+
+// Listar layouts dinâmicos
+router.get(
+  "/api/layouts/dynamic",
+  authenticateToken,
+  dynamicLayoutController.list
+);
+
+// Obter detalhe de um layout dinâmico
+router.get(
+  "/api/layouts/dynamic/:id",
+  authenticateToken,
+  dynamicLayoutController.show
+);
+
+// Atualizar layout dinâmico
+router.put(
+  "/api/layouts/dynamic/:id",
+  authenticateToken,
+  dynamicLayoutController.update
+);
+
+// Deletar layout dinâmico
+router.delete(
+  "/api/layouts/dynamic/:id",
+  authenticateToken,
+  dynamicLayoutController.delete
+);
+
+// Salvar versão do layout
+router.post(
+  "/api/layouts/dynamic/:id/versions",
+  authenticateToken,
+  dynamicLayoutController.saveVersion
+);
+
+// Listar versões do layout
+router.get(
+  "/api/layouts/dynamic/:id/versions",
+  authenticateToken,
+  dynamicLayoutController.listVersions
+);
+
+// Restaurar versão anterior do layout
+router.post(
+  "/api/layouts/dynamic/:id/versions/:versionNumber/restore",
+  authenticateToken,
+  dynamicLayoutController.restoreVersion
+);
+
+// Adicionar elemento ao layout
+router.post(
+  "/api/layouts/dynamic/:id/elements",
+  authenticateToken,
+  dynamicLayoutController.addElement
+);
+
+// Atualizar elemento do layout
+router.put(
+  "/api/layouts/dynamic/:layoutId/elements/:elementId",
+  authenticateToken,
+  dynamicLayoutController.updateElement
+);
+
+// Deletar elemento do layout
+router.delete(
+  "/api/layouts/dynamic/:layoutId/elements/:elementId",
+  authenticateToken,
+  dynamicLayoutController.deleteElement
+);
+
+// ===== ELEMENT BANK ROUTES =====
+
+// Criar elemento no banco (com upload)
+router.post(
+  "/api/elements/bank",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  elementBankController.create
+);
+
+// Listar elementos do banco (público)
+router.get("/api/elements/bank", elementBankController.list);
+
+// Listar categorias do banco (público)
+router.get(
+  "/api/elements/bank/categories",
+  elementBankController.listCategories
+);
+
+// Obter elemento por ID
+router.get("/api/elements/bank/:id", elementBankController.show);
+
+// Atualizar elemento (admin only)
+router.put(
+  "/api/elements/bank/:id",
+  authenticateToken,
+  requireAdmin,
+  elementBankController.update
+);
+
+// Deletar elemento (admin only)
+router.delete(
+  "/api/elements/bank/:id",
+  authenticateToken,
+  requireAdmin,
+  elementBankController.delete
+);
+
+// Importar múltiplos elementos (admin only)
+router.post(
+  "/api/elements/bank/bulk",
+  authenticateToken,
+  requireAdmin,
+  elementBankController.bulkCreate
 );
 
 export default router;

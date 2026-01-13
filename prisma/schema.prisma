@@ -10,23 +10,24 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(uuid())
-  name        String
-  email       String   @unique
-  firebaseUId String?  @unique
-  image_url   String?
-  phone       String?
-  address     String?
-  city        String?
-  state       String?
-  zip_code    String?
-  role                   String   @default("client")
-  two_factor_code        String?
-  two_factor_expires_at  DateTime?
-  created_at             DateTime @default(now())
-  updated_at  DateTime @updatedAt
-  document    String?
-  orders      Order[]
+  id                    String          @id @default(uuid())
+  name                  String
+  email                 String          @unique
+  firebaseUId           String?         @unique
+  image_url             String?
+  phone                 String?
+  address               String?
+  city                  String?
+  state                 String?
+  zip_code              String?
+  role                  String          @default("client")
+  two_factor_code       String?
+  two_factor_expires_at DateTime?
+  created_at            DateTime        @default(now())
+  updated_at            DateTime        @updatedAt
+  document              String?
+  orders                Order[]
+  dynamicLayouts        DynamicLayout[] // Layouts customizados criados pelo usuário
 }
 
 model Product {
@@ -162,7 +163,6 @@ model Payment {
   updated_at          DateTime      @updatedAt
   order               Order         @relation(fields: [order_id], references: [id])
 }
-
 
 model WebhookLog {
   id                     String   @id @default(uuid())
@@ -427,12 +427,12 @@ model AISessionProductHistory {
 }
 
 model AISummary {
-  id            String   @id @default(uuid())
-  summary       String   @db.Text
-  period_start  DateTime
-  period_end    DateTime
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  id           String   @id @default(uuid())
+  summary      String   @db.Text
+  period_start DateTime
+  period_end   DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
 }
 
 enum PaymentStatus {
@@ -470,4 +470,91 @@ enum CustomizationType {
   TEXT
   IMAGES
   MULTIPLE_CHOICE
+}
+
+// ===== NOVOS MODELOS PARA V2: DYNAMIC LAYOUTS =====
+
+model DynamicLayout {
+  id                  String   @id @default(uuid())
+  userId              String? // Criador/Proprietário (opcional para layouts público)
+  name                String
+  type                String // 'mug', 'frame', 'custom'
+  baseImageUrl        String // Imagem base do produto
+  fabricJsonState     Json // Estado serializado Fabric.js (JSONB)
+  previewImageUrl     String? // Thumbnail para galeria
+  width               Int // Dimensões do canvas
+  height              Int
+  version             Int      @default(1)
+  isPublished         Boolean  @default(false)
+  isShared            Boolean  @default(false)
+  tags                String[] @default([])
+  relatedLayoutBaseId String? // Compatibilidade com legado
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  versions DynamicLayoutVersion[]
+  elements DynamicLayoutElement[]
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([isPublished])
+}
+
+model DynamicLayoutVersion {
+  id                String   @id @default(uuid())
+  layoutId          String
+  versionNumber     Int
+  fabricJsonState   Json // Snapshot histórico
+  changedBy         String? // User ID que fez a mudança
+  changeDescription String?
+  createdAt         DateTime @default(now())
+
+  layout DynamicLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+
+  @@unique([layoutId, versionNumber])
+  @@index([layoutId])
+}
+
+model DynamicLayoutElement {
+  id             String  @id @default(uuid())
+  layoutId       String
+  elementType    String // 'image', 'text', 'shape', 'icon'
+  fabricObjectId String // ID único no Fabric.js
+  data           Json // Propriedades Fabric.js (left, top, width, height, fill, etc)
+  order          Int // Z-index / ordem de renderização
+  isLocked       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  layout DynamicLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+
+  @@index([layoutId])
+}
+
+model ElementBank {
+  id           String   @id @default(uuid())
+  category     String // 'clipart', 'icons', 'templates', 'patterns'
+  name         String
+  imageUrl     String
+  thumbnailUrl String?
+  tags         String[] @default([])
+  width        Int?
+  height       Int?
+
+  // Proveniência
+  source     String  @default("local") // 'local', 'unsplash', 'pexels'
+  externalId String? // ID no serviço externo
+
+  isActive   Boolean @default(true)
+  usageCount Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
 }

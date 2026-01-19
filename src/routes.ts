@@ -508,7 +508,7 @@ router.post("/auth/refresh", authenticateToken, authController.refreshToken); //
 
 // Upload routes (public)
 router.post(
-  "/upload/image",
+  "/api/upload/image",
   upload.single("image"),
   convertImagesToWebP,
   uploadController.uploadImage

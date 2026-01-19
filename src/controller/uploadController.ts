@@ -57,6 +57,7 @@ class UploadController {
         return res.status(200).json({
           url: imageUrl,
           image_url: imageUrl,
+          imageUrl: imageUrl, // Adicionado para compatibilidade com frontend
           message: "Upload realizado com sucesso",
         });
       } catch (imageError: any) {

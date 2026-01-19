@@ -160,7 +160,13 @@ class DynamicLayoutController {
         tags,
         isPublished,
         isShared,
+        width,
+        height,
       } = req.body;
+
+      // Garantir que width e height sejam números inteiros para o Prisma
+      const parsedWidth = width ? Math.round(Number(width)) : undefined;
+      const parsedHeight = height ? Math.round(Number(height)) : undefined;
 
       // Verificar se layout existe e autorização
       const layout = await dynamicLayoutService.getLayoutById(id);
@@ -182,6 +188,14 @@ class DynamicLayoutController {
       if (tags) updateData.tags = tags;
       if (isPublished !== undefined) updateData.isPublished = isPublished;
       if (isShared !== undefined) updateData.isShared = isShared;
+      if (parsedWidth) updateData.width = parsedWidth;
+      if (parsedHeight) updateData.height = parsedHeight;
+
+      logger.info(`💾 [DYNAMIC_LAYOUT] Salvando update para layout ${id}`, {
+        width: parsedWidth,
+        height: parsedHeight,
+        isPublished
+      });
 
       const updatedLayout = await dynamicLayoutService.updateLayout(
         id,

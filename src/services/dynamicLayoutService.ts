@@ -181,6 +181,8 @@ class DynamicLayoutService {
       tags?: string[];
       isPublished?: boolean;
       isShared?: boolean;
+      width?: number;
+      height?: number;
     }
   ) {
     try {
@@ -189,6 +191,8 @@ class DynamicLayoutService {
         data: {
           name: data.name,
           isPublished: data.isPublished,
+          width: data.width,
+          height: data.height,
         },
       });
 

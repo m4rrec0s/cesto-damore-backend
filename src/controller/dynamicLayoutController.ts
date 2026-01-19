@@ -188,14 +188,8 @@ class DynamicLayoutController {
       if (tags) updateData.tags = tags;
       if (isPublished !== undefined) updateData.isPublished = isPublished;
       if (isShared !== undefined) updateData.isShared = isShared;
-      if (parsedWidth) updateData.width = parsedWidth;
-      if (parsedHeight) updateData.height = parsedHeight;
-
-      logger.info(`💾 [DYNAMIC_LAYOUT] Salvando update para layout ${id}`, {
-        width: parsedWidth,
-        height: parsedHeight,
-        isPublished
-      });
+      if (parsedWidth !== undefined) updateData.width = parsedWidth;
+      if (parsedHeight !== undefined) updateData.height = parsedHeight;
 
       const updatedLayout = await dynamicLayoutService.updateLayout(
         id,

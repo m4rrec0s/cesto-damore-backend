@@ -23,12 +23,6 @@ class DynamicLayoutService {
     relatedLayoutBaseId?: string;
   }) {
     try {
-      logger.info("📝 [DYNAMIC_LAYOUT] Criando novo layout", {
-        name: data.name,
-        type: data.type,
-        userId: data.userId,
-      });
-
       const layout = await prisma.dynamicLayout.create({
         data: {
           userId: data.userId,
@@ -52,11 +46,6 @@ class DynamicLayoutService {
             },
           },
         },
-      });
-
-      logger.info("✅ [DYNAMIC_LAYOUT] Layout criado com sucesso", {
-        id: layout.id,
-        name: layout.name,
       });
 
       return layout;
@@ -112,11 +101,6 @@ class DynamicLayoutService {
         },
       });
 
-      logger.info("📋 [DYNAMIC_LAYOUT] Listando layouts", {
-        count: layouts.length,
-        filters,
-      });
-
       return layouts;
     } catch (error: any) {
       logger.error("❌ [DYNAMIC_LAYOUT] Erro ao listar layouts:", error);
@@ -157,11 +141,6 @@ class DynamicLayoutService {
         throw new Error("Layout não encontrado");
       }
 
-      logger.info("📖 [DYNAMIC_LAYOUT] Obtendo layout", {
-        id: layoutId,
-        name: layout.name,
-      });
-
       return layout;
     } catch (error: any) {
       logger.error("❌ [DYNAMIC_LAYOUT] Erro ao obter layout:", error);
@@ -186,16 +165,6 @@ class DynamicLayoutService {
     }
   ) {
     try {
-      logger.info("✏️ [DYNAMIC_LAYOUT] Atualizando layout", {
-        id: layoutId,
-        data: {
-          name: data.name,
-          isPublished: data.isPublished,
-          width: data.width,
-          height: data.height,
-        },
-      });
-
       const layout = await prisma.dynamicLayout.update({
         where: { id: layoutId },
         data,
@@ -208,10 +177,6 @@ class DynamicLayoutService {
             },
           },
         },
-      });
-
-      logger.info("✅ [DYNAMIC_LAYOUT] Layout atualizado com sucesso", {
-        id: layout.id,
       });
 
       return layout;

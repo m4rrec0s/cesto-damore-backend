@@ -21,24 +21,20 @@ class UploadController {
       }
 
       try {
+        // Multer em memoryStorage usa file.buffer, não file.data
         const imageUrl = await saveImageLocally(
-          file.data,
-          file.name,
+          file.buffer,
+          file.originalname,
           file.mimetype
         );
-
-        console.log("✅ [UPLOAD] Upload concluído com sucesso!");
-        console.log("🔗 [UPLOAD] URL:", imageUrl);
 
         return res.status(200).json({
           url: imageUrl,
           image_url: imageUrl,
-          imageUrl: imageUrl, // Adicionado para compatibilidade com frontend
+          imageUrl: imageUrl,
           message: "Upload realizado com sucesso",
         });
       } catch (imageError: any) {
-        console.error("❌ [UPLOAD] Erro ao processar imagem:", imageError);
-        console.error("❌ [UPLOAD] Stack:", imageError.stack);
         return res.status(500).json({
           error: "Erro ao processar imagem",
           details: imageError.message,

@@ -15,7 +15,6 @@ class AuthController {
       const result = await authService.googleLogin({ idToken, ...req.body });
       res.json(result);
     } catch (error: any) {
-      console.error("Erro no login do Google:", error);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("necessários")
@@ -40,7 +39,6 @@ class AuthController {
       const result = await authService.login(email, password);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro no login:", error);
       if (
         error.message.includes("não encontrado") ||
         error.message.includes("não configurada")
@@ -78,7 +76,6 @@ class AuthController {
             "image/jpeg"
           );
         } catch (imageError: any) {
-          console.error("Erro no processamento de imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
             details: imageError.message,
@@ -94,7 +91,6 @@ class AuthController {
       );
       res.status(201).json(result);
     } catch (error: any) {
-      console.error("Erro no registro:", error);
       if (
         error.message.includes("já registrado") ||
         error.message.includes("obrigatório")
@@ -135,7 +131,6 @@ class AuthController {
         expiresIn: "7 days",
       });
     } catch (error: any) {
-      console.error("Erro ao renovar token:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -145,13 +140,14 @@ class AuthController {
       const { email, code } = req.body;
 
       if (!email || !code) {
-        return res.status(400).json({ error: "Email e código são obrigatórios" });
+        return res
+          .status(400)
+          .json({ error: "Email e código são obrigatórios" });
       }
 
       const result = await authService.verify2FA(email, code);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro na verificação 2FA:", error);
       res.status(401).json({ error: error.message });
     }
   }

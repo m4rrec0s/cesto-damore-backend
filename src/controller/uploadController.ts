@@ -5,8 +5,6 @@ import { saveImageLocally } from "../config/localStorage";
 class UploadController {
   async uploadImage(req: Request, res: Response) {
     try {
-      console.log("📤 [UPLOAD] Iniciando processamento de upload");
-
       // Processar o arquivo enviado
       const file = ((): any => {
         if (req.file) return req.file;
@@ -19,36 +17,14 @@ class UploadController {
       })();
 
       if (!file) {
-        console.error("❌ [UPLOAD] Nenhum arquivo recebido");
         return res.status(400).json({ error: "Nenhuma imagem foi enviada" });
       }
 
-      console.log("📥 [UPLOAD] Arquivo recebido:", {
-        originalname: file.originalname,
-        mimetype: file.mimetype,
-        size: file.buffer?.length || 0,
-      });
-
       try {
-        console.log("🔄 [UPLOAD] Processando com Sharp...");
-
-        // Processar imagem (redimensionar e converter para WebP)
-        const processedImage = await sharp(file.buffer)
-          .resize(1920, 1080, { fit: "inside", withoutEnlargement: true })
-          .webp({ quality: 85 })
-          .toBuffer();
-
-        console.log(
-          "✅ [UPLOAD] Sharp processou imagem:",
-          processedImage.length,
-          "bytes"
-        );
-        console.log("💾 [UPLOAD] Chamando saveImageLocally...");
-
         const imageUrl = await saveImageLocally(
-          processedImage,
-          file.originalname || `upload_${Date.now()}.webp`,
-          "image/webp"
+          file.data,
+          file.name,
+          file.mimetype
         );
 
         console.log("✅ [UPLOAD] Upload concluído com sucesso!");
@@ -69,8 +45,6 @@ class UploadController {
         });
       }
     } catch (error: any) {
-      console.error("❌ [UPLOAD] Erro geral:", error);
-      console.error("❌ [UPLOAD] Stack:", error.stack);
       return res.status(500).json({
         error: "Erro ao fazer upload",
         details: error.message,

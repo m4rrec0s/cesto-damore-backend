@@ -70,7 +70,6 @@ class LayoutBaseController {
 
       return res.status(201).json(layoutBase);
     } catch (error) {
-      console.error("Erro ao criar layout base:", error);
       return res.status(400).json({
         error:
           error instanceof Error ? error.message : "Erro ao criar layout base",
@@ -86,7 +85,6 @@ class LayoutBaseController {
 
       return res.json(layouts);
     } catch (error) {
-      console.error("Erro ao listar layouts:", error);
       return res.status(500).json({
         error: "Erro ao listar layouts",
       });
@@ -101,7 +99,6 @@ class LayoutBaseController {
 
       return res.json(layoutBase);
     } catch (error) {
-      console.error("Erro ao buscar layout:", error);
       return res.status(404).json({
         error: error instanceof Error ? error.message : "Layout não encontrado",
       });
@@ -159,7 +156,6 @@ class LayoutBaseController {
 
       return res.json(updated);
     } catch (error) {
-      console.error("Erro ao atualizar layout:", error);
       return res.status(400).json({
         error:
           error instanceof Error ? error.message : "Erro ao atualizar layout",
@@ -175,7 +171,6 @@ class LayoutBaseController {
 
       return res.json(result);
     } catch (error) {
-      console.error("Erro ao deletar layout:", error);
       return res.status(400).json({
         error:
           error instanceof Error ? error.message : "Erro ao deletar layout",

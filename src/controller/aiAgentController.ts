@@ -54,6 +54,25 @@ class AIAgentController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  async listSessions(req: Request, res: Response) {
+    try {
+      const sessions = await aiAgentService.listSessions();
+      res.json(sessions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async blockSession(req: Request, res: Response) {
+    const { sessionId } = req.params;
+    try {
+      const session = await aiAgentService.blockSession(sessionId);
+      res.json({ success: true, session });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 export default new AIAgentController();

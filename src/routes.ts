@@ -34,6 +34,8 @@ import elementBankController from "./controller/elementBankController";
 import customerManagementController from "./controller/customerManagementController";
 import aiProductController from "./controller/aiProductController";
 import aiAgentController from "./controller/aiAgentController";
+import holidayController from "./controller/holidayController";
+import followUpController from "./controller/followUpController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import {
   upload,
@@ -260,6 +262,18 @@ router.get(
   validateAIAgentKey,
   aiAgentController.getHistory
 );
+router.get(
+  "/admin/ai/agent/sessions",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.listSessions
+);
+router.post(
+  "/admin/ai/agent/sessions/:sessionId/block",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.blockSession
+);
 
 // ============================================
 // GOOGLE DRIVE OAUTH2
@@ -278,6 +292,58 @@ router.post(
   authenticateToken,
   requireAdmin,
   async (req: Request, res: Response) => oauthController.clear(req, res)
+);
+
+// Holiday Routes
+router.get(
+  "/admin/holidays",
+  authenticateToken,
+  requireAdmin,
+  holidayController.index
+);
+router.get(
+  "/admin/holidays/:id",
+  authenticateToken,
+  requireAdmin,
+  holidayController.show
+);
+router.post(
+  "/admin/holidays",
+  authenticateToken,
+  requireAdmin,
+  holidayController.create
+);
+router.put(
+  "/admin/holidays/:id",
+  authenticateToken,
+  requireAdmin,
+  holidayController.update
+);
+router.delete(
+  "/admin/holidays/:id",
+  authenticateToken,
+  requireAdmin,
+  holidayController.delete
+);
+
+// FollowUp Routes
+router.get(
+  "/admin/followup/history",
+  authenticateToken,
+  requireAdmin,
+  followUpController.listHistory
+);
+router.post(
+  "/admin/followup/toggle",
+  authenticateToken,
+  requireAdmin,
+  followUpController.toggle
+);
+router.post(
+  "/admin/followup/trigger",
+  authenticateToken,
+  requireAdmin,
+  followUpController.trigger
 );
 
 // Admin test for Google Drive (checks create/delete permissions)

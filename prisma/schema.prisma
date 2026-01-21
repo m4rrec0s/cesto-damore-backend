@@ -365,6 +365,7 @@ model AIAgentSession {
   expires_at     DateTime
   created_at     DateTime         @default(now())
   messages       AIAgentMessage[]
+  customer       Customer?
 
   @@unique([customer_phone])
 }
@@ -433,6 +434,30 @@ model AISummary {
   period_end   DateTime
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
+}
+
+model Customer {
+  number             String         @id
+  name               String?
+  last_message_sent  DateTime?
+  service_status     String?
+  already_a_customer Boolean        @default(false)
+  follow_up          Boolean        @default(false)
+  followUpSent       FollowUpSent[]
+  aiAgentSession     AIAgentSession? @relation(fields: [number], references: [customer_phone])
+
+  @@map("clientes")
+}
+
+model FollowUpSent {
+  id             String   @id @default(uuid())
+  cliente_number String
+  horas_followup Int
+  enviado_em     DateTime @default(now())
+  customer       Customer @relation(fields: [cliente_number], references: [number])
+
+  @@unique([cliente_number, horas_followup])
+  @@map("followup_enviados")
 }
 
 enum PaymentStatus {

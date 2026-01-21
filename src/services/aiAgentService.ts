@@ -142,6 +142,28 @@ class AIAgentService {
     return sentProducts.map((sp) => sp.product_id);
   }
 
+  async listSessions() {
+    return prisma.aIAgentSession.findMany({
+      include: {
+        customer: true,
+        _count: {
+          select: { messages: true },
+        },
+      },
+      orderBy: { created_at: "desc" },
+    });
+  }
+
+  async blockSession(sessionId: string) {
+    return prisma.aIAgentSession.update({
+      where: { id: sessionId },
+      data: {
+        is_blocked: true,
+        expires_at: addDays(new Date(), 4),
+      },
+    });
+  }
+
   async recordProductSent(sessionId: string, productId: string) {
     const existing = await prisma.aISessionProductHistory.findUnique({
       where: {
@@ -550,12 +572,12 @@ Seja sempre carinhosa, empática e prestativa. Siga os procedimentos com natural
         }
 
         const toolResultMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-          {
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content:
-              typeof result === "string" ? result : JSON.stringify(result),
-          };
+        {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content:
+            typeof result === "string" ? result : JSON.stringify(result),
+        };
 
         messages.push(toolResultMessage);
 

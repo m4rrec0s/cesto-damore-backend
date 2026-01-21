@@ -11,6 +11,7 @@ import { webhookNotificationService } from "./services/webhookNotificationServic
 import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
+import followUpService from "./services/followUpService";
 import path from "path";
 
 const app = express();
@@ -183,6 +184,15 @@ cron.schedule("*/10 * * * *", () => {
     webhookNotificationService.cleanupDeadConnections();
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de conexões SSE:", error);
+  }
+});
+
+// FollowUp Automation - runs every hour
+cron.schedule("0 * * * *", async () => {
+  try {
+    await followUpService.triggerFollowUpFunction();
+  } catch (error) {
+    logger.error("❌ [Cron] Erro ao disparar follow-up automático:", error);
   }
 });
 

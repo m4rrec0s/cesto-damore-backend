@@ -12,7 +12,7 @@ class ProductService {
       search?: string;
       category_id?: string;
       type_id?: string;
-    } = {}
+    } = {},
   ) {
     const {
       page = 1,
@@ -84,7 +84,7 @@ class ProductService {
 
       return {
         products: products.map((product) =>
-          this.formatProductResponse(product)
+          this.formatProductResponse(product),
         ),
         pagination: {
           page,
@@ -172,7 +172,7 @@ class ProductService {
       return {
         ...formatted,
         related_products: relatedProducts.map((p) =>
-          this.formatProductResponse(p)
+          this.formatProductResponse(p),
         ),
       };
     } catch (error: any) {
@@ -189,7 +189,7 @@ class ProductService {
     }
     if (!data.price || data.price <= 0) {
       throw new Error(
-        "Preço do produto é obrigatório e deve ser maior que zero"
+        "Preço do produto é obrigatório e deve ser maior que zero",
       );
     }
     if (!data.type_id || data.type_id.trim() === "") {
@@ -213,10 +213,10 @@ class ProductService {
       normalized.price = this.normalizePrice(normalized.price);
       normalized.discount = this.normalizeDiscount(normalized.discount);
       normalized.stock_quantity = this.normalizeStockQuantity(
-        normalized.stock_quantity
+        normalized.stock_quantity,
       );
       normalized.production_time = this.normalizeProductionTime(
-        normalized.production_time
+        normalized.production_time,
       );
       normalized.is_active = this.normalizeBoolean(normalized.is_active, true);
 
@@ -227,8 +227,8 @@ class ProductService {
           categories.map((categoryId: string) =>
             prisma.productCategory.create({
               data: { product_id: created.id, category_id: categoryId },
-            })
-          )
+            }),
+          ),
         );
       }
 
@@ -247,7 +247,7 @@ class ProductService {
                   : null,
               },
             });
-          })
+          }),
         );
       }
 
@@ -260,8 +260,8 @@ class ProductService {
                 item_id: comp.item_id,
                 quantity: comp.quantity || 1,
               },
-            })
-          )
+            }),
+          ),
         );
       }
 
@@ -303,12 +303,12 @@ class ProductService {
       }
       if (normalized.stock_quantity !== undefined) {
         normalized.stock_quantity = this.normalizeStockQuantity(
-          normalized.stock_quantity
+          normalized.stock_quantity,
         );
       }
       if (normalized.production_time !== undefined) {
         normalized.production_time = this.normalizeProductionTime(
-          normalized.production_time
+          normalized.production_time,
         );
       }
       if (normalized.is_active !== undefined) {
@@ -337,8 +337,8 @@ class ProductService {
           categories.map((categoryId: string) =>
             prisma.productCategory.create({
               data: { product_id: id, category_id: categoryId },
-            })
-          )
+            }),
+          ),
         );
       }
 
@@ -360,7 +360,7 @@ class ProductService {
                   : null,
               },
             });
-          })
+          }),
         );
       }
 
@@ -376,8 +376,8 @@ class ProductService {
                 item_id: comp.item_id,
                 quantity: comp.quantity || 1,
               },
-            })
-          )
+            }),
+          ),
         );
       }
 
@@ -401,16 +401,51 @@ class ProductService {
     const product = await this.getProductById(id);
 
     try {
+      // 1. Verificar se existem pedidos vinculados
+      const orderCount = await prisma.orderItem.count({
+        where: { product_id: id },
+      });
+
+      if (orderCount > 0) {
+        throw new Error(
+          "Não é possível excluir um produto que possui pedidos vinculados. Tente desativá-lo em vez de excluí-lo.",
+        );
+      }
+
+      // 2. Deletar imagem se existir
       if (product.image_url) {
         await deleteProductImage(product.image_url);
       }
 
-      await prisma.productAdditional.deleteMany({ where: { product_id: id } });
-      await prisma.productCategory.deleteMany({ where: { product_id: id } });
-      await prisma.product.delete({ where: { id } });
+      // 3. Deletar todas as dependências antes de deletar o produto
+      // Isso evita erros de chave estrangeira caso o CASCADE não esteja 100% configurado no banco
+      await prisma.$transaction([
+        prisma.productAdditional.deleteMany({ where: { product_id: id } }),
+        prisma.productCategory.deleteMany({ where: { product_id: id } }),
+        prisma.productComponent.deleteMany({ where: { product_id: id } }),
+        prisma.aISessionProductHistory.deleteMany({
+          where: { product_id: id },
+        }),
+        prisma.feedSectionItem.deleteMany({
+          where: { item_id: id, item_type: "product" },
+        }),
+        prisma.itemConstraint.deleteMany({
+          where: {
+            OR: [
+              { target_item_id: id, target_item_type: "PRODUCT" },
+              { related_item_id: id, related_item_type: "PRODUCT" },
+            ],
+          },
+        }),
+        prisma.product.delete({ where: { id } }),
+      ]);
 
       return { message: "Produto deletado com sucesso" };
     } catch (error: any) {
+      if (error.message.includes("pedidos vinculados")) {
+        throw error;
+      }
+      console.error(`[ProductService] Erro ao deletar produto ${id}:`, error);
       throw new Error(`Erro ao deletar produto: ${error.message}`);
     }
   }

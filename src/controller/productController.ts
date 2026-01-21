@@ -94,7 +94,7 @@ class ProductController {
           const imageUrl = await saveImageLocally(
             fileToProcess.buffer,
             fileToProcess.originalname || `product_${Date.now()}.webp`,
-            fileToProcess.mimetype || "image/webp"
+            fileToProcess.mimetype || "image/webp",
           );
           data.image_url = imageUrl;
         } catch (imageError: any) {
@@ -169,7 +169,7 @@ class ProductController {
           const imageUrl = await saveImageLocally(
             compressedImage,
             file.originalname || `product_${Date.now()}.webp`,
-            "image/webp"
+            "image/webp",
           );
 
           data.image_url = imageUrl;
@@ -208,10 +208,16 @@ class ProductController {
       console.error("Erro ao deletar produto:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
-      } else if (error.message.includes("obrigatório")) {
+      } else if (
+        error.message.includes("obrigatório") ||
+        error.message.includes("vinculados") ||
+        error.message.includes("não é possível")
+      ) {
         res.status(400).json({ error: error.message });
       } else {
-        res.status(500).json({ error: "Erro interno do servidor" });
+        res
+          .status(500)
+          .json({ error: "Erro interno do servidor: " + error.message });
       }
     }
   }

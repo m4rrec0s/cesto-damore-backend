@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import sharp from "sharp";
 import { saveImageLocally } from "../config/localStorage";
+import elementBankService from "../services/elementBankService";
+import logger from "../utils/logger";
 
 class UploadController {
   async uploadImage(req: Request, res: Response) {
@@ -28,11 +30,19 @@ class UploadController {
           file.mimetype
         );
 
+        // Persistir no ElementBank como categoria "Uploads"
+        await elementBankService.createElement({
+          category: "Uploads",
+          name: file.originalname,
+          imageUrl: imageUrl,
+          source: "local",
+        });
+
         return res.status(200).json({
           url: imageUrl,
           image_url: imageUrl,
           imageUrl: imageUrl,
-          message: "Upload realizado com sucesso",
+          message: "Upload realizado com sucesso e salvo no banco",
         });
       } catch (imageError: any) {
         return res.status(500).json({

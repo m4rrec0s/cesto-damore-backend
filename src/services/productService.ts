@@ -12,6 +12,7 @@ class ProductService {
       search?: string;
       category_id?: string;
       type_id?: string;
+      only_active?: boolean;
     } = {},
   ) {
     const {
@@ -21,6 +22,7 @@ class ProductService {
       search,
       category_id,
       type_id,
+      only_active = false,
     } = options;
     const skip = (page - 1) * perPage;
 
@@ -30,6 +32,9 @@ class ProductService {
     }
 
     const where: any = {};
+    if (only_active) {
+      where.is_active = true;
+    }
     if (search) {
       where.OR = [
         { name: { contains: search, mode: "insensitive" } },

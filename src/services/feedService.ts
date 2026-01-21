@@ -38,11 +38,11 @@ class FeedService {
             },
           },
           orderBy: { created_at: "desc" },
-        })
+        }),
       );
 
       return configurations.map((config) =>
-        this.formatFeedConfigurationResponse(config)
+        this.formatFeedConfigurationResponse(config),
       );
     } catch (error: any) {
       throw new Error(`Erro ao buscar configurações de feed: ${error.message}`);
@@ -71,7 +71,7 @@ class FeedService {
               },
             },
           },
-        })
+        }),
       );
 
       if (!configuration) {
@@ -99,7 +99,7 @@ class FeedService {
             name: data.name.trim(),
             is_active: data.is_active ?? true,
           },
-        })
+        }),
       );
 
       return this.getFeedConfigurationById(configuration.id);
@@ -110,7 +110,7 @@ class FeedService {
 
   async updateFeedConfiguration(
     id: string,
-    data: UpdateFeedConfigurationInput
+    data: UpdateFeedConfigurationInput,
   ) {
     if (!id) {
       throw new Error("ID da configuração é obrigatório");
@@ -133,7 +133,7 @@ class FeedService {
       return this.getFeedConfigurationById(id);
     } catch (error: any) {
       throw new Error(
-        `Erro ao atualizar configuração de feed: ${error.message}`
+        `Erro ao atualizar configuração de feed: ${error.message}`,
       );
     }
   }
@@ -281,7 +281,7 @@ class FeedService {
       const banners = await withRetry(() =>
         prisma.feedBanner.findMany({
           orderBy: { display_order: "asc" },
-        })
+        }),
       );
       return banners;
     } catch (error: any) {
@@ -301,7 +301,7 @@ class FeedService {
             },
           },
           orderBy: { display_order: "asc" },
-        })
+        }),
       );
       return sections;
     } catch (error: any) {
@@ -539,7 +539,7 @@ class FeedService {
                 },
               },
             },
-          })
+          }),
         );
       } else {
         // Pegar a primeira configuração ativa
@@ -564,7 +564,7 @@ class FeedService {
               },
             },
             orderBy: { created_at: "desc" },
-          })
+          }),
         );
       }
 
@@ -584,7 +584,7 @@ class FeedService {
               max_items: (section as any).max_items ?? 6,
               items: enrichedItems,
             };
-          })
+          }),
         );
 
         return {
@@ -612,7 +612,7 @@ class FeedService {
               max_items: (section as any).max_items ?? 6,
               items: enrichedItems,
             };
-          })
+          }),
         );
 
       const response = this.formatFeedConfigurationResponse(feedConfig);
@@ -644,7 +644,7 @@ class FeedService {
 
   private async validateItemExists(
     itemType: string,
-    itemId: string
+    itemId: string,
   ): Promise<void> {
     try {
       switch (itemType) {
@@ -683,15 +683,23 @@ class FeedService {
   private async enrichSectionItems(section: any) {
     // Se tem itens manuais, usar eles
     if (section.items && section.items.length > 0) {
-      return await Promise.all(
+      const enrichedItems = await Promise.all(
         section.items.map(async (item: any) => {
           const itemData = await this.getItemData(item.item_type, item.item_id);
           return {
             ...item,
             item_data: itemData,
           };
-        })
+        }),
       );
+
+      // Filtrar produtos inativos nas seções públicas
+      return enrichedItems.filter((item) => {
+        if (item.item_type === "product") {
+          return item.item_data && (item.item_data as any).is_active === true;
+        }
+        return !!item.item_data;
+      });
     }
 
     // Senão, preencher automaticamente baseado no tipo da seção
@@ -708,19 +716,19 @@ class FeedService {
               type: true,
               categories: { include: { category: true } },
             },
-          })
+          }),
         );
       case "category":
         return await withRetry(() =>
           prisma.category.findUnique({
             where: { id: itemId },
-          })
+          }),
         );
       case "additional":
         return await withRetry(() =>
           prisma.item.findUnique({
             where: { id: itemId },
-          })
+          }),
         );
       default:
         return null;
@@ -741,7 +749,7 @@ class FeedService {
             },
             orderBy: { created_at: "desc" },
             take: maxItems,
-          })
+          }),
         );
         return recommendedProducts.map((product, index) => ({
           id: `auto_${product.id}`,
@@ -765,7 +773,7 @@ class FeedService {
             },
             orderBy: { discount: "desc" },
             take: maxItems,
-          })
+          }),
         );
         return discountedProducts.map((product, index) => ({
           id: `auto_${product.id}`,
@@ -781,7 +789,7 @@ class FeedService {
           prisma.category.findMany({
             take: maxItems,
             orderBy: { name: "asc" },
-          })
+          }),
         );
         return categories.map((category, index) => ({
           id: `auto_${category.id}`,
@@ -798,7 +806,7 @@ class FeedService {
             where: { type: "additional" },
             take: maxItems,
             orderBy: { created_at: "desc" },
-          })
+          }),
         );
         return additionals.map((additional, index) => ({
           id: `auto_${additional.id}`,
@@ -819,7 +827,7 @@ class FeedService {
             },
             orderBy: { created_at: "desc" },
             take: maxItems,
-          })
+          }),
         );
         return newProducts.map((product, index) => ({
           id: `auto_${product.id}`,

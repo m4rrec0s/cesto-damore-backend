@@ -12,6 +12,7 @@ class ProductController {
       const search = req.query.search as string;
       const category_id = req.query.category_id as string;
       const type_id = req.query.type_id as string;
+      const only_active = req.query.only_active === "true";
 
       const result = await productService.getAllProducts({
         page,
@@ -20,6 +21,7 @@ class ProductController {
         search,
         category_id,
         type_id,
+        only_active,
       });
       res.json(result);
     } catch (error: any) {

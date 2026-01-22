@@ -70,7 +70,7 @@ export const uploadTemp = multer({
   },
 });
 
-export const convertImagesToWebP = async (req: any, res: any, next: any) => {
+export const convertImagesToWebPLossy = async (req: any, res: any, next: any) => {
   try {
     logger.debug("🔄 [MIDDLEWARE] convertImagesToWebP iniciado");
 
@@ -121,7 +121,7 @@ export const convertImagesToWebP = async (req: any, res: any, next: any) => {
 
     next();
   } catch (err: any) {
-    logger.error("❌ [MIDDLEWARE] Erro em convertImagesToWebP:", err);
+    logger.error("❌ [MIDDLEWARE] Erro em convertImagesToWebPLossy:", err);
     logger.error("❌ [MIDDLEWARE] Stack:", err.stack);
     next(err);
   }

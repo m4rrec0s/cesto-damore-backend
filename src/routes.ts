@@ -40,7 +40,7 @@ import webhookNotificationController from "./controller/webhookNotificationContr
 import {
   upload,
   uploadAny,
-  convertImagesToWebP,
+  convertImagesToWebPLossy,
   convertImagesToWebPLossless,
 } from "./config/multer";
 import {
@@ -520,13 +520,13 @@ router.get("/additional/:id", additionalController.show);
 router.post(
   "/additional",
   upload.single("image"),
-  convertImagesToWebP,
+  convertImagesToWebPLossless,
   additionalController.create
 );
 router.put(
   "/additional/:id",
   upload.single("image"),
-  convertImagesToWebP,
+  convertImagesToWebPLossless,
   additionalController.update
 );
 router.delete("/additional/:id", additionalController.remove);
@@ -545,13 +545,13 @@ router.get("/products/:id", productController.show);
 router.post(
   "/products",
   upload.single("image"),
-  convertImagesToWebP,
+  convertImagesToWebPLossless,
   productController.create
 );
 router.put(
   "/products/:id",
   upload.single("image"),
-  convertImagesToWebP,
+  convertImagesToWebPLossless,
   productController.update
 );
 router.delete("/products/:id", productController.remove);
@@ -576,7 +576,7 @@ router.post("/auth/refresh", authenticateToken, authController.refreshToken); //
 router.post(
   "/api/upload/image",
   upload.single("image"),
-  convertImagesToWebP,
+  convertImagesToWebPLossless,
   uploadController.uploadImage
 );
 
@@ -952,7 +952,7 @@ router.post(
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  convertImagesToWebP,
+  convertImagesToWebPLossless,
   itemController.create
 );
 router.put(
@@ -960,7 +960,7 @@ router.put(
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  convertImagesToWebP,
+  convertImagesToWebPLossless,
   itemController.update
 );
 router.put(
@@ -1110,7 +1110,6 @@ router.post(
   authenticateToken,
   requireAdmin,
   uploadAny.any(),
-  convertImagesToWebP,
   customizationController.create
 );
 
@@ -1120,7 +1119,6 @@ router.put(
   authenticateToken,
   requireAdmin,
   uploadAny.any(),
-  convertImagesToWebP,
   customizationController.update
 );
 
@@ -1293,7 +1291,6 @@ import tempFileController from "./controller/tempFileController";
 router.post(
   "/temp/upload",
   upload.single("image"),
-  convertImagesToWebP,
   tempFileController.upload
 );
 

@@ -1458,5 +1458,16 @@ router.post(
   requireAdmin,
   elementBankController.bulkCreate
 );
+// ===== Customer Management (Admin-Protected) =====
+router.get("/api/customers", authenticateToken, requireAdmin, (req, res) => customerManagementController.listCustomers(req, res));
+router.get("/api/customers/follow-up", authenticateToken, requireAdmin, (req, res) => customerManagementController.getFollowUpCustomers(req, res));
+router.get("/api/customers/:phone", authenticateToken, requireAdmin, (req, res) => customerManagementController.getCustomerInfo(req, res));
+router.post("/api/customers", authenticateToken, requireAdmin, (req, res) => customerManagementController.upsertCustomer(req, res));
+router.patch("/api/customers/:phone/follow-up", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateFollowUp(req, res));
+router.patch("/api/customers/:phone/service-status", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateServiceStatus(req, res));
+router.patch("/api/customers/:phone/customer-status", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateCustomerStatus(req, res));
+router.patch("/api/customers/:phone/name", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateName(req, res));
+router.post("/api/customers/:phone/send-message", authenticateToken, requireAdmin, (req, res) => customerManagementController.sendMessage(req, res));
+router.post("/api/customers/sync/:userId", authenticateToken, requireAdmin, (req, res) => customerManagementController.syncAppUser(req, res));
 
 export default router;

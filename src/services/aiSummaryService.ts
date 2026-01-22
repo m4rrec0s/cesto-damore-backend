@@ -115,14 +115,32 @@ class AISummaryService {
 
             const summaryContent = response.choices[0].message.content || "";
 
-            // Salvar no banco de dados
-            const savedSummary = await prisma.aISummary.create({
-                data: {
-                    summary: summaryContent,
+            // Tenta encontrar um resumo para o mesmo período exato
+            const existingSummary = await prisma.aISummary.findFirst({
+                where: {
                     period_start: statusData.period.startDate,
                     period_end: statusData.period.endDate,
-                }
+                },
+                orderBy: { created_at: 'desc' }
             });
+
+            let savedSummary;
+            if (existingSummary) {
+                savedSummary = await prisma.aISummary.update({
+                    where: { id: existingSummary.id },
+                    data: {
+                        summary: summaryContent,
+                    }
+                });
+            } else {
+                savedSummary = await prisma.aISummary.create({
+                    data: {
+                        summary: summaryContent,
+                        period_start: statusData.period.startDate,
+                        period_end: statusData.period.endDate,
+                    }
+                });
+            }
 
             return {
                 summary: savedSummary.summary,

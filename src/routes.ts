@@ -157,7 +157,7 @@ router.post(
       const testPath = path.join(
         process.cwd(),
         "images",
-        `TEST-${Date.now()}-${file.originalname}`
+        `TEST-${Date.now()}-${file.originalname}`,
       );
 
       logger.info("🧪 [TEST-UPLOAD] Salvando em:", testPath);
@@ -169,7 +169,7 @@ router.post(
         logger.info(
           "✅ [TEST-UPLOAD] Arquivo confirmado:",
           stats.size,
-          "bytes"
+          "bytes",
         );
 
         return res.status(200).json({
@@ -193,7 +193,7 @@ router.post(
         stack: error.stack,
       });
     }
-  }
+  },
 );
 
 // ============================================
@@ -232,7 +232,7 @@ router.post("/webhook/mercadopago/debug", (req: Request, res: Response) => {
 // GET /webhooks/notifications/:orderId
 router.get(
   "/webhooks/notifications/:orderId",
-  webhookNotificationController.streamNotifications
+  webhookNotificationController.streamNotifications,
 );
 
 // Obter estatísticas de conexões SSE ativas
@@ -241,7 +241,7 @@ router.get(
   "/webhooks/notifications-stats",
   authenticateToken,
   requireAdmin,
-  webhookNotificationController.getStats
+  webhookNotificationController.getStats,
 );
 
 // ============================================
@@ -260,19 +260,19 @@ router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
 router.get(
   "/ai/agent/history/:sessionId",
   validateAIAgentKey,
-  aiAgentController.getHistory
+  aiAgentController.getHistory,
 );
 router.get(
   "/admin/ai/agent/sessions",
   authenticateToken,
   requireAdmin,
-  aiAgentController.listSessions
+  aiAgentController.listSessions,
 );
 router.post(
   "/admin/ai/agent/sessions/:sessionId/block",
   authenticateToken,
   requireAdmin,
-  aiAgentController.blockSession
+  aiAgentController.blockSession,
 );
 
 // ============================================
@@ -291,7 +291,7 @@ router.post(
   "/oauth/clear",
   authenticateToken,
   requireAdmin,
-  async (req: Request, res: Response) => oauthController.clear(req, res)
+  async (req: Request, res: Response) => oauthController.clear(req, res),
 );
 
 // Holiday Routes
@@ -299,31 +299,31 @@ router.get(
   "/admin/holidays",
   authenticateToken,
   requireAdmin,
-  holidayController.index
+  holidayController.index,
 );
 router.get(
   "/admin/holidays/:id",
   authenticateToken,
   requireAdmin,
-  holidayController.show
+  holidayController.show,
 );
 router.post(
   "/admin/holidays",
   authenticateToken,
   requireAdmin,
-  holidayController.create
+  holidayController.create,
 );
 router.put(
   "/admin/holidays/:id",
   authenticateToken,
   requireAdmin,
-  holidayController.update
+  holidayController.update,
 );
 router.delete(
   "/admin/holidays/:id",
   authenticateToken,
   requireAdmin,
-  holidayController.delete
+  holidayController.delete,
 );
 
 // FollowUp Routes
@@ -331,19 +331,19 @@ router.get(
   "/admin/followup/history",
   authenticateToken,
   requireAdmin,
-  followUpController.listHistory
+  followUpController.listHistory,
 );
 router.post(
   "/admin/followup/toggle",
   authenticateToken,
   requireAdmin,
-  followUpController.toggle
+  followUpController.toggle,
 );
 router.post(
   "/admin/followup/trigger",
   authenticateToken,
   requireAdmin,
-  followUpController.trigger
+  followUpController.trigger,
 );
 
 // Admin test for Google Drive (checks create/delete permissions)
@@ -362,7 +362,7 @@ router.post(
       logger.error("Admin Google Drive test failed:", err);
       res.status(500).json({ success: false, error: err.message });
     }
-  }
+  },
 );
 
 // Admin: Reprocess finalization for a specific order or payment
@@ -393,14 +393,14 @@ router.post(
       }
 
       const result = await PaymentService.reprocessFinalizationForOrder(
-        targetOrderId!
+        targetOrderId!,
       );
       return res.json({ success: true, result });
     } catch (err: any) {
       logger.error("Erro ao reprocessar finalização manualmente:", err);
       return res.status(500).json({ success: false, error: err.message });
     }
-  }
+  },
 );
 
 // Admin: Reprocess all missing finalizations
@@ -417,7 +417,7 @@ router.post(
       logger.error("Erro ao reprocessar finalizar pendentes:", err);
       return res.status(500).json({ success: false, error: err.message });
     }
-  }
+  },
 );
 
 // Servir imagens de produtos/adicionais
@@ -476,7 +476,7 @@ router.get(
         message: error.message,
       });
     }
-  }
+  },
 );
 
 // Servir arquivos de customizações (subpastas - mantido para compatibilidade)
@@ -492,7 +492,7 @@ router.get(
       const customizationsPath = path.join(
         imagesPath,
         "customizations",
-        folderId
+        folderId,
       );
       const filePath = path.join(customizationsPath, filename);
 
@@ -512,7 +512,7 @@ router.get(
         message: error.message,
       });
     }
-  }
+  },
 );
 
 router.get("/additional", additionalController.index);
@@ -521,13 +521,13 @@ router.post(
   "/additional",
   upload.single("image"),
   convertImagesToWebPLossless,
-  additionalController.create
+  additionalController.create,
 );
 router.put(
   "/additional/:id",
   upload.single("image"),
   convertImagesToWebPLossless,
-  additionalController.update
+  additionalController.update,
 );
 router.delete("/additional/:id", additionalController.remove);
 router.post("/additional/:id/link", additionalController.link);
@@ -536,7 +536,7 @@ router.post("/additional/:id/unlink", additionalController.unlink);
 router.get("/additional/:id/price", additionalController.getPrice);
 router.get(
   "/products/:productId/additionals",
-  additionalController.getByProduct
+  additionalController.getByProduct,
 );
 
 // product routes
@@ -546,13 +546,13 @@ router.post(
   "/products",
   upload.single("image"),
   convertImagesToWebPLossless,
-  productController.create
+  productController.create,
 );
 router.put(
   "/products/:id",
   upload.single("image"),
   convertImagesToWebPLossless,
-  productController.update
+  productController.update,
 );
 router.delete("/products/:id", productController.remove);
 router.post("/products/:id/link", productController.link);
@@ -576,8 +576,7 @@ router.post("/auth/refresh", authenticateToken, authController.refreshToken); //
 router.post(
   "/api/upload/image",
   upload.single("image"),
-  convertImagesToWebPLossless,
-  uploadController.uploadImage
+  uploadController.uploadImage,
 );
 
 // category routes
@@ -614,14 +613,14 @@ router.get("/orders", orderController.index);
 router.get(
   "/users/:id/orders/pending",
   authenticateToken,
-  orderController.getPendingOrder
+  orderController.getPendingOrder,
 );
 
 // Rota para cancelar pedido (autenticado)
 router.post(
   "/orders/:id/cancel",
   authenticateToken,
-  orderController.cancelOrder
+  orderController.cancelOrder,
 );
 
 router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
@@ -629,14 +628,14 @@ router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
 router.put(
   "/orders/:id/metadata",
   authenticateToken,
-  orderController.updateMetadata
+  orderController.updateMetadata,
 );
 
 router.patch(
   "/orders/:id/status",
   authenticateToken,
   requireAdmin,
-  orderController.updateStatus
+  orderController.updateStatus,
 );
 
 router.get("/orders/:id", orderController.show);
@@ -651,13 +650,13 @@ router.get("/payment/health", PaymentController.healthCheck);
 router.post(
   "/webhook/mercadopago",
   validateMercadoPagoWebhook,
-  PaymentController.handleWebhook
+  PaymentController.handleWebhook,
 );
 
 router.post(
   "/api/webhook/mercadopago",
   validateMercadoPagoWebhook,
-  PaymentController.handleWebhook
+  PaymentController.handleWebhook,
 );
 
 // Páginas de retorno do checkout (sem autenticação)
@@ -671,7 +670,7 @@ router.post(
   authenticateToken,
   paymentRateLimit,
   logFinancialOperation("CREATE_PREFERENCE"),
-  PaymentController.createPreference
+  PaymentController.createPreference,
 );
 
 router.post(
@@ -680,7 +679,7 @@ router.post(
   paymentRateLimit,
   validatePaymentData,
   logFinancialOperation("CREATE_PAYMENT"),
-  PaymentController.createPayment
+  PaymentController.createPayment,
 );
 
 // Criar token de cartão (para Checkout Transparente)
@@ -689,11 +688,10 @@ router.post(
   authenticateToken,
   paymentRateLimit,
   async (req: Request, res: Response) => {
-    const { createCardToken } = await import(
-      "./controller/mercadopagoController"
-    );
+    const { createCardToken } =
+      await import("./controller/mercadopagoController");
     return createCardToken(req, res);
-  }
+  },
 );
 
 // Buscar issuer do cartão (banco emissor)
@@ -702,11 +700,10 @@ router.post(
   authenticateToken,
   paymentRateLimit,
   async (req: Request, res: Response) => {
-    const { getCardIssuers } = await import(
-      "./controller/mercadopagoController"
-    );
+    const { getCardIssuers } =
+      await import("./controller/mercadopagoController");
     return getCardIssuers(req, res);
-  }
+  },
 );
 
 // Buscar parcelas
@@ -715,11 +712,10 @@ router.post(
   authenticateToken,
   paymentRateLimit,
   async (req: Request, res: Response) => {
-    const { getInstallments } = await import(
-      "./controller/mercadopagoController"
-    );
+    const { getInstallments } =
+      await import("./controller/mercadopagoController");
     return getInstallments(req, res);
-  }
+  },
 );
 
 // Checkout Transparente (pagamento direto na aplicação)
@@ -728,28 +724,28 @@ router.post(
   authenticateToken,
   paymentRateLimit,
   logFinancialOperation("TRANSPARENT_CHECKOUT"),
-  PaymentController.processTransparentCheckout
+  PaymentController.processTransparentCheckout,
 );
 
 router.get(
   "/payment/:paymentId/status",
   authenticateToken,
   logFinancialOperation("GET_PAYMENT_STATUS"),
-  PaymentController.getPaymentStatus
+  PaymentController.getPaymentStatus,
 );
 
 router.post(
   "/payment/:paymentId/cancel",
   authenticateToken,
   logFinancialOperation("CANCEL_PAYMENT"),
-  PaymentController.cancelPayment
+  PaymentController.cancelPayment,
 );
 
 router.get(
   "/payments/user",
   authenticateToken,
   logFinancialOperation("GET_USER_PAYMENTS"),
-  PaymentController.getUserPayments
+  PaymentController.getUserPayments,
 );
 
 // Rotas administrativas
@@ -758,7 +754,7 @@ router.get(
   authenticateToken,
   requireAdmin,
   logFinancialOperation("GET_FINANCIAL_SUMMARY"),
-  PaymentController.getFinancialSummary
+  PaymentController.getFinancialSummary,
 );
 
 // Novos Endpoints de Status e Inteligência
@@ -766,7 +762,7 @@ router.get(
   "/admin/status",
   authenticateToken,
   requireAdmin,
-  statusController.getBusinessStatus
+  statusController.getBusinessStatus,
 );
 
 router.get(
@@ -781,7 +777,7 @@ router.get(
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
-  }
+  },
 );
 
 // ========== FEED ROUTES ==========
@@ -799,35 +795,35 @@ router.get(
   "/admin/feed/configurations",
   authenticateToken,
   requireAdmin,
-  feedController.getAllConfigurations
+  feedController.getAllConfigurations,
 );
 
 router.get(
   "/admin/feed/configurations/:id",
   authenticateToken,
   requireAdmin,
-  feedController.getConfiguration
+  feedController.getConfiguration,
 );
 
 router.post(
   "/admin/feed/configurations",
   authenticateToken,
   requireAdmin,
-  feedController.createConfiguration
+  feedController.createConfiguration,
 );
 
 router.put(
   "/admin/feed/configurations/:id",
   authenticateToken,
   requireAdmin,
-  feedController.updateConfiguration
+  feedController.updateConfiguration,
 );
 
 router.delete(
   "/admin/feed/configurations/:id",
   authenticateToken,
   requireAdmin,
-  feedController.deleteConfiguration
+  feedController.deleteConfiguration,
 );
 
 // Feed Banner Routes (Admin only)
@@ -835,7 +831,7 @@ router.get(
   "/admin/feed/banners",
   authenticateToken,
   requireAdmin,
-  feedController.getAllBanners
+  feedController.getAllBanners,
 );
 
 router.post(
@@ -844,7 +840,7 @@ router.post(
   requireAdmin,
   uploadAny.single("image"),
   convertImagesToWebPLossless,
-  feedController.createBanner
+  feedController.createBanner,
 );
 
 router.put(
@@ -853,14 +849,14 @@ router.put(
   requireAdmin,
   uploadAny.single("image"),
   convertImagesToWebPLossless,
-  feedController.updateBanner
+  feedController.updateBanner,
 );
 
 router.delete(
   "/admin/feed/banners/:id",
   authenticateToken,
   requireAdmin,
-  feedController.deleteBanner
+  feedController.deleteBanner,
 );
 
 // Feed Section Routes (Admin only)
@@ -868,28 +864,28 @@ router.get(
   "/admin/feed/sections",
   authenticateToken,
   requireAdmin,
-  feedController.getAllSections
+  feedController.getAllSections,
 );
 
 router.post(
   "/admin/feed/sections",
   authenticateToken,
   requireAdmin,
-  feedController.createSection
+  feedController.createSection,
 );
 
 router.put(
   "/admin/feed/sections/:id",
   authenticateToken,
   requireAdmin,
-  feedController.updateSection
+  feedController.updateSection,
 );
 
 router.delete(
   "/admin/feed/sections/:id",
   authenticateToken,
   requireAdmin,
-  feedController.deleteSection
+  feedController.deleteSection,
 );
 
 // Feed Section Item Routes (Admin only)
@@ -897,21 +893,21 @@ router.post(
   "/admin/feed/section-items",
   authenticateToken,
   requireAdmin,
-  feedController.createSectionItem
+  feedController.createSectionItem,
 );
 
 router.put(
   "/admin/feed/section-items/:id",
   authenticateToken,
   requireAdmin,
-  feedController.updateSectionItem
+  feedController.updateSectionItem,
 );
 
 router.delete(
   "/admin/feed/section-items/:id",
   authenticateToken,
   requireAdmin,
-  feedController.deleteSectionItem
+  feedController.deleteSectionItem,
 );
 
 // ========== CUSTOMIZATION ROUTES ==========
@@ -919,12 +915,12 @@ router.delete(
 // Public customization routes (REFATORADO para usar Items)
 router.get(
   "/items/:itemId/customizations",
-  customizationController.getItemCustomizations
+  customizationController.getItemCustomizations,
 );
 
 router.post(
   "/customizations/validate",
-  customizationController.validateCustomizations
+  customizationController.validateCustomizations,
 );
 
 router.post("/customizations/preview", customizationController.buildPreview);
@@ -933,13 +929,13 @@ router.post("/customizations/preview", customizationController.buildPreview);
 router.get(
   "/orders/:orderId/customizations",
   authenticateToken,
-  orderCustomizationController.listOrderCustomizations
+  orderCustomizationController.listOrderCustomizations,
 );
 
 router.post(
   "/orders/:orderId/items/:itemId/customizations",
   authenticateToken,
-  orderCustomizationController.saveOrderItemCustomization
+  orderCustomizationController.saveOrderItemCustomization,
 );
 
 // ========== ITEMS ROUTES ==========
@@ -953,7 +949,7 @@ router.post(
   requireAdmin,
   upload.single("image"),
   convertImagesToWebPLossless,
-  itemController.create
+  itemController.create,
 );
 router.put(
   "/items/:id",
@@ -961,55 +957,55 @@ router.put(
   requireAdmin,
   upload.single("image"),
   convertImagesToWebPLossless,
-  itemController.update
+  itemController.update,
 );
 router.put(
   "/items/:id/stock",
   authenticateToken,
   requireAdmin,
-  itemController.updateStock
+  itemController.updateStock,
 );
 router.delete(
   "/items/:id",
   authenticateToken,
   requireAdmin,
-  itemController.delete
+  itemController.delete,
 );
 
 // ========== PRODUCT COMPONENTS ROUTES ==========
 router.get(
   "/products/:productId/components",
-  productComponentController.getProductComponents
+  productComponentController.getProductComponents,
 );
 router.post(
   "/products/:productId/components",
   authenticateToken,
   requireAdmin,
-  productComponentController.addComponent
+  productComponentController.addComponent,
 );
 router.put(
   "/components/:componentId",
   authenticateToken,
   requireAdmin,
-  productComponentController.updateComponent
+  productComponentController.updateComponent,
 );
 router.delete(
   "/components/:componentId",
   authenticateToken,
   requireAdmin,
-  productComponentController.removeComponent
+  productComponentController.removeComponent,
 );
 router.get(
   "/products/:productId/stock/calculate",
-  productComponentController.calculateProductStock
+  productComponentController.calculateProductStock,
 );
 router.post(
   "/products/:productId/stock/validate",
-  productComponentController.validateComponentsStock
+  productComponentController.validateComponentsStock,
 );
 router.get(
   "/items/:itemId/products",
-  productComponentController.getProductsUsingItem
+  productComponentController.getProductsUsingItem,
 );
 
 // ========== CUSTOMIZATION IMAGE UPLOAD ROUTES ==========
@@ -1019,7 +1015,7 @@ router.get(
 router.post(
   "/customization/upload-image",
   upload.single("image"),
-  customizationUploadController.uploadImage
+  customizationUploadController.uploadImage,
 );
 
 // Delete de imagem de customização (Admin)
@@ -1027,7 +1023,7 @@ router.delete(
   "/customization/image/:filename",
   authenticateToken,
   requireAdmin,
-  customizationUploadController.deleteImage
+  customizationUploadController.deleteImage,
 );
 
 // ========== ITEM CONSTRAINTS ROUTES ==========
@@ -1035,7 +1031,7 @@ router.delete(
 // Rota pública para buscar constraints de um item (usada no frontend do cliente)
 router.get(
   "/constraints/item/:itemType/:itemId",
-  itemConstraintController.getByItem
+  itemConstraintController.getByItem,
 );
 
 // Listar todos os constraints (Admin)
@@ -1043,7 +1039,7 @@ router.get(
   "/admin/constraints",
   authenticateToken,
   requireAdmin,
-  itemConstraintController.listAll
+  itemConstraintController.listAll,
 );
 
 // Buscar constraints de um item específico (Admin - duplicado para manter compatibilidade)
@@ -1051,7 +1047,7 @@ router.get(
   "/admin/constraints/item/:itemType/:itemId",
   authenticateToken,
   requireAdmin,
-  itemConstraintController.getByItem
+  itemConstraintController.getByItem,
 );
 
 // Buscar produtos/adicionais para autocomplete
@@ -1059,7 +1055,7 @@ router.get(
   "/admin/constraints/search",
   authenticateToken,
   requireAdmin,
-  itemConstraintController.searchItems
+  itemConstraintController.searchItems,
 );
 
 // Criar constraint
@@ -1067,7 +1063,7 @@ router.post(
   "/admin/constraints",
   authenticateToken,
   requireAdmin,
-  itemConstraintController.create
+  itemConstraintController.create,
 );
 
 // Atualizar constraint
@@ -1075,7 +1071,7 @@ router.put(
   "/admin/constraints/:constraintId",
   authenticateToken,
   requireAdmin,
-  itemConstraintController.update
+  itemConstraintController.update,
 );
 
 // Deletar constraint
@@ -1083,7 +1079,7 @@ router.delete(
   "/admin/constraints/:constraintId",
   authenticateToken,
   requireAdmin,
-  itemConstraintController.delete
+  itemConstraintController.delete,
 );
 
 // ========== CUSTOMIZATION ROUTES ==========
@@ -1093,7 +1089,7 @@ router.get(
   "/customizations",
   authenticateToken,
   requireAdmin,
-  customizationController.index
+  customizationController.index,
 );
 
 // Buscar customização por ID
@@ -1101,7 +1097,7 @@ router.get(
   "/customizations/:id",
   authenticateToken,
   requireAdmin,
-  customizationController.show
+  customizationController.show,
 );
 
 // Criar customização
@@ -1110,7 +1106,7 @@ router.post(
   authenticateToken,
   requireAdmin,
   uploadAny.any(),
-  customizationController.create
+  customizationController.create,
 );
 
 // Atualizar customização
@@ -1119,7 +1115,7 @@ router.put(
   authenticateToken,
   requireAdmin,
   uploadAny.any(),
-  customizationController.update
+  customizationController.update,
 );
 
 // Deletar customização
@@ -1127,19 +1123,19 @@ router.delete(
   "/customizations/:id",
   authenticateToken,
   requireAdmin,
-  customizationController.remove
+  customizationController.remove,
 );
 
 // Buscar customizações de um item (público - para clientes)
 router.get(
   "/items/:itemId/customizations",
-  customizationController.getItemCustomizations
+  customizationController.getItemCustomizations,
 );
 
 // Validar customizações (público - para clientes)
 router.post(
   "/customizations/validate",
-  customizationController.validateCustomizations
+  customizationController.validateCustomizations,
 );
 
 // Gerar preview de customizações (público - para clientes)
@@ -1148,7 +1144,7 @@ router.post("/customizations/preview", customizationController.buildPreview);
 // Consolidar dados de customização para revisão (público - para clientes)
 router.get(
   "/customization/review/:orderId",
-  customizationReviewController.getReviewData
+  customizationReviewController.getReviewData,
 );
 
 // Listar layouts base
@@ -1162,14 +1158,14 @@ router.get(
   "/admin/layouts",
   authenticateToken,
   requireAdmin,
-  layoutBaseController.list
+  layoutBaseController.list,
 );
 
 router.get(
   "/admin/layouts/:id",
   authenticateToken,
   requireAdmin,
-  layoutBaseController.show
+  layoutBaseController.show,
 );
 
 // Criar layout base (SEM conversão WebP - mantém formato original)
@@ -1178,7 +1174,7 @@ router.post(
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  layoutBaseController.create
+  layoutBaseController.create,
 );
 
 // Atualizar layout base (SEM conversão WebP - mantém formato original)
@@ -1187,7 +1183,7 @@ router.put(
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  layoutBaseController.update
+  layoutBaseController.update,
 );
 
 // Deletar layout base
@@ -1195,7 +1191,7 @@ router.delete(
   "/admin/layouts/:id",
   authenticateToken,
   requireAdmin,
-  layoutBaseController.delete
+  layoutBaseController.delete,
 );
 
 // ========== CUSTOMER MANAGEMENT ROUTES (N8N INTEGRATION) ==========
@@ -1205,7 +1201,7 @@ router.get(
   "/customers/follow-up",
   authenticateToken,
   requireAdmin,
-  customerManagementController.getFollowUpCustomers
+  customerManagementController.getFollowUpCustomers,
 );
 
 // Listar todos os clientes
@@ -1213,7 +1209,7 @@ router.get(
   "/customers",
   // authenticateToken,
   // requireAdmin,
-  customerManagementController.listCustomers
+  customerManagementController.listCustomers,
 );
 
 // Criar ou atualizar cliente
@@ -1221,7 +1217,7 @@ router.post(
   "/customers",
   authenticateToken,
   requireAdmin,
-  customerManagementController.upsertCustomer
+  customerManagementController.upsertCustomer,
 );
 
 // Sincronizar usuário do app para n8n
@@ -1229,7 +1225,7 @@ router.post(
   "/customers/sync/:userId",
   authenticateToken,
   requireAdmin,
-  customerManagementController.syncAppUser
+  customerManagementController.syncAppUser,
 );
 
 // Buscar informações completas do cliente
@@ -1237,7 +1233,7 @@ router.get(
   "/customers/:phone",
   authenticateToken,
   requireAdmin,
-  customerManagementController.getCustomerInfo
+  customerManagementController.getCustomerInfo,
 );
 
 // Atualizar follow-up
@@ -1245,7 +1241,7 @@ router.patch(
   "/customers/:phone/follow-up",
   authenticateToken,
   requireAdmin,
-  customerManagementController.updateFollowUp
+  customerManagementController.updateFollowUp,
 );
 
 // Enviar mensagem ao cliente
@@ -1253,7 +1249,7 @@ router.post(
   "/customers/:phone/send-message",
   authenticateToken,
   requireAdmin,
-  customerManagementController.sendMessage
+  customerManagementController.sendMessage,
 );
 
 // Atualizar status de serviço
@@ -1261,7 +1257,7 @@ router.patch(
   "/customers/:phone/service-status",
   authenticateToken,
   requireAdmin,
-  customerManagementController.updateServiceStatus
+  customerManagementController.updateServiceStatus,
 );
 
 // Atualizar status de cliente (already_a_customer)
@@ -1269,7 +1265,7 @@ router.patch(
   "/customers/:phone/customer-status",
   authenticateToken,
   requireAdmin,
-  customerManagementController.updateCustomerStatus
+  customerManagementController.updateCustomerStatus,
 );
 
 // Atualizar nome do cliente
@@ -1277,7 +1273,7 @@ router.patch(
   "/customers/:phone/name",
   authenticateToken,
   requireAdmin,
-  customerManagementController.updateName
+  customerManagementController.updateName,
 );
 
 // ============================================
@@ -1288,11 +1284,7 @@ import tempFileController from "./controller/tempFileController";
 
 // Upload de arquivo temporário (durante customização)
 // POST /api/temp/upload
-router.post(
-  "/temp/upload",
-  upload.single("image"),
-  tempFileController.upload
-);
+router.post("/temp/upload", upload.single("image"), tempFileController.upload);
 
 // Lista arquivos temporários (admin only)
 // GET /api/temp/files
@@ -1300,7 +1292,7 @@ router.get(
   "/temp/files",
   authenticateToken,
   requireAdmin,
-  tempFileController.listFiles
+  tempFileController.listFiles,
 );
 
 // Deleta um arquivo temporário específico
@@ -1309,7 +1301,7 @@ router.delete(
   "/temp/files/:filename",
   authenticateToken,
   requireAdmin,
-  tempFileController.deleteFile
+  tempFileController.deleteFile,
 );
 
 // Limpeza automática de arquivos antigos (admin only)
@@ -1318,7 +1310,7 @@ router.delete(
   "/temp/cleanup",
   authenticateToken,
   requireAdmin,
-  tempFileController.cleanup
+  tempFileController.cleanup,
 );
 
 // Deleta arquivos temporários associados a um pedido
@@ -1327,7 +1319,7 @@ router.post(
   "/temp/cleanup-by-order",
   authenticateToken,
   requireAdmin,
-  tempFileController.cleanupByOrder
+  tempFileController.cleanupByOrder,
 );
 
 // ===== DYNAMIC LAYOUTS ROUTES (v2) =====
@@ -1336,77 +1328,77 @@ router.post(
 router.post(
   "/api/layouts/dynamic",
   authenticateToken,
-  dynamicLayoutController.create
+  dynamicLayoutController.create,
 );
 
 // Listar layouts dinâmicos
 router.get(
   "/api/layouts/dynamic",
   authenticateToken,
-  dynamicLayoutController.list
+  dynamicLayoutController.list,
 );
 
 // Obter detalhe de um layout dinâmico
 router.get(
   "/api/layouts/dynamic/:id",
   authenticateToken,
-  dynamicLayoutController.show
+  dynamicLayoutController.show,
 );
 
 // Atualizar layout dinâmico
 router.put(
   "/api/layouts/dynamic/:id",
   authenticateToken,
-  dynamicLayoutController.update
+  dynamicLayoutController.update,
 );
 
 // Deletar layout dinâmico
 router.delete(
   "/api/layouts/dynamic/:id",
   authenticateToken,
-  dynamicLayoutController.delete
+  dynamicLayoutController.delete,
 );
 
 // Salvar versão do layout
 router.post(
   "/api/layouts/dynamic/:id/versions",
   authenticateToken,
-  dynamicLayoutController.saveVersion
+  dynamicLayoutController.saveVersion,
 );
 
 // Listar versões do layout
 router.get(
   "/api/layouts/dynamic/:id/versions",
   authenticateToken,
-  dynamicLayoutController.listVersions
+  dynamicLayoutController.listVersions,
 );
 
 // Restaurar versão anterior do layout
 router.post(
   "/api/layouts/dynamic/:id/versions/:versionNumber/restore",
   authenticateToken,
-  dynamicLayoutController.restoreVersion
+  dynamicLayoutController.restoreVersion,
 );
 
 // Adicionar elemento ao layout
 router.post(
   "/api/layouts/dynamic/:id/elements",
   authenticateToken,
-  dynamicLayoutController.addElement
+  dynamicLayoutController.addElement,
 );
 
 // Atualizar elemento do layout
 router.put(
   "/api/layouts/dynamic/:layoutId/elements/:elementId",
   authenticateToken,
-  dynamicLayoutController.updateElement
+  dynamicLayoutController.updateElement,
 );
 
 // Deletar elemento do layout
 router.delete(
   "/api/layouts/dynamic/:layoutId/elements/:elementId",
   authenticateToken,
-  dynamicLayoutController.deleteElement
+  dynamicLayoutController.deleteElement,
 );
 
 // ===== ELEMENT BANK ROUTES =====
@@ -1417,7 +1409,7 @@ router.post(
   authenticateToken,
   requireAdmin,
   upload.single("image"),
-  elementBankController.create
+  elementBankController.create,
 );
 
 // Listar elementos do banco (público)
@@ -1426,7 +1418,7 @@ router.get("/api/elements/bank", elementBankController.list);
 // Listar categorias do banco (público)
 router.get(
   "/api/elements/bank/categories",
-  elementBankController.listCategories
+  elementBankController.listCategories,
 );
 
 // Obter elemento por ID
@@ -1437,7 +1429,7 @@ router.put(
   "/api/elements/bank/:id",
   authenticateToken,
   requireAdmin,
-  elementBankController.update
+  elementBankController.update,
 );
 
 // Deletar elemento (admin only)
@@ -1445,7 +1437,7 @@ router.delete(
   "/api/elements/bank/:id",
   authenticateToken,
   requireAdmin,
-  elementBankController.delete
+  elementBankController.delete,
 );
 
 // Importar múltiplos elementos (admin only)
@@ -1453,18 +1445,62 @@ router.post(
   "/api/elements/bank/bulk",
   authenticateToken,
   requireAdmin,
-  elementBankController.bulkCreate
+  elementBankController.bulkCreate,
 );
 // ===== Customer Management (Admin-Protected) =====
-router.get("/api/customers", authenticateToken, requireAdmin, (req, res) => customerManagementController.listCustomers(req, res));
-router.get("/api/customers/follow-up", authenticateToken, requireAdmin, (req, res) => customerManagementController.getFollowUpCustomers(req, res));
-router.get("/api/customers/:phone", authenticateToken, requireAdmin, (req, res) => customerManagementController.getCustomerInfo(req, res));
-router.post("/api/customers", authenticateToken, requireAdmin, (req, res) => customerManagementController.upsertCustomer(req, res));
-router.patch("/api/customers/:phone/follow-up", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateFollowUp(req, res));
-router.patch("/api/customers/:phone/service-status", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateServiceStatus(req, res));
-router.patch("/api/customers/:phone/customer-status", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateCustomerStatus(req, res));
-router.patch("/api/customers/:phone/name", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateName(req, res));
-router.post("/api/customers/:phone/send-message", authenticateToken, requireAdmin, (req, res) => customerManagementController.sendMessage(req, res));
-router.post("/api/customers/sync/:userId", authenticateToken, requireAdmin, (req, res) => customerManagementController.syncAppUser(req, res));
+router.get("/api/customers", authenticateToken, requireAdmin, (req, res) =>
+  customerManagementController.listCustomers(req, res),
+);
+router.get(
+  "/api/customers/follow-up",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.getFollowUpCustomers(req, res),
+);
+router.get(
+  "/api/customers/:phone",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.getCustomerInfo(req, res),
+);
+router.post("/api/customers", authenticateToken, requireAdmin, (req, res) =>
+  customerManagementController.upsertCustomer(req, res),
+);
+router.patch(
+  "/api/customers/:phone/follow-up",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.updateFollowUp(req, res),
+);
+router.patch(
+  "/api/customers/:phone/service-status",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.updateServiceStatus(req, res),
+);
+router.patch(
+  "/api/customers/:phone/customer-status",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.updateCustomerStatus(req, res),
+);
+router.patch(
+  "/api/customers/:phone/name",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.updateName(req, res),
+);
+router.post(
+  "/api/customers/:phone/send-message",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.sendMessage(req, res),
+);
+router.post(
+  "/api/customers/sync/:userId",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => customerManagementController.syncAppUser(req, res),
+);
 
 export default router;

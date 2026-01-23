@@ -302,7 +302,17 @@ model Customization {
   OrderItemCustomization OrderItemCustomization[]
 }
 
-// O modelo Layout legado foi removido em favor do DynamicLayout
+model Layout {
+  id          String   @id @default(uuid())
+  item_id     String
+  name        String
+  image_url   String
+  layout_data Json
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([item_id])
+}
 
 model ItemConstraint {
   id                String   @id @default(uuid())

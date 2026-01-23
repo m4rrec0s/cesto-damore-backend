@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 
+// Controllers
 import additionalController from "./controller/additionalController";
 import productController from "./controller/productController";
 import categoryController from "./controller/categoryController";
@@ -41,6 +42,7 @@ import followUpController from "./controller/followUpController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import tempFileController from "./controller/tempFileController";
 
+// Config & Middleware
 import {
   upload,
   uploadAny,
@@ -60,6 +62,10 @@ import {
 
 const router = Router();
 
+// ==========================================
+// 1. UTIL & DEBUG ROUTES
+// ==========================================
+
 router.post(
   "/debug/test-upload",
   upload.single("image"),
@@ -70,25 +76,14 @@ router.post(
       if (!file) {
         return res.status(400).json({ error: "Nenhuma imagem enviada" });
       }
-      logger.info("🧪 [TEST-UPLOAD] Arquivo recebido:", {
-        originalname: file.originalname,
-        mimetype: file.mimetype,
-        size: file.size,
-        bufferSize: file.buffer?.length,
-      });
-      const path = await import("path");
-      const fs = await import("fs");
       const testPath = path.join(
         process.cwd(),
         "images",
         `TEST-${Date.now()}-${file.originalname}`,
       );
-      logger.info("🧪 [TEST-UPLOAD] Salvando em:", testPath);
       fs.writeFileSync(testPath, file.buffer);
-      logger.info("🧪 [TEST-UPLOAD] Arquivo salvo! Verificando...");
       if (fs.existsSync(testPath)) {
         const stats = fs.statSync(testPath);
-        logger.info("✅ [TEST-UPLOAD] Arquivo confirmado:", stats.size, "bytes");
         return res.status(200).json({
           success: true,
           message: "Teste de escrita funcionou!",
@@ -96,7 +91,6 @@ router.post(
           fileSize: stats.size,
         });
       } else {
-        logger.error("❌ [TEST-UPLOAD] Arquivo NÃO foi criado!");
         return res.status(500).json({
           success: false,
           message: "Arquivo não foi criado após writeFileSync",
@@ -107,33 +101,10 @@ router.post(
       return res.status(500).json({
         success: false,
         error: error.message,
-        stack: error.stack,
       });
     }
   },
 );
-
-router.post("/webhook/mercadopago/debug", (req: Request, res: Response) => {
-  logger.info("🔍 DEBUG WEBHOOK - Headers:", {
-    "x-signature": req.headers["x-signature"],
-    "x-request-id": req.headers["x-request-id"],
-    "content-type": req.headers["content-type"],
-    "user-agent": req.headers["user-agent"],
-  });
-  const body = req.body || {};
-  const bodyPreview = {
-    type: body.type || body.action || body.topic || null,
-    action: body.action || null,
-    paymentId: body?.data?.id || body.resource || null,
-    keys: Object.keys(body),
-  };
-  logger.info("🔍 DEBUG WEBHOOK - Body preview:", bodyPreview);
-  res.status(200).json({
-    received: true,
-    message: "Debug webhook OK",
-    timestamp: new Date().toISOString(),
-  });
-});
 
 router.get("/preview", (req: Request, res: Response) => {
   try {
@@ -144,247 +115,60 @@ router.get("/preview", (req: Request, res: Response) => {
         example: "/preview?img=produto.webp",
       });
     }
-    if (!/^[a-zA-Z0-9._\-/]+$/.test(imgParam)) {
-      return res.status(400).json({ error: "Nome de arquivo inválido" });
-    }
     const baseUrl = process.env.BASE_URL || "https://api.cestodamore.com.br";
     const imageUrl = `${baseUrl}/images/${imgParam}`;
-    const title = "Cesto d'Amore - Produto";
     const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${title}</title>
-    <meta property="og:title" content="${title}">
+    <title>Cesto d'Amore - Preview</title>
     <meta property="og:image" content="${imageUrl}">
-    <meta property="og:type" content="website">
     <style>
-      body { 
-        margin: 0; 
-        background-color: #f9f9f9; 
-        display: flex; 
-        justify-content: center; 
-        align-items: center; 
-        min-height: 100vh;
-      }
-      img { 
-        width: 100%; 
-        max-width: 500px; 
-        aspect-ratio: 1 / 1; 
-        object-fit: cover; 
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      }
+      body { margin: 0; background-color: #f9f9f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+      img { width: 100%; max-width: 500px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body>
-    <img src="${imageUrl}" alt="${title}" loading="eager">
+    <img src="${imageUrl}" loading="eager">
 </body>
 </html>
     `.trim();
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=3600");
     res.send(html);
   } catch (error: any) {
-    logger.error("❌ [PREVIEW] Erro ao renderizar preview:", error);
-    res.status(500).json({
-      error: "Erro ao renderizar preview",
-      message: error.message,
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
+// ==========================================
+// 2. STATIC FILE SERVING
+// ==========================================
+
+const getImagesPath = () => process.env.NODE_ENV === "production" ? "/app/images" : path.join(process.cwd(), "images");
+
 router.get("/images/:filename", (req: Request, res: Response) => {
-  try {
-    const filename = req.params.filename;
-    const imagesPath =
-      process.env.NODE_ENV === "production"
-        ? "/app/images"
-        : path.join(process.cwd(), "images");
-    const filePath = path.join(imagesPath, filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        error: "Imagem não encontrada",
-        filename: filename,
-      });
-    }
-    res.sendFile(filePath);
-  } catch (error: any) {
-    logger.error("Erro ao servir imagem:", error.message);
-    res.status(500).json({
-      error: "Erro interno do servidor",
-      message: error.message,
-    });
-  }
+  const filePath = path.join(getImagesPath(), req.params.filename);
+  if (fs.existsSync(filePath)) return res.sendFile(filePath);
+  res.status(404).json({ error: "Imagem não encontrada" });
 });
 
 router.get("/images/customizations/:filename", (req: Request, res: Response) => {
-  try {
-    const { filename } = req.params;
-    const imagesPath =
-      process.env.NODE_ENV === "production"
-        ? "/app/images"
-        : path.join(process.cwd(), "images");
-    const customizationsPath = path.join(imagesPath, "customizations");
-    const filePath = path.join(customizationsPath, filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        error: "Arquivo de customização não encontrado",
-        filename,
-      });
-    }
-    res.sendFile(filePath);
-  } catch (error: any) {
-    logger.error("Erro ao servir arquivo de customização:", error.message);
-    res.status(500).json({
-      error: "Erro interno do servidor",
-      message: error.message,
-    });
-  }
+  const filePath = path.join(getImagesPath(), "customizations", req.params.filename);
+  if (fs.existsSync(filePath)) return res.sendFile(filePath);
+  res.status(404).json({ error: "Arquivo de customização não encontrado" });
 });
 
 router.get("/images/customizations/:folderId/:filename", (req: Request, res: Response) => {
-  try {
-    const { folderId, filename } = req.params;
-    const imagesPath =
-      process.env.NODE_ENV === "production"
-        ? "/app/images"
-        : path.join(process.cwd(), "images");
-    const customizationsPath = path.join(imagesPath, "customizations", folderId);
-    const filePath = path.join(customizationsPath, filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        error: "Arquivo de customização não encontrado",
-        folderId,
-        filename,
-      });
-    }
-    res.sendFile(filePath);
-  } catch (error: any) {
-    logger.error("Erro ao servir arquivo de customização:", error.message);
-    res.status(500).json({
-      error: "Erro interno do servidor",
-      message: error.message,
-    });
-  }
+  const filePath = path.join(getImagesPath(), "customizations", req.params.folderId, req.params.filename);
+  if (fs.existsSync(filePath)) return res.sendFile(filePath);
+  res.status(404).json({ error: "Arquivo de customização não encontrado" });
 });
 
-router.get("/webhooks/notifications/:orderId", webhookNotificationController.streamNotifications);
-router.get("/webhooks/notifications-stats", authenticateToken, requireAdmin, webhookNotificationController.getStats);
-
-router.get("/ai/products/light", aiProductController.getLightweightProducts);
-router.get("/ai/products/detail/:id", aiProductController.getProductDetail);
-router.get("/ai/products/info", aiProductController.getEndpointInfo);
-
-router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
-router.get("/ai/agent/history/:sessionId", validateAIAgentKey, aiAgentController.getHistory);
-router.get("/admin/ai/agent/sessions", authenticateToken, requireAdmin, aiAgentController.listSessions);
-router.post("/admin/ai/agent/sessions/:sessionId/block", authenticateToken, requireAdmin, aiAgentController.blockSession);
-
-router.get("/oauth/authorize", oauthController.authorize);
-router.get("/oauth/callback", oauthController.callback);
-router.get("/oauth/status", oauthController.status);
-router.get("/oauth/debug", oauthController.debug);
-router.post("/oauth/clear", authenticateToken, requireAdmin, async (req: Request, res: Response) => oauthController.clear(req, res));
-
-router.get("/admin/holidays", authenticateToken, requireAdmin, holidayController.index);
-router.get("/admin/holidays/:id", authenticateToken, requireAdmin, holidayController.show);
-router.post("/admin/holidays", authenticateToken, requireAdmin, holidayController.create);
-router.put("/admin/holidays/:id", authenticateToken, requireAdmin, holidayController.update);
-router.delete("/admin/holidays/:id", authenticateToken, requireAdmin, holidayController.delete);
-
-router.get("/admin/followup/history", authenticateToken, requireAdmin, followUpController.listHistory);
-router.post("/admin/followup/toggle", authenticateToken, requireAdmin, followUpController.toggle);
-router.post("/admin/followup/trigger", authenticateToken, requireAdmin, followUpController.trigger);
-
-router.post(
-  "/admin/google-drive/test",
-  authenticateToken,
-  requireAdmin,
-  async (req: Request, res: Response) => {
-    try {
-      const folderName = `test-drive-${Date.now()}`;
-      const folderId = await googleDriveService.createFolder(folderName);
-      await googleDriveService.deleteFolder(folderId);
-      res.json({ success: true, message: "Drive upload OK" });
-    } catch (err: any) {
-      logger.error("Admin Google Drive test failed:", err);
-      res.status(500).json({ success: false, error: err.message });
-    }
-  },
-);
-
-router.post(
-  "/admin/reprocess-finalization",
-  authenticateToken,
-  requireAdmin,
-  async (req: Request, res: Response) => {
-    try {
-      const { orderId, paymentId } = req.body;
-      if (!orderId && !paymentId) {
-        return res.status(400).json({ success: false, error: "orderId or paymentId required" });
-      }
-      let targetOrderId = orderId;
-      if (!targetOrderId && paymentId) {
-        const payment = await prisma.payment.findFirst({
-          where: { mercado_pago_id: paymentId },
-        });
-        if (!payment) {
-          return res.status(404).json({ success: false, error: "Payment not found" });
-        }
-        targetOrderId = payment.order_id;
-      }
-      const result = await PaymentService.reprocessFinalizationForOrder(targetOrderId!);
-      return res.json({ success: true, result });
-    } catch (err: any) {
-      logger.error("Erro ao reprocessar finalização manualmente:", err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  },
-);
-
-router.post(
-  "/admin/reprocess-missing",
-  authenticateToken,
-  requireAdmin,
-  async (req: Request, res: Response) => {
-    try {
-      const { maxAttempts } = req.body || {};
-      await PaymentService.reprocessFailedFinalizations(maxAttempts || 5);
-      return res.json({ success: true, message: "Reprocess started" });
-    } catch (err: any) {
-      logger.error("Erro ao reprocessar finalizar pendentes:", err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  },
-);
-
-router.get("/additional", additionalController.index);
-router.get("/additional/:id", additionalController.show);
-router.post("/additional", upload.single("image"), convertImagesToWebPLossless, additionalController.create);
-router.put("/additional/:id", upload.single("image"), convertImagesToWebPLossless, additionalController.update);
-router.delete("/additional/:id", additionalController.remove);
-router.post("/additional/:id/link", additionalController.link);
-router.put("/additional/:id/link", additionalController.updateLink);
-router.post("/additional/:id/unlink", additionalController.unlink);
-router.get("/additional/:id/price", additionalController.getPrice);
-router.get("/products/:productId/additionals", additionalController.getByProduct);
-
-router.get("/products", productController.index);
-router.get("/products/:id", productController.show);
-router.post("/products", upload.single("image"), convertImagesToWebPLossless, productController.create);
-router.put("/products/:id", upload.single("image"), convertImagesToWebPLossless, productController.update);
-router.delete("/products/:id", productController.remove);
-router.post("/products/:id/link", productController.link);
-router.post("/products/:id/unlink", productController.unlink);
-
-router.get("/types", typeController.index);
-router.get("/types/:id", typeController.show);
-router.post("/types", typeController.create);
-router.put("/types/:id", typeController.update);
-router.delete("/types/:id", typeController.remove);
+// ==========================================
+// 3. AUTH & USER ROUTES
+// ==========================================
 
 router.post("/auth/google", authController.google);
 router.post("/auth/login", authController.login);
@@ -392,117 +176,26 @@ router.post("/auth/verify-2fa", authController.verify2fa);
 router.post("/auth/register", upload.single("image"), authController.register);
 router.post("/auth/refresh", authenticateToken, authController.refreshToken);
 
-router.post("/api/upload/image", upload.single("image"), uploadController.uploadImage);
-
-router.get("/categories", categoryController.index);
-router.get("/categories/:id", categoryController.show);
-router.post("/categories", categoryController.create);
-router.put("/categories/:id", categoryController.update);
-router.delete("/categories/:id", categoryController.remove);
-
-router.get("/reports/stock", reportController.getStockReport);
-router.get("/reports/stock/critical", reportController.getCriticalStock);
-router.get("/reports/stock/check", reportController.checkLowStock);
-
-router.get("/whatsapp/config", whatsappController.getConfig);
-router.post("/whatsapp/test", whatsappController.testMessage);
-router.post("/whatsapp/check-stock", whatsappController.checkStock);
-router.post("/whatsapp/stock-summary", whatsappController.sendStockSummary);
-
 router.get("/users/me", authenticateToken, userController.me);
 router.get("/users/cep/:zipCode", userController.getAddressByZipCode);
-router.get("/users", userController.index);
-router.get("/users/:userId/orders", orderController.getByUserId);
-router.get("/users/:id", userController.show);
-router.post("/users", upload.single("image"), userController.create);
-router.put("/users/:id", upload.single("image"), userController.update);
-router.delete("/users/:id", userController.remove);
+router.get("/users", authenticateToken, requireAdmin, userController.index);
+router.get("/users/:userId/orders", authenticateToken, orderController.getByUserId);
+router.get("/users/:id", authenticateToken, userController.show);
+router.post("/users", authenticateToken, requireAdmin, upload.single("image"), userController.create);
+router.put("/users/:id", authenticateToken, upload.single("image"), userController.update);
+router.delete("/users/:id", authenticateToken, requireAdmin, userController.remove);
 
-router.get("/orders", orderController.index);
-router.get("/users/:id/orders/pending", authenticateToken, orderController.getPendingOrder);
-router.post("/orders/:id/cancel", authenticateToken, orderController.cancelOrder);
-router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
-router.put("/orders/:id/metadata", authenticateToken, orderController.updateMetadata);
-router.patch("/orders/:id/status", authenticateToken, requireAdmin, orderController.updateStatus);
-router.get("/orders/:id", orderController.show);
-router.post("/orders", orderController.create);
-router.delete("/orders/:id", authenticateToken, orderController.remove);
-router.delete("/orders/canceled", orderController.removeAllCanceledOrders);
+// ==========================================
+// 4. PRODUCT & CATALOG ROUTES
+// ==========================================
 
-router.get("/payment/health", PaymentController.healthCheck);
-router.post("/webhook/mercadopago", validateMercadoPagoWebhook, PaymentController.handleWebhook);
-router.post("/api/webhook/mercadopago", validateMercadoPagoWebhook, PaymentController.handleWebhook);
-router.get("/payment/success", PaymentController.paymentSuccess);
-router.get("/payment/failure", PaymentController.paymentFailure);
-router.get("/payment/pending", PaymentController.paymentPending);
-
-router.post("/payment/preference", authenticateToken, paymentRateLimit, logFinancialOperation("CREATE_PREFERENCE"), PaymentController.createPreference);
-router.post("/payment/create", authenticateToken, paymentRateLimit, validatePaymentData, logFinancialOperation("CREATE_PAYMENT"), PaymentController.createPayment);
-
-router.post("/mercadopago/create-token", authenticateToken, paymentRateLimit, async (req: Request, res: Response) => {
-  const { createCardToken } = await import("./controller/mercadopagoController");
-  return createCardToken(req, res);
-});
-
-router.post("/mercadopago/get-issuers", authenticateToken, paymentRateLimit, async (req: Request, res: Response) => {
-  const { getCardIssuers } = await import("./controller/mercadopagoController");
-  return getCardIssuers(req, res);
-});
-
-router.post("/mercadopago/get-installments", authenticateToken, paymentRateLimit, async (req: Request, res: Response) => {
-  const { getInstallments } = await import("./controller/mercadopagoController");
-  return getInstallments(req, res);
-});
-
-router.post("/payment/transparent-checkout", authenticateToken, paymentRateLimit, logFinancialOperation("TRANSPARENT_CHECKOUT"), PaymentController.processTransparentCheckout);
-
-router.get("/payment/:paymentId/status", authenticateToken, logFinancialOperation("GET_PAYMENT_STATUS"), PaymentController.getPaymentStatus);
-router.post("/payment/:paymentId/cancel", authenticateToken, logFinancialOperation("CANCEL_PAYMENT"), PaymentController.cancelPayment);
-router.get("/payments/user", authenticateToken, logFinancialOperation("GET_USER_PAYMENTS"), PaymentController.getUserPayments);
-
-router.get("/admin/financial-summary", authenticateToken, requireAdmin, logFinancialOperation("GET_FINANCIAL_SUMMARY"), PaymentController.getFinancialSummary);
-
-router.get("/admin/status", authenticateToken, requireAdmin, statusController.getBusinessStatus);
-
-router.get("/admin/ai/summary", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const forceRefresh = req.query.force_refresh === "true";
-    const summary = await aiSummaryService.getWeeklySummary(forceRefresh);
-    res.json(summary);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.get("/feed", feedController.getPublicFeed);
-router.get("/feed/section-types", feedController.getSectionTypes);
-
-router.get("/admin/feed/configurations", authenticateToken, requireAdmin, feedController.getAllConfigurations);
-router.get("/admin/feed/configurations/:id", authenticateToken, requireAdmin, feedController.getConfiguration);
-router.post("/admin/feed/configurations", authenticateToken, requireAdmin, feedController.createConfiguration);
-router.put("/admin/feed/configurations/:id", authenticateToken, requireAdmin, feedController.updateConfiguration);
-router.delete("/admin/feed/configurations/:id", authenticateToken, requireAdmin, feedController.deleteConfiguration);
-
-router.get("/admin/feed/banners", authenticateToken, requireAdmin, feedController.getAllBanners);
-router.post("/admin/feed/banners", authenticateToken, requireAdmin, uploadAny.single("image"), convertImagesToWebPLossless, feedController.createBanner);
-router.put("/admin/feed/banners/:id", authenticateToken, requireAdmin, uploadAny.single("image"), convertImagesToWebPLossless, feedController.updateBanner);
-router.delete("/admin/feed/banners/:id", authenticateToken, requireAdmin, feedController.deleteBanner);
-
-router.get("/admin/feed/sections", authenticateToken, requireAdmin, feedController.getAllSections);
-router.post("/admin/feed/sections", authenticateToken, requireAdmin, feedController.createSection);
-router.put("/admin/feed/sections/:id", authenticateToken, requireAdmin, feedController.updateSection);
-router.delete("/admin/feed/sections/:id", authenticateToken, requireAdmin, feedController.deleteSection);
-
-router.post("/admin/feed/section-items", authenticateToken, requireAdmin, feedController.createSectionItem);
-router.put("/admin/feed/section-items/:id", authenticateToken, requireAdmin, feedController.updateSectionItem);
-router.delete("/admin/feed/section-items/:id", authenticateToken, requireAdmin, feedController.deleteSectionItem);
-
-router.get("/items/:itemId/customizations", customizationController.getItemCustomizations);
-router.post("/customizations/validate", customizationController.validateCustomizations);
-router.post("/customizations/preview", customizationController.buildPreview);
-
-router.get("/orders/:orderId/customizations", authenticateToken, orderCustomizationController.listOrderCustomizations);
-router.post("/orders/:orderId/items/:itemId/customizations", authenticateToken, orderCustomizationController.saveOrderItemCustomization);
+router.get("/products", productController.index);
+router.get("/products/:id", productController.show);
+router.post("/products", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, productController.create);
+router.put("/products/:id", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, productController.update);
+router.delete("/products/:id", authenticateToken, requireAdmin, productController.remove);
+router.post("/products/:id/link", authenticateToken, requireAdmin, productController.link);
+router.post("/products/:id/unlink", authenticateToken, requireAdmin, productController.unlink);
 
 router.get("/items", itemController.index);
 router.get("/items/available", itemController.getAvailable);
@@ -513,6 +206,19 @@ router.put("/items/:id", authenticateToken, requireAdmin, upload.single("image")
 router.put("/items/:id/stock", authenticateToken, requireAdmin, itemController.updateStock);
 router.delete("/items/:id", authenticateToken, requireAdmin, itemController.delete);
 
+router.get("/categories", categoryController.index);
+router.get("/categories/:id", categoryController.show);
+router.post("/categories", authenticateToken, requireAdmin, categoryController.create);
+router.put("/categories/:id", authenticateToken, requireAdmin, categoryController.update);
+router.delete("/categories/:id", authenticateToken, requireAdmin, categoryController.remove);
+
+router.get("/types", typeController.index);
+router.get("/types/:id", typeController.show);
+router.post("/types", authenticateToken, requireAdmin, typeController.create);
+router.put("/types/:id", authenticateToken, requireAdmin, typeController.update);
+router.delete("/types/:id", authenticateToken, requireAdmin, typeController.remove);
+
+// Product Components
 router.get("/products/:productId/components", productComponentController.getProductComponents);
 router.post("/products/:productId/components", authenticateToken, requireAdmin, productComponentController.addComponent);
 router.put("/components/:componentId", authenticateToken, requireAdmin, productComponentController.updateComponent);
@@ -521,36 +227,32 @@ router.get("/products/:productId/stock/calculate", productComponentController.ca
 router.post("/products/:productId/stock/validate", productComponentController.validateComponentsStock);
 router.get("/items/:itemId/products", productComponentController.getProductsUsingItem);
 
-router.post("/customization/upload-image", upload.single("image"), customizationUploadController.uploadImage);
-router.delete("/customization/image/:filename", authenticateToken, requireAdmin, customizationUploadController.deleteImage);
+// Additionals
+router.get("/additional", additionalController.index);
+router.get("/additional/:id", additionalController.show);
+router.post("/additional", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, additionalController.create);
+router.put("/additional/:id", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, additionalController.update);
+router.delete("/additional/:id", authenticateToken, requireAdmin, additionalController.remove);
+router.post("/additional/:id/link", authenticateToken, requireAdmin, additionalController.link);
+router.put("/additional/:id/link", authenticateToken, requireAdmin, additionalController.updateLink);
+router.post("/additional/:id/unlink", authenticateToken, requireAdmin, additionalController.unlink);
+router.get("/additional/:id/price", additionalController.getPrice);
+router.get("/products/:productId/additionals", additionalController.getByProduct);
 
-router.post("/api/uploads/temp", authenticateToken, upload.single("file"), tempUploadController.uploadTemp);
-router.post("/api/uploads/temp/:uploadId/make-permanent", authenticateToken, tempUploadController.makePermanent);
-router.delete("/api/uploads/temp/:uploadId", authenticateToken, tempUploadController.deleteTemp);
-router.get("/api/uploads/stats", authenticateToken, requireAdmin, tempUploadController.getStats);
-router.post("/api/uploads/cleanup", authenticateToken, requireAdmin, tempUploadController.cleanup);
-
+// Constraints
 router.get("/constraints/item/:itemType/:itemId", itemConstraintController.getByItem);
 router.get("/admin/constraints", authenticateToken, requireAdmin, itemConstraintController.listAll);
-router.get("/admin/constraints/item/:itemType/:itemId", authenticateToken, requireAdmin, itemConstraintController.getByItem);
-router.get("/admin/constraints/search", authenticateToken, requireAdmin, itemConstraintController.searchItems);
 router.post("/admin/constraints", authenticateToken, requireAdmin, itemConstraintController.create);
 router.put("/admin/constraints/:constraintId", authenticateToken, requireAdmin, itemConstraintController.update);
 router.delete("/admin/constraints/:constraintId", authenticateToken, requireAdmin, itemConstraintController.delete);
 
-router.get("/customizations", authenticateToken, requireAdmin, customizationController.index);
-router.get("/customizations/:id", authenticateToken, requireAdmin, customizationController.show);
-router.post("/customizations", authenticateToken, requireAdmin, uploadAny.any(), customizationController.create);
-router.put("/customizations/:id", authenticateToken, requireAdmin, uploadAny.any(), customizationController.update);
-router.delete("/customizations/:id", authenticateToken, requireAdmin, customizationController.remove);
-router.get("/items/:itemId/customizations", customizationController.getItemCustomizations);
-router.post("/customizations/validate", customizationController.validateCustomizations);
-router.post("/customizations/preview", customizationController.buildPreview);
-router.get("/customization/review/:orderId", customizationReviewController.getReviewData);
+// ==========================================
+// 5. DYNAMIC LAYOUTS & DESIGN BANK
+// ==========================================
 
-router.post("/layouts/dynamic", authenticateToken, dynamicLayoutController.create);
 router.get("/layouts/dynamic", dynamicLayoutController.list);
 router.get("/layouts/dynamic/:id", dynamicLayoutController.show);
+router.post("/layouts/dynamic", authenticateToken, dynamicLayoutController.create);
 router.put("/layouts/dynamic/:id", authenticateToken, dynamicLayoutController.update);
 router.delete("/layouts/dynamic/:id", authenticateToken, dynamicLayoutController.delete);
 router.post("/layouts/dynamic/:id/versions", authenticateToken, dynamicLayoutController.saveVersion);
@@ -560,40 +262,87 @@ router.post("/layouts/dynamic/:id/elements", authenticateToken, dynamicLayoutCon
 router.put("/layouts/dynamic/:layoutId/elements/:elementId", authenticateToken, dynamicLayoutController.updateElement);
 router.delete("/layouts/dynamic/:layoutId/elements/:elementId", authenticateToken, dynamicLayoutController.deleteElement);
 
-router.post("/elements/bank", authenticateToken, requireAdmin, upload.single("image"), elementBankController.create);
+// Elements Bank
 router.get("/elements/bank", elementBankController.list);
 router.get("/elements/bank/categories", elementBankController.listCategories);
 router.get("/elements/bank/:id", elementBankController.show);
+router.post("/elements/bank", authenticateToken, requireAdmin, upload.single("image"), elementBankController.create);
 router.put("/elements/bank/:id", authenticateToken, requireAdmin, elementBankController.update);
 router.delete("/elements/bank/:id", authenticateToken, requireAdmin, elementBankController.delete);
 router.post("/elements/bank/bulk", authenticateToken, requireAdmin, elementBankController.bulkCreate);
 
+// Legacy Layouts (Commented out)
 // router.get("/layouts", layoutBaseController.list);
-// router.get("/api/layouts", layoutBaseController.list);
 // router.get("/layouts/:id", layoutBaseController.show);
-// router.get("/api/layouts/:id", layoutBaseController.show);
-
-// router.get("/admin/layouts", authenticateToken, requireAdmin, layoutBaseController.list);
-// router.get("/api/admin/layouts", authenticateToken, requireAdmin, layoutBaseController.list);
-// router.get("/admin/layouts/:id", authenticateToken, requireAdmin, layoutBaseController.show);
-// router.get("/api/admin/layouts/:id", authenticateToken, requireAdmin, layoutBaseController.show);
 // router.post("/admin/layouts", authenticateToken, requireAdmin, upload.single("image"), layoutBaseController.create);
-// router.post("/api/admin/layouts", authenticateToken, requireAdmin, upload.single("image"), layoutBaseController.create);
 // router.put("/admin/layouts/:id", authenticateToken, requireAdmin, upload.single("image"), layoutBaseController.update);
-// router.put("/api/admin/layouts/:id", authenticateToken, requireAdmin, upload.single("image"), layoutBaseController.update);
 // router.delete("/admin/layouts/:id", authenticateToken, requireAdmin, layoutBaseController.delete);
-// router.delete("/api/admin/layouts/:id", authenticateToken, requireAdmin, layoutBaseController.delete);
 
-router.get("/customers/follow-up", authenticateToken, requireAdmin, customerManagementController.getFollowUpCustomers);
-router.get("/customers", customerManagementController.listCustomers);
-router.post("/customers", authenticateToken, requireAdmin, customerManagementController.upsertCustomer);
-router.post("/customers/sync/:userId", authenticateToken, requireAdmin, customerManagementController.syncAppUser);
-router.get("/customers/:phone", authenticateToken, requireAdmin, customerManagementController.getCustomerInfo);
-router.patch("/customers/:phone/follow-up", authenticateToken, requireAdmin, customerManagementController.updateFollowUp);
-router.patch("/customers/:phone/service-status", authenticateToken, requireAdmin, customerManagementController.updateServiceStatus);
-router.patch("/customers/:phone/customer-status", authenticateToken, requireAdmin, customerManagementController.updateCustomerStatus);
-router.patch("/customers/:phone/name", authenticateToken, requireAdmin, customerManagementController.updateName);
-router.post("/customers/:phone/send-message", authenticateToken, requireAdmin, customerManagementController.sendMessage);
+// ==========================================
+// 6. CUSTOMIZATIONS & ORDERS
+// ==========================================
+
+router.get("/customizations", authenticateToken, requireAdmin, customizationController.index);
+router.get("/customizations/:id", authenticateToken, requireAdmin, customizationController.show);
+router.post("/customizations", authenticateToken, requireAdmin, uploadAny.any(), customizationController.create);
+router.put("/customizations/:id", authenticateToken, requireAdmin, uploadAny.any(), customizationController.update);
+router.delete("/customizations/:id", authenticateToken, requireAdmin, customizationController.remove);
+
+router.get("/items/:itemId/customizations", customizationController.getItemCustomizations);
+router.post("/customizations/validate", customizationController.validateCustomizations);
+router.post("/customizations/preview", customizationController.buildPreview);
+router.get("/customization/review/:orderId", customizationReviewController.getReviewData);
+
+router.get("/orders", authenticateToken, orderController.index);
+router.get("/orders/:id", authenticateToken, orderController.show);
+router.post("/orders", orderController.create);
+router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
+router.put("/orders/:id/metadata", authenticateToken, orderController.updateMetadata);
+router.patch("/orders/:id/status", authenticateToken, requireAdmin, orderController.updateStatus);
+router.delete("/orders/:id", authenticateToken, orderController.remove);
+router.delete("/orders/canceled", authenticateToken, requireAdmin, orderController.removeAllCanceledOrders);
+
+router.get("/orders/:orderId/customizations", authenticateToken, orderCustomizationController.listOrderCustomizations);
+router.post("/orders/:orderId/items/:itemId/customizations", authenticateToken, orderCustomizationController.saveOrderItemCustomization);
+
+// ==========================================
+// 7. PAYMENT & WEBHOOKS
+// ==========================================
+
+router.get("/payment/health", PaymentController.healthCheck);
+router.post("/payment/preference", authenticateToken, paymentRateLimit, logFinancialOperation("CREATE_PREFERENCE"), PaymentController.createPreference);
+router.post("/payment/create", authenticateToken, paymentRateLimit, validatePaymentData, logFinancialOperation("CREATE_PAYMENT"), PaymentController.createPayment);
+router.post("/payment/transparent-checkout", authenticateToken, paymentRateLimit, logFinancialOperation("TRANSPARENT_CHECKOUT"), PaymentController.processTransparentCheckout);
+router.get("/payment/:paymentId/status", authenticateToken, logFinancialOperation("GET_PAYMENT_STATUS"), PaymentController.getPaymentStatus);
+router.post("/payment/:paymentId/cancel", authenticateToken, logFinancialOperation("CANCEL_PAYMENT"), PaymentController.cancelPayment);
+router.get("/payments/user", authenticateToken, PaymentController.getUserPayments);
+
+router.post("/webhook/mercadopago", validateMercadoPagoWebhook, PaymentController.handleWebhook);
+router.post("/api/webhook/mercadopago", validateMercadoPagoWebhook, PaymentController.handleWebhook);
+router.get("/webhooks/notifications/:orderId", webhookNotificationController.streamNotifications);
+router.get("/webhooks/notifications-stats", authenticateToken, requireAdmin, webhookNotificationController.getStats);
+
+// Mercado Pago Proxy/Helpers
+router.post("/mercadopago/create-token", authenticateToken, paymentRateLimit, async (req, res) => {
+  const { createCardToken } = await import("./controller/mercadopagoController");
+  return createCardToken(req, res);
+});
+router.post("/mercadopago/get-issuers", authenticateToken, paymentRateLimit, async (req, res) => {
+  const { getCardIssuers } = await import("./controller/mercadopagoController");
+  return getCardIssuers(req, res);
+});
+router.post("/mercadopago/get-installments", authenticateToken, paymentRateLimit, async (req, res) => {
+  const { getInstallments } = await import("./controller/mercadopagoController");
+  return getInstallments(req, res);
+});
+
+// ==========================================
+// 8. UPLOADS & TEMP FILES
+// ==========================================
+
+router.post("/api/upload/image", upload.single("image"), uploadController.uploadImage);
+router.post("/customization/upload-image", upload.single("image"), customizationUploadController.uploadImage);
+router.delete("/customization/image/:filename", authenticateToken, requireAdmin, customizationUploadController.deleteImage);
 
 router.post("/temp/upload", upload.single("image"), tempFileController.upload);
 router.get("/temp/files", authenticateToken, requireAdmin, tempFileController.listFiles);
@@ -601,15 +350,94 @@ router.delete("/temp/files/:filename", authenticateToken, requireAdmin, tempFile
 router.delete("/temp/cleanup", authenticateToken, requireAdmin, tempFileController.cleanup);
 router.post("/temp/cleanup-by-order", authenticateToken, requireAdmin, tempFileController.cleanupByOrder);
 
-router.get("/customers", authenticateToken, requireAdmin, (req, res) => customerManagementController.listCustomers(req, res));
-router.get("/customers/follow-up", authenticateToken, requireAdmin, (req, res) => customerManagementController.getFollowUpCustomers(req, res));
-router.get("/customers/:phone", authenticateToken, requireAdmin, (req, res) => customerManagementController.getCustomerInfo(req, res));
-router.post("/customers", authenticateToken, requireAdmin, (req, res) => customerManagementController.upsertCustomer(req, res));
-router.patch("/customers/:phone/follow-up", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateFollowUp(req, res));
-router.patch("/customers/:phone/service-status", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateServiceStatus(req, res));
-router.patch("/customers/:phone/customer-status", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateCustomerStatus(req, res));
-router.patch("/customers/:phone/name", authenticateToken, requireAdmin, (req, res) => customerManagementController.updateName(req, res));
-router.post("/customers/:phone/send-message", authenticateToken, requireAdmin, (req, res) => customerManagementController.sendMessage(req, res));
-router.post("/customers/sync/:userId", authenticateToken, requireAdmin, (req, res) => customerManagementController.syncAppUser(req, res));
+router.post("/api/uploads/temp", authenticateToken, upload.single("file"), tempUploadController.uploadTemp);
+router.post("/api/uploads/temp/:uploadId/make-permanent", authenticateToken, tempUploadController.makePermanent);
+router.delete("/api/uploads/temp/:uploadId", authenticateToken, tempUploadController.deleteTemp);
+router.get("/api/uploads/stats", authenticateToken, requireAdmin, tempUploadController.getStats);
+router.post("/api/uploads/cleanup", authenticateToken, requireAdmin, tempUploadController.cleanup);
+
+// ==========================================
+// 9. CUSTOMER MANAGEMENT
+// ==========================================
+
+router.get("/customers", authenticateToken, requireAdmin, customerManagementController.listCustomers);
+router.get("/customers/follow-up", authenticateToken, requireAdmin, customerManagementController.getFollowUpCustomers);
+router.get("/customers/:phone", authenticateToken, requireAdmin, customerManagementController.getCustomerInfo);
+router.post("/customers", authenticateToken, requireAdmin, customerManagementController.upsertCustomer);
+router.patch("/customers/:phone/follow-up", authenticateToken, requireAdmin, customerManagementController.updateFollowUp);
+router.patch("/customers/:phone/service-status", authenticateToken, requireAdmin, customerManagementController.updateServiceStatus);
+router.patch("/customers/:phone/customer-status", authenticateToken, requireAdmin, customerManagementController.updateCustomerStatus);
+router.patch("/customers/:phone/name", authenticateToken, requireAdmin, customerManagementController.updateName);
+router.post("/customers/:phone/send-message", authenticateToken, requireAdmin, customerManagementController.sendMessage);
+router.post("/customers/sync/:userId", authenticateToken, requireAdmin, customerManagementController.syncAppUser);
+
+// ==========================================
+// 10. AI & FEED & REPORTS
+// ==========================================
+
+router.get("/feed", feedController.getPublicFeed);
+router.get("/feed/section-types", feedController.getSectionTypes);
+router.get("/admin/feed/configurations", authenticateToken, requireAdmin, feedController.getAllConfigurations);
+router.post("/admin/feed/banners", authenticateToken, requireAdmin, uploadAny.single("image"), convertImagesToWebPLossless, feedController.createBanner);
+
+router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
+router.get("/ai/agent/history/:sessionId", validateAIAgentKey, aiAgentController.getHistory);
+router.get("/admin/ai/agent/sessions", authenticateToken, requireAdmin, aiAgentController.listSessions);
+router.post("/admin/ai/agent/sessions/:sessionId/block", authenticateToken, requireAdmin, aiAgentController.blockSession);
+
+router.get("/ai/products/light", aiProductController.getLightweightProducts);
+router.get("/ai/products/detail/:id", aiProductController.getProductDetail);
+
+router.get("/admin/ai/summary", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const summary = await aiSummaryService.getWeeklySummary(req.query.force_refresh === "true");
+    res.json(summary);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/reports/stock", authenticateToken, requireAdmin, reportController.getStockReport);
+router.get("/reports/stock/critical", authenticateToken, requireAdmin, reportController.getCriticalStock);
+
+router.get("/whatsapp/config", authenticateToken, requireAdmin, whatsappController.getConfig);
+router.post("/whatsapp/test", authenticateToken, requireAdmin, whatsappController.testMessage);
+
+// ==========================================
+// 11. ADMIN & SYSTEM
+// ==========================================
+
+router.get("/admin/holidays", authenticateToken, requireAdmin, holidayController.index);
+router.post("/admin/holidays", authenticateToken, requireAdmin, holidayController.create);
+router.put("/admin/holidays/:id", authenticateToken, requireAdmin, holidayController.update);
+router.delete("/admin/holidays/:id", authenticateToken, requireAdmin, holidayController.delete);
+
+router.get("/admin/followup/history", authenticateToken, requireAdmin, followUpController.listHistory);
+router.post("/admin/followup/toggle", authenticateToken, requireAdmin, followUpController.toggle);
+router.post("/admin/followup/trigger", authenticateToken, requireAdmin, followUpController.trigger);
+
+router.get("/oauth/status", oauthController.status);
+router.get("/oauth/authorize", oauthController.authorize);
+router.get("/oauth/callback", oauthController.callback);
+router.get("/oauth/debug", oauthController.debug);
+router.post("/oauth/clear", authenticateToken, requireAdmin, async (req: Request, res: Response) => oauthController.clear(req, res));
+
+router.get("/admin/status", authenticateToken, requireAdmin, statusController.getBusinessStatus);
+
+router.post("/admin/google-drive/test", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const folderId = await googleDriveService.createFolder(`test-drive-${Date.now()}`);
+    await googleDriveService.deleteFolder(folderId);
+    res.json({ success: true, message: "Drive upload OK" });
+  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post("/admin/reprocess-finalization", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.body;
+    const result = await PaymentService.reprocessFinalizationForOrder(orderId);
+    res.json({ success: true, result });
+  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+});
 
 export default router;

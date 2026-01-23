@@ -69,8 +69,8 @@ class OrderCustomizationService {
       try {
         const existingData = this.parseCustomizationData(existing.value);
 
-        // Verificar e marcar arquivos antigos de BASE_LAYOUT para deleção
-        if (input.customizationType === "BASE_LAYOUT") {
+        // Verificar e marcar arquivos antigos de DYNAMIC_LAYOUT para deleção
+        if (input.customizationType === "DYNAMIC_LAYOUT") {
           // Preview/artwork antigo
           if (
             existingData.image?.preview_url &&
@@ -155,7 +155,7 @@ class OrderCustomizationService {
       if (input.customizationType === "MULTIPLE_CHOICE") {
         customizationValue.selected_option_label = computedLabel;
       }
-      if (input.customizationType === "BASE_LAYOUT") {
+      if (input.customizationType === "DYNAMIC_LAYOUT") {
         customizationValue.selected_item_label = computedLabel;
       }
     }
@@ -385,7 +385,7 @@ class OrderCustomizationService {
       }
       if (
         (input.customizationType ??
-          mergedCustomizationData.customization_type) === "BASE_LAYOUT"
+          mergedCustomizationData.customization_type) === "DYNAMIC_LAYOUT"
       ) {
         mergedCustomizationData.selected_item_label = updatedLabel;
       }
@@ -554,7 +554,7 @@ class OrderCustomizationService {
       // Map type to folder name
       const folderNameMap: Record<string, string> = {
         IMAGES: "IMAGES",
-        BASE_LAYOUT: "BASE_LAYOUT",
+        DYNAMIC_LAYOUT: "DYNAMIC_LAYOUT",
         MULTIPLE_CHOICE: "MULTIPLE_CHOICE",
         TEXT: "TEXT",
         ADDITIONALS: "ADDITIONALS",
@@ -606,14 +606,14 @@ class OrderCustomizationService {
 
         const sanitizedData = this.removeBase64FromData(data, uploads);
 
-        // Recompute label_selected for BASE_LAYOUT / MULTIPLE_CHOICE if missing
+        // Recompute label_selected for DYNAMIC_LAYOUT / MULTIPLE_CHOICE if missing
         try {
           const cType = sanitizedData.customization_type;
           if (
             !sanitizedData.label_selected ||
             sanitizedData.label_selected === ""
           ) {
-            if (cType === "BASE_LAYOUT" || cType === "MULTIPLE_CHOICE") {
+            if (cType === "DYNAMIC_LAYOUT" || cType === "MULTIPLE_CHOICE") {
               const computed = await this.computeLabelSelected(
                 cType,
                 sanitizedData,
@@ -625,7 +625,7 @@ class OrderCustomizationService {
                 if (cType === "MULTIPLE_CHOICE") {
                   sanitizedData.selected_option_label = computed;
                 }
-                if (cType === "BASE_LAYOUT") {
+                if (cType === "DYNAMIC_LAYOUT") {
                   sanitizedData.selected_item_label = computed;
                 }
                 logger.info(
@@ -880,13 +880,13 @@ class OrderCustomizationService {
       return undefined;
     }
 
-    // BASE_LAYOUT — use the provided layout id or selected_layout_id to get layout name
-    if (customizationType === "BASE_LAYOUT") {
+    // DYNAMIC_LAYOUT — use the provided layout id or selected_layout_id to get layout name
+    if (customizationType === "DYNAMIC_LAYOUT") {
       // Try typical fields then recursively search the object for common keys
       const layoutId =
         selectedLayoutId ||
         customizationData.layout_id ||
-        customizationData.base_layout_id ||
+        customizationData.DYNAMIC_LAYOUT_id ||
         this.findLayoutIdInObject(customizationData);
       if (!layoutId) return undefined;
 
@@ -910,7 +910,7 @@ class OrderCustomizationService {
     const keys = [
       "selected_layout_id",
       "layout_id",
-      "base_layout_id",
+      "DYNAMIC_LAYOUT_id",
       "layoutId",
       "baseLayoutId",
     ];
@@ -967,8 +967,8 @@ class OrderCustomizationService {
       }
     });
 
-    // Suporte para BASE_LAYOUT - buscar URL ou base64 do campo "text"
-    if (data?.customization_type === "BASE_LAYOUT" && data?.text) {
+    // Suporte para DYNAMIC_LAYOUT - buscar URL ou base64 do campo "text"
+    if (data?.customization_type === "DYNAMIC_LAYOUT" && data?.text) {
       const textContent = data.text;
 
       if (typeof textContent === "string") {
@@ -986,7 +986,7 @@ class OrderCustomizationService {
         // Se for base64, manter suporte (caso chegue durante transição)
         else if (textContent.startsWith("data:image")) {
           logger.warn(
-            `⚠️ BASE_LAYOUT ainda contém base64 em campo 'text' (devia ter sido migrado)`
+            `⚠️ DYNAMIC_LAYOUT ainda contém base64 em campo 'text' (devia ter sido migrado)`
           );
           // Será processado no método uploadArtwork que mantém suporte a base64
           assets.push({

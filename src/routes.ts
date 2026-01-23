@@ -1195,13 +1195,21 @@ router.get(
 
 // Listar layouts base
 router.get("/layouts", layoutBaseController.list);
+router.get("/api/layouts", layoutBaseController.list);
 
-// Buscar layout base por ID
+// Buscar layout base por ID (suporta legado e dinâmico via service)
 router.get("/layouts/:id", layoutBaseController.show);
+router.get("/api/layouts/:id", layoutBaseController.show);
 
 // ===== ADMIN LAYOUTS ROUTES (protegidas) =====
 router.get(
   "/admin/layouts",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.list,
+);
+router.get(
+  "/api/admin/layouts",
   authenticateToken,
   requireAdmin,
   layoutBaseController.list,
@@ -1213,10 +1221,23 @@ router.get(
   requireAdmin,
   layoutBaseController.show,
 );
+router.get(
+  "/api/admin/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.show,
+);
 
 // Criar layout base (SEM conversão WebP - mantém formato original)
 router.post(
   "/admin/layouts",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  layoutBaseController.create,
+);
+router.post(
+  "/api/admin/layouts",
   authenticateToken,
   requireAdmin,
   upload.single("image"),
@@ -1231,10 +1252,23 @@ router.put(
   upload.single("image"),
   layoutBaseController.update,
 );
+router.put(
+  "/api/admin/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  layoutBaseController.update,
+);
 
 // Deletar layout base
 router.delete(
   "/admin/layouts/:id",
+  authenticateToken,
+  requireAdmin,
+  layoutBaseController.delete,
+);
+router.delete(
+  "/api/admin/layouts/:id",
   authenticateToken,
   requireAdmin,
   layoutBaseController.delete,

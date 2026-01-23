@@ -492,7 +492,7 @@ enum FeedSectionType {
 }
 
 enum CustomizationType {
-  BASE_LAYOUT
+  DYNAMIC_LAYOUT
   TEXT
   IMAGES
   MULTIPLE_CHOICE

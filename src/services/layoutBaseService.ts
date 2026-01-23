@@ -58,18 +58,54 @@ class LayoutBaseService {
   }
 
   /**
-   * Buscar layout por ID
+   * Buscar layout por ID (suporta LayoutBase e DynamicLayout)
    */
   async getById(id: string) {
+    // 1. Tentar buscar na tabela LayoutBase (legado)
     const layoutBase = await prisma.layoutBase.findUnique({
       where: { id },
     });
 
-    if (!layoutBase) {
-      throw new Error("Layout base não encontrado");
+    if (layoutBase) {
+      return layoutBase;
     }
 
-    return layoutBase;
+    // 2. Se não encontrar, tentar na tabela DynamicLayout (v2)
+    const dynamicLayout = await prisma.dynamicLayout.findUnique({
+      where: { id },
+    });
+
+    if (dynamicLayout) {
+      // Mapear para o formato compatível com o frontend
+      return {
+        id: dynamicLayout.id,
+        name: dynamicLayout.name,
+        item_type: this.mapDynamicType(dynamicLayout.type),
+        image_url: dynamicLayout.baseImageUrl,
+        width: dynamicLayout.width,
+        height: dynamicLayout.height,
+        slots: [], // Layouts dinâmicos usam o estado Fabric.js em vez de slots fixos
+        fabric_json_state: dynamicLayout.fabricJsonState,
+        additional_time: 0,
+        created_at: dynamicLayout.createdAt,
+        updated_at: dynamicLayout.updatedAt,
+      };
+    }
+
+    throw new Error("Layout base não encontrado");
+  }
+
+  /**
+   * Mapeia tipos de Layout Dinâmico para os tipos do Layout Base
+   */
+  private mapDynamicType(type: string): string {
+    const mapping: Record<string, string> = {
+      mug: "CANECA",
+      frame: "QUADRO",
+      puzzle: "QUEBRA_CABECA",
+      custom: "OUTROS",
+    };
+    return mapping[type.toLowerCase()] || type.toUpperCase();
   }
 
   /**
@@ -105,7 +141,8 @@ class LayoutBaseService {
     if (data.width) updateData.width = data.width;
     if (data.height) updateData.height = data.height;
     if (data.slots) updateData.slots = data.slots;
-    if (data.additional_time !== undefined) updateData.additional_time = data.additional_time;
+    if (data.additional_time !== undefined)
+      updateData.additional_time = data.additional_time;
 
     const updated = await prisma.layoutBase.update({
       where: { id },
@@ -128,7 +165,7 @@ class LayoutBaseService {
 
     if (itemsUsingLayoutCount > 0) {
       throw new Error(
-        `Não é possível deletar. Este layout está vinculado a ${itemsUsingLayoutCount} item(s). Atualize ou remova o vínculo antes de deletar.`
+        `Não é possível deletar. Este layout está vinculado a ${itemsUsingLayoutCount} item(s). Atualize ou remova o vínculo antes de deletar.`,
       );
     }
 
@@ -141,11 +178,11 @@ class LayoutBaseService {
       }
     `;
     const customizationCount = Number(
-      customizationCountResult?.[0]?.count || 0
+      customizationCountResult?.[0]?.count || 0,
     );
     if (customizationCount > 0) {
       throw new Error(
-        `Não é possível deletar. Este layout é usado em ${customizationCount} customização(ões). Atualize a customização antes de deletar.`
+        `Não é possível deletar. Este layout é usado em ${customizationCount} customização(ões). Atualize a customização antes de deletar.`,
       );
     }
 
@@ -154,7 +191,7 @@ class LayoutBaseService {
       const imagePath = path.join(
         process.cwd(),
         "public",
-        layoutBase.image_url.replace(/^\//, "")
+        layoutBase.image_url.replace(/^\//, ""),
       );
 
       try {
@@ -195,13 +232,13 @@ class LayoutBaseService {
       // Validar percentuais (0-100)
       if (typeof slot.x !== "number" || slot.x < 0 || slot.x > 100) {
         throw new Error(
-          `Slot '${slot.id}': 'x' deve ser um número entre 0 e 100`
+          `Slot '${slot.id}': 'x' deve ser um número entre 0 e 100`,
         );
       }
 
       if (typeof slot.y !== "number" || slot.y < 0 || slot.y > 100) {
         throw new Error(
-          `Slot '${slot.id}': 'y' deve ser um número entre 0 e 100`
+          `Slot '${slot.id}': 'y' deve ser um número entre 0 e 100`,
         );
       }
 
@@ -211,7 +248,7 @@ class LayoutBaseService {
         slot.width > 100
       ) {
         throw new Error(
-          `Slot '${slot.id}': 'width' deve ser um número entre 0 e 100`
+          `Slot '${slot.id}': 'width' deve ser um número entre 0 e 100`,
         );
       }
 
@@ -221,14 +258,14 @@ class LayoutBaseService {
         slot.height > 100
       ) {
         throw new Error(
-          `Slot '${slot.id}': 'height' deve ser um número entre 0 e 100`
+          `Slot '${slot.id}': 'height' deve ser um número entre 0 e 100`,
         );
       }
 
       // Validar fit se fornecido
       if (slot.fit && !["cover", "contain"].includes(slot.fit)) {
         throw new Error(
-          `Slot '${slot.id}': 'fit' deve ser 'cover' ou 'contain'`
+          `Slot '${slot.id}': 'fit' deve ser 'cover' ou 'contain'`,
         );
       }
 

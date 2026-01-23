@@ -166,7 +166,7 @@ class CustomizationService {
     const data = customization.customization_data;
 
     switch (customization.type) {
-      case "BASE_LAYOUT":
+      case "DYNAMIC_LAYOUT":
         this.validateBaseLayout(customization, input, data, errors);
         break;
 
@@ -190,7 +190,7 @@ class CustomizationService {
   }
 
   /**
-   * Valida BASE_LAYOUT
+   * Valida DYNAMIC_LAYOUT
    */
   private validateBaseLayout(
     customization: any,
@@ -267,12 +267,12 @@ class CustomizationService {
     data: any,
     errors: string[]
   ) {
-    if (!input.data.base_layout_id) {
+    if (!input.data.DYNAMIC_LAYOUT_id) {
       errors.push(`${customization.name}: Layout base não selecionado`);
       return;
     }
 
-    const baseLayout = data?.base_layout;
+    const baseLayout = data?.DYNAMIC_LAYOUT;
     if (!baseLayout) {
       errors.push(`${customization.name}: Layout base não configurado`);
       return;
@@ -364,13 +364,13 @@ class CustomizationService {
 
       if (!customizationRecord) continue;
 
-      // BASE_LAYOUT ou IMAGES
+      // DYNAMIC_LAYOUT ou IMAGES
       if (
-        customization.customization_type === "BASE_LAYOUT" ||
+        customization.customization_type === "DYNAMIC_LAYOUT" ||
         customization.customization_type === "IMAGES"
       ) {
         const layoutId =
-          customization.data.layout_id || customization.data.base_layout_id;
+          customization.data.layout_id || customization.data.DYNAMIC_LAYOUT_id;
 
         if (layoutId) {
           layout = await prisma.layout.findUnique({
@@ -644,9 +644,9 @@ class CustomizationService {
    */
   private validateCustomizationData(type: CustomizationType, data: any): void {
     switch (type) {
-      case "BASE_LAYOUT":
+      case "DYNAMIC_LAYOUT":
         if (!data.layouts || !Array.isArray(data.layouts)) {
-          throw new Error("BASE_LAYOUT requer array de layouts");
+          throw new Error("DYNAMIC_LAYOUT requer array de layouts");
         }
         break;
 
@@ -657,8 +657,8 @@ class CustomizationService {
         break;
 
       case "IMAGES":
-        if (!data.base_layout) {
-          throw new Error("IMAGES requer base_layout");
+        if (!data.DYNAMIC_LAYOUT) {
+          throw new Error("IMAGES requer DYNAMIC_LAYOUT");
         }
         break;
 

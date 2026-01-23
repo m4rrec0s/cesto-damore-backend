@@ -269,10 +269,10 @@ class OrderCustomizationController {
         }`
       );
 
-      // ✅ DEBUG: Log do payload.data para BASE_LAYOUT
-      if (payload.customizationType === "BASE_LAYOUT") {
+      // ✅ DEBUG: Log do payload.data para DYNAMIC_LAYOUT
+      if (payload.customizationType === "DYNAMIC_LAYOUT") {
         logger.debug(
-          `📦 [BASE_LAYOUT] Payload.data:`,
+          `📦 [DYNAMIC_LAYOUT] Payload.data:`,
           JSON.stringify(payload.data).substring(0, 500)
         );
       }
@@ -353,33 +353,33 @@ class OrderCustomizationController {
         );
       }
 
-      // ✅ FIX BASE_LAYOUT: Processar imagem em data.image ANTES de processBase64InData
+      // ✅ FIX DYNAMIC_LAYOUT: Processar imagem em data.image ANTES de processBase64InData
       if (
-        payload.customizationType === "BASE_LAYOUT" &&
+        payload.customizationType === "DYNAMIC_LAYOUT" &&
         customizationData.image &&
         typeof customizationData.image === "object" &&
         customizationData.image.base64
       ) {
         logger.info(
-          `🔄 [BASE_LAYOUT] Detectado image.base64 em data.image, convertendo...`
+          `🔄 [DYNAMIC_LAYOUT] Detectado image.base64 em data.image, convertendo...`
         );
         const url = await this.convertBase64ToFile(
           customizationData.image.base64,
           customizationData.image.fileName || "base-layout-image"
         );
         if (url) {
-          logger.info(`✅ [BASE_LAYOUT] Imagem convertida para: ${url}`);
+          logger.info(`✅ [DYNAMIC_LAYOUT] Imagem convertida para: ${url}`);
           const { base64, ...imageSemBase64 } = customizationData.image;
           customizationData.image = { ...imageSemBase64, preview_url: url };
         } else {
-          logger.warn(`⚠️ [BASE_LAYOUT] Falha ao converter imagem`);
+          logger.warn(`⚠️ [DYNAMIC_LAYOUT] Falha ao converter imagem`);
           const { base64, ...imageSemBase64 } = customizationData.image;
           customizationData.image = imageSemBase64;
         }
-      } else if (payload.customizationType === "BASE_LAYOUT") {
-        // ✅ DEBUG: Se é BASE_LAYOUT mas não tem image.base64, logar para investigar
+      } else if (payload.customizationType === "DYNAMIC_LAYOUT") {
+        // ✅ DEBUG: Se é DYNAMIC_LAYOUT mas não tem image.base64, logar para investigar
         logger.warn(
-          `⚠️ [BASE_LAYOUT] Sem image.base64! customizationData:`,
+          `⚠️ [DYNAMIC_LAYOUT] Sem image.base64! customizationData:`,
           JSON.stringify(customizationData).substring(0, 300)
         );
       }

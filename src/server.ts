@@ -269,10 +269,10 @@ cron.schedule("*/20 * * * *", async () => {
           });
         }
 
-        // ✅ NOVO: Buscar arquivo em text (BASE_LAYOUT)
+        // ✅ NOVO: Buscar arquivo em text (DYNAMIC_LAYOUT)
         if (
-          (value.customization_type === "BASE_LAYOUT" ||
-            value.customizationType === "BASE_LAYOUT") &&
+          (value.customization_type === "DYNAMIC_LAYOUT" ||
+            value.customizationType === "DYNAMIC_LAYOUT") &&
           value.text &&
           typeof value.text === "string" &&
           value.text.includes("/uploads/temp/")
@@ -307,7 +307,7 @@ cron.schedule("*/20 * * * *", async () => {
     );
   } catch (error) {
     logger.error(
-      "❌ [Cron] Erro na limpeza de imagens órfãs BASE_LAYOUT:",
+      "❌ [Cron] Erro na limpeza de imagens órfãs DYNAMIC_LAYOUT:",
       error
     );
   }

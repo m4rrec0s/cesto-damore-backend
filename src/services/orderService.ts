@@ -904,10 +904,10 @@ class OrderService {
             });
           }
 
-          // ✅ NOVO: Buscar arquivo em text (BASE_LAYOUT)
+          // ✅ NOVO: Buscar arquivo em text (DYNAMIC_LAYOUT)
           if (
-            (value.customization_type === "BASE_LAYOUT" ||
-              value.customizationType === "BASE_LAYOUT") &&
+            (value.customization_type === "DYNAMIC_LAYOUT" ||
+              value.customizationType === "DYNAMIC_LAYOUT") &&
             value.text &&
             typeof value.text === "string" &&
             value.text.includes("/uploads/temp/")

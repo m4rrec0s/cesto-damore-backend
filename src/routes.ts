@@ -147,7 +147,10 @@ router.get("/preview", (req: Request, res: Response) => {
 // 2. STATIC FILE SERVING
 // ==========================================
 
-const getImagesPath = () => process.env.NODE_ENV === "production" ? "/app/images" : path.join(process.cwd(), "images");
+const getImagesPath = () =>
+  process.env.NODE_ENV === "production"
+    ? "/app/images"
+    : path.join(process.cwd(), "images");
 
 router.get("/images/:filename", (req: Request, res: Response) => {
   const filePath = path.join(getImagesPath(), req.params.filename);
@@ -155,17 +158,32 @@ router.get("/images/:filename", (req: Request, res: Response) => {
   res.status(404).json({ error: "Imagem não encontrada" });
 });
 
-router.get("/images/customizations/:filename", (req: Request, res: Response) => {
-  const filePath = path.join(getImagesPath(), "customizations", req.params.filename);
-  if (fs.existsSync(filePath)) return res.sendFile(filePath);
-  res.status(404).json({ error: "Arquivo de customização não encontrado" });
-});
+router.get(
+  "/images/customizations/:filename",
+  (req: Request, res: Response) => {
+    const filePath = path.join(
+      getImagesPath(),
+      "customizations",
+      req.params.filename,
+    );
+    if (fs.existsSync(filePath)) return res.sendFile(filePath);
+    res.status(404).json({ error: "Arquivo de customização não encontrado" });
+  },
+);
 
-router.get("/images/customizations/:folderId/:filename", (req: Request, res: Response) => {
-  const filePath = path.join(getImagesPath(), "customizations", req.params.folderId, req.params.filename);
-  if (fs.existsSync(filePath)) return res.sendFile(filePath);
-  res.status(404).json({ error: "Arquivo de customização não encontrado" });
-});
+router.get(
+  "/images/customizations/:folderId/:filename",
+  (req: Request, res: Response) => {
+    const filePath = path.join(
+      getImagesPath(),
+      "customizations",
+      req.params.folderId,
+      req.params.filename,
+    );
+    if (fs.existsSync(filePath)) return res.sendFile(filePath);
+    res.status(404).json({ error: "Arquivo de customização não encontrado" });
+  },
+);
 
 // ==========================================
 // 3. AUTH & USER ROUTES
@@ -180,11 +198,31 @@ router.post("/auth/refresh", authenticateToken, authController.refreshToken);
 router.get("/users/me", authenticateToken, userController.me);
 router.get("/users/cep/:zipCode", userController.getAddressByZipCode);
 router.get("/users", authenticateToken, requireAdmin, userController.index);
-router.get("/users/:userId/orders", authenticateToken, orderController.getByUserId);
+router.get(
+  "/users/:userId/orders",
+  authenticateToken,
+  orderController.getByUserId,
+);
 router.get("/users/:id", authenticateToken, userController.show);
-router.post("/users", authenticateToken, requireAdmin, upload.single("image"), userController.create);
-router.put("/users/:id", authenticateToken, upload.single("image"), userController.update);
-router.delete("/users/:id", authenticateToken, requireAdmin, userController.remove);
+router.post(
+  "/users",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  userController.create,
+);
+router.put(
+  "/users/:id",
+  authenticateToken,
+  upload.single("image"),
+  userController.update,
+);
+router.delete(
+  "/users/:id",
+  authenticateToken,
+  requireAdmin,
+  userController.remove,
+);
 
 // ==========================================
 // 4. PRODUCT & CATALOG ROUTES
@@ -192,85 +230,323 @@ router.delete("/users/:id", authenticateToken, requireAdmin, userController.remo
 
 router.get("/products", productController.index);
 router.get("/products/:id", productController.show);
-router.post("/products", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, productController.create);
-router.put("/products/:id", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, productController.update);
-router.delete("/products/:id", authenticateToken, requireAdmin, productController.remove);
-router.post("/products/:id/link", authenticateToken, requireAdmin, productController.link);
-router.post("/products/:id/unlink", authenticateToken, requireAdmin, productController.unlink);
+router.post(
+  "/products",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebPLossless,
+  productController.create,
+);
+router.put(
+  "/products/:id",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebPLossless,
+  productController.update,
+);
+router.delete(
+  "/products/:id",
+  authenticateToken,
+  requireAdmin,
+  productController.remove,
+);
+router.post(
+  "/products/:id/link",
+  authenticateToken,
+  requireAdmin,
+  productController.link,
+);
+router.post(
+  "/products/:id/unlink",
+  authenticateToken,
+  requireAdmin,
+  productController.unlink,
+);
 
 router.get("/items", itemController.index);
 router.get("/items/available", itemController.getAvailable);
 router.get("/items/customizable", itemController.getWithCustomizations);
 router.get("/items/:id", itemController.show);
-router.post("/items", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, itemController.create);
-router.put("/items/:id", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, itemController.update);
-router.put("/items/:id/stock", authenticateToken, requireAdmin, itemController.updateStock);
-router.delete("/items/:id", authenticateToken, requireAdmin, itemController.delete);
+router.post(
+  "/items",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebPLossless,
+  itemController.create,
+);
+router.put(
+  "/items/:id",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebPLossless,
+  itemController.update,
+);
+router.put(
+  "/items/:id/stock",
+  authenticateToken,
+  requireAdmin,
+  itemController.updateStock,
+);
+router.delete(
+  "/items/:id",
+  authenticateToken,
+  requireAdmin,
+  itemController.delete,
+);
 
 router.get("/categories", categoryController.index);
 router.get("/categories/:id", categoryController.show);
-router.post("/categories", authenticateToken, requireAdmin, categoryController.create);
-router.put("/categories/:id", authenticateToken, requireAdmin, categoryController.update);
-router.delete("/categories/:id", authenticateToken, requireAdmin, categoryController.remove);
+router.post(
+  "/categories",
+  authenticateToken,
+  requireAdmin,
+  categoryController.create,
+);
+router.put(
+  "/categories/:id",
+  authenticateToken,
+  requireAdmin,
+  categoryController.update,
+);
+router.delete(
+  "/categories/:id",
+  authenticateToken,
+  requireAdmin,
+  categoryController.remove,
+);
 
 router.get("/types", typeController.index);
 router.get("/types/:id", typeController.show);
 router.post("/types", authenticateToken, requireAdmin, typeController.create);
-router.put("/types/:id", authenticateToken, requireAdmin, typeController.update);
-router.delete("/types/:id", authenticateToken, requireAdmin, typeController.remove);
+router.put(
+  "/types/:id",
+  authenticateToken,
+  requireAdmin,
+  typeController.update,
+);
+router.delete(
+  "/types/:id",
+  authenticateToken,
+  requireAdmin,
+  typeController.remove,
+);
 
 // Product Components
-router.get("/products/:productId/components", productComponentController.getProductComponents);
-router.post("/products/:productId/components", authenticateToken, requireAdmin, productComponentController.addComponent);
-router.put("/components/:componentId", authenticateToken, requireAdmin, productComponentController.updateComponent);
-router.delete("/components/:componentId", authenticateToken, requireAdmin, productComponentController.removeComponent);
-router.get("/products/:productId/stock/calculate", productComponentController.calculateProductStock);
-router.post("/products/:productId/stock/validate", productComponentController.validateComponentsStock);
-router.get("/items/:itemId/products", productComponentController.getProductsUsingItem);
+router.get(
+  "/products/:productId/components",
+  productComponentController.getProductComponents,
+);
+router.post(
+  "/products/:productId/components",
+  authenticateToken,
+  requireAdmin,
+  productComponentController.addComponent,
+);
+router.put(
+  "/components/:componentId",
+  authenticateToken,
+  requireAdmin,
+  productComponentController.updateComponent,
+);
+router.delete(
+  "/components/:componentId",
+  authenticateToken,
+  requireAdmin,
+  productComponentController.removeComponent,
+);
+router.get(
+  "/products/:productId/stock/calculate",
+  productComponentController.calculateProductStock,
+);
+router.post(
+  "/products/:productId/stock/validate",
+  productComponentController.validateComponentsStock,
+);
+router.get(
+  "/items/:itemId/products",
+  productComponentController.getProductsUsingItem,
+);
 
 // Additionals
 router.get("/additional", additionalController.index);
 router.get("/additional/:id", additionalController.show);
-router.post("/additional", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, additionalController.create);
-router.put("/additional/:id", authenticateToken, requireAdmin, upload.single("image"), convertImagesToWebPLossless, additionalController.update);
-router.delete("/additional/:id", authenticateToken, requireAdmin, additionalController.remove);
-router.post("/additional/:id/link", authenticateToken, requireAdmin, additionalController.link);
-router.put("/additional/:id/link", authenticateToken, requireAdmin, additionalController.updateLink);
-router.post("/additional/:id/unlink", authenticateToken, requireAdmin, additionalController.unlink);
+router.post(
+  "/additional",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebPLossless,
+  additionalController.create,
+);
+router.put(
+  "/additional/:id",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  convertImagesToWebPLossless,
+  additionalController.update,
+);
+router.delete(
+  "/additional/:id",
+  authenticateToken,
+  requireAdmin,
+  additionalController.remove,
+);
+router.post(
+  "/additional/:id/link",
+  authenticateToken,
+  requireAdmin,
+  additionalController.link,
+);
+router.put(
+  "/additional/:id/link",
+  authenticateToken,
+  requireAdmin,
+  additionalController.updateLink,
+);
+router.post(
+  "/additional/:id/unlink",
+  authenticateToken,
+  requireAdmin,
+  additionalController.unlink,
+);
 router.get("/additional/:id/price", additionalController.getPrice);
-router.get("/products/:productId/additionals", additionalController.getByProduct);
+router.get(
+  "/products/:productId/additionals",
+  additionalController.getByProduct,
+);
 
 // Constraints
-router.get("/constraints/item/:itemType/:itemId", itemConstraintController.getByItem);
-router.get("/admin/constraints", authenticateToken, requireAdmin, itemConstraintController.listAll);
-router.post("/admin/constraints", authenticateToken, requireAdmin, itemConstraintController.create);
-router.put("/admin/constraints/:constraintId", authenticateToken, requireAdmin, itemConstraintController.update);
-router.delete("/admin/constraints/:constraintId", authenticateToken, requireAdmin, itemConstraintController.delete);
+router.get(
+  "/constraints/item/:itemType/:itemId",
+  itemConstraintController.getByItem,
+);
+router.get(
+  "/admin/constraints",
+  authenticateToken,
+  requireAdmin,
+  itemConstraintController.listAll,
+);
+router.post(
+  "/admin/constraints",
+  authenticateToken,
+  requireAdmin,
+  itemConstraintController.create,
+);
+router.put(
+  "/admin/constraints/:constraintId",
+  authenticateToken,
+  requireAdmin,
+  itemConstraintController.update,
+);
+router.delete(
+  "/admin/constraints/:constraintId",
+  authenticateToken,
+  requireAdmin,
+  itemConstraintController.delete,
+);
 
 // ==========================================
 // 5. DYNAMIC LAYOUTS & DESIGN BANK
 // ==========================================
 
-router.get("/layouts/dynamic", optionalAuthenticateToken, dynamicLayoutController.list);
-router.get("/layouts/dynamic/:id", optionalAuthenticateToken, dynamicLayoutController.show);
-router.post("/layouts/dynamic", authenticateToken, dynamicLayoutController.create);
-router.put("/layouts/dynamic/:id", authenticateToken, dynamicLayoutController.update);
-router.delete("/layouts/dynamic/:id", authenticateToken, dynamicLayoutController.delete);
-router.post("/layouts/dynamic/:id/versions", authenticateToken, dynamicLayoutController.saveVersion);
-router.get("/layouts/dynamic/:id/versions", authenticateToken, dynamicLayoutController.listVersions);
-router.post("/layouts/dynamic/:id/versions/:versionNumber/restore", authenticateToken, dynamicLayoutController.restoreVersion);
-router.post("/layouts/dynamic/:id/elements", authenticateToken, dynamicLayoutController.addElement);
-router.put("/layouts/dynamic/:layoutId/elements/:elementId", authenticateToken, dynamicLayoutController.updateElement);
-router.delete("/layouts/dynamic/:layoutId/elements/:elementId", authenticateToken, dynamicLayoutController.deleteElement);
+router.get(
+  "/layouts/dynamic",
+  optionalAuthenticateToken,
+  dynamicLayoutController.list,
+);
+router.get(
+  "/layouts/dynamic/:id",
+  optionalAuthenticateToken,
+  dynamicLayoutController.show,
+);
+router.post(
+  "/layouts/dynamic",
+  authenticateToken,
+  dynamicLayoutController.create,
+);
+router.put(
+  "/layouts/dynamic/:id",
+  authenticateToken,
+  dynamicLayoutController.update,
+);
+router.delete(
+  "/layouts/dynamic/:id",
+  authenticateToken,
+  dynamicLayoutController.delete,
+);
+router.post(
+  "/layouts/dynamic/:id/versions",
+  authenticateToken,
+  dynamicLayoutController.saveVersion,
+);
+router.get(
+  "/layouts/dynamic/:id/versions",
+  authenticateToken,
+  dynamicLayoutController.listVersions,
+);
+router.post(
+  "/layouts/dynamic/:id/versions/:versionNumber/restore",
+  authenticateToken,
+  dynamicLayoutController.restoreVersion,
+);
+router.post(
+  "/layouts/dynamic/:id/elements",
+  authenticateToken,
+  dynamicLayoutController.addElement,
+);
+router.put(
+  "/layouts/dynamic/:layoutId/elements/:elementId",
+  authenticateToken,
+  dynamicLayoutController.updateElement,
+);
+router.delete(
+  "/layouts/dynamic/:layoutId/elements/:elementId",
+  authenticateToken,
+  dynamicLayoutController.deleteElement,
+);
 
 // Elements Bank
-router.get("/elements/bank", optionalAuthenticateToken, elementBankController.list);
+router.get(
+  "/elements/bank",
+  optionalAuthenticateToken,
+  elementBankController.list,
+);
 router.get("/elements/bank/categories", elementBankController.listCategories);
-router.get("/elements/bank/:id", optionalAuthenticateToken, elementBankController.show);
-router.post("/elements/bank", authenticateToken, requireAdmin, upload.single("image"), elementBankController.create);
-router.put("/elements/bank/:id", authenticateToken, requireAdmin, elementBankController.update);
-router.delete("/elements/bank/:id", authenticateToken, requireAdmin, elementBankController.delete);
-router.post("/elements/bank/bulk", authenticateToken, requireAdmin, elementBankController.bulkCreate);
+router.get(
+  "/elements/bank/:id",
+  optionalAuthenticateToken,
+  elementBankController.show,
+);
+router.post(
+  "/elements/bank",
+  authenticateToken,
+  requireAdmin,
+  upload.single("image"),
+  elementBankController.create,
+);
+router.put(
+  "/elements/bank/:id",
+  authenticateToken,
+  requireAdmin,
+  elementBankController.update,
+);
+router.delete(
+  "/elements/bank/:id",
+  authenticateToken,
+  requireAdmin,
+  elementBankController.delete,
+);
+router.post(
+  "/elements/bank/bulk",
+  authenticateToken,
+  requireAdmin,
+  elementBankController.bulkCreate,
+);
 
 // Legacy Layouts (Commented out)
 // router.get("/layouts", layoutBaseController.list);
@@ -283,94 +559,325 @@ router.post("/elements/bank/bulk", authenticateToken, requireAdmin, elementBankC
 // 6. CUSTOMIZATIONS & ORDERS
 // ==========================================
 
-router.get("/customizations", authenticateToken, requireAdmin, customizationController.index);
-router.get("/customizations/:id", authenticateToken, requireAdmin, customizationController.show);
-router.post("/customizations", authenticateToken, requireAdmin, uploadAny.any(), customizationController.create);
-router.put("/customizations/:id", authenticateToken, requireAdmin, uploadAny.any(), customizationController.update);
-router.delete("/customizations/:id", authenticateToken, requireAdmin, customizationController.remove);
+router.get(
+  "/customizations",
+  authenticateToken,
+  requireAdmin,
+  customizationController.index,
+);
+router.get(
+  "/customizations/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.show,
+);
+router.post(
+  "/customizations",
+  authenticateToken,
+  requireAdmin,
+  uploadAny.any(),
+  customizationController.create,
+);
+router.put(
+  "/customizations/:id",
+  authenticateToken,
+  requireAdmin,
+  uploadAny.any(),
+  customizationController.update,
+);
+router.delete(
+  "/customizations/:id",
+  authenticateToken,
+  requireAdmin,
+  customizationController.remove,
+);
 
-router.get("/items/:itemId/customizations", customizationController.getItemCustomizations);
-router.post("/customizations/validate", customizationController.validateCustomizations);
+router.get(
+  "/items/:itemId/customizations",
+  customizationController.getItemCustomizations,
+);
+router.post(
+  "/customizations/validate",
+  customizationController.validateCustomizations,
+);
 router.post("/customizations/preview", customizationController.buildPreview);
-router.get("/customization/review/:orderId", customizationReviewController.getReviewData);
+router.get(
+  "/customization/review/:orderId",
+  customizationReviewController.getReviewData,
+);
 
 router.get("/orders", authenticateToken, orderController.index);
 router.get("/orders/:id", authenticateToken, orderController.show);
 router.post("/orders", orderController.create);
 router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
-router.put("/orders/:id/metadata", authenticateToken, orderController.updateMetadata);
-router.patch("/orders/:id/status", authenticateToken, requireAdmin, orderController.updateStatus);
+router.put(
+  "/orders/:id/metadata",
+  authenticateToken,
+  orderController.updateMetadata,
+);
+router.patch(
+  "/orders/:id/status",
+  authenticateToken,
+  requireAdmin,
+  orderController.updateStatus,
+);
 router.delete("/orders/:id", authenticateToken, orderController.remove);
-router.delete("/orders/canceled", authenticateToken, requireAdmin, orderController.removeAllCanceledOrders);
+router.delete(
+  "/orders/canceled",
+  authenticateToken,
+  requireAdmin,
+  orderController.removeAllCanceledOrders,
+);
 
-router.get("/orders/:orderId/customizations", authenticateToken, orderCustomizationController.listOrderCustomizations);
-router.post("/orders/:orderId/items/:itemId/customizations", authenticateToken, orderCustomizationController.saveOrderItemCustomization);
+router.get(
+  "/orders/:orderId/customizations",
+  authenticateToken,
+  orderCustomizationController.listOrderCustomizations,
+);
+router.post(
+  "/orders/:orderId/items/:itemId/customizations",
+  authenticateToken,
+  orderCustomizationController.saveOrderItemCustomization,
+);
 
 // ==========================================
 // 7. PAYMENT & WEBHOOKS
 // ==========================================
 
 router.get("/payment/health", PaymentController.healthCheck);
-router.post("/payment/preference", authenticateToken, paymentRateLimit, logFinancialOperation("CREATE_PREFERENCE"), PaymentController.createPreference);
-router.post("/payment/create", authenticateToken, paymentRateLimit, validatePaymentData, logFinancialOperation("CREATE_PAYMENT"), PaymentController.createPayment);
-router.post("/payment/transparent-checkout", authenticateToken, paymentRateLimit, logFinancialOperation("TRANSPARENT_CHECKOUT"), PaymentController.processTransparentCheckout);
-router.get("/payment/:paymentId/status", authenticateToken, logFinancialOperation("GET_PAYMENT_STATUS"), PaymentController.getPaymentStatus);
-router.post("/payment/:paymentId/cancel", authenticateToken, logFinancialOperation("CANCEL_PAYMENT"), PaymentController.cancelPayment);
-router.get("/payments/user", authenticateToken, PaymentController.getUserPayments);
+router.post(
+  "/payment/preference",
+  authenticateToken,
+  paymentRateLimit,
+  logFinancialOperation("CREATE_PREFERENCE"),
+  PaymentController.createPreference,
+);
+router.post(
+  "/payment/create",
+  authenticateToken,
+  paymentRateLimit,
+  validatePaymentData,
+  logFinancialOperation("CREATE_PAYMENT"),
+  PaymentController.createPayment,
+);
+router.post(
+  "/payment/transparent-checkout",
+  authenticateToken,
+  paymentRateLimit,
+  logFinancialOperation("TRANSPARENT_CHECKOUT"),
+  PaymentController.processTransparentCheckout,
+);
+router.get(
+  "/payment/:paymentId/status",
+  authenticateToken,
+  logFinancialOperation("GET_PAYMENT_STATUS"),
+  PaymentController.getPaymentStatus,
+);
+router.post(
+  "/payment/:paymentId/cancel",
+  authenticateToken,
+  logFinancialOperation("CANCEL_PAYMENT"),
+  PaymentController.cancelPayment,
+);
+router.get(
+  "/payments/user",
+  authenticateToken,
+  PaymentController.getUserPayments,
+);
 
-router.post("/webhook/mercadopago", validateMercadoPagoWebhook, PaymentController.handleWebhook);
-router.post("/api/webhook/mercadopago", validateMercadoPagoWebhook, PaymentController.handleWebhook);
-router.get("/webhooks/notifications/:orderId", webhookNotificationController.streamNotifications);
-router.get("/webhooks/notifications-stats", authenticateToken, requireAdmin, webhookNotificationController.getStats);
+router.post(
+  "/webhook/mercadopago",
+  validateMercadoPagoWebhook,
+  PaymentController.handleWebhook,
+);
+router.post(
+  "/webhook/mercadopago",
+  validateMercadoPagoWebhook,
+  PaymentController.handleWebhook,
+);
+router.get(
+  "/webhooks/notifications/:orderId",
+  webhookNotificationController.streamNotifications,
+);
+router.get(
+  "/webhooks/notifications-stats",
+  authenticateToken,
+  requireAdmin,
+  webhookNotificationController.getStats,
+);
 
 // Mercado Pago Proxy/Helpers
-router.post("/mercadopago/create-token", authenticateToken, paymentRateLimit, async (req, res) => {
-  const { createCardToken } = await import("./controller/mercadopagoController");
-  return createCardToken(req, res);
-});
-router.post("/mercadopago/get-issuers", authenticateToken, paymentRateLimit, async (req, res) => {
-  const { getCardIssuers } = await import("./controller/mercadopagoController");
-  return getCardIssuers(req, res);
-});
-router.post("/mercadopago/get-installments", authenticateToken, paymentRateLimit, async (req, res) => {
-  const { getInstallments } = await import("./controller/mercadopagoController");
-  return getInstallments(req, res);
-});
+router.post(
+  "/mercadopago/create-token",
+  authenticateToken,
+  paymentRateLimit,
+  async (req, res) => {
+    const { createCardToken } =
+      await import("./controller/mercadopagoController");
+    return createCardToken(req, res);
+  },
+);
+router.post(
+  "/mercadopago/get-issuers",
+  authenticateToken,
+  paymentRateLimit,
+  async (req, res) => {
+    const { getCardIssuers } =
+      await import("./controller/mercadopagoController");
+    return getCardIssuers(req, res);
+  },
+);
+router.post(
+  "/mercadopago/get-installments",
+  authenticateToken,
+  paymentRateLimit,
+  async (req, res) => {
+    const { getInstallments } =
+      await import("./controller/mercadopagoController");
+    return getInstallments(req, res);
+  },
+);
 
 // ==========================================
 // 8. UPLOADS & TEMP FILES
 // ==========================================
 
-router.post("/api/upload/image", upload.single("image"), uploadController.uploadImage);
-router.post("/customization/upload-image", upload.single("image"), customizationUploadController.uploadImage);
-router.delete("/customization/image/:filename", authenticateToken, requireAdmin, customizationUploadController.deleteImage);
+router.post(
+  "/upload/image",
+  upload.single("image"),
+  uploadController.uploadImage,
+);
+router.post(
+  "/customization/upload-image",
+  upload.single("image"),
+  customizationUploadController.uploadImage,
+);
+router.delete(
+  "/customization/image/:filename",
+  authenticateToken,
+  requireAdmin,
+  customizationUploadController.deleteImage,
+);
 
 router.post("/temp/upload", upload.single("image"), tempFileController.upload);
-router.get("/temp/files", authenticateToken, requireAdmin, tempFileController.listFiles);
-router.delete("/temp/files/:filename", authenticateToken, requireAdmin, tempFileController.deleteFile);
-router.delete("/temp/cleanup", authenticateToken, requireAdmin, tempFileController.cleanup);
-router.post("/temp/cleanup-by-order", authenticateToken, requireAdmin, tempFileController.cleanupByOrder);
+router.get(
+  "/temp/files",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.listFiles,
+);
+router.delete(
+  "/temp/files/:filename",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.deleteFile,
+);
+router.delete(
+  "/temp/cleanup",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.cleanup,
+);
+router.post(
+  "/temp/cleanup-by-order",
+  authenticateToken,
+  requireAdmin,
+  tempFileController.cleanupByOrder,
+);
 
-router.post("/api/uploads/temp", authenticateToken, upload.single("file"), tempUploadController.uploadTemp);
-router.post("/api/uploads/temp/:uploadId/make-permanent", authenticateToken, tempUploadController.makePermanent);
-router.delete("/api/uploads/temp/:uploadId", authenticateToken, tempUploadController.deleteTemp);
-router.get("/api/uploads/stats", authenticateToken, requireAdmin, tempUploadController.getStats);
-router.post("/api/uploads/cleanup", authenticateToken, requireAdmin, tempUploadController.cleanup);
+router.post(
+  "/uploads/temp",
+  authenticateToken,
+  upload.single("file"),
+  tempUploadController.uploadTemp,
+);
+router.post(
+  "/uploads/temp/:uploadId/make-permanent",
+  authenticateToken,
+  tempUploadController.makePermanent,
+);
+router.delete(
+  "/uploads/temp/:uploadId",
+  authenticateToken,
+  tempUploadController.deleteTemp,
+);
+router.get(
+  "/uploads/stats",
+  authenticateToken,
+  requireAdmin,
+  tempUploadController.getStats,
+);
+router.post(
+  "/uploads/cleanup",
+  authenticateToken,
+  requireAdmin,
+  tempUploadController.cleanup,
+);
 
 // ==========================================
 // 9. CUSTOMER MANAGEMENT
 // ==========================================
 
-router.get("/customers", authenticateToken, requireAdmin, customerManagementController.listCustomers);
-router.get("/customers/follow-up", authenticateToken, requireAdmin, customerManagementController.getFollowUpCustomers);
-router.get("/customers/:phone", authenticateToken, requireAdmin, customerManagementController.getCustomerInfo);
-router.post("/customers", authenticateToken, requireAdmin, customerManagementController.upsertCustomer);
-router.patch("/customers/:phone/follow-up", authenticateToken, requireAdmin, customerManagementController.updateFollowUp);
-router.patch("/customers/:phone/service-status", authenticateToken, requireAdmin, customerManagementController.updateServiceStatus);
-router.patch("/customers/:phone/customer-status", authenticateToken, requireAdmin, customerManagementController.updateCustomerStatus);
-router.patch("/customers/:phone/name", authenticateToken, requireAdmin, customerManagementController.updateName);
-router.post("/customers/:phone/send-message", authenticateToken, requireAdmin, customerManagementController.sendMessage);
-router.post("/customers/sync/:userId", authenticateToken, requireAdmin, customerManagementController.syncAppUser);
+router.get(
+  "/customers",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.listCustomers,
+);
+router.get(
+  "/customers/follow-up",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.getFollowUpCustomers,
+);
+router.get(
+  "/customers/:phone",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.getCustomerInfo,
+);
+router.post(
+  "/customers",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.upsertCustomer,
+);
+router.patch(
+  "/customers/:phone/follow-up",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateFollowUp,
+);
+router.patch(
+  "/customers/:phone/service-status",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateServiceStatus,
+);
+router.patch(
+  "/customers/:phone/customer-status",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateCustomerStatus,
+);
+router.patch(
+  "/customers/:phone/name",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.updateName,
+);
+router.post(
+  "/customers/:phone/send-message",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.sendMessage,
+);
+router.post(
+  "/customers/sync/:userId",
+  authenticateToken,
+  requireAdmin,
+  customerManagementController.syncAppUser,
+);
 
 // ==========================================
 // 10. AI & FEED & REPORTS
@@ -378,67 +885,182 @@ router.post("/customers/sync/:userId", authenticateToken, requireAdmin, customer
 
 router.get("/feed", feedController.getPublicFeed);
 router.get("/feed/section-types", feedController.getSectionTypes);
-router.get("/admin/feed/configurations", authenticateToken, requireAdmin, feedController.getAllConfigurations);
-router.post("/admin/feed/banners", authenticateToken, requireAdmin, uploadAny.single("image"), convertImagesToWebPLossless, feedController.createBanner);
+router.get(
+  "/admin/feed/configurations",
+  authenticateToken,
+  requireAdmin,
+  feedController.getAllConfigurations,
+);
+router.post(
+  "/admin/feed/banners",
+  authenticateToken,
+  requireAdmin,
+  uploadAny.single("image"),
+  convertImagesToWebPLossless,
+  feedController.createBanner,
+);
 
 router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
-router.get("/ai/agent/history/:sessionId", validateAIAgentKey, aiAgentController.getHistory);
-router.get("/admin/ai/agent/sessions", authenticateToken, requireAdmin, aiAgentController.listSessions);
-router.post("/admin/ai/agent/sessions/:sessionId/block", authenticateToken, requireAdmin, aiAgentController.blockSession);
+router.get(
+  "/ai/agent/history/:sessionId",
+  validateAIAgentKey,
+  aiAgentController.getHistory,
+);
+router.get(
+  "/admin/ai/agent/sessions",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.listSessions,
+);
+router.post(
+  "/admin/ai/agent/sessions/:sessionId/block",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.blockSession,
+);
 
 router.get("/ai/products/light", aiProductController.getLightweightProducts);
 router.get("/ai/products/detail/:id", aiProductController.getProductDetail);
 
-router.get("/admin/ai/summary", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const summary = await aiSummaryService.getWeeklySummary(req.query.force_refresh === "true");
-    res.json(summary);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
+router.get(
+  "/admin/ai/summary",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const summary = await aiSummaryService.getWeeklySummary(
+        req.query.force_refresh === "true",
+      );
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
 
-router.get("/reports/stock", authenticateToken, requireAdmin, reportController.getStockReport);
-router.get("/reports/stock/critical", authenticateToken, requireAdmin, reportController.getCriticalStock);
+router.get(
+  "/reports/stock",
+  authenticateToken,
+  requireAdmin,
+  reportController.getStockReport,
+);
+router.get(
+  "/reports/stock/critical",
+  authenticateToken,
+  requireAdmin,
+  reportController.getCriticalStock,
+);
 
-router.get("/whatsapp/config", authenticateToken, requireAdmin, whatsappController.getConfig);
-router.post("/whatsapp/test", authenticateToken, requireAdmin, whatsappController.testMessage);
+router.get(
+  "/whatsapp/config",
+  authenticateToken,
+  requireAdmin,
+  whatsappController.getConfig,
+);
+router.post(
+  "/whatsapp/test",
+  authenticateToken,
+  requireAdmin,
+  whatsappController.testMessage,
+);
 
 // ==========================================
 // 11. ADMIN & SYSTEM
 // ==========================================
 
-router.get("/admin/holidays", authenticateToken, requireAdmin, holidayController.index);
-router.post("/admin/holidays", authenticateToken, requireAdmin, holidayController.create);
-router.put("/admin/holidays/:id", authenticateToken, requireAdmin, holidayController.update);
-router.delete("/admin/holidays/:id", authenticateToken, requireAdmin, holidayController.delete);
+router.get(
+  "/admin/holidays",
+  authenticateToken,
+  requireAdmin,
+  holidayController.index,
+);
+router.post(
+  "/admin/holidays",
+  authenticateToken,
+  requireAdmin,
+  holidayController.create,
+);
+router.put(
+  "/admin/holidays/:id",
+  authenticateToken,
+  requireAdmin,
+  holidayController.update,
+);
+router.delete(
+  "/admin/holidays/:id",
+  authenticateToken,
+  requireAdmin,
+  holidayController.delete,
+);
 
-router.get("/admin/followup/history", authenticateToken, requireAdmin, followUpController.listHistory);
-router.post("/admin/followup/toggle", authenticateToken, requireAdmin, followUpController.toggle);
-router.post("/admin/followup/trigger", authenticateToken, requireAdmin, followUpController.trigger);
+router.get(
+  "/admin/followup/history",
+  authenticateToken,
+  requireAdmin,
+  followUpController.listHistory,
+);
+router.post(
+  "/admin/followup/toggle",
+  authenticateToken,
+  requireAdmin,
+  followUpController.toggle,
+);
+router.post(
+  "/admin/followup/trigger",
+  authenticateToken,
+  requireAdmin,
+  followUpController.trigger,
+);
 
 router.get("/oauth/status", oauthController.status);
 router.get("/oauth/authorize", oauthController.authorize);
 router.get("/oauth/callback", oauthController.callback);
 router.get("/oauth/debug", oauthController.debug);
-router.post("/oauth/clear", authenticateToken, requireAdmin, async (req: Request, res: Response) => oauthController.clear(req, res));
+router.post(
+  "/oauth/clear",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => oauthController.clear(req, res),
+);
 
-router.get("/admin/status", authenticateToken, requireAdmin, statusController.getBusinessStatus);
+router.get(
+  "/admin/status",
+  authenticateToken,
+  requireAdmin,
+  statusController.getBusinessStatus,
+);
 
-router.post("/admin/google-drive/test", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const folderId = await googleDriveService.createFolder(`test-drive-${Date.now()}`);
-    await googleDriveService.deleteFolder(folderId);
-    res.json({ success: true, message: "Drive upload OK" });
-  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
-});
+router.post(
+  "/admin/google-drive/test",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const folderId = await googleDriveService.createFolder(
+        `test-drive-${Date.now()}`,
+      );
+      await googleDriveService.deleteFolder(folderId);
+      res.json({ success: true, message: "Drive upload OK" });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  },
+);
 
-router.post("/admin/reprocess-finalization", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const { orderId } = req.body;
-    const result = await PaymentService.reprocessFinalizationForOrder(orderId);
-    res.json({ success: true, result });
-  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
-});
+router.post(
+  "/admin/reprocess-finalization",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const { orderId } = req.body;
+      const result =
+        await PaymentService.reprocessFinalizationForOrder(orderId);
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  },
+);
 
 export default router;

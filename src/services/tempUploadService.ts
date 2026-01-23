@@ -18,6 +18,7 @@ if (!fs.existsSync(FINAL_UPLOADS_DIR)) {
 
 interface UploadOptions {
   userId?: string;
+  clientIp?: string;
   ttlHours?: number;
 }
 
@@ -37,7 +38,7 @@ class TempUploadService {
     mimeType: string,
     options: UploadOptions = {},
   ) {
-    const { userId, ttlHours = DEFAULT_TTL_HOURS } = options;
+    const { userId, clientIp, ttlHours = DEFAULT_TTL_HOURS } = options;
 
     try {
       // Gerar nome único
@@ -62,16 +63,19 @@ class TempUploadService {
           mimeType,
           expiresAt,
           userId,
+          clientIp,
         },
       });
 
       logger.info(`✅ Arquivo temporário salvo: ${filename}`);
 
-      // Retornar URL relativa (cliente pode usar como "ws:customers/uploads/{filename}")
+      // Retornar URL relativa (cliente pode usar como "/uploads/temp/{filename}")
+      const publicUrl = `/uploads/temp/${filename}`;
+
       return {
         id: upload.id,
         filename,
-        url: `ws:customers/uploads/${filename}`,
+        url: publicUrl,
         expiresAt: upload.expiresAt,
         fileSize: upload.fileSize,
       };

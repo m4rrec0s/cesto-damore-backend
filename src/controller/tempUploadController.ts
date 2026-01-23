@@ -22,6 +22,10 @@ class TempUploadController {
       }
 
       const userId = (req.user as any)?.id; // ID do usuário autenticado (opcional)
+      const clientIp =
+        (req.headers["x-forwarded-for"] as string) ||
+        req.ip ||
+        req.socket.remoteAddress;
       const ttlHours = req.body.ttlHours
         ? parseInt(req.body.ttlHours)
         : undefined;
@@ -30,12 +34,13 @@ class TempUploadController {
         req.file.buffer,
         req.file.originalname,
         req.file.mimetype,
-        { userId, ttlHours },
+        { userId, clientIp, ttlHours },
       );
 
       return res.status(200).json({
         success: true,
         data: result,
+        url: result.url,
         message: "Arquivo salvo temporariamente",
       });
     } catch (error) {

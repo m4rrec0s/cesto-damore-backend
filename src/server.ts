@@ -34,7 +34,7 @@ app.get("/", async (req, res) => {
   return res.json({ message: "Cesto d'Amore Backend is running!" });
 });
 
-app.use(routes);
+app.use("/api", routes);
 
 cron.schedule("0 */6 * * *", async () => {
   try {
@@ -59,7 +59,7 @@ cron.schedule("0 */6 * * *", async () => {
     }
 
     logger.info(
-      `🕒 [Cron] Deletando ${canceledOrders.length} pedidos cancelados...`
+      `🕒 [Cron] Deletando ${canceledOrders.length} pedidos cancelados...`,
     );
 
     for (const order of canceledOrders) {
@@ -112,7 +112,7 @@ cron.schedule("*/10 * * * *", async () => {
       });
 
       logger.info(
-        `🕒 [Cron] Limpeza concluída: ${expiredCount.count} sessões e seus dados removidos`
+        `🕒 [Cron] Limpeza concluída: ${expiredCount.count} sessões e seus dados removidos`,
       );
     }
 
@@ -126,7 +126,7 @@ cron.schedule("*/10 * * * *", async () => {
 
     if (expiredMemories.count > 0) {
       logger.info(
-        `🕒 [Cron] Deletadas ${expiredMemories.count} memórias de clientes expiradas`
+        `🕒 [Cron] Deletadas ${expiredMemories.count} memórias de clientes expiradas`,
       );
     }
   } catch (error) {
@@ -163,7 +163,7 @@ cron.schedule("*/5 * * * *", async () => {
   } catch (err) {
     logger.error(
       "Erro ao executar replay periódico de webhooks armazenados:",
-      err
+      err,
     );
   }
 });
@@ -172,7 +172,7 @@ cron.schedule("0 */6 * * *", async () => {
   try {
     const result = tempFileService.cleanupOldFiles(48);
     logger.info(
-      `✅ [Cron] Limpeza de arquivos temporários concluída: ${result.deleted} deletados, ${result.failed} falharam`
+      `✅ [Cron] Limpeza de arquivos temporários concluída: ${result.deleted} deletados, ${result.failed} falharam`,
     );
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de arquivos temporários:", error);
@@ -213,11 +213,11 @@ cron.schedule("*/20 * * * *", async () => {
           created_at: true,
           order_item_id: true,
         },
-      }
+      },
     );
 
     const orphaned = orphanedCustomizations.filter(
-      (c: any) => !c.order_item_id
+      (c: any) => !c.order_item_id,
     );
 
     if (orphaned.length === 0) {
@@ -225,7 +225,7 @@ cron.schedule("*/20 * * * *", async () => {
     }
 
     logger.info(
-      `🕒 [Cron] Encontradas ${orphaned.length} customização(ões) órfã(s)...`
+      `🕒 [Cron] Encontradas ${orphaned.length} customização(ões) órfã(s)...`,
     );
 
     let cleanedCount = 0;
@@ -290,7 +290,7 @@ cron.schedule("*/20 * * * *", async () => {
       } catch (err) {
         logger.warn(
           `⚠️ Erro ao processar customização órfã ${customization.id}:`,
-          err
+          err,
         );
       }
     }
@@ -298,17 +298,17 @@ cron.schedule("*/20 * * * *", async () => {
     if (tempFilesToDelete.length > 0) {
       const result = tempFileService.deleteFiles(tempFilesToDelete);
       logger.info(
-        `🗑️ Arquivos temporários deletados: ${result.deleted}, falharam: ${result.failed}`
+        `🗑️ Arquivos temporários deletados: ${result.deleted}, falharam: ${result.failed}`,
       );
     }
 
     logger.info(
-      `✅ [Cron] Limpeza de imagens órfãs concluída: ${cleanedCount} customização(ões) deletada(s)`
+      `✅ [Cron] Limpeza de imagens órfãs concluída: ${cleanedCount} customização(ões) deletada(s)`,
     );
   } catch (error) {
     logger.error(
       "❌ [Cron] Erro na limpeza de imagens órfãs DYNAMIC_LAYOUT:",
-      error
+      error,
     );
   }
 });

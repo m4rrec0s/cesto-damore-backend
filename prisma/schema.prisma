@@ -515,8 +515,9 @@ model TempUpload {
   deletedAt    DateTime? // Marcado para deleção
 
   // Relacionamentos
-  userId  String? // Quem fez upload (opcional para público)
-  orderId String? // Se convertido a permanente
+  userId   String? // Quem fez upload (opcional para público)
+  orderId  String? // Se convertido a permanente
+  clientIp String? // IP do cliente para rastreio / sessão pública
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -547,7 +548,7 @@ model DynamicLayout {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user     User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
   versions         DynamicLayoutVersion[]
   elements         DynamicLayoutElement[]
   items            Item[]

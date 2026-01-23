@@ -28,6 +28,7 @@ model User {
   document              String?
   orders                Order[]
   dynamicLayouts        DynamicLayout[] // Layouts customizados criados pelo usuário
+  tempUploads           TempUpload[] // Arquivos temporários do usuário
 }
 
 model Product {
@@ -437,12 +438,12 @@ model AISummary {
 }
 
 model Customer {
-  number             String         @id
+  number             String          @id
   name               String?
   last_message_sent  DateTime?
   service_status     String?
-  already_a_customer Boolean        @default(false)
-  follow_up          Boolean        @default(false)
+  already_a_customer Boolean         @default(false)
+  follow_up          Boolean         @default(false)
   followUpSent       FollowUpSent[]
   aiAgentSession     AIAgentSession? @relation(fields: [number], references: [customer_phone])
 
@@ -495,6 +496,30 @@ enum CustomizationType {
   TEXT
   IMAGES
   MULTIPLE_CHOICE
+}
+
+// ===== UPLOADS TEMPORÁRIOS COM TTL =====
+model TempUpload {
+  id           String    @id @default(uuid())
+  filename     String    @unique // Nome único do arquivo (hash + ext)
+  originalName String // Nome original upload
+  filePath     String // Caminho completo no disco
+  fileSize     Int // Tamanho em bytes
+  mimeType     String // application/octet-stream, image/jpeg, etc
+  uploadedAt   DateTime  @default(now())
+  expiresAt    DateTime // Quando deletar esse arquivo
+  deletedAt    DateTime? // Marcado para deleção
+
+  // Relacionamentos
+  userId  String? // Quem fez upload (opcional para público)
+  orderId String? // Se convertido a permanente
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([expiresAt])
+  @@index([userId])
+  @@index([orderId])
+  @@index([deletedAt])
 }
 
 // ===== NOVOS MODELOS PARA V2: DYNAMIC LAYOUTS =====

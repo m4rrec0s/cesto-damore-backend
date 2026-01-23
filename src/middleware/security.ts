@@ -17,7 +17,7 @@ export interface AuthenticatedRequest extends Request {
 export const authenticateToken = async (
   req: AuthenticatedRequest,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const authHeader = req.headers["authorization"];
@@ -91,10 +91,10 @@ export const authenticateToken = async (
       console.error("❌ Usuário não encontrado no banco:", {
         decodedToken: decodedToken
           ? {
-            userId: decodedToken.userId,
-            uid: decodedToken.uid,
-            email: decodedToken.email,
-          }
+              userId: decodedToken.userId,
+              uid: decodedToken.uid,
+              email: decodedToken.email,
+            }
           : null,
       });
       return res.status(401).json({
@@ -139,7 +139,7 @@ export const authenticateToken = async (
 export const requireAdmin = (
   req: AuthenticatedRequest,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   if (!req.user) {
     console.warn("🚫 [SECURITY] Tentativa de acesso admin sem autenticação", {
@@ -154,8 +154,6 @@ export const requireAdmin = (
     });
   }
 
-  // ✅ Validação dupla: verificar que role é exatamente "admin"
-  // Não aceitar null, undefined ou qualquer outro valor
   if (req.user.role && req.user.role.toLowerCase() !== "admin") {
     console.warn("🚫 [SECURITY] Acesso admin negado - permissão insuficiente", {
       userId: req.user.id,
@@ -175,40 +173,31 @@ export const requireAdmin = (
     });
   }
 
-  // ✅ Log de auditoria: acesso admin permitido
-  console.log("✅ [SECURITY] Acesso admin permitido", {
-    userId: req.user.id,
-    userEmail: req.user.email,
-    method: req.method,
-    path: req.path,
-    timestamp: new Date().toISOString(),
-  });
-
   next();
 };
 
 export const validateMercadoPagoWebhook = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     // Log seguro da estrutura do webhook
     const bodyPreview = req.body
       ? {
-        // Formato novo
-        type:
-          req.body.type || req.body.action?.split(".")[0] || req.body.topic,
-        action: req.body.action,
-        live_mode: req.body.live_mode,
-        paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
-        // Formato antigo
-        topic: req.body.topic,
-        resource: req.body.resource,
-        // Meta
-        hasData: !!req.body.data,
-        keys: Object.keys(req.body),
-      }
+          // Formato novo
+          type:
+            req.body.type || req.body.action?.split(".")[0] || req.body.topic,
+          action: req.body.action,
+          live_mode: req.body.live_mode,
+          paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
+          // Formato antigo
+          topic: req.body.topic,
+          resource: req.body.resource,
+          // Meta
+          hasData: !!req.body.data,
+          keys: Object.keys(req.body),
+        }
       : "body vazio";
 
     console.log("🔔 Webhook recebido do Mercado Pago", {
@@ -267,7 +256,7 @@ export const validateMercadoPagoWebhook = (
         {
           normalizedType: type,
           normalizedResourceId: resourceId,
-        }
+        },
       );
     }
 
@@ -300,7 +289,7 @@ export const validateMercadoPagoWebhook = (
     const isTestMode = live_mode === false;
     if (isTestMode) {
       console.log(
-        "✅ Webhook em modo teste aceito (live_mode: false - bypassing validation)"
+        "✅ Webhook em modo teste aceito (live_mode: false - bypassing validation)",
       );
       return next();
     }
@@ -311,7 +300,7 @@ export const validateMercadoPagoWebhook = (
       const isAllowedIP = mercadoPagoConfig.security.allowedIPs.some(
         (allowedRange) => {
           return clientIP.includes(allowedRange.split("/")[0]);
-        }
+        },
       );
 
       if (!isAllowedIP) {
@@ -336,7 +325,7 @@ export const validateMercadoPagoWebhook = (
           type: type,
           action: action,
           live_mode: live_mode,
-        }
+        },
       );
       // ⚠️ TEMPORARIAMENTE aceitar webhooks sem headers completos
       // TODO: Reativar validação após confirmar funcionamento
@@ -382,7 +371,7 @@ export const validateMercadoPagoWebhook = (
             differenceInMinutes: Math.floor(difference / 60),
             differenceInHours: Math.floor(difference / 3600),
             paymentId: data?.id,
-          }
+          },
         );
       }
 
@@ -409,7 +398,7 @@ export const validateMercadoPagoWebhook = (
             paymentId: dataId,
             timestamp: timestamp,
             requestId: xRequestId,
-          }
+          },
         );
 
         // ⚠️ TEMPORARIAMENTE aceitar webhooks com assinatura divergente
@@ -426,7 +415,7 @@ export const validateMercadoPagoWebhook = (
       }
     } else {
       console.warn(
-        "⚠️ MERCADO_PAGO_WEBHOOK_SECRET não configurado - validação desabilitada"
+        "⚠️ MERCADO_PAGO_WEBHOOK_SECRET não configurado - validação desabilitada",
       );
     }
 
@@ -478,7 +467,7 @@ export const paymentRateLimit = (() => {
 export const validatePaymentData = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const { orderId, amount, payerEmail, paymentMethodId } = req.body;
@@ -558,7 +547,7 @@ export const logFinancialOperation = (operation: string) => {
 export const validateAIAgentKey = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   const apiKey = req.headers["x-ai-api-key"] || req.headers["X-AI-API-Key"];
   const validKey = process.env.AI_AGENT_API_KEY;

@@ -19,6 +19,7 @@ import orderCustomizationController from "./controller/orderCustomizationControl
 import itemConstraintController from "./controller/itemConstraintController";
 import customizationUploadController from "./controller/customizationUploadController";
 import customizationReviewController from "./controller/customizationReviewController";
+import tempUploadController from "./controller/tempUploadController";
 import oauthController from "./controller/oauthController";
 import statusController from "./controller/statusController";
 import aiSummaryService from "./services/aiSummaryService";
@@ -1024,6 +1025,51 @@ router.delete(
   authenticateToken,
   requireAdmin,
   customizationUploadController.deleteImage,
+);
+
+// ========== TEMPORARY UPLOAD ROUTES (Com TTL) ==========
+
+// Upload temporário de arquivo (com expiração automática)
+// POST /api/uploads/temp
+router.post(
+  "/api/uploads/temp",
+  authenticateToken,
+  upload.single("file"),
+  tempUploadController.uploadTemp,
+);
+
+// Converter arquivo temporário para permanente após compra
+// POST /api/uploads/temp/:uploadId/make-permanent
+router.post(
+  "/api/uploads/temp/:uploadId/make-permanent",
+  authenticateToken,
+  tempUploadController.makePermanent,
+);
+
+// Deletar arquivo temporário manualmente
+// DELETE /api/uploads/temp/:uploadId
+router.delete(
+  "/api/uploads/temp/:uploadId",
+  authenticateToken,
+  tempUploadController.deleteTemp,
+);
+
+// Obter estatísticas de armazenamento (Admin only)
+// GET /api/uploads/stats
+router.get(
+  "/api/uploads/stats",
+  authenticateToken,
+  requireAdmin,
+  tempUploadController.getStats,
+);
+
+// Executar limpeza manual de uploads expirados (Admin only)
+// POST /api/uploads/cleanup
+router.post(
+  "/api/uploads/cleanup",
+  authenticateToken,
+  requireAdmin,
+  tempUploadController.cleanup,
 );
 
 // ========== ITEM CONSTRAINTS ROUTES ==========

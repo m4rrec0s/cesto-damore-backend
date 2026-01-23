@@ -21,12 +21,6 @@ class ElementBankService {
     externalId?: string;
   }) {
     try {
-      logger.info("📝 [ELEMENT_BANK] Criando novo elemento", {
-        name: data.name,
-        category: data.category,
-        source: data.source,
-      });
-
       const element = await prisma.elementBank.create({
         data: {
           category: data.category,
@@ -40,22 +34,12 @@ class ElementBankService {
           externalId: data.externalId,
         },
       });
-
-      logger.info("✅ [ELEMENT_BANK] Elemento criado com sucesso", {
-        id: element.id,
-        name: element.name,
-      });
-
       return element;
     } catch (error: any) {
-      logger.error("❌ [ELEMENT_BANK] Erro ao criar elemento:", error);
       throw new Error(`Erro ao criar elemento: ${error.message}`);
     }
   }
 
-  /**
-   * Listar elementos com filtros
-   */
   async listElements(filters?: {
     category?: string;
     search?: string;
@@ -98,19 +82,12 @@ class ElementBankService {
         prisma.elementBank.count({ where }),
       ]);
 
-      logger.info("📋 [ELEMENT_BANK] Listando elementos", {
-        count: elements.length,
-        total,
-        filters,
-      });
-
       return {
         elements,
         total,
         hasMore: offset + limit < total,
       };
     } catch (error: any) {
-      logger.error("❌ [ELEMENT_BANK] Erro ao listar elementos:", error);
       throw new Error(`Erro ao listar elementos: ${error.message}`);
     }
   }
@@ -140,16 +117,11 @@ class ElementBankService {
               isActive: true,
             },
           }),
-        }))
+        })),
       );
-
-      logger.info("📂 [ELEMENT_BANK] Listando categorias", {
-        count: categoriesWithCount.length,
-      });
 
       return categoriesWithCount;
     } catch (error: any) {
-      logger.error("❌ [ELEMENT_BANK] Erro ao listar categorias:", error);
       throw new Error(`Erro ao listar categorias: ${error.message}`);
     }
   }
@@ -177,14 +149,8 @@ class ElementBankService {
         },
       });
 
-      logger.info("📖 [ELEMENT_BANK] Obtendo elemento", {
-        id: elementId,
-        name: element.name,
-      });
-
       return element;
     } catch (error: any) {
-      logger.error("❌ [ELEMENT_BANK] Erro ao obter elemento:", error);
       throw new Error(`Erro ao obter elemento: ${error.message}`);
     }
   }
@@ -200,25 +166,16 @@ class ElementBankService {
       width?: number;
       height?: number;
       isActive?: boolean;
-    }
+    },
   ) {
     try {
-      logger.info("✏️ [ELEMENT_BANK] Atualizando elemento", {
-        id: elementId,
-      });
-
       const element = await prisma.elementBank.update({
         where: { id: elementId },
         data,
       });
 
-      logger.info("✅ [ELEMENT_BANK] Elemento atualizado com sucesso", {
-        id: element.id,
-      });
-
       return element;
     } catch (error: any) {
-      logger.error("❌ [ELEMENT_BANK] Erro ao atualizar elemento:", error);
       throw new Error(`Erro ao atualizar elemento: ${error.message}`);
     }
   }
@@ -228,10 +185,6 @@ class ElementBankService {
    */
   async deleteElement(elementId: string) {
     try {
-      logger.info("🗑️ [ELEMENT_BANK] Deletando elemento", {
-        id: elementId,
-      });
-
       const element = await prisma.elementBank.findUnique({
         where: { id: elementId },
       });
@@ -256,13 +209,8 @@ class ElementBankService {
         where: { id: elementId },
       });
 
-      logger.info("✅ [ELEMENT_BANK] Elemento deletado com sucesso", {
-        id: elementId,
-      });
-
       return { success: true, id: elementId };
     } catch (error: any) {
-      logger.error("❌ [ELEMENT_BANK] Erro ao deletar elemento:", error);
       throw new Error(`Erro ao deletar elemento: ${error.message}`);
     }
   }
@@ -281,25 +229,16 @@ class ElementBankService {
       height?: number;
       source?: string;
       externalId?: string;
-    }>
+    }>,
   ) {
     try {
-      logger.info("📦 [ELEMENT_BANK] Importando elementos em lote", {
-        count: elements.length,
-      });
-
       const created = await prisma.elementBank.createMany({
         data: elements,
         skipDuplicates: true,
       });
 
-      logger.info("✅ [ELEMENT_BANK] Elementos importados com sucesso", {
-        count: created.count,
-      });
-
       return created;
     } catch (error: any) {
-      logger.error("❌ [ELEMENT_BANK] Erro ao importar elementos:", error);
       throw new Error(`Erro ao importar elementos: ${error.message}`);
     }
   }

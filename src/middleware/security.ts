@@ -91,10 +91,10 @@ export const authenticateToken = async (
       console.error("❌ Usuário não encontrado no banco:", {
         decodedToken: decodedToken
           ? {
-              userId: decodedToken.userId,
-              uid: decodedToken.uid,
-              email: decodedToken.email,
-            }
+            userId: decodedToken.userId,
+            uid: decodedToken.uid,
+            email: decodedToken.email,
+          }
           : null,
       });
       return res.status(401).json({
@@ -132,6 +132,69 @@ export const authenticateToken = async (
       error: "Erro interno de autenticação",
       code: "AUTH_ERROR",
     });
+  }
+};
+
+export const optionalAuthenticateToken = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1];
+
+    if (!token) {
+      return next();
+    }
+
+    let user;
+    let decodedToken;
+
+    try {
+      const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+      decodedToken = jwt.verify(token, jwtSecret) as any;
+
+      user = await prisma.user.findUnique({
+        where: { id: decodedToken.userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+        },
+      });
+    } catch (jwtError) {
+      try {
+        decodedToken = await auth.verifyIdToken(token);
+        user = await prisma.user.findUnique({
+          where: { firebaseUId: decodedToken.uid },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+          },
+        });
+      } catch (firebaseError) {
+        // Token provided but invalid - we still proceed as guest
+        return next();
+      }
+    }
+
+    if (user) {
+      req.user = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      };
+    }
+
+    next();
+  } catch (error) {
+    // Any other error, proceed as anonymous
+    next();
   }
 };
 
@@ -185,19 +248,19 @@ export const validateMercadoPagoWebhook = (
     // Log seguro da estrutura do webhook
     const bodyPreview = req.body
       ? {
-          // Formato novo
-          type:
-            req.body.type || req.body.action?.split(".")[0] || req.body.topic,
-          action: req.body.action,
-          live_mode: req.body.live_mode,
-          paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
-          // Formato antigo
-          topic: req.body.topic,
-          resource: req.body.resource,
-          // Meta
-          hasData: !!req.body.data,
-          keys: Object.keys(req.body),
-        }
+        // Formato novo
+        type:
+          req.body.type || req.body.action?.split(".")[0] || req.body.topic,
+        action: req.body.action,
+        live_mode: req.body.live_mode,
+        paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
+        // Formato antigo
+        topic: req.body.topic,
+        resource: req.body.resource,
+        // Meta
+        hasData: !!req.body.data,
+        keys: Object.keys(req.body),
+      }
       : "body vazio";
 
     console.log("🔔 Webhook recebido do Mercado Pago", {

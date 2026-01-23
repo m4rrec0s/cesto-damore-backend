@@ -52,6 +52,7 @@ import {
 
 import {
   authenticateToken,
+  optionalAuthenticateToken,
   requireAdmin,
   validateMercadoPagoWebhook,
   paymentRateLimit,
@@ -250,8 +251,8 @@ router.delete("/admin/constraints/:constraintId", authenticateToken, requireAdmi
 // 5. DYNAMIC LAYOUTS & DESIGN BANK
 // ==========================================
 
-router.get("/layouts/dynamic", dynamicLayoutController.list);
-router.get("/layouts/dynamic/:id", dynamicLayoutController.show);
+router.get("/layouts/dynamic", optionalAuthenticateToken, dynamicLayoutController.list);
+router.get("/layouts/dynamic/:id", optionalAuthenticateToken, dynamicLayoutController.show);
 router.post("/layouts/dynamic", authenticateToken, dynamicLayoutController.create);
 router.put("/layouts/dynamic/:id", authenticateToken, dynamicLayoutController.update);
 router.delete("/layouts/dynamic/:id", authenticateToken, dynamicLayoutController.delete);
@@ -263,9 +264,9 @@ router.put("/layouts/dynamic/:layoutId/elements/:elementId", authenticateToken, 
 router.delete("/layouts/dynamic/:layoutId/elements/:elementId", authenticateToken, dynamicLayoutController.deleteElement);
 
 // Elements Bank
-router.get("/elements/bank", elementBankController.list);
+router.get("/elements/bank", optionalAuthenticateToken, elementBankController.list);
 router.get("/elements/bank/categories", elementBankController.listCategories);
-router.get("/elements/bank/:id", elementBankController.show);
+router.get("/elements/bank/:id", optionalAuthenticateToken, elementBankController.show);
 router.post("/elements/bank", authenticateToken, requireAdmin, upload.single("image"), elementBankController.create);
 router.put("/elements/bank/:id", authenticateToken, requireAdmin, elementBankController.update);
 router.delete("/elements/bank/:id", authenticateToken, requireAdmin, elementBankController.delete);

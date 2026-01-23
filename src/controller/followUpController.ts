@@ -1,5 +1,4 @@
 import { Request, Response } from "express";
-import followUpService from "../services/holidayService"; // Wait, wrong import
 import followUpServiceActual from "../services/followUpService";
 
 class FollowUpController {

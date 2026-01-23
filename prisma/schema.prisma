@@ -246,17 +246,19 @@ model LayoutBase {
 }
 
 model Personalization {
-  id              String     @id @default(uuid())
-  order_id        String
-  item_id         String
-  layout_base_id  String
-  config_json     Json
-  images          Json
-  final_image_url String?
-  created_at      DateTime   @default(now())
-  item            Item       @relation(fields: [item_id], references: [id])
-  layout_base     LayoutBase @relation(fields: [layout_base_id], references: [id])
-  order           Order      @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  id                String         @id @default(uuid())
+  order_id          String
+  item_id           String
+  layout_base_id    String?
+  dynamic_layout_id String?
+  config_json       Json
+  images            Json
+  final_image_url   String?
+  created_at        DateTime       @default(now())
+  item              Item           @relation(fields: [item_id], references: [id])
+  layout_base       LayoutBase?    @relation(fields: [layout_base_id], references: [id])
+  dynamic_layout    DynamicLayout? @relation(fields: [dynamic_layout_id], references: [id])
+  order             Order          @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
   @@index([order_id])
   @@index([item_id])
@@ -273,10 +275,12 @@ model Item {
   image_url            String?
   allows_customization Boolean               @default(false)
   layout_base_id       String?
+  dynamic_layout_id    String?
   created_at           DateTime              @default(now())
   updated_at           DateTime              @updatedAt
   customizations       Customization[]
   layout_base          LayoutBase?           @relation(fields: [layout_base_id], references: [id])
+  dynamic_layout       DynamicLayout?        @relation(fields: [dynamic_layout_id], references: [id])
   orderItems           OrderItemAdditional[]
   personalizations     Personalization[]
   additionals          ProductAdditional[]
@@ -298,17 +302,7 @@ model Customization {
   OrderItemCustomization OrderItemCustomization[]
 }
 
-model Layout {
-  id          String   @id @default(uuid())
-  item_id     String
-  name        String
-  image_url   String
-  layout_data Json
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  @@index([item_id])
-}
+// O modelo Layout legado foi removido em favor do DynamicLayout
 
 model ItemConstraint {
   id                String   @id @default(uuid())
@@ -544,8 +538,10 @@ model DynamicLayout {
   updatedAt DateTime @updatedAt
 
   user     User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
-  versions DynamicLayoutVersion[]
-  elements DynamicLayoutElement[]
+  versions         DynamicLayoutVersion[]
+  elements         DynamicLayoutElement[]
+  items            Item[]
+  personalizations Personalization[]
 
   @@index([userId])
   @@index([type])

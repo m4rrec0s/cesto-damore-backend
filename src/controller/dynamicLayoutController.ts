@@ -86,7 +86,7 @@ class DynamicLayoutController {
    */
   async list(req: AuthenticatedRequest, res: Response) {
     try {
-      const { type, isPublished, search, userId } = req.query;
+      const { type, isPublished, search, userId: userIdQuery } = req.query;
 
       // Se not admin, retorna apenas layouts próprios ou públicos
       const filters: any = {};
@@ -95,11 +95,22 @@ class DynamicLayoutController {
       if (isPublished === "true") filters.isPublished = true;
       if (search) filters.search = search as string;
 
-      // Se usuário não é admin, filtra por userId
-      if (req.user?.role !== "admin") {
-        filters.userId = req.user?.id;
-      } else if (userId) {
-        filters.userId = userId as string;
+      // Lógica de visibilidade baseada na autenticação
+      if (req.user) {
+        if (req.user.role !== "admin") {
+          // Se for usuário autenticado mas não admin, vê os seus layouts
+          // ou layouts marcados como publicados
+          filters.visibilityFilter = {
+            userId: req.user.id,
+            includePublished: true,
+          };
+        } else {
+          // Admin vê tudo de acordo com os filtros passados
+          if (userIdQuery) filters.userId = userIdQuery as string;
+        }
+      } else {
+        // Acesso público (não autenticado): apenas layouts publicados
+        filters.isPublished = true;
       }
 
       const layouts = await dynamicLayoutService.listLayouts(filters);
@@ -126,14 +137,15 @@ class DynamicLayoutController {
 
       const layout = await dynamicLayoutService.getLayoutById(id);
 
-      // Verificar autorização
-      if (
-        layout.userId &&
-        layout.userId !== req.user?.id &&
-        req.user?.role !== "admin"
-      ) {
+      // Verificar autorização: permitindo acesso se for publicado,
+      // ou se o usuário for o dono, ou se for admin
+      const isOwner = layout.userId === req.user?.id;
+      const isAdmin = req.user?.role === "admin";
+      const isPubliclyVisible = layout.isPublished;
+
+      if (!isOwner && !isAdmin && !isPubliclyVisible) {
         return res.status(403).json({
-          error: "Acesso negado",
+          error: "Acesso negado ou layout não publicado",
         });
       }
 

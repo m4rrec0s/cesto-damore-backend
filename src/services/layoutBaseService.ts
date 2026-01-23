@@ -59,18 +59,10 @@ class LayoutBaseService {
 
   /**
    * Buscar layout por ID (suporta LayoutBase e DynamicLayout)
+   * Prioriza DynamicLayout (v2)
    */
   async getById(id: string) {
-    // 1. Tentar buscar na tabela LayoutBase (legado)
-    const layoutBase = await prisma.layoutBase.findUnique({
-      where: { id },
-    });
-
-    if (layoutBase) {
-      return layoutBase;
-    }
-
-    // 2. Se não encontrar, tentar na tabela DynamicLayout (v2)
+    // 1. Tentar buscar na tabela DynamicLayout (v2)
     const dynamicLayout = await prisma.dynamicLayout.findUnique({
       where: { id },
     });
@@ -87,8 +79,21 @@ class LayoutBaseService {
         slots: [], // Layouts dinâmicos usam o estado Fabric.js em vez de slots fixos
         fabric_json_state: dynamicLayout.fabricJsonState,
         additional_time: 0,
+        is_dynamic: true,
         created_at: dynamicLayout.createdAt,
         updated_at: dynamicLayout.updatedAt,
+      };
+    }
+
+    // 2. Fallback para a tabela LayoutBase (legado)
+    const layoutBase = await prisma.layoutBase.findUnique({
+      where: { id },
+    });
+
+    if (layoutBase) {
+      return {
+        ...layoutBase,
+        is_dynamic: false,
       };
     }
 
@@ -109,17 +114,59 @@ class LayoutBaseService {
   }
 
   /**
-   * Listar layouts
+   * Mapeia tipos de Layout Base para os tipos do Layout Dinâmico
+   */
+  private mapReverseType(itemType: string): string {
+    const mapping: Record<string, string> = {
+      CANECA: "mug",
+      QUADRO: "frame",
+      QUEBRA_CABECA: "puzzle",
+      OUTROS: "custom",
+    };
+    return mapping[itemType.toUpperCase()] || itemType.toLowerCase();
+  }
+
+  /**
+   * Listar layouts (Consolidado: Dynamic + Legacy)
    */
   async list(itemType?: string) {
-    const where = itemType ? { item_type: itemType } : {};
+    // 1. Buscar layouts dinâmicos (públicos)
+    const dynamicLayouts = await prisma.dynamicLayout.findMany({
+      where: {
+        ...(itemType ? { type: this.mapReverseType(itemType) } : {}),
+        isPublished: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-    const layouts = await prisma.layoutBase.findMany({
-      where,
+    const mappedDynamic = dynamicLayouts.map((dl) => ({
+      id: dl.id,
+      name: dl.name,
+      item_type: this.mapDynamicType(dl.type),
+      image_url: dl.baseImageUrl,
+      width: dl.width,
+      height: dl.height,
+      slots: [],
+      fabric_json_state: dl.fabricJsonState,
+      additional_time: 0,
+      is_dynamic: true,
+      created_at: dl.createdAt,
+      updated_at: dl.updatedAt,
+    }));
+
+    // 2. Buscar layouts legados
+    const legacyLayouts = await prisma.layoutBase.findMany({
+      where: itemType ? { item_type: itemType } : {},
       orderBy: { created_at: "desc" },
     });
 
-    return layouts;
+    const mappedLegacy = legacyLayouts.map((lb) => ({
+      ...lb,
+      is_dynamic: false,
+    }));
+
+    // Retornar ambos (Dinâmicos primeiro)
+    return [...mappedDynamic, ...mappedLegacy];
   }
 
   /**
@@ -173,9 +220,8 @@ class LayoutBaseService {
     // Observação: customization_data é JSON livre - fazemos uma busca textual para evitar referenciar tabela legada
     const customizationCountResult: Array<{ count: string }> =
       await prisma.$queryRaw`
-      SELECT COUNT(*) FROM "Customization" WHERE customization_data::text LIKE ${
-        "%" + id + "%"
-      }
+      SELECT COUNT(*) FROM "Customization" WHERE customization_data::text LIKE ${"%" + id + "%"
+        }
     `;
     const customizationCount = Number(
       customizationCountResult?.[0]?.count || 0,

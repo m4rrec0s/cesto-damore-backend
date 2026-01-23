@@ -1,5 +1,6 @@
 import { CustomizationType } from "@prisma/client";
 import prisma from "../database/prisma";
+import layoutBaseService from "./layoutBaseService";
 
 interface CustomizationDTO {
   id: string;
@@ -373,9 +374,11 @@ class CustomizationService {
           customization.data.layout_id || customization.data.DYNAMIC_LAYOUT_id;
 
         if (layoutId) {
-          layout = await prisma.layout.findUnique({
-            where: { id: layoutId },
-          });
+          try {
+            layout = await layoutBaseService.getById(layoutId);
+          } catch (error) {
+            console.warn(`Preview: Layout ${layoutId} não encontrado`);
+          }
         }
       }
 
@@ -458,9 +461,15 @@ class CustomizationService {
     return {
       id: layout.id,
       name: layout.name,
-      description: layout.description,
-      base_image_url: layout.base_image_url,
-      layout_data: layout.layout_data,
+      description: layout.description || "",
+      // Suporte para ambos os formatos (Layout legado vs Mapeado do DynamicLayout)
+      base_image_url: layout.base_image_url || layout.image_url,
+      layout_data: layout.layout_data || {
+        fabric_json_state: layout.fabric_json_state,
+        width: layout.width,
+        height: layout.height,
+        is_dynamic: layout.is_dynamic,
+      },
     };
   }
 

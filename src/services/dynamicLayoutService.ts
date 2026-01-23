@@ -63,20 +63,59 @@ class DynamicLayoutService {
     type?: string;
     isPublished?: boolean;
     search?: string;
+    visibilityFilter?: {
+      userId: string;
+      includePublished: boolean;
+    };
   }) {
     try {
       const where: any = {};
 
-      if (filters?.userId) where.userId = filters.userId;
-      if (filters?.type) where.type = filters.type;
-      if (filters?.isPublished !== undefined)
-        where.isPublished = filters.isPublished;
-
-      if (filters?.search) {
+      // 1. Filtros de visibilidade (Complexo vs Simples)
+      if (filters?.visibilityFilter) {
         where.OR = [
-          { name: { contains: filters.search, mode: "insensitive" } },
-          { tags: { has: filters.search } },
+          { userId: filters.visibilityFilter.userId },
+          ...(filters.visibilityFilter.includePublished
+            ? [{ isPublished: true }]
+            : []),
         ];
+      } else {
+        if (filters?.userId) where.userId = filters.userId;
+        if (filters?.isPublished !== undefined)
+          where.isPublished = filters.isPublished;
+      }
+
+      // 2. Filtro por tipo
+      if (filters?.type) {
+        // Se já houver um OR (da visibilidade), precisamos garantir que o tipo
+        // seja aplicado a todos os casos (AND)
+        if (where.OR) {
+          where.AND = [{ type: filters.type }, { OR: where.OR }];
+          delete where.OR;
+        } else {
+          where.type = filters.type;
+        }
+      }
+
+      // 3. Filtro de busca textual
+      if (filters?.search) {
+        const searchCondition = {
+          OR: [
+            { name: { contains: filters.search, mode: "insensitive" } },
+            { tags: { has: filters.search } },
+          ],
+        };
+
+        if (where.AND) {
+          where.AND.push(searchCondition);
+        } else if (where.OR) {
+          // Wrap previous OR and Search OR in AND
+          const previousOR = where.OR;
+          delete where.OR;
+          where.AND = [{ OR: previousOR }, searchCondition];
+        } else {
+          where.OR = searchCondition.OR;
+        }
       }
 
       const layouts = await prisma.dynamicLayout.findMany({

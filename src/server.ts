@@ -27,14 +27,18 @@ const tempDir =
 logger.info(`📂 [Server] Serving temp files from: ${tempDir}`);
 app.use("/uploads/temp", express.static(tempDir));
 
-const imagesDir = path.join(process.cwd(), "images");
+const imagesDir =
+  process.env.NODE_ENV === "production"
+    ? "/app/images"
+    : path.join(process.cwd(), "images");
+logger.info(`📂 [Server] Serving images from: ${imagesDir}`);
 app.use("/images", express.static(imagesDir));
 
 app.get("/", async (req, res) => {
   return res.json({ message: "Cesto d'Amore Backend is running!" });
 });
 
-app.use("/api", routes);
+app.use(routes);
 
 cron.schedule("0 */6 * * *", async () => {
   try {

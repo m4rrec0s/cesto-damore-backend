@@ -79,13 +79,14 @@ export const saveImageLocally = async (
 
 /**
  * Salva uma imagem em base64 localmente e retorna a URL
+ * Implementa deduplicação por hash para evitar excesso de arquivos iguais
  */
 export const saveBase64Image = async (
   base64String: string,
   prefix: string = "layout",
 ): Promise<string> => {
   if (!base64String || !base64String.startsWith("data:image")) {
-    return base64String; // Retorna como está se não for base64
+    return base64String;
   }
 
   try {
@@ -100,24 +101,33 @@ export const saveBase64Image = async (
     }
 
     const mimeType = matches[1];
-    const buffer = Buffer.from(matches[2], "base64");
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, "base64");
 
-    const extension = getExtensionFromMimeType(mimeType);
+    // Gerar hash do conteúdo para evitar duplicatas
     const hash = crypto
       .createHash("sha256")
       .update(buffer)
       .digest("hex")
-      .slice(0, 12);
-    const fileName = `${prefix}-${Date.now()}-${hash}${extension}`;
+      .slice(0, 16);
+
+    const extension = getExtensionFromMimeType(mimeType);
+    const fileName = `${prefix}-${hash}${extension}`;
     const filePath = path.join(IMAGES_DIR, fileName);
 
-    fs.writeFileSync(filePath, buffer);
+    // Se o arquivo já existe com esse hash, apenas retorna a URL existente
+    if (fs.existsSync(filePath)) {
+      return `${BASE_URL}/images/${fileName}`;
+    }
 
-    logger.info(`✅ [STORAGE] Imagem base64 salva: ${fileName}`);
+    // Caso contrário, grava o novo arquivo
+    fs.writeFileSync(filePath, buffer);
+    logger.info(`✅ [STORAGE] Nova imagem base64 salva: ${fileName}`);
+
     return `${BASE_URL}/images/${fileName}`;
   } catch (error: any) {
     logger.error("❌ Erro ao salvar imagem base64:", error);
-    return base64String; // Fallback para o base64 original em caso de erro
+    return base64String;
   }
 };
 

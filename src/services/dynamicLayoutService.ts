@@ -220,60 +220,59 @@ class DynamicLayoutService {
     },
   ) {
     try {
+      // 1. Obter estado atual para conferência e deleção consciente
+      const currentLayout = await prisma.dynamicLayout.findUnique({
+        where: { id: layoutId },
+        select: {
+          baseImageUrl: true,
+          previewImageUrl: true,
+          fabricJsonState: true,
+        },
+      });
+
+      if (!currentLayout) throw new Error("Layout não encontrado");
+
       const updateData: any = { ...data };
 
-      // Processar baseImageUrl se fornecida e for base64
-      if (data.baseImageUrl && data.baseImageUrl.startsWith("data:image")) {
-        const oldLayout = await prisma.dynamicLayout.findUnique({
-          where: { id: layoutId },
-          select: { baseImageUrl: true },
-        });
+      // 2. Processar baseImageUrl (se enviada como base64 ou se a atual no banco for base64)
+      let targetBaseImage = data.baseImageUrl || currentLayout.baseImageUrl;
+      if (targetBaseImage && targetBaseImage.startsWith("data:image")) {
+        const newUrl = await saveBase64Image(targetBaseImage, "base-layout");
+        updateData.baseImageUrl = newUrl;
 
-        updateData.baseImageUrl = await saveBase64Image(
-          data.baseImageUrl,
-          "base-layout",
-        );
-
-        // Opcional: deletar imagem antiga se for local e diferente da nova
+        // Tentar deletar antiga se for diferente da nova e for um arquivo local
         if (
-          oldLayout?.baseImageUrl &&
-          oldLayout.baseImageUrl.startsWith("/images") &&
-          oldLayout.baseImageUrl !== updateData.baseImageUrl
+          currentLayout.baseImageUrl &&
+          currentLayout.baseImageUrl !== newUrl
         ) {
-          try {
-            await deleteImageLocally(oldLayout.baseImageUrl);
-          } catch (e) {
-            logger.warn("⚠️ Não foi possível deletar imagem base antiga");
-          }
+          await deleteImageLocally(currentLayout.baseImageUrl);
         }
       }
 
-      // Processar previewImageUrl se fornecida e for base64
+      // 3. Processar previewImageUrl (se enviada)
       if (
         data.previewImageUrl &&
         data.previewImageUrl.startsWith("data:image")
       ) {
-        const oldLayout = await prisma.dynamicLayout.findUnique({
-          where: { id: layoutId },
-          select: { previewImageUrl: true },
-        });
-
-        updateData.previewImageUrl = await saveBase64Image(
+        const newUrl = await saveBase64Image(
           data.previewImageUrl,
           "preview-layout",
         );
+        updateData.previewImageUrl = newUrl;
 
         if (
-          oldLayout?.previewImageUrl &&
-          oldLayout.previewImageUrl.startsWith("/images") &&
-          oldLayout.previewImageUrl !== updateData.previewImageUrl
+          currentLayout.previewImageUrl &&
+          currentLayout.previewImageUrl !== newUrl
         ) {
-          try {
-            await deleteImageLocally(oldLayout.previewImageUrl);
-          } catch (e) {
-            logger.warn("⚠️ Não foi possível deletar preview antigo");
-          }
+          await deleteImageLocally(currentLayout.previewImageUrl);
         }
+      }
+
+      // 4. Limpeza recursiva de base64 dentro do fabricJsonState (Opcional, mas recomendado)
+      if (data.fabricJsonState) {
+        updateData.fabricJsonState = await this.extractBase64FromObjects(
+          data.fabricJsonState,
+        );
       }
 
       const layout = await prisma.dynamicLayout.update({
@@ -295,6 +294,35 @@ class DynamicLayoutService {
       logger.error("❌ [DYNAMIC_LAYOUT] Erro ao atualizar layout:", error);
       throw new Error(`Erro ao atualizar layout: ${error.message}`);
     }
+  }
+
+  /**
+   * Varre o JSON do Fabric.js e extrai imagens base64 para arquivos físicos
+   */
+  private async extractBase64FromObjects(json: any): Promise<any> {
+    if (!json || !json.objects) return json;
+
+    const processedObjects = await Promise.all(
+      json.objects.map(async (obj: any) => {
+        // Se for uma imagem com src em base64
+        if (
+          (obj.type === "image" || obj.type === "Image") &&
+          obj.src &&
+          obj.src.startsWith("data:image")
+        ) {
+          try {
+            const newUrl = await saveBase64Image(obj.src, "element");
+            return { ...obj, src: newUrl };
+          } catch (e) {
+            logger.warn("⚠️ Falha ao extrair base64 de objeto do canvas");
+            return obj;
+          }
+        }
+        return obj;
+      }),
+    );
+
+    return { ...json, objects: processedObjects };
   }
 
   /**

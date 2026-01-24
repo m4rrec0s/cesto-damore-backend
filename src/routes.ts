@@ -891,6 +891,18 @@ router.get(
   requireAdmin,
   feedController.getAllConfigurations,
 );
+router.get(
+  "/admin/feed/banners",
+  authenticateToken,
+  requireAdmin,
+  feedController.getAllBanners,
+);
+router.get(
+  "/admin/feed/sections",
+  authenticateToken,
+  requireAdmin,
+  feedController.getAllSections,
+);
 router.post(
   "/admin/feed/banners",
   authenticateToken,
@@ -898,6 +910,56 @@ router.post(
   uploadAny.single("image"),
   convertImagesToWebPLossless,
   feedController.createBanner,
+);
+router.put(
+  "/admin/feed/banners/:id",
+  authenticateToken,
+  requireAdmin,
+  uploadAny.single("image"),
+  convertImagesToWebPLossless,
+  feedController.updateBanner,
+);
+router.delete(
+  "/admin/feed/banners/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteBanner,
+);
+router.post(
+  "/admin/feed/sections",
+  authenticateToken,
+  requireAdmin,
+  feedController.createSection,
+);
+router.put(
+  "/admin/feed/sections/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.updateSection,
+);
+router.delete(
+  "/admin/feed/sections/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteSection,
+);
+router.post(
+  "/admin/feed/configurations",
+  authenticateToken,
+  requireAdmin,
+  feedController.createConfiguration,
+);
+router.put(
+  "/admin/feed/configurations/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.updateConfiguration,
+);
+router.delete(
+  "/admin/feed/configurations/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteConfiguration,
 );
 
 router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);

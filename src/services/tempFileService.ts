@@ -2,19 +2,13 @@ import fs from "fs";
 import path from "path";
 import logger from "../utils/logger";
 
-/**
- * Serviço para gerenciar arquivos temporários (durante customização)
- * Arquivos são salvos em /app/storage/temp ou ./storage/temp
- * Serão apagados após finalização do pedido ou limpeza periódica
- */
 class TempFileService {
   private basePath: string;
 
   constructor() {
-    // Em produção (Docker): /app/storage/temp
-    // Em desenvolvimento: ./storage/temp
-    this.basePath =
-      process.env.NODE_ENV === "production"
+    this.basePath = process.env.TEMP_UPLOADS_DIR
+      ? path.resolve(process.env.TEMP_UPLOADS_DIR)
+      : process.env.NODE_ENV === "production"
         ? "/app/storage/temp"
         : path.join(process.cwd(), "storage", "temp");
 
@@ -37,7 +31,7 @@ class TempFileService {
    */
   async saveFile(
     buffer: Buffer,
-    originalName: string
+    originalName: string,
   ): Promise<{
     filename: string;
     filepath: string;
@@ -62,7 +56,7 @@ class TempFileService {
       const url = `${baseUrl}/uploads/temp/${filename}`;
 
       logger.info(
-        `✅ Arquivo temporário salvo: ${filename} (${buffer.length} bytes)`
+        `✅ Arquivo temporário salvo: ${filename} (${buffer.length} bytes)`,
       );
       logger.info(`   Caminho: ${filepath}`);
       logger.info(`   URL: ${url}`);
@@ -79,9 +73,6 @@ class TempFileService {
     }
   }
 
-  /**
-   * Lista arquivos temporários (útil para debug)
-   */
   listFiles(): {
     filename: string;
     size: number;
@@ -118,7 +109,7 @@ class TempFileService {
       // Validação de segurança: garantir que o arquivo está dentro de basePath
       if (!filepath.startsWith(this.basePath)) {
         logger.warn(
-          `⚠️ Tentativa de deletar arquivo fora do basePath: ${filename}`
+          `⚠️ Tentativa de deletar arquivo fora do basePath: ${filename}`,
         );
         return false;
       }
@@ -153,7 +144,7 @@ class TempFileService {
     });
 
     logger.info(
-      `🗑️ Limpeza de temp files: ${deleted} deletados, ${failed} falharam`
+      `🗑️ Limpeza de temp files: ${deleted} deletados, ${failed} falharam`,
     );
     return { deleted, failed };
   }
@@ -189,8 +180,8 @@ class TempFileService {
             deleted++;
             logger.debug(
               `🗑️ Arquivo antigo deletado: ${filename} (${Math.round(
-                ageMs / 1000 / 60
-              )} minutos)`
+                ageMs / 1000 / 60,
+              )} minutos)`,
             );
           }
         } catch (error: any) {
@@ -201,7 +192,7 @@ class TempFileService {
 
       if (deleted > 0 || failed > 0) {
         logger.info(
-          `🧹 Limpeza de arquivos antigos: ${deleted} deletados, ${failed} falharam`
+          `🧹 Limpeza de arquivos antigos: ${deleted} deletados, ${failed} falharam`,
         );
       }
 

@@ -20,17 +20,21 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-const tempDir =
-  process.env.NODE_ENV === "production"
+const tempDir = process.env.TEMP_UPLOADS_DIR
+  ? path.resolve(process.env.TEMP_UPLOADS_DIR)
+  : process.env.NODE_ENV === "production"
     ? "/app/storage/temp"
     : path.join(process.cwd(), "storage", "temp");
+
 logger.info(`📂 [Server] Serving temp files from: ${tempDir}`);
 app.use("/uploads/temp", express.static(tempDir));
 
-const imagesDir =
-  process.env.NODE_ENV === "production"
+const imagesDir = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : process.env.NODE_ENV === "production"
     ? "/app/images"
     : path.join(process.cwd(), "images");
+
 logger.info(`📂 [Server] Serving images from: ${imagesDir}`);
 app.use("/images", express.static(imagesDir));
 

@@ -44,6 +44,7 @@ export interface UpdateFeedSectionInput {
   is_visible?: boolean;
   display_order?: number;
   max_items?: number;
+  feed_config_id?: string;
 }
 
 export interface CreateFeedSectionItemInput {

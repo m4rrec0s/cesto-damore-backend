@@ -364,6 +364,8 @@ class FeedService {
       if (data.display_order !== undefined)
         updateData.display_order = data.display_order;
       if (data.max_items !== undefined) updateData.max_items = data.max_items;
+      if (data.feed_config_id !== undefined)
+        updateData.feed_config_id = data.feed_config_id;
 
       const updatedSection = await prisma.feedSection.update({
         where: { id },

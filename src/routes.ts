@@ -787,7 +787,7 @@ router.post(
 
 router.post(
   "/uploads/temp",
-  authenticateToken,
+  optionalAuthenticateToken,
   upload.single("file"),
   tempUploadController.uploadTemp,
 );

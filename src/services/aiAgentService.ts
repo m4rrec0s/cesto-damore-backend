@@ -92,7 +92,7 @@ class AIAgentService {
     if (!session || isPast(session.expires_at)) {
       if (session) {
         logger.info(
-          `🧹 [AIAgent] Deletando sessão expirada e mensagens: ${sessionId}`
+          `🧹 [AIAgent] Deletando sessão expirada e mensagens: ${sessionId}`,
         );
 
         await prisma.aIAgentMessage.deleteMany({
@@ -194,9 +194,25 @@ class AIAgentService {
     sessionId: string,
     userMessage: string,
     customerPhone?: string,
-    customerName?: string
+    customerName?: string,
   ) {
     const session = await this.getSession(sessionId, customerPhone);
+
+    // Update customer's last_message_sent when they send a message via IA
+    if (customerPhone) {
+      await prisma.customer.upsert({
+        where: { number: customerPhone },
+        update: {
+          last_message_sent: new Date(),
+        },
+        create: {
+          number: customerPhone,
+          name: customerName,
+          last_message_sent: new Date(),
+          follow_up: false,
+        },
+      });
+    }
 
     // Check if session is blocked (transfered to human)
     if (session.is_blocked) {
@@ -488,7 +504,7 @@ Seja sempre carinhosa, empática e prestativa. Siga os procedimentos com natural
 
   private async runToolLoop(
     sessionId: string,
-    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   ): Promise<any> {
     // Initial call to see if tools are needed
     const tools = await mcpClientService.listTools();
@@ -531,12 +547,11 @@ Seja sempre carinhosa, empática e prestativa. Siga os procedimentos com natural
 
         // Ensure exclude_product_ids is properly passed for consultarCatalogo
         if (name === "consultarCatalogo" && !args.exclude_product_ids) {
-          args.exclude_product_ids = await this.getSentProductsInSession(
-            sessionId
-          );
+          args.exclude_product_ids =
+            await this.getSentProductsInSession(sessionId);
           logger.info(
             `🔄 Updated consultarCatalogo args with exclude_product_ids:`,
-            args.exclude_product_ids
+            args.exclude_product_ids,
           );
         }
 
@@ -560,24 +575,24 @@ Seja sempre carinhosa, empática e prestativa. Siga os procedimentos com natural
               if (product.id) {
                 await this.recordProductSent(sessionId, product.id);
                 logger.info(
-                  `✅ Tracked product ${product.id} (${product.tipo_resultado}) as sent in session ${sessionId}`
+                  `✅ Tracked product ${product.id} (${product.tipo_resultado}) as sent in session ${sessionId}`,
                 );
               }
             }
           } catch (e) {
             logger.debug(
-              "Could not extract product IDs from consultarCatalogo response"
+              "Could not extract product IDs from consultarCatalogo response",
             );
           }
         }
 
         const toolResultMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-        {
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content:
-            typeof result === "string" ? result : JSON.stringify(result),
-        };
+          {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content:
+              typeof result === "string" ? result : JSON.stringify(result),
+          };
 
         messages.push(toolResultMessage);
 

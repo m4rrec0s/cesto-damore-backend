@@ -29,12 +29,15 @@ class FollowUpService {
         where: {
           follow_up: true,
           last_message_sent: { not: null },
-          aiAgentSession: { isNot: null },
         },
         include: {
           followUpSent: true,
         },
       });
+
+      logger.info(
+        `📊 [FollowUp] Verificando ${customersToProcess.length} clientes para follow-up...`,
+      );
 
       const now = new Date();
       let processedCount = 0;
@@ -46,6 +49,11 @@ class FollowUpService {
           (now.getTime() - customer.last_message_sent.getTime()) /
             (1000 * 60 * 60),
         );
+
+        logger.info(
+          `⏱️ [FollowUp] Cliente ${customer.number} (${customer.name}): ${diffInHours}h desde última mensagem`,
+        );
+
         let jaEnviouUltimo = false;
 
         for (const intervalo of this.intervals) {
@@ -56,6 +64,10 @@ class FollowUpService {
 
             if (!jaEnviado) {
               try {
+                logger.info(
+                  `🔔 [FollowUp] Disparando follow-up de ${intervalo}h para ${customer.number}`,
+                );
+
                 await prisma.followUpSent.create({
                   data: {
                     cliente_number: customer.number,
@@ -68,6 +80,10 @@ class FollowUpService {
                   horas_apos_ultima_mensagem: intervalo,
                   link_instagram: intervalo === 48,
                 });
+
+                logger.info(
+                  `✅ [FollowUp] Follow-up de ${intervalo}h enviado para ${customer.number}`,
+                );
 
                 if (intervalo === 48) jaEnviouUltimo = true;
                 processedCount++;
@@ -85,8 +101,16 @@ class FollowUpService {
             where: { number: customer.number },
             data: { follow_up: false },
           });
+
+          logger.info(
+            `🔒 [FollowUp] Follow-up desativado para ${customer.number} (ciclo completo)`,
+          );
         }
       }
+
+      logger.info(
+        `✨ [FollowUp] Rotina concluída. ${processedCount} follow-ups processados`,
+      );
     } catch (error: any) {
       logger.error(
         `❌ [FollowUp] Erro na rotina de follow-up: ${error.message}`,

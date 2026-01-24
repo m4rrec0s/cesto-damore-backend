@@ -203,13 +203,15 @@ class AIAgentService {
       await prisma.customer.upsert({
         where: { number: customerPhone },
         update: {
+          name: customerName,
           last_message_sent: new Date(),
+          follow_up: true,
         },
         create: {
           number: customerPhone,
           name: customerName,
           last_message_sent: new Date(),
-          follow_up: false,
+          follow_up: true,
         },
       });
     }

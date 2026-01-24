@@ -146,10 +146,13 @@ const PORT = process.env.PORT || 3333;
 const BASE_URL = process.env.BASE_URL;
 
 app.listen(PORT, () => {
-  logger.info(`🚀 Server running on ${BASE_URL}`);
-  logger.info(`📡 PORT: ${PORT}`);
-  logger.info(`🔗 BASE_URL: ${BASE_URL}`);
-  logger.info(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+  logger.status(`🚀 Server running on ${BASE_URL}`, "green");
+  logger.status(`📡 PORT: ${PORT}`, "green");
+  logger.status(`🔗 BASE_URL: ${BASE_URL}`, "green");
+  logger.status(
+    `🌐 Environment: ${process.env.NODE_ENV || "development"}`,
+    "green",
+  );
   (async () => {
     try {
       await PaymentService.replayStoredWebhooks();

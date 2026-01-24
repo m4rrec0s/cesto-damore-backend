@@ -1,6 +1,10 @@
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
-import { saveImageLocally, deleteImageLocally } from "../config/localStorage";
+import {
+  saveImageLocally,
+  deleteImageLocally,
+  saveBase64Image,
+} from "../config/localStorage";
 
 /**
  * Serviço para gerenciar layouts dinâmicos (v2)
@@ -23,16 +27,27 @@ class DynamicLayoutService {
     relatedLayoutBaseId?: string;
   }) {
     try {
+      // Processar baseImageUrl se for base64
+      const finalBaseImageUrl = await saveBase64Image(
+        data.baseImageUrl,
+        "base-layout",
+      );
+
+      // Processar previewImageUrl se for base64
+      const finalPreviewImageUrl = data.previewImageUrl
+        ? await saveBase64Image(data.previewImageUrl, "preview-layout")
+        : data.previewImageUrl;
+
       const layout = await prisma.dynamicLayout.create({
         data: {
           userId: data.userId,
           name: data.name,
           type: data.type,
-          baseImageUrl: data.baseImageUrl,
+          baseImageUrl: finalBaseImageUrl,
           fabricJsonState: data.fabricJsonState,
           width: data.width,
           height: data.height,
-          previewImageUrl: data.previewImageUrl,
+          previewImageUrl: finalPreviewImageUrl,
           tags: data.tags || [],
           relatedLayoutBaseId: data.relatedLayoutBaseId,
           version: 1,
@@ -196,17 +211,74 @@ class DynamicLayoutService {
       name?: string;
       fabricJsonState?: any;
       previewImageUrl?: string;
+      baseImageUrl?: string;
       tags?: string[];
       isPublished?: boolean;
       isShared?: boolean;
       width?: number;
       height?: number;
-    }
+    },
   ) {
     try {
+      const updateData: any = { ...data };
+
+      // Processar baseImageUrl se fornecida e for base64
+      if (data.baseImageUrl && data.baseImageUrl.startsWith("data:image")) {
+        const oldLayout = await prisma.dynamicLayout.findUnique({
+          where: { id: layoutId },
+          select: { baseImageUrl: true },
+        });
+
+        updateData.baseImageUrl = await saveBase64Image(
+          data.baseImageUrl,
+          "base-layout",
+        );
+
+        // Opcional: deletar imagem antiga se for local e diferente da nova
+        if (
+          oldLayout?.baseImageUrl &&
+          oldLayout.baseImageUrl.startsWith("/images") &&
+          oldLayout.baseImageUrl !== updateData.baseImageUrl
+        ) {
+          try {
+            await deleteImageLocally(oldLayout.baseImageUrl);
+          } catch (e) {
+            logger.warn("⚠️ Não foi possível deletar imagem base antiga");
+          }
+        }
+      }
+
+      // Processar previewImageUrl se fornecida e for base64
+      if (
+        data.previewImageUrl &&
+        data.previewImageUrl.startsWith("data:image")
+      ) {
+        const oldLayout = await prisma.dynamicLayout.findUnique({
+          where: { id: layoutId },
+          select: { previewImageUrl: true },
+        });
+
+        updateData.previewImageUrl = await saveBase64Image(
+          data.previewImageUrl,
+          "preview-layout",
+        );
+
+        if (
+          oldLayout?.previewImageUrl &&
+          oldLayout.previewImageUrl.startsWith("/images") &&
+          oldLayout.previewImageUrl !== updateData.previewImageUrl
+        ) {
+          try {
+            await deleteImageLocally(oldLayout.previewImageUrl);
+          } catch (e) {
+            logger.warn("⚠️ Não foi possível deletar preview antigo");
+          }
+        }
+      }
+
       const layout = await prisma.dynamicLayout.update({
         where: { id: layoutId },
-        data,
+        data: updateData,
         include: {
           user: {
             select: {
@@ -230,7 +302,7 @@ class DynamicLayoutService {
    */
   async saveVersion(
     layoutId: string,
-    data: { changeDescription?: string; changedBy?: string }
+    data: { changeDescription?: string; changedBy?: string },
   ) {
     try {
       logger.info("📸 [DYNAMIC_LAYOUT] Salvando versão do layout", {
@@ -312,7 +384,7 @@ class DynamicLayoutService {
   async restoreVersion(
     layoutId: string,
     versionNumber: number,
-    changedBy?: string
+    changedBy?: string,
   ) {
     try {
       logger.info("⏮️ [DYNAMIC_LAYOUT] Restaurando versão anterior", {
@@ -428,7 +500,7 @@ class DynamicLayoutService {
       data: any;
       order?: number;
       isLocked?: boolean;
-    }
+    },
   ) {
     try {
       logger.info("➕ [DYNAMIC_LAYOUT] Adicionando elemento", {
@@ -477,7 +549,7 @@ class DynamicLayoutService {
       data?: any;
       order?: number;
       isLocked?: boolean;
-    }
+    },
   ) {
     try {
       const updatedElement = await prisma.dynamicLayoutElement.update({

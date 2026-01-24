@@ -77,20 +77,80 @@ export const saveImageLocally = async (
   }
 };
 
+/**
+ * Salva uma imagem em base64 localmente e retorna a URL
+ */
+export const saveBase64Image = async (
+  base64String: string,
+  prefix: string = "layout",
+): Promise<string> => {
+  if (!base64String || !base64String.startsWith("data:image")) {
+    return base64String; // Retorna como está se não for base64
+  }
+
+  try {
+    ensureImagesDirectory();
+
+    const matches = base64String.match(
+      /^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.*)$/,
+    );
+
+    if (!matches || matches.length !== 3) {
+      return base64String;
+    }
+
+    const mimeType = matches[1];
+    const buffer = Buffer.from(matches[2], "base64");
+
+    const extension = getExtensionFromMimeType(mimeType);
+    const hash = crypto
+      .createHash("sha256")
+      .update(buffer)
+      .digest("hex")
+      .slice(0, 12);
+    const fileName = `${prefix}-${Date.now()}-${hash}${extension}`;
+    const filePath = path.join(IMAGES_DIR, fileName);
+
+    fs.writeFileSync(filePath, buffer);
+
+    logger.info(`✅ [STORAGE] Imagem base64 salva: ${fileName}`);
+    return `${BASE_URL}/images/${fileName}`;
+  } catch (error: any) {
+    logger.error("❌ Erro ao salvar imagem base64:", error);
+    return base64String; // Fallback para o base64 original em caso de erro
+  }
+};
+
 export const deleteImageLocally = async (imageUrl: string): Promise<void> => {
   try {
-    const fileName = path.basename(new URL(imageUrl).pathname);
+    if (!imageUrl) return;
+
+    let fileName = "";
+
+    if (imageUrl.startsWith("http")) {
+      try {
+        fileName = path.basename(new URL(imageUrl).pathname);
+      } catch (e) {
+        fileName = path.basename(imageUrl);
+      }
+    } else if (imageUrl.startsWith("/")) {
+      fileName = path.basename(imageUrl);
+    } else {
+      fileName = imageUrl;
+    }
+
     const filePath = path.join(IMAGES_DIR, fileName);
 
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      return;
+      logger.info(`🗑️ [STORAGE] Arquivo deletado: ${fileName}`);
     } else {
-      logger.warn("⚠️ Arquivo não encontrado:", filePath);
+      logger.warn(
+        `⚠️ [STORAGE] Arquivo não encontrado para deletar: ${filePath}`,
+      );
     }
   } catch (error: any) {
     logger.error("❌ Erro ao deletar imagem:", error.message);
-    throw new Error(`Erro ao deletar imagem: ${error.message}`);
   }
 };
 

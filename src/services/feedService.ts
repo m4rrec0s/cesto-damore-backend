@@ -650,8 +650,10 @@ class FeedService {
     itemId: string,
   ): Promise<void> {
     try {
-      switch (itemType) {
+      const type = itemType.toLowerCase();
+      switch (type) {
         case "product":
+        case "products":
           const product = await prisma.product.findUnique({
             where: { id: itemId },
           });
@@ -660,6 +662,7 @@ class FeedService {
           }
           break;
         case "category":
+        case "categories":
           const category = await prisma.category.findUnique({
             where: { id: itemId },
           });
@@ -668,6 +671,7 @@ class FeedService {
           }
           break;
         case "additional":
+        case "additionals":
           const additional = await prisma.item.findUnique({
             where: { id: itemId },
           });

@@ -210,6 +210,7 @@ model FeedSection {
   section_type      FeedSectionType
   is_visible        Boolean           @default(true)
   display_order     Int               @default(0)
+  max_items         Int               @default(6)
   created_at        DateTime          @default(now())
   updated_at        DateTime          @updatedAt
   feedConfiguration FeedConfiguration @relation(fields: [feed_config_id], references: [id], onDelete: Cascade)

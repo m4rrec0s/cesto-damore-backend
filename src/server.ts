@@ -198,8 +198,8 @@ cron.schedule("*/10 * * * *", () => {
   }
 });
 
-// FollowUp Automation - runs every hour
-cron.schedule("0 * * * *", async () => {
+// FollowUp Automation - runs every 10 minutes
+cron.schedule("*/10 * * * *", async () => {
   try {
     await followUpService.triggerFollowUpFunction();
   } catch (error) {

@@ -17,7 +17,7 @@ class AIAgentController {
         sessionId,
         message,
         customerPhone,
-        customerName
+        customerName,
       );
 
       let fullContent = "";
@@ -68,6 +68,16 @@ class AIAgentController {
     const { sessionId } = req.params;
     try {
       const session = await aiAgentService.blockSession(sessionId);
+      res.json({ success: true, session });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  async unblockSession(req: Request, res: Response) {
+    const { sessionId } = req.params;
+    try {
+      const session = await aiAgentService.unblockSession(sessionId);
       res.json({ success: true, session });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

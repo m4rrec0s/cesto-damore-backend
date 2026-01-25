@@ -1000,6 +1000,12 @@ router.post(
   requireAdmin,
   aiAgentController.blockSession,
 );
+router.post(
+  "/admin/ai/agent/sessions/:sessionId/unblock",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.unblockSession,
+);
 
 router.get("/ai/products/light", aiProductController.getLightweightProducts);
 router.get("/ai/products/detail/:id", aiProductController.getProductDetail);

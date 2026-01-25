@@ -164,6 +164,15 @@ class AIAgentService {
     });
   }
 
+  async unblockSession(sessionId: string) {
+    return prisma.aIAgentSession.update({
+      where: { id: sessionId },
+      data: {
+        is_blocked: false,
+      },
+    });
+  }
+
   async recordProductSent(sessionId: string, productId: string) {
     const existing = await prisma.aISessionProductHistory.findUnique({
       where: {

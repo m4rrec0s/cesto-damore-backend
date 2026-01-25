@@ -962,6 +962,26 @@ router.delete(
   feedController.deleteConfiguration,
 );
 
+// Feed Section Items
+router.post(
+  "/admin/feed/sections/:sectionId/items",
+  authenticateToken,
+  requireAdmin,
+  feedController.createSectionItem,
+);
+router.put(
+  "/admin/feed/section-items/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.updateSectionItem,
+);
+router.delete(
+  "/admin/feed/section-items/:id",
+  authenticateToken,
+  requireAdmin,
+  feedController.deleteSectionItem,
+);
+
 router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
 router.get(
   "/ai/agent/history/:sessionId",

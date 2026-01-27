@@ -456,14 +456,23 @@ ${promptsInMCP.map((p: any) => `- \`${p.name}\`: ${p.description}`).join("\n")}
   _Opção 1_ - Nome do Produto - R$ 100,00
   Descrição completa aqui.
 
-#### 🚚 Entregas e Pagamento
-- ⚠️ Pergunta "Entrega hoje?" ou "Qual horário?" sem o cliente especificar:
+#### 🚚 Entregas e Pagamento- ⚠️ **VALIDAÇÃO CRÍTICA DE PRODUÇÃO**: Antes de oferecer "entrega hoje", SEMPRE considere o tempo de produção do produto:
+  - Se o produto tem production_time > 18 horas e cliente quer para hoje: ❌ NÃO ofereça hoje. Responda: "Esse produto precisa de [X] horas de produção. Seria para amanhã ou depois?"
+  - Se o produto tem production_time ≤ 1 hora (pronta entrega): ✅ Pode oferecer hoje se houver tempo útil restante no expediente (pelo menos 1h + 1h de produção).
+  - Canecas: SEMPRE perguntar se é "pronta entrega (1h)" ou "personalizada (18h)" ANTES de validar data/hora.- ⚠️ Pergunta "Entrega hoje?" ou "Qual horário?" sem o cliente especificar:
   1. Use \`validate_delivery_availability\` para a data requerida.
   2. Apresente **TODOS** os horários sugeridos (\`suggested_slots\`) retornados pela ferramenta.
   3. ❌ **JAMAIS** oculte horários ou invente horários fora da lista da ferramenta.
   4. ❌ **NUNCA** escolha um horário por conta própria se o cliente não especificou. Mostre as opções.
 - ✅ **PAGAMENTO**: Pergunte "PIX ou Cartão?". Se for Cartão, não mencione parcelamento agora.
 - ✅ **FRETE**: Só informe o frete após conferir endereço e método de pagamento.
+
+#### 📦 Interpretação do JSON de consultarCatalogo
+- A ferramenta retorna JSON com \`production_time\` em cada produto
+- SEMPRE inclua o tempo de produção na apresentação do produto para o cliente
+- Formato: \`(Produção imediata ✅)\` se ≤ 1h, ou \`(Produção em X horas)\` se > 1h
+- Para canecas: Mostrar \`(Pronta entrega - 1h)\` ou \`(Customizável - 18h comerciais)\`
+- Canecas devem incluir: "Essa cesta possui canecas de pronta entrega e customizáveis, que levam 18 horas para ficarem prontas"
 
 #### 🧠 Memória
 - ✅ **USE OBRIGATORIAMENTE** \`save_customer_summary\` após qualquer avanço (escolheu presente, deu endereço, marcou data).
@@ -540,15 +549,11 @@ Seja carinhosa, empática e prestativa. 💕`,
         const name = toolCall.function.name;
         const args = JSON.parse(toolCall.function.arguments);
 
-        // Ensure exclude_product_ids is properly passed for consultarCatalogo
-        if (name === "consultarCatalogo" && !args.exclude_product_ids) {
-          args.exclude_product_ids =
-            await this.getSentProductsInSession(sessionId);
-          logger.info(
-            `🔄 Updated consultarCatalogo args with exclude_product_ids:`,
-            args.exclude_product_ids,
-          );
-        }
+        // 🔑 IMPORTANT: Only pass exclude_product_ids when explicitly requested
+        // Don't exclude products from DIFFERENT search contexts (only on "mais opções" requests)
+        // The AI will naturally understand when to ask for "other options" and include exclude_product_ids
+        // We allow it to OVERRIDE if it explicitly sets it, but we don't auto-inject
+        // This prevents hiding perfectly valid products just because they were shown earlier
 
         // 🔑 Normalize multi-word search terms for better catalog matching
         if (name === "consultarCatalogo" && args.termo) {

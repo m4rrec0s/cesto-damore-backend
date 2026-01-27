@@ -3,7 +3,6 @@ import prisma from "../database/prisma";
 import mcpClientService from "./mcpClientService";
 import logger from "../utils/logger";
 import { addDays, isPast, format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 
 class AIAgentService {
   private openai: OpenAI;
@@ -832,6 +831,14 @@ Seja carinhosa, empática e prestativa. 💕`,
                   "Cliente solicitou conversar com um atendente humano. Contexto não fornecido pela IA.";
               }
             }
+          }
+
+          // ✅ Inject session_id for notify_human_support to enable automatic blocking
+          if (name === "notify_human_support") {
+            args.session_id = sessionId;
+            logger.info(
+              `🔒 Added session_id to notify_human_support for auto-blocking: ${sessionId}`,
+            );
           }
 
           // ✅ Execute the tool

@@ -244,6 +244,13 @@ class AIAgentService {
     });
   }
 
+  async clearSessionHistory(sessionId: string) {
+    const result = await prisma.aIAgentMessage.deleteMany({
+      where: { session_id: sessionId },
+    });
+    return result.count;
+  }
+
   async recordProductSent(sessionId: string, productId: string) {
     const existing = await prisma.aISessionProductHistory.findUnique({
       where: {

@@ -83,6 +83,16 @@ class AIAgentController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  async clearSessionHistory(req: Request, res: Response) {
+    const { sessionId } = req.params;
+    try {
+      const result = await aiAgentService.clearSessionHistory(sessionId);
+      res.json({ success: true, deletedCount: result });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 export default new AIAgentController();

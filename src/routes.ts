@@ -1006,6 +1006,12 @@ router.post(
   requireAdmin,
   aiAgentController.unblockSession,
 );
+router.delete(
+  "/admin/ai/agent/sessions/:sessionId/history",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.clearSessionHistory,
+);
 
 router.get("/ai/products/light", aiProductController.getLightweightProducts);
 router.get("/ai/products/detail/:id", aiProductController.getProductDetail);

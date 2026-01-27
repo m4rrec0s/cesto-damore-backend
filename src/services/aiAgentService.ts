@@ -6,7 +6,7 @@ import { addDays, isPast, format } from "date-fns";
 
 class AIAgentService {
   private openai: OpenAI;
-  private model: string = "gpt-4o-mini"; // User requested gpt-4.1-mini or gpt-o4-mini (which meant 4o-mini)
+  private model: string = "gpt-5-mini"; // User requested gpt-4.1-mini or gpt-o4-mini (which meant 4o-mini)
 
   constructor() {
     this.openai = new OpenAI({

@@ -6,7 +6,7 @@ import { addDays, isPast, format } from "date-fns";
 
 class AIAgentService {
   private openai: OpenAI;
-  private model: string = "gpt-5-mini"; // User requested gpt-4.1-mini or gpt-o4-mini (which meant 4o-mini)
+  private model: string = "gpt-4o-mini";
 
   constructor() {
     this.openai = new OpenAI({
@@ -69,19 +69,19 @@ class AIAgentService {
   }
 
   /**
-   * Filters history to keep the last 5 user/assistant messages while ensuring
+   * Filters history to keep the last 10 user/assistant messages while ensuring
    * that tool messages are always preceded by their corresponding assistant message with tool_calls.
    * This prevents OpenAI API errors about orphaned tool messages.
    */
   private filterHistoryForContext(history: any[]): any[] {
-    if (history.length <= 5) {
+    if (history.length <= 10) {
       return history;
     }
 
     // Start from the end and work backwards
     const filtered: any[] = [];
     let userMessageCount = 0;
-    const MAX_USER_MESSAGES = 5;
+    const MAX_USER_MESSAGES = 10; // ✅ Increased from 5 to 10 to maintain full conversation context
 
     for (let i = history.length - 1; i >= 0; i--) {
       const msg = history[i];

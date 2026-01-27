@@ -363,10 +363,12 @@ class AIAgentService {
     }).format(new Date(Date.now() + 86400000));
 
     // Cálculo auxiliar de status para evitar alucinação da IA
-    const dayOfWeek = now.toLocaleDateString("en-US", {
-      timeZone: "America/Fortaleza",
-      weekday: "long",
-    }).toLowerCase();
+    const dayOfWeek = now
+      .toLocaleDateString("en-US", {
+        timeZone: "America/Fortaleza",
+        weekday: "long",
+      })
+      .toLowerCase();
     const [h, m] = timeInCampina.split(":").map(Number);
     const curMin = h * 60 + m;
     let isOpen = false;
@@ -427,11 +429,10 @@ Você opera via **MCP** com acesso a:
 - **Tools**: Ações executáveis (buscar produtos, validar datas, etc)
 
 ## INFORMAÇÕES DE CONTEXTO ADICIONAIS
-⏰ HORÁRIO ATUAL EM CAMPINA GRANDE: ${timeInCampina}
 📅 DATA ATUAL: ${dateInCampina}
-� STATUS DA LOJA: ${storeStatus}
-�🌍 Timezone: America/Fortaleza (UTC-3)
-⚠️ **AVISO DE SERVIDOR**: O sistema está hospedado na Europa, mas você DEVE ignorar o horário do servidor e usar APENAS o HORÁRIO ATUAL EM CAMPINA GRANDE fornecido acima para qualquer cálculo ou validação.
+⏰ HORÁRIO ATUAL: ${timeInCampina}
+🏪 STATUS DA LOJA: ${storeStatus}
+🌍 LOCALIDADE: Campina Grande - PB (UTC-3)
 
 ## COMO OPERAR (META-INSTRUÇÕES)
 
@@ -457,10 +458,10 @@ ${promptsInMCP.map((p: any) => `- \`${p.name}\`: ${p.description}`).join("\n")}
 
 #### 🚚 Entregas e Pagamento
 - ⚠️ Pergunta "Entrega hoje?" ou "Qual horário?" sem o cliente especificar:
-  1. Use \`validate_delivery_availability\` para a data.
-  2. Apresente **TODOS** os blocos de horários disponíveis retornados pela ferramenta.
-  3. ❌ **JAMAIS** invente ou escolha um horário por conta própria.
-  4. ❌ **NÃO oculte turnos** (se a tool der Manhã e Tarde, mostre ambos).
+  1. Use \`validate_delivery_availability\` para a data requerida.
+  2. Apresente **TODOS** os horários sugeridos (\`suggested_slots\`) retornados pela ferramenta.
+  3. ❌ **JAMAIS** oculte horários ou invente horários fora da lista da ferramenta.
+  4. ❌ **NUNCA** escolha um horário por conta própria se o cliente não especificou. Mostre as opções.
 - ✅ **PAGAMENTO**: Pergunte "PIX ou Cartão?". Se for Cartão, não mencione parcelamento agora.
 - ✅ **FRETE**: Só informe o frete após conferir endereço e método de pagamento.
 

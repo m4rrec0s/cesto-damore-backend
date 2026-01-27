@@ -423,6 +423,15 @@ class AIAgentService {
         role: "system",
         content: `${mcpCorePrompt}
 
+## ⚠️ REGRA CRÍTICA DE SILÊNCIO
+**NUNCA** envie mensagens de "Um momento", "Vou procurar", "Deixa eu ver" ou "Aguarde".
+**SILÊNCIO TOTAL DURANTE TOOL CALLS**: Se você decidir chamar uma Tool, mantenha o campo \`content\` da sua mensagem **COMPLETAMENTE VAZIO**. 
+O cliente só deve ver a resposta final após o processamento da tool.
+
+Se você precisa buscar produtos:
+❌ ERRADO: "Vou buscar algumas opções! Um momento!"
+✅ CORRETO: [chama consultarCatalogo silenciosamente, depois apresenta os 2 produtos]
+
 ## ARQUITETURA MCP (Model Context Protocol)
 Você opera via **MCP** com acesso a:
 - **Prompts**: Guidelines e procedimentos (consulte via mcp/list_prompts e mcp/get_prompt)
@@ -525,151 +534,89 @@ Seja carinhosa, empática e prestativa. 💕`,
     sessionId: string,
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   ): Promise<any> {
-    // Initial call to see if tools are needed
-    const tools = await mcpClientService.listTools();
-    const formattedTools = tools.map((t) => ({
-      type: "function" as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: t.inputSchema,
-      },
-    }));
+    const MAX_ITERATIONS = 10; // Prevent infinite loops
+    let iteration = 0;
 
-    const currentResponse = await this.openai.chat.completions.create({
-      model: this.model,
-      messages,
-      tools: formattedTools,
-      tool_choice: "auto",
-    });
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
 
-    const responseMessage = currentResponse.choices[0].message;
-
-    if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-      // ⚠️ PROGRAMMATIC SILENCE: If tool calls are present, we ignore any text content
-      // to avoid "Um momento", "Vou buscar" which causes customer drop-off.
-      const silencedMessage = {
-        ...responseMessage,
-        content: "",
-      };
-      messages.push(silencedMessage as any);
-
-      // Save assistant's tool call message (silenced)
-      await prisma.aIAgentMessage.create({
-        data: {
-          session_id: sessionId,
-          role: "assistant",
-          content: "",
-          tool_calls: JSON.stringify(responseMessage.tool_calls),
+      // Fetch fresh tools from MCP
+      const tools = await mcpClientService.listTools();
+      const formattedTools = tools.map((t) => ({
+        type: "function" as const,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.inputSchema,
         },
+      }));
+
+      // ✅ CRITICAL: Use stream: false to get complete response before checking tool_calls
+      const currentResponse = await this.openai.chat.completions.create({
+        model: this.model,
+        messages,
+        tools: formattedTools,
+        tool_choice: "auto",
+        stream: false, // ✅ Must be false to check tool_calls synchronously
       });
 
-      for (const toolCall of responseMessage.tool_calls) {
-        if (toolCall.type !== "function") continue;
+      const responseMessage = currentResponse.choices[0].message;
 
-        const name = toolCall.function.name;
-        const args = JSON.parse(toolCall.function.arguments);
+      // ✅ Check if LLM wants to call tools
+      if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+        logger.info(
+          `🔄 [Iteration ${iteration}] LLM requested ${responseMessage.tool_calls.length} tool call(s)`,
+        );
 
-        // 🔑 IMPORTANT: Only pass exclude_product_ids when explicitly requested
-        // Don't exclude products from DIFFERENT search contexts (only on "mais opções" requests)
-        // The AI will naturally understand when to ask for "other options" and include exclude_product_ids
-        // We allow it to OVERRIDE if it explicitly sets it, but we don't auto-inject
-        // This prevents hiding perfectly valid products just because they were shown earlier
+        // ⚠️ PROGRAMMATIC SILENCE: Discard any text content when tools are called
+        const silencedMessage = {
+          ...responseMessage,
+          content: "", // ✅ Force empty to prevent "Um momento" messages
+        };
+        messages.push(silencedMessage as any);
 
-        // 🔑 Normalize multi-word search terms for better catalog matching
-        if (name === "consultarCatalogo" && args.termo) {
-          const termoOriginal = args.termo;
-          const termoNormalizado = this.normalizarTermoBusca(termoOriginal);
-          if (termoOriginal !== termoNormalizado) {
-            logger.info(
-              `📝 Search term normalized: "${termoOriginal}" → "${termoNormalizado}"`,
-            );
-            args.termo = termoNormalizado;
-          }
-        }
+        // Save silenced assistant message
+        await prisma.aIAgentMessage.create({
+          data: {
+            session_id: sessionId,
+            role: "assistant",
+            content: "", // ✅ Save as empty
+            tool_calls: JSON.stringify(responseMessage.tool_calls),
+          },
+        });
 
-        // ✅ Ensure consultarCatalogo returns exactly 2 products (not 1, not 3+)
-        if (name === "consultarCatalogo") {
-          // This will be validated AFTER the tool response to filter results
-          logger.info(
-            `📋 consultarCatalogo call - will enforce 2-product rule on response`,
-          );
-        }
+        // ✅ Execute all tool calls
+        for (const toolCall of responseMessage.tool_calls) {
+          if (toolCall.type !== "function") continue;
 
-        // Pre-validate potentially premature tool calls
-        if (name === "calculate_freight") {
-          const city = args.city || args.cityName || args.city_name;
-          const paymentMethod = (
-            args.payment_method ||
-            args.paymentMethod ||
-            args.method ||
-            ""
-          )
-            .toString()
-            .trim();
+          const name = toolCall.function.name;
+          const args = JSON.parse(toolCall.function.arguments);
 
-          if (!city) {
-            const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: cidade. Pergunte ao cliente: 'Qual é a sua cidade?'"}`;
+          logger.info(`🔧 Executing tool: ${name}`, args);
 
-            const syntheticToolMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-              {
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: errorMsg,
-              };
-            messages.push(syntheticToolMessage);
-
-            await prisma.aIAgentMessage.create({
-              data: {
-                session_id: sessionId,
-                role: "tool",
-                content: errorMsg,
-                tool_call_id: toolCall.id,
-                name: name,
-              } as any,
-            });
-
-            continue;
-          }
-        }
-
-        if (name === "notify_human_support") {
-          // If the reason indicates a finalization/checkout flow, enforce strict context
-          const reason = (args.reason || args.reason || "").toString();
-          const isFinalization =
-            /finaliza|finaliza[cç][aã]o|pedido|finalizar|finalizado|end_of_checkout/i.test(
-              reason,
-            );
-
-          const context = (
-            args.customer_context ||
-            args.customerContext ||
-            ""
-          ).toString();
-
-          if (isFinalization) {
-            const requiredKeywords = [
-              "cesta",
-              "entrega",
-              "endereço",
-              "pagamento",
-            ];
-            const found = requiredKeywords.filter((k) =>
-              context.toLowerCase().includes(k),
-            );
-            if (found.length < 3) {
-              const missing = requiredKeywords.filter(
-                (k) => !context.toLowerCase().includes(k),
+          // 🔑 Normalize search terms
+          if (name === "consultarCatalogo" && args.termo) {
+            const termoOriginal = args.termo;
+            const termoNormalizado = this.normalizarTermoBusca(termoOriginal);
+            if (termoOriginal !== termoNormalizado) {
+              logger.info(
+                `📝 Search term normalized: "${termoOriginal}" → "${termoNormalizado}"`,
               );
-              const errorMsg = `{"status":"error","error":"incomplete_context","message":"Contexto incompleto. Faltando: ${missing.join(", ")}. Por favor colete: Cesta, Data/Hora de entrega, Endereço completo, Método de Pagamento e Frete antes de notificar o atendente."}`;
+              args.termo = termoNormalizado;
+            }
+          }
 
-              const syntheticToolMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-                {
-                  role: "tool",
-                  tool_call_id: toolCall.id,
-                  content: errorMsg,
-                };
-              messages.push(syntheticToolMessage);
+          // ✅ Validate calculate_freight parameters
+          if (name === "calculate_freight") {
+            const city = args.city || args.cityName || args.city_name;
+            if (!city) {
+              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: cidade. Pergunte ao cliente: 'Qual é a sua cidade?'"}`;
+
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
 
               await prisma.aIAgentMessage.create({
                 data: {
@@ -681,206 +628,242 @@ Seja carinhosa, empática e prestativa. 💕`,
                 } as any,
               });
 
-              continue; // don't notify until context is complete
+              continue;
             }
-          } else {
-            // Generic notification (e.g., "quero falar com um atendente") should be allowed.
-            // Ensure we include a customer phone if available so support can contact.
-            if (!args.customer_phone && !args.customerPhone) {
-              try {
-                const sessRec = await prisma.aIAgentSession.findUnique({
-                  where: { id: sessionId },
+          }
+
+          // ✅ Validate notify_human_support context
+          if (name === "notify_human_support") {
+            const reason = (args.reason || "").toString();
+            const isFinalization =
+              /finaliza|finaliza[cç][aã]o|pedido|finalizar|finalizado|end_of_checkout/i.test(
+                reason,
+              );
+            const context = (
+              args.customer_context ||
+              args.customerContext ||
+              ""
+            ).toString();
+
+            if (isFinalization) {
+              const requiredKeywords = [
+                "cesta",
+                "entrega",
+                "endereço",
+                "pagamento",
+              ];
+              const found = requiredKeywords.filter((k) =>
+                context.toLowerCase().includes(k),
+              );
+
+              if (found.length < 3) {
+                const missing = requiredKeywords.filter(
+                  (k) => !context.toLowerCase().includes(k),
+                );
+                const errorMsg = `{"status":"error","error":"incomplete_context","message":"Contexto incompleto. Faltando: ${missing.join(", ")}. Colete todas as informações antes de notificar."}`;
+
+                messages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  content: errorMsg,
                 });
-                if (sessRec?.customer_phone) {
-                  args.customer_phone = sessRec.customer_phone;
+
+                await prisma.aIAgentMessage.create({
+                  data: {
+                    session_id: sessionId,
+                    role: "tool",
+                    content: errorMsg,
+                    tool_call_id: toolCall.id,
+                    name: name,
+                  } as any,
+                });
+
+                continue;
+              }
+            } else {
+              // Generic notification logic
+              if (!args.customer_phone && !args.customerPhone) {
+                try {
+                  const sessRec = await prisma.aIAgentSession.findUnique({
+                    where: { id: sessionId },
+                  });
+                  if (sessRec?.customer_phone) {
+                    args.customer_phone = sessRec.customer_phone;
+                  }
+                } catch (e) {
+                  logger.debug(
+                    "Could not fetch session phone to include in notify_human_support",
+                    e,
+                  );
+                }
+              }
+
+              if (!context || context.trim() === "") {
+                args.customer_context =
+                  args.customer_context ||
+                  "Cliente solicitou conversar com um atendente humano. Contexto não fornecido pela IA.";
+              }
+            }
+          }
+
+          // ✅ Execute the tool
+          let result: any;
+          try {
+            result = await mcpClientService.callTool(name, args);
+          } catch (error: any) {
+            logger.error(`❌ Error executing tool ${name}:`, error);
+            result = `Erro ao executar ${name}: ${error.message}`;
+          }
+
+          // ✅ Normalize tool output
+          let toolOutputText: string;
+          try {
+            if (typeof result === "string") {
+              toolOutputText = result;
+            } else if (
+              result &&
+              (result.raw || result.humanized || result.data)
+            ) {
+              toolOutputText =
+                result.raw ||
+                result.humanized ||
+                JSON.stringify(result.data || result);
+            } else {
+              toolOutputText = JSON.stringify(result);
+            }
+          } catch (e) {
+            toolOutputText =
+              typeof result === "string" ? result : JSON.stringify(result);
+          }
+
+          // ✅ Track sent products (consultarCatalogo only)
+          if (name === "consultarCatalogo") {
+            try {
+              const parsed =
+                typeof result === "object" && result.data
+                  ? result.data
+                  : JSON.parse(toolOutputText);
+              const allProducts = [
+                ...(parsed.exatos || []),
+                ...(parsed.fallback || []),
+              ];
+
+              if (allProducts.length > 2) {
+                logger.warn(
+                  `⚠️ consultarCatalogo returned ${allProducts.length} products, limiting to 2`,
+                );
+                const firstTwo = allProducts.slice(0, 2);
+                const rebuiltResponse = {
+                  ...parsed,
+                  exatos: firstTwo.filter((p) => p.tipo_resultado === "EXATO"),
+                  fallback: firstTwo.filter(
+                    (p) => p.tipo_resultado === "FALLBACK",
+                  ),
+                };
+                toolOutputText = JSON.stringify(rebuiltResponse);
+              }
+
+              const trackedProducts = allProducts.slice(0, 2);
+              for (const product of trackedProducts) {
+                if (product.id) {
+                  await this.recordProductSent(sessionId, product.id);
+                  logger.info(
+                    `✅ Tracked product ${product.id} as sent in session ${sessionId}`,
+                  );
+                }
+              }
+            } catch (e) {
+              logger.debug("Could not extract product IDs", e);
+            }
+          }
+
+          // ✅ Add tool result to messages
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: toolOutputText,
+          });
+
+          // ✅ Save tool result to DB
+          await prisma.aIAgentMessage.create({
+            data: {
+              session_id: sessionId,
+              role: "tool",
+              content: toolOutputText,
+              tool_call_id: toolCall.id,
+              name: name,
+            } as any,
+          });
+
+          // ✅ Memory save logic for notify_human_support
+          if (name === "notify_human_support") {
+            const success =
+              toolOutputText.toLowerCase().includes("notifica") ||
+              toolOutputText.toLowerCase().includes("sucesso");
+            if (success) {
+              try {
+                let customerPhone = (
+                  args.customer_phone ||
+                  args.customerPhone ||
+                  ""
+                ).toString();
+                if (!customerPhone) {
+                  const sessRec = await prisma.aIAgentSession.findUnique({
+                    where: { id: sessionId },
+                  });
+                  customerPhone = sessRec?.customer_phone || "";
+                }
+                const customerContext =
+                  args.customer_context ||
+                  args.customerContext ||
+                  toolOutputText;
+                if (customerPhone) {
+                  await mcpClientService.callTool("save_customer_summary", {
+                    customer_phone: customerPhone,
+                    summary: customerContext,
+                  });
+                  logger.info(`💾 Saved customer summary for ${customerPhone}`);
                 }
               } catch (e) {
-                logger.debug(
-                  "Could not fetch session phone to include in notify_human_support",
+                logger.error(
+                  "❌ Failed to save customer summary after notify_human_support",
                   e,
                 );
               }
             }
-
-            // If no context, add a minimal note so human knows it's a generic request
-            if (!context || context.trim() === "") {
-              args.customer_context =
-                args.customer_context ||
-                "Cliente solicitou conversar com um atendente humano. Contexto não fornecido pela IA.";
-            }
-
-            logger.info(
-              `🔔 notify_human_support allowed as generic request (reason='${reason}') for session ${sessionId}`,
-            );
           }
         }
 
-        let result: any;
-        try {
-          result = await mcpClientService.callTool(name, args);
-        } catch (error: any) {
-          logger.error(`❌ Error executing MCP tool ${name}: ${error.message}`);
-          result = `Erro ao executar ferramenta ${name}: ${error.message}. Por favor, tente novamente ou use outra abordagem.`;
-        }
+        // ✅✅✅ CRITICAL: Continue the loop to let LLM process tool results
+        logger.info(`🔄 Continuing loop to process tool results...`);
+        continue; // ← This is the key! Loop back to call OpenAI again
+      } else {
+        // ✅ No more tool calls - return final streaming response
+        logger.info(
+          `✅ [Iteration ${iteration}] No tool calls, returning final response`,
+        );
 
-        // Normalize tool output text for downstream handling
-        let toolOutputText: string;
-        try {
-          if (typeof result === "string") {
-            toolOutputText = result;
-          } else if (
-            result &&
-            (result.raw || result.humanized || result.data)
-          ) {
-            toolOutputText =
-              result.raw ||
-              result.humanized ||
-              JSON.stringify(result.data || result);
-          } else {
-            toolOutputText = JSON.stringify(result);
-          }
-        } catch (e) {
-          toolOutputText =
-            typeof result === "string" ? result : JSON.stringify(result);
-        }
-
-        // Track sent products to avoid repetition (extract from structured response)
-        if (name === "consultarCatalogo") {
-          try {
-            const parsed =
-              typeof result === "object" && result.data
-                ? result.data
-                : JSON.parse(toolOutputText);
-
-            // 🔒 ENFORCE 2-PRODUCT RULE
-            const allProducts = [
-              ...(parsed.exatos || []),
-              ...(parsed.fallback || []),
-            ];
-
-            if (allProducts.length === 0) {
-              // No products found - that's okay, let LLM handle it
-              logger.info(`📦 consultarCatalogo returned 0 products`);
-            } else if (allProducts.length === 1) {
-              // Only 1 product found - add instruction to LLM to ask if they want broader search
-              logger.warn(
-                `⚠️ consultarCatalogo returned only 1 product - LLM should ask to broaden search`,
-              );
-              // Don't modify the response, just log - the LLM will see only 1 and should ask
-            } else if (allProducts.length > 2) {
-              // 3+ products - keep only the first 2
-              logger.warn(
-                `⚠️ consultarCatalogo returned ${allProducts.length} products, limiting to 2`,
-              );
-
-              // Rebuild structured response with only 2 products
-              const firstTwo = allProducts.slice(0, 2);
-              const rebuiltResponse = {
-                ...parsed,
-                exatos: firstTwo.filter((p) => p.tipo_resultado === "EXATO"),
-                fallback: firstTwo.filter(
-                  (p) => p.tipo_resultado === "FALLBACK",
-                ),
-              };
-              toolOutputText = JSON.stringify(rebuiltResponse);
-              logger.info(
-                `✅ Limited to 2 products: ${firstTwo
-                  .map((p) => p.id)
-                  .join(", ")}`,
-              );
-            } else {
-              // Exactly 2 products - perfect!
-              logger.info(`✅ Exactly 2 products returned (ideal)`);
-            }
-
-            // Track sent products
-            const trackedProducts = [
-              ...(parsed.exatos || []),
-              ...(parsed.fallback || []),
-            ].slice(0, 2); // Only track the ones we're showing (max 2)
-
-            for (const product of trackedProducts) {
-              if (product.id) {
-                await this.recordProductSent(sessionId, product.id);
-                logger.info(
-                  `✅ Tracked product ${product.id} (${product.tipo_resultado}) as sent in session ${sessionId}`,
-                );
-              }
-            }
-          } catch (e) {
-            logger.debug(
-              "Could not extract product IDs from consultarCatalogo response",
-              e,
-            );
-          }
-        }
-
-        const toolResultMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-          {
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: toolOutputText,
-          };
-
-        messages.push(toolResultMessage);
-
-        // Save tool response
-        await prisma.aIAgentMessage.create({
-          data: {
-            session_id: sessionId,
-            role: "tool",
-            content: toolOutputText,
-            tool_call_id: toolCall.id,
-            name: name,
-          } as any,
+        // ✅ IMPORTANT: Now we can stream the final response to the user
+        return this.openai.chat.completions.create({
+          model: this.model,
+          messages,
+          stream: true, // ✅ Stream the final user-facing response
         });
-
-        // If notify_human_support succeeded, also save a customer summary to memory (if phone available)
-        if (name === "notify_human_support") {
-          const success =
-            toolOutputText.toLowerCase().includes("notifica") ||
-            toolOutputText.toLowerCase().includes("sucesso");
-          if (success) {
-            try {
-              let customerPhone = (
-                args.customer_phone ||
-                args.customerPhone ||
-                ""
-              ).toString();
-              // Fallback to session customer_phone if not provided in args
-              if (!customerPhone) {
-                const sessRec = await prisma.aIAgentSession.findUnique({
-                  where: { id: sessionId },
-                });
-                customerPhone = sessRec?.customer_phone || "";
-              }
-              const customerContext =
-                args.customer_context || args.customerContext || toolOutputText;
-              if (customerPhone) {
-                await mcpClientService.callTool("save_customer_summary", {
-                  customer_phone: customerPhone,
-                  summary: customerContext,
-                });
-                logger.info(`💾 Saved customer summary for ${customerPhone}`);
-              }
-            } catch (e) {
-              logger.error(
-                "❌ Failed to save customer summary after notify_human_support",
-                e,
-              );
-            }
-          }
-        }
       }
-
-      // After tool calls, call LLM again (recursive loop)
-      return this.runToolLoop(sessionId, messages);
     }
 
-    // Return final stream
+    // ✅ Safety: If we hit max iterations, return a helpful error
+    logger.error(`❌ Max iterations (${MAX_ITERATIONS}) reached in tool loop`);
     return this.openai.chat.completions.create({
       model: this.model,
-      messages,
+      messages: [
+        ...messages,
+        {
+          role: "system",
+          content:
+            "Você atingiu o limite de operações. Por favor, resuma o que conseguiu até agora e pergunte ao cliente se ele precisa de mais alguma coisa.",
+        },
+      ],
       stream: true,
     });
   }

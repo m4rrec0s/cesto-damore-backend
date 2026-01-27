@@ -16,6 +16,60 @@ class AIAgentService {
   }
 
   /**
+   * Normaliza termos de busca para melhorar a relevância
+   * "café da manhã" → "café" (remove palavras comuns)
+   * "cestas de chocolate" → "chocolate"
+   */
+  private normalizarTermoBusca(termo: string): string {
+    const palavrasComuns = [
+      "o",
+      "a",
+      "de",
+      "da",
+      "do",
+      "em",
+      "um",
+      "uma",
+      "e",
+      "ou",
+      "para",
+      "por",
+      "com",
+      "sem",
+      "que",
+      "se",
+      "não",
+      "na",
+      "no",
+      "nas",
+      "nos",
+      "à",
+      "ao",
+      "às",
+      "aos",
+    ];
+
+    const palavras = termo
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((p) => !palavrasComuns.includes(p.trim()) && p.trim().length > 0);
+
+    if (palavras.length === 0) {
+      return termo; // Se todas as palavras foram removidas, retorna o termo original
+    }
+
+    if (palavras.length === 1) {
+      return palavras[0];
+    }
+
+    // Se múltiplas palavras, tenta usar a mais significativa (geralmente a mais longa)
+    const termoPrincipal = palavras.reduce((a, b) =>
+      a.length > b.length ? a : b,
+    );
+    return termoPrincipal;
+  }
+
+  /**
    * Filters history to keep the last 5 user/assistant messages while ensuring
    * that tool messages are always preceded by their corresponding assistant message with tool_calls.
    * This prevents OpenAI API errors about orphaned tool messages.
@@ -363,6 +417,11 @@ Cada tool tem documentação completa em sua descrição. **Leia antes de usar**
 
 **Catálogo**:
 - \`consultarCatalogo\`: Buscar produtos (leia WHEN TO USE, PARAMETERS, PRESENTATION RULES)
+  ⚠️ **IMPORTANTE**: Use PALAVRAS-CHAVE CURTAS para buscas. Exemplos:
+    - ❌ "café da manhã" → ✅ "café" ou "manhã"
+    - ❌ "cestas de chocolate" → ✅ "chocolate"
+    - ❌ "buquês de flores simples" → ✅ "flores" ou "buquê"
+  Se cliente usar múltiplas palavras, extraia a principal (nome principal do produto/ocasião)
 
 **Validação**:
 - \`validate_delivery_availability\`: Validar data/hora de entrega
@@ -513,6 +572,18 @@ Seja carinhosa, empática e prestativa. Siga os procedimentos com naturalidade! 
           );
         }
 
+        // 🔑 Normalize multi-word search terms for better catalog matching
+        if (name === "consultarCatalogo" && args.termo) {
+          const termoOriginal = args.termo;
+          const termoNormalizado = this.normalizarTermoBusca(termoOriginal);
+          if (termoOriginal !== termoNormalizado) {
+            logger.info(
+              `📝 Search term normalized: "${termoOriginal}" → "${termoNormalizado}"`,
+            );
+            args.termo = termoNormalizado;
+          }
+        }
+
         // Pre-validate potentially premature tool calls
         if (name === "calculate_freight") {
           const city = args.city || args.cityName || args.city_name;
@@ -532,11 +603,11 @@ Seja carinhosa, empática e prestativa. Siga os procedimentos com naturalidade! 
             const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetros ausentes: ${missing.join(", ")}. Pergunte ao cliente: 'Qual é a sua cidade e qual o método de pagamento? PIX ou Cartão?'"}`;
 
             const syntheticToolMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-            {
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: errorMsg,
-            };
+              {
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              };
             messages.push(syntheticToolMessage);
 
             await prisma.aIAgentMessage.create({
@@ -584,11 +655,11 @@ Seja carinhosa, empática e prestativa. Siga os procedimentos com naturalidade! 
               const errorMsg = `{"status":"error","error":"incomplete_context","message":"Contexto incompleto. Faltando: ${missing.join(", ")}. Por favor colete: Cesta, Data/Hora de entrega, Endereço completo, Método de Pagamento e Frete antes de notificar o atendente."}`;
 
               const syntheticToolMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-              {
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: errorMsg,
-              };
+                {
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  content: errorMsg,
+                };
               messages.push(syntheticToolMessage);
 
               await prisma.aIAgentMessage.create({
@@ -692,11 +763,11 @@ Seja carinhosa, empática e prestativa. Siga os procedimentos com naturalidade! 
         }
 
         const toolResultMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
-        {
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: toolOutputText,
-        };
+          {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: toolOutputText,
+          };
 
         messages.push(toolResultMessage);
 

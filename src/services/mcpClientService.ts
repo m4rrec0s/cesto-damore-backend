@@ -36,7 +36,7 @@ class MCPClientService {
           // Isso evita o erro -32001 Request timed out em ferramentas pesadas
           /* @ts-ignore */
           timeout: 45000,
-        }
+        },
       );
 
       await this.client.connect(this.transport);
@@ -62,6 +62,49 @@ class MCPClientService {
         await this.ensureConnected(true);
         const response = await this.client!.listTools();
         return response.tools;
+      }
+      throw error;
+    }
+  }
+
+  async listPrompts() {
+    try {
+      await this.ensureConnected();
+      if (!this.client) throw new Error("MCP Client not initialized");
+
+      const response = await this.client.listPrompts();
+      return response.prompts;
+    } catch (error: any) {
+      if (this.shouldRetry(error)) {
+        logger.warn("🔄 MCP Session stale in listPrompts, retrying...");
+        await this.ensureConnected(true);
+        const response = await this.client!.listPrompts();
+        return response.prompts;
+      }
+      throw error;
+    }
+  }
+
+  async getPrompt(name: string, args?: any) {
+    try {
+      await this.ensureConnected();
+      if (!this.client) throw new Error("MCP Client not initialized");
+
+      const response = await this.client.getPrompt({
+        name,
+        arguments: args,
+      });
+      return response;
+    } catch (error: any) {
+      if (this.shouldRetry(error)) {
+        logger.warn(
+          `🔄 MCP Session stale while getting prompt ${name}, retrying...`,
+        );
+        await this.ensureConnected(true);
+        return this.client!.getPrompt({
+          name,
+          arguments: args,
+        });
       }
       throw error;
     }
@@ -93,7 +136,7 @@ class MCPClientService {
       // Extract content from result
       if (response.isError) {
         throw new Error(
-          `Tool execution error: ${JSON.stringify(response.content)}`
+          `Tool execution error: ${JSON.stringify(response.content)}`,
         );
       }
 
@@ -106,7 +149,7 @@ class MCPClientService {
 
       // Try to parse if it's a structured response (```json ... ``` \n humanized)
       const jsonMatch = textContent.match(
-        /```json\n([\s\S]*?)\n```\n\n([\s\S]*)/
+        /```json\n([\s\S]*?)\n```\n\n([\s\S]*)/,
       );
       if (jsonMatch) {
         return {

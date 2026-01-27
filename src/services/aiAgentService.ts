@@ -546,14 +546,20 @@ Seja carinhosa, empática e prestativa. 💕`,
     const responseMessage = currentResponse.choices[0].message;
 
     if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-      messages.push(responseMessage);
+      // ⚠️ PROGRAMMATIC SILENCE: If tool calls are present, we ignore any text content
+      // to avoid "Um momento", "Vou buscar" which causes customer drop-off.
+      const silencedMessage = {
+        ...responseMessage,
+        content: "",
+      };
+      messages.push(silencedMessage as any);
 
-      // Save assistant's tool call message
+      // Save assistant's tool call message (silenced)
       await prisma.aIAgentMessage.create({
         data: {
           session_id: sessionId,
           role: "assistant",
-          content: responseMessage.content || "",
+          content: "",
           tool_calls: JSON.stringify(responseMessage.tool_calls),
         },
       });
@@ -601,12 +607,9 @@ Seja carinhosa, empática e prestativa. 💕`,
           )
             .toString()
             .trim();
-          if (!city || !paymentMethod) {
-            const missing = [];
-            if (!city) missing.push("cidade");
-            if (!paymentMethod)
-              missing.push("método de pagamento (PIX ou Cartão)");
-            const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetros ausentes: ${missing.join(", ")}. Pergunte ao cliente: 'Qual é a sua cidade e qual o método de pagamento? PIX ou Cartão?'"}`;
+
+          if (!city) {
+            const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: cidade. Pergunte ao cliente: 'Qual é a sua cidade?'"}`;
 
             const syntheticToolMessage: OpenAI.Chat.Completions.ChatCompletionToolMessageParam =
               {
@@ -626,7 +629,7 @@ Seja carinhosa, empática e prestativa. 💕`,
               } as any,
             });
 
-            continue; // skip executing the tool until missing info is collected
+            continue;
           }
         }
 

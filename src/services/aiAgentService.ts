@@ -422,6 +422,11 @@ Cada tool tem documentação completa em sua descrição. **Leia antes de usar**
     - ❌ "cestas de chocolate" → ✅ "chocolate"
     - ❌ "buquês de flores simples" → ✅ "flores" ou "buquê"
   Se cliente usar múltiplas palavras, extraia a principal (nome principal do produto/ocasião)
+  
+  ⚠️ **APRESENTAÇÃO - REGRA DOS 2 PRODUTOS**:
+  - Se retornar 2 produtos: Perfeito! Mostre os 2
+  - Se retornar 1 produto: NÃO mostre sozinho! Pergunte: "Quer buscar mais opções sem limite de preço?" ou "Tem algo específico que você gostaria?" e busque novamente com critério diferente
+  - Se retornar 0 produtos: Diga que não encontrou, pergunte se quer tentar outro termo
 
 **Validação**:
 - \`validate_delivery_availability\`: Validar data/hora de entrega
@@ -439,23 +444,34 @@ Cada tool tem documentação completa em sua descrição. **Leia antes de usar**
 
 ## REGRAS CRÍTICAS (NUNCA VIOLE)
 
-### Horários e Datas
+### ⏰ Horários e Validação de Datas
 - ❌ **Domingo: FECHADO** - Sempre rejeite entregas aos domingos
-- ✅ Sempre valide datas com \`validate_delivery_availability\`
-- ❌ NÃO sugira datas sem o cliente pedir - valide a data que ELE quer primeiro
+- ✅ SEMPRE valide datas com \`validate_delivery_availability\` QUANDO cliente especificar uma data/hora
+- ❌ NÃO pergunte "Qual horário você quer?" e depois valide QUALQUER horário - o cliente deve ESPECIFICAR primeiro
 - ⚠️ Se cliente perguntar "Entrega hoje?", valide HOJE primeiro, não pule para amanhã
+- ⚠️ **SE CLIENTE PERGUNTA "ENTREGA AGORA?"**: Primeiro verifique o horário atual (${timeInCampina}). Se estamos FECHADOS, responda logo que agora não é possível e diga o próximo horário. Depois valide com \`validate_delivery_availability\`
 
-### Produtos e Preços
+### 🌍 Perguntas sobre Área de Entrega (Cidades)
+- ⚠️ **Quando cliente pergunta "Faz entrega em [CIDADE]?"**:
+  1. **NÃO use \`validate_delivery_availability\`** (isso é para validar DATA/HORA específicas)
+  2. **CONSULTE \`delivery_rules_guideline\`** PRIMEIRO
+  3. Responda com a mensagem padrão: "Fazemos entregas para Campina Grande (grátis no PIX) e cidades vizinhas por R$ 15,00 no PIX. No fim do atendimento, um especialista vai te informar tudo certinho! 💕"
+  4. Você NÃO precisa validar datas para essa pergunta simples
+
+### 📦 Produtos e Preços
 - ❌ NUNCA invente produtos ou altere preços
 - ✅ SEMPRE use \`consultarCatalogo\` para buscar
-- ✅ Mostre exatamente 2 produtos por vez
+- ✅ **MOSTRE EXATAMENTE 2 PRODUTOS POR VEZ** (nunca 1, nunca 3+)
+  - Se resultado tem 1 produto: Pergunte se quer buscar sem limite de preço em vez de mostrar apenas 1
+  - Se resultado tem 3+: Mostre apenas os 2 primeiros
 - ✅ Priorize EXATO sobre FALLBACK
 - ✅ Inclua production_time na apresentação
 
-### Entregas
-- ⚠️ Perguntas "Faz entrega em X?" → Consulte \`delivery_rules_guideline\`
+### Entregas (Recapitulação)
+- ⚠️ Pergunta "Faz entrega em X?" → Consulte \`delivery_rules_guideline\`, **NÃO valide data**
+- ⚠️ Pergunta "Entrega em X [data/hora]?" → Consulte \`delivery_rules_guideline\` E depois valide com \`validate_delivery_availability\`
 - ❌ NÃO calcule frete antes de perguntar método de pagamento
-- ✅ Use resposta padrão: "Fazemos entregas para Campina Grande (grátis no PIX) e cidades vizinhas por R$ 15,00 no PIX..."
+- ✅ Horários de funcionamento: Seg-Sex 07:30-12:00 e 14:00-17:00 | Sábado 08:00-11:00 | Domingo FECHADO
 
 ### Consistência
 - ✅ Mantenha tipo de produto quando cliente especificar (ex: "flores simples" → só flores)
@@ -582,6 +598,14 @@ Seja carinhosa, empática e prestativa. Siga os procedimentos com naturalidade! 
             );
             args.termo = termoNormalizado;
           }
+        }
+
+        // ✅ Ensure consultarCatalogo returns exactly 2 products (not 1, not 3+)
+        if (name === "consultarCatalogo") {
+          // This will be validated AFTER the tool response to filter results
+          logger.info(
+            `📋 consultarCatalogo call - will enforce 2-product rule on response`,
+          );
         }
 
         // Pre-validate potentially premature tool calls
@@ -742,11 +766,55 @@ Seja carinhosa, empática e prestativa. Siga os procedimentos com naturalidade! 
               typeof result === "object" && result.data
                 ? result.data
                 : JSON.parse(toolOutputText);
+
+            // 🔒 ENFORCE 2-PRODUCT RULE
             const allProducts = [
               ...(parsed.exatos || []),
               ...(parsed.fallback || []),
             ];
-            for (const product of allProducts) {
+
+            if (allProducts.length === 0) {
+              // No products found - that's okay, let LLM handle it
+              logger.info(`📦 consultarCatalogo returned 0 products`);
+            } else if (allProducts.length === 1) {
+              // Only 1 product found - add instruction to LLM to ask if they want broader search
+              logger.warn(
+                `⚠️ consultarCatalogo returned only 1 product - LLM should ask to broaden search`,
+              );
+              // Don't modify the response, just log - the LLM will see only 1 and should ask
+            } else if (allProducts.length > 2) {
+              // 3+ products - keep only the first 2
+              logger.warn(
+                `⚠️ consultarCatalogo returned ${allProducts.length} products, limiting to 2`,
+              );
+
+              // Rebuild structured response with only 2 products
+              const firstTwo = allProducts.slice(0, 2);
+              const rebuiltResponse = {
+                ...parsed,
+                exatos: firstTwo.filter((p) => p.tipo_resultado === "EXATO"),
+                fallback: firstTwo.filter(
+                  (p) => p.tipo_resultado === "FALLBACK",
+                ),
+              };
+              toolOutputText = JSON.stringify(rebuiltResponse);
+              logger.info(
+                `✅ Limited to 2 products: ${firstTwo
+                  .map((p) => p.id)
+                  .join(", ")}`,
+              );
+            } else {
+              // Exactly 2 products - perfect!
+              logger.info(`✅ Exactly 2 products returned (ideal)`);
+            }
+
+            // Track sent products
+            const trackedProducts = [
+              ...(parsed.exatos || []),
+              ...(parsed.fallback || []),
+            ].slice(0, 2); // Only track the ones we're showing (max 2)
+
+            for (const product of trackedProducts) {
               if (product.id) {
                 await this.recordProductSent(sessionId, product.id);
                 logger.info(

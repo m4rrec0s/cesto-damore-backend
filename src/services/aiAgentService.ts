@@ -362,6 +362,25 @@ class AIAgentService {
       day: "2-digit",
     }).format(new Date(Date.now() + 86400000));
 
+    // Cálculo auxiliar de status para evitar alucinação da IA
+    const dayOfWeek = now.toLocaleDateString("en-US", {
+      timeZone: "America/Fortaleza",
+      weekday: "long",
+    }).toLowerCase();
+    const [h, m] = timeInCampina.split(":").map(Number);
+    const curMin = h * 60 + m;
+    let isOpen = false;
+    if (dayOfWeek === "saturday") {
+      isOpen = curMin >= 8 * 60 && curMin <= 11 * 60;
+    } else if (dayOfWeek !== "sunday") {
+      isOpen =
+        (curMin >= 7 * 60 + 30 && curMin <= 12 * 60) ||
+        (curMin >= 14 * 60 && curMin <= 17 * 60);
+    }
+    const storeStatus = isOpen
+      ? "ABERTA (Atendendo agora ✅)"
+      : "FECHADA (Fora do expediente ⏰)";
+
     await prisma.aIAgentMessage.create({
       data: {
         session_id: sessionId,
@@ -410,7 +429,8 @@ Você opera via **MCP** com acesso a:
 ## INFORMAÇÕES DE CONTEXTO ADICIONAIS
 ⏰ HORÁRIO ATUAL EM CAMPINA GRANDE: ${timeInCampina}
 📅 DATA ATUAL: ${dateInCampina}
-🌍 Timezone: America/Fortaleza (UTC-3)
+� STATUS DA LOJA: ${storeStatus}
+�🌍 Timezone: America/Fortaleza (UTC-3)
 ⚠️ **AVISO DE SERVIDOR**: O sistema está hospedado na Europa, mas você DEVE ignorar o horário do servidor e usar APENAS o HORÁRIO ATUAL EM CAMPINA GRANDE fornecido acima para qualquer cálculo ou validação.
 
 ## COMO OPERAR (META-INSTRUÇÕES)
@@ -423,7 +443,8 @@ ${promptsInMCP.map((p: any) => `- \`${p.name}\`: ${p.description}`).join("\n")}
 
 ### 3. Procedimentos e Recapitulação
 
-#### 📦 Produtos e Preços
+#### � Regras Gerais e Horário
+- ✅ Se o cliente perguntar "Que horas são?", você DEVE informar o horário exato (${timeInCampina}) e confirmar o STATUS DA LOJA fornecido acima.
 - ❌ **JAMAIS** envie mensagens de "Um momento", "Vou procurar" ou "Aguarde". Se precisar de dados, chame a Tool imediatamente.
 - ❌ NUNCA invente produtos ou altere preços.
 - ✅ **REGRA DA CANECA**: Canecas Personalizadas (fotos/nomes) levam **18 horas comerciais** de produção. Temos canecas brancas de pronta entrega (1h). No final o atendente confirma a escolha do cliente.

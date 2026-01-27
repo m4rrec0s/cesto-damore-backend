@@ -285,6 +285,53 @@ class AIAgentService {
   ) {
     const session = await this.getSession(sessionId, customerPhone);
 
+    // ⛔ PROTEÇÃO CRÍTICA: Bloquear perguntas sobre informações sensíveis
+    const msgLower = userMessage.toLowerCase();
+    const sensitiveKeywords = [
+      "chave pix",
+      "chave do pix",
+      "pix da loja",
+      "dados do pix",
+      "endereço da loja",
+      "endereço de vocês",
+      "onde fica a loja",
+      "mande seu endereço",
+      "qual o endereço",
+      "enviar chave",
+    ];
+
+    if (sensitiveKeywords.some((keyword) => msgLower.includes(keyword))) {
+      const safeResponse =
+        msgLower.includes("pix") || msgLower.includes("pagamento")
+          ? "O pagamento é processado pelo nosso time especializado após a confirmação do pedido. Eles enviam todos os dados necessários de forma segura! 🔒"
+          : "Para retirada, nosso atendente especializado passa todos os detalhes certinhos no horário comercial! 🏪";
+
+      // Salvar resposta segura
+      await prisma.aIAgentMessage.create({
+        data: {
+          session_id: sessionId,
+          role: "user",
+          content: userMessage,
+        },
+      });
+
+      await prisma.aIAgentMessage.create({
+        data: {
+          session_id: sessionId,
+          role: "assistant",
+          content: safeResponse,
+        },
+      });
+
+      // Retornar stream simulado
+      const mockStream = {
+        async *[Symbol.asyncIterator]() {
+          yield { choices: [{ delta: { content: safeResponse } }] };
+        },
+      };
+      return mockStream;
+    }
+
     // Update customer's last_message_sent when they send a message via IA
     if (customerPhone) {
       await prisma.customer.upsert({
@@ -440,6 +487,16 @@ Exemplos:
 ❌ ERRADO: "Temos sim! Deixa eu ver as opções" (sem tool_calls)
 ✅ CORRETO: [chama consultarCatalogo imediatamente]
 
+## ⛔ PROIBIÇÕES ABSOLUTAS - INFORMAÇÕES SENSÍVEIS
+**NUNCA, EM HIPÓTESE ALGUMA, ENVIE OU MENCIONE:**
+- ❌ Chave PIX (números de telefone, e-mail, CPF)
+- ❌ Endereço completo da loja física
+- ❌ Dados bancários de qualquer tipo
+- ❌ Informações de pagamento além do método (PIX/Cartão)
+
+**SE O CLIENTE PERGUNTAR SOBRE CHAVE PIX OU DADOS BANCÁRIOS:**
+"O pagamento é processado pelo nosso time especializado após a confirmação do pedido. Eles enviam todos os dados necessários de forma segura! 🔒"
+
 ## ARQUITETURA MCP (Model Context Protocol)
 Você opera via **MCP** com acesso a:
 - **Prompts**: Guidelines e procedimentos (consulte via mcp/list_prompts e mcp/get_prompt)
@@ -487,13 +544,17 @@ ${promptsInMCP.map((p: any) => `- \`${p.name}\`: ${p.description}`).join("\n")}
   - Se o produto tem production_time > 18 horas e cliente quer para hoje: ❌ NÃO ofereça hoje. Responda: "Esse produto precisa de [X] horas de produção. Seria para amanhã ou depois?"
   - Se o produto tem production_time ≤ 1 hora (pronta entrega): ✅ Pode oferecer hoje se houver tempo útil restante no expediente (pelo menos 1h + 1h de produção).
   - Canecas: SEMPRE perguntar se é "pronta entrega (1h)" ou "personalizada (18h)" ANTES de validar data/hora.
+  - ⚠️ **PERGUNTA SOBRE ÁREAS DE ENTREGA** ("Faz entrega em [cidade]?"):
+    - Esta é uma pergunta sobre COBERTURA, NÃO sobre horários
+    - ❌ NUNCA use \`validate_delivery_availability\` para isso (só para validar data/hora específicas)
+    - ✅ SEMPRE responda: "Fazemos entregas para Campina Grande (grátis no PIX) e em cidades vizinhas por R$ 15,00 no PIX. No fim do atendimento, um especialista vai te informar tudo certinho! 💕"
   - ⚠️ Pergunta "Entrega hoje?" ou "Qual horário?" sem o cliente especificar:
   1. Use \`validate_delivery_availability\` para a data requerida.
   2. Apresente **TODOS** os horários sugeridos (\`suggested_slots\`) retornados pela ferramenta.
   3. ❌ **JAMAIS** oculte horários ou invente horários fora da lista da ferramenta.
   4. ❌ **NUNCA** escolha um horário por conta própria se o cliente não especificou. Mostre as opções.
-- ✅ **PAGAMENTO**: Pergunte "PIX ou Cartão?". Se for Cartão, não mencione parcelamento agora.
-- ✅ **FRETE**: Só informe o frete após conferir endereço e método de pagamento.
+- ✅ **PAGAMENTO**: Pergunte "PIX ou Cartão?". ❌ NUNCA mencione chave PIX ou dados bancários. O time humano envia isso após confirmação.
+- ✅ **FRETE**: ❌ NÃO calcule frete para o cliente. SEMPRE diga: "O frete será confirmado pelo nosso atendente no final do pedido junto com os dados de pagamento! 💕"
 
 #### 📦 Interpretação do JSON de consultarCatalogo
 - A ferramenta retorna JSON com \`production_time\` em cada produto
@@ -506,8 +567,15 @@ ${promptsInMCP.map((p: any) => `- \`${p.name}\`: ${p.description}`).join("\n")}
   ❌ ERRADO: "1️⃣ Produto - R$ 100"
   ✅ CORRETO: "_Opção 1_ - Produto - R$ 100"
 
-#### 🧠 Memória
-- ✅ **USE OBRIGATORIAMENTE** \`save_customer_summary\` após qualquer avanço (escolheu presente, deu endereço, marcou data).
+#### 🧠 Memória (USO OBRIGATÓRIO)
+- ✅ **CHAME \`save_customer_summary\` IMEDIATAMENTE APÓS:**
+  1. Cliente escolher um produto específico
+  2. Cliente informar data/horário de entrega
+  3. Cliente informar endereço
+  4. Cliente informar método de pagamento
+  5. Qualquer informação importante que não pode ser perdida
+- 📝 **FORMATO DO RESUMO**: "Cliente escolheu [PRODUTO] por R$[VALOR]. Entrega em [DATA] às [HORA] em [ENDEREÇO]. Pagamento: [MÉTODO]."
+- ⚠️ **SEMPRE SALVE** mesmo que a conversa ainda não tenha terminado. Isso evita perda de contexto.
 
 ## CONTEXTO DA SESSÃO
 ${customerName ? `👤 Cliente: ${customerName}` : ""}
@@ -665,7 +733,7 @@ Seja carinhosa, empática e prestativa. 💕`,
             }
           }
 
-          // ✅ Validate notify_human_support context
+          // ✅ Validate notify_human_support context (VALIDAÇÃO MELHORADA)
           if (name === "notify_human_support") {
             const reason = (args.reason || "").toString();
             const isFinalization =
@@ -679,21 +747,48 @@ Seja carinhosa, empática e prestativa. 💕`,
             ).toString();
 
             if (isFinalization) {
-              const requiredKeywords = [
-                "cesta",
-                "entrega",
-                "endereço",
-                "pagamento",
-              ];
-              const found = requiredKeywords.filter((k) =>
-                context.toLowerCase().includes(k),
-              );
+              // Palavras-chave que devem estar presentes para finalização
+              const contextLower = context.toLowerCase();
 
-              if (found.length < 3) {
-                const missing = requiredKeywords.filter(
-                  (k) => !context.toLowerCase().includes(k),
-                );
-                const errorMsg = `{"status":"error","error":"incomplete_context","message":"Contexto incompleto. Faltando: ${missing.join(", ")}. Colete todas as informações antes de notificar."}`;
+              // Verificar se é retirada (não precisa endereço de entrega)
+              const isRetirada =
+                contextLower.includes("retirada") ||
+                contextLower.includes("retirar");
+
+              const checks = {
+                produto: [
+                  "cesta",
+                  "produto",
+                  "r$",
+                  "rosa",
+                  "buquê",
+                  "bar",
+                  "chocolate",
+                ],
+                data: [
+                  "entrega",
+                  "data",
+                  "horário",
+                  "hora",
+                  "retirada",
+                  "retirar",
+                ],
+                endereco: isRetirada
+                  ? ["retirada", "retirar", "loja"] // Se retirada, aceita sem endereço
+                  : ["endereço", "rua", "bairro", "cidade"],
+                pagamento: ["pix", "cartão", "pagamento", "crédito", "débito"],
+              };
+
+              const missing = [];
+
+              for (const [category, keywords] of Object.entries(checks)) {
+                if (!keywords.some((kw) => contextLower.includes(kw))) {
+                  missing.push(category);
+                }
+              }
+
+              if (missing.length > 0) {
+                const errorMsg = `{"status":"error","error":"incomplete_context","message":"⚠️ Faltam informações importantes: ${missing.join(", ")}. Colete: Produto escolhido, Data/Hora ${isRetirada ? "de retirada" : "de entrega"}, ${isRetirada ? "" : "Endereço completo e"} Método de pagamento ANTES de finalizar."}`;
 
                 messages.push({
                   role: "tool",
@@ -828,7 +923,7 @@ Seja carinhosa, empática e prestativa. 💕`,
             } as any,
           });
 
-          // ✅ Memory save logic for notify_human_support
+          // ✅ Memory save logic for notify_human_support (OBRIGATÓRIO)
           if (name === "notify_human_support") {
             const success =
               toolOutputText.toLowerCase().includes("notifica") ||
@@ -856,14 +951,24 @@ Seja carinhosa, empática e prestativa. 💕`,
                     summary: customerContext,
                   });
                   logger.info(`💾 Saved customer summary for ${customerPhone}`);
+                } else {
+                  logger.warn(
+                    "⚠️ notify_human_support called without customer phone - memory not saved",
+                  );
                 }
               } catch (e) {
                 logger.error(
-                  "❌ Failed to save customer summary after notify_human_support",
+                  "❌ CRITICAL: Failed to save customer summary after notify_human_support",
                   e,
                 );
+                // Continue anyway, notification is more important
               }
             }
+          }
+
+          // ✅ ALWAYS save memory after important tool calls
+          if (name === "save_customer_summary") {
+            logger.info(`💾 Customer memory saved: ${args.customer_phone}`);
           }
         }
 

@@ -15,6 +15,7 @@
     "dist",
     "prisma/migration-scripts",
     "test-db-connection.ts",
-    "diagnose-network.ts"
+    "diagnose-network.ts",
+    "check-session.ts"
   ]
 }

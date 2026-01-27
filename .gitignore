@@ -6,6 +6,7 @@ node_modules
 /tests
 /dist
 /src/services/__tests__
+check-session.ts
 
 # Google Drive OAuth2 (NÃO COMMITAR!)
 credentials.json

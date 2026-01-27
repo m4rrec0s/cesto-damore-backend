@@ -197,14 +197,31 @@ class AIAgentService {
   }
 
   async listSessions() {
-    return prisma.aIAgentSession.findMany({
+    const sessions = await prisma.aIAgentSession.findMany({
       include: {
         customer: true,
+        messages: {
+          select: { created_at: true },
+          orderBy: { created_at: "desc" },
+          take: 1,
+        },
         _count: {
           select: { messages: true },
         },
       },
-      orderBy: { created_at: "desc" },
+    });
+
+    // Ordenar pela última mensagem (ou created_at se não houver mensagens)
+    return sessions.sort((a, b) => {
+      const dateA =
+        a.messages.length > 0
+          ? new Date(a.messages[0].created_at).getTime()
+          : new Date(a.created_at).getTime();
+      const dateB =
+        b.messages.length > 0
+          ? new Date(b.messages[0].created_at).getTime()
+          : new Date(b.created_at).getTime();
+      return dateB - dateA;
     });
   }
 

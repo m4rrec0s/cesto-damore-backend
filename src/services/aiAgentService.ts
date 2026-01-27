@@ -423,14 +423,22 @@ class AIAgentService {
         role: "system",
         content: `${mcpCorePrompt}
 
-## ⚠️ REGRA CRÍTICA DE SILÊNCIO
+## ⚠️ REGRA CRÍTICA DE SILÊNCIO E USO DE FERRAMENTAS
 **NUNCA** envie mensagens de "Um momento", "Vou procurar", "Deixa eu ver" ou "Aguarde".
 **SILÊNCIO TOTAL DURANTE TOOL CALLS**: Se você decidir chamar uma Tool, mantenha o campo \`content\` da sua mensagem **COMPLETAMENTE VAZIO**. 
 O cliente só deve ver a resposta final após o processamento da tool.
 
-Se você precisa buscar produtos:
-❌ ERRADO: "Vou buscar algumas opções! Um momento!"
+**USO OBRIGATÓRIO DE FERRAMENTAS**:
+- Se o cliente menciona ou pergunta sobre QUALQUER produto/cesta: VOCÊ DEVE usar \`consultarCatalogo\` IMEDIATAMENTE
+- Se o cliente pergunta sobre entrega/horário: VOCÊ DEVE usar \`validate_delivery_availability\`
+- Se o cliente fornece endereço: VOCÊ DEVE usar \`calculate_freight\`
+- **JAMAIS** responda "vou buscar" ou "deixa eu ver" sem realmente chamar a ferramenta
+
+Exemplos:
+❌ ERRADO: "Vou buscar algumas opções! Um momento!" (sem tool_calls)
 ✅ CORRETO: [chama consultarCatalogo silenciosamente, depois apresenta os 2 produtos]
+❌ ERRADO: "Temos sim! Deixa eu ver as opções" (sem tool_calls)
+✅ CORRETO: [chama consultarCatalogo imediatamente]
 
 ## ARQUITETURA MCP (Model Context Protocol)
 Você opera via **MCP** com acesso a:
@@ -551,12 +559,37 @@ Seja carinhosa, empática e prestativa. 💕`,
         },
       }));
 
+      // 🔍 Detect if user is asking about products (force tool usage)
+      const lastUserMessage = [...messages]
+        .reverse()
+        .find((m) => m.role === "user");
+      const userText =
+        lastUserMessage && typeof lastUserMessage.content === "string"
+          ? lastUserMessage.content.toLowerCase()
+          : "";
+
+      const isProductQuery =
+        /\b(cesta|produto|caneca|chocolate|café|buqu[êe]|flor|vinho|whisky|rosa|presente|gift|tem|quero|gostaria|mostrar|ver|opç[õo]|catálogo)\b/i.test(
+          userText,
+        );
+      const isFirstIteration = iteration === 1;
+
+      // Force tool usage on first iteration if it's clearly a product query
+      const toolChoice =
+        isFirstIteration && isProductQuery ? "required" : "auto";
+
+      if (toolChoice === "required") {
+        logger.info(
+          `🎯 Forcing tool usage for product query: "${userText.substring(0, 50)}..."`,
+        );
+      }
+
       // ✅ CRITICAL: Use stream: false to get complete response before checking tool_calls
       const currentResponse = await this.openai.chat.completions.create({
         model: this.model,
         messages,
         tools: formattedTools,
-        tool_choice: "auto",
+        tool_choice: toolChoice,
         stream: false, // ✅ Must be false to check tool_calls synchronously
       });
 

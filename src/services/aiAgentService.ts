@@ -277,6 +277,11 @@ class AIAgentService {
           follow_up: true,
         },
       });
+
+      // Reset follow-up history when customer sends a new message
+      await prisma.followUpSent.deleteMany({
+        where: { cliente_number: customerPhone },
+      });
     }
 
     // Check if session is blocked (transfered to human)

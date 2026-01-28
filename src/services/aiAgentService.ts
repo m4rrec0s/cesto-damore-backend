@@ -15,6 +15,67 @@ class AIAgentService {
   }
 
   /**
+   * RAG Dinâmico: Detecta contexto da mensagem e retorna prompts relevantes
+   * Economiza tokens usando apenas os prompts necessários (máx 2 dinâmicos + 1 core)
+   */
+  private detectContextualPrompts(userMessage: string): string[] {
+    const messageLower = userMessage.toLowerCase();
+
+    // Mapa de detecção: contexto → prompt relevante
+    const contextMap = [
+      {
+        patterns: [
+          /entrega|João pessoa|Queimadas|Galante|Puxinanã|São José|cobertura|cidad|faz entrega/i,
+        ],
+        prompt: "delivery_rules_guideline",
+        priority: 1, // Alta prioridade
+      },
+      {
+        patterns: [/horário|que horas|quando|amanhã|hoje|noite|tarde|manhã/i],
+        prompt: "delivery_rules_guideline",
+        priority: 1,
+      },
+      {
+        patterns: [
+          /finaliza|confirma|fecha|pedido|compro|quer esse|quero essa/i,
+        ],
+        prompt: "closing_protocol_guideline",
+        priority: 1,
+      },
+      {
+        patterns: [/produto|cesta|flor|caneca|chocolate|presente|buquê/i],
+        prompt: "product_selection_guideline",
+        priority: 2,
+      },
+      {
+        patterns: [/personaliza|foto|nome|customiza|adesivo|bilhete/i],
+        prompt: "customization_guideline",
+        priority: 2,
+      },
+      {
+        patterns: [/mais opçõ|outro|diferente|parecido|similar|dúvida/i],
+        prompt: "indecision_guideline",
+        priority: 2,
+      },
+    ];
+
+    // Encontra prompts relevantes
+    const matched = contextMap
+      .filter((ctx) =>
+        ctx.patterns.some((pattern) => pattern.test(messageLower)),
+      )
+      .sort((a, b) => a.priority - b.priority) // Prioridade (1 antes de 2)
+      .slice(0, 2) // Máximo 2 prompts dinâmicos
+      .map((ctx) => ctx.prompt);
+
+    // Remove duplicatas mantendo ordem
+    const uniquePrompts = [...new Set(matched)];
+
+    // Sempre retorna core_identity primeiro, depois os dinâmicos
+    return ["core_identity_guideline", ...uniquePrompts];
+  }
+
+  /**
    * Normaliza termos de busca para melhorar a relevância
    * "café da manhã" → "café" (remove palavras comuns)
    * "cestas de chocolate" → "chocolate"
@@ -444,30 +505,50 @@ class AIAgentService {
 
     const recentHistory = this.filterHistoryForContext(history);
 
-    // ── FLUXO IDEAL MCP ──────────────────────────────────────────────────────────
-    // 1. Busca lista de tools e prompts frescos do servidor MCP
-    const toolsInMCP = await mcpClientService.listTools();
-    const promptsInMCP = await mcpClientService.listPrompts();
+    // ── RAG DINÂMICO: SELEÇÃO INTELIGENTE DE PROMPTS ─────────────────────────────
+    // 1. Detecta contexto da mensagem do usuário
+    const relevantPrompts = this.detectContextualPrompts(userMessage);
 
-    // 2. Busca o Prompt System (Core Identity) do MCP
-    let mcpCorePrompt = "";
+    // 2. Busca lista de tools (sempre necessário)
+    const toolsInMCP = await mcpClientService.listTools();
+
+    // 3. Busca prompts selecionados em paralelo (máximo 3: core + 2 dinâmicos)
+    let mcpSystemPrompts = "";
     try {
-      const corePromptResponse = await mcpClientService.getPrompt(
-        "core_identity_guideline",
+      const promptResponses = await Promise.all(
+        relevantPrompts.map((promptName) =>
+          mcpClientService.getPrompt(promptName).catch((e) => {
+            logger.warn(`⚠️ Prompt "${promptName}" não encontrado`, e);
+            return null;
+          }),
+        ),
       );
-      const content = corePromptResponse.messages[0].content;
-      if (content.type === "text") {
-        mcpCorePrompt = content.text;
-      }
+
+      mcpSystemPrompts = promptResponses
+        .filter(
+          (response): response is NonNullable<typeof response> =>
+            response !== null,
+        )
+        .map((response, index) => {
+          const content = response.messages[0].content;
+          if (content.type === "text") {
+            return index === 0
+              ? content.text
+              : `\n\n[CONTEXTO ESPECÍFICO]\n${content.text}`;
+          }
+          return "";
+        })
+        .join("");
     } catch (e) {
-      logger.error("❌ Erro ao buscar core_identity_guideline do MCP", e);
+      logger.error("❌ Erro ao buscar prompts do MCP", e);
+      mcpSystemPrompts = "";
     }
     // ──────────────────────────────────────────────────────────────────────────────
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
-        content: `${mcpCorePrompt}
+        content: `${mcpSystemPrompts}
 
 ## ⚠️ REGRA CRÍTICA DE SILÊNCIO E USO DE FERRAMENTAS
 **NUNCA** envie mensagens de "Um momento", "Vou procurar", "Deixa eu ver" ou "Aguarde".
@@ -512,10 +593,7 @@ Você opera via **MCP** com acesso a:
 ### 1. Você é um Agente Prompt-Driven
 Sempre consulte os prompts do MCP para obter as regras mais atualizadas.
 
-### 2. Prompts MCP Disponíveis
-${promptsInMCP.map((p: any) => `- \`${p.name}\`: ${p.description}`).join("\n")}
-
-### 3. Procedimentos e Recapitulação
+### 2. Procedimentos e Recapitulação
 
 #### � Regras Gerais e Horário
 - ✅ Se o cliente perguntar "Que horas são?", você DEVE informar o horário exato (${timeInCampina}) e confirmar o STATUS DA LOJA fornecido acima.

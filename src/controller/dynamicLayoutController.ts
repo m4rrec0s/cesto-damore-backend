@@ -25,6 +25,7 @@ class DynamicLayoutController {
         fabricJsonState,
         width,
         height,
+        productionTime,
         tags,
         relatedLayoutBaseId,
       } = req.body;
@@ -67,6 +68,7 @@ class DynamicLayoutController {
         fabricJsonState,
         width,
         height,
+        productionTime: productionTime ? Number(productionTime) : 0,
         tags: tags || [],
         relatedLayoutBaseId,
       });
@@ -174,6 +176,7 @@ class DynamicLayoutController {
         isShared,
         width,
         height,
+        productionTime,
       } = req.body;
 
       // Garantir que width e height sejam números inteiros para o Prisma
@@ -202,6 +205,8 @@ class DynamicLayoutController {
       if (isShared !== undefined) updateData.isShared = isShared;
       if (parsedWidth !== undefined) updateData.width = parsedWidth;
       if (parsedHeight !== undefined) updateData.height = parsedHeight;
+      if (productionTime !== undefined)
+        updateData.productionTime = Number(productionTime);
 
       const updatedLayout = await dynamicLayoutService.updateLayout(
         id,

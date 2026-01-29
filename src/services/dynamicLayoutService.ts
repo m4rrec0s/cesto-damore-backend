@@ -22,6 +22,7 @@ class DynamicLayoutService {
     fabricJsonState: any;
     width: number;
     height: number;
+    productionTime?: number;
     previewImageUrl?: string;
     tags?: string[];
     relatedLayoutBaseId?: string;
@@ -47,6 +48,7 @@ class DynamicLayoutService {
           fabricJsonState: data.fabricJsonState,
           width: data.width,
           height: data.height,
+          productionTime: data.productionTime || 0,
           previewImageUrl: finalPreviewImageUrl,
           tags: data.tags || [],
           relatedLayoutBaseId: data.relatedLayoutBaseId,
@@ -217,6 +219,7 @@ class DynamicLayoutService {
       isShared?: boolean;
       width?: number;
       height?: number;
+      productionTime?: number;
     },
   ) {
     try {

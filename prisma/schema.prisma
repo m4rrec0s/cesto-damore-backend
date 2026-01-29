@@ -541,6 +541,7 @@ model DynamicLayout {
   previewImageUrl     String? // Thumbnail para galeria
   width               Int // Dimensões do canvas
   height              Int
+  productionTime      Int      @default(0) // Tempo adicional de produção em horas
   version             Int      @default(1)
   isPublished         Boolean  @default(false)
   isShared            Boolean  @default(false)

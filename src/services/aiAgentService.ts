@@ -227,15 +227,35 @@ class AIAgentService {
     // If session doesn't exist, create or find one
     if (!session) {
       // 🔐 Strategy for phone matching:
-      // 1. If customerPhone is provided → use it directly
-      // 2. If remoteJidAlt is provided → try to find a session with this remote_jid_alt
-      // 3. If found via remoteJidAlt and we now have customerPhone → update it
+      // 1. Extract phone from sessionId format: session-{{ numero_do_cliente }}
+      // 2. If customerPhone is provided → validate against extracted phone or use it
+      // 3. If remoteJidAlt is provided → try to find a session with this remote_jid_alt
+      // 4. Use extracted phone as fallback
 
-      let identifyingPhone: string | null = customerPhone || null;
+      // Extract phone from sessionId (format: session-<phone>)
+      const extractedPhoneMatch = sessionId.match(/^session-(\d+)$/);
+      const extractedPhone = extractedPhoneMatch
+        ? extractedPhoneMatch[1]
+        : null;
+
+      let identifyingPhone: string | null =
+        customerPhone || extractedPhone || null;
       let identifyingRemoteJid: string | null = remoteJidAlt || null;
 
+      // Log the resolution strategy
+      if (extractedPhone) {
+        logger.debug(
+          `🔍 [AIAgent] Phone extraído do sessionId: ${extractedPhone}`,
+        );
+        if (customerPhone && customerPhone !== extractedPhone) {
+          logger.warn(
+            `⚠️ [AIAgent] Desconexão: sessionId tem ${extractedPhone} mas customerPhone é ${customerPhone}`,
+          );
+        }
+      }
+
       // If we have remoteJidAlt but no customerPhone, try to find an existing session
-      if (!identifyingPhone && identifyingRemoteJid) {
+      if (!customerPhone && identifyingRemoteJid) {
         logger.info(
           `🔍 [AIAgent] Procurando sessão por remoteJidAlt: ${identifyingRemoteJid}`,
         );
@@ -256,7 +276,7 @@ class AIAgentService {
         }
       }
 
-      // 🔧 Create new session - avoid null customer_phone to prevent unique constraint violation
+      // 🔧 Create new session - use identified phone
       session = await prisma.aIAgentSession.create({
         data: {
           id: sessionId,
@@ -331,7 +351,6 @@ class AIAgentService {
   async listSessions() {
     const sessions = await prisma.aIAgentSession.findMany({
       include: {
-        customer: true,
         messages: {
           select: { created_at: true },
           orderBy: { created_at: "desc" },
@@ -346,11 +365,11 @@ class AIAgentService {
     // Ordenar pela última mensagem (ou created_at se não houver mensagens)
     return sessions.sort((a, b) => {
       const dateA =
-        a.messages.length > 0
+        a._count.messages > 0
           ? new Date(a.messages[0].created_at).getTime()
           : new Date(a.created_at).getTime();
       const dateB =
-        b.messages.length > 0
+        b._count.messages > 0
           ? new Date(b.messages[0].created_at).getTime()
           : new Date(b.created_at).getTime();
       return dateB - dateA;

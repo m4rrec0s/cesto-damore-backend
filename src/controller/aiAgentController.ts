@@ -4,7 +4,8 @@ import logger from "../utils/logger";
 
 class AIAgentController {
   async chat(req: Request, res: Response) {
-    const { sessionId, message, customerPhone, customerName } = req.body;
+    const { sessionId, message, customerPhone, customerName, remoteJidAlt } =
+      req.body;
 
     if (!sessionId || !message) {
       return res
@@ -18,6 +19,7 @@ class AIAgentController {
         message,
         customerPhone,
         customerName,
+        remoteJidAlt,
       );
 
       let fullContent = "";

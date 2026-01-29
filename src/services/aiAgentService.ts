@@ -193,7 +193,11 @@ class AIAgentService {
     return validated;
   }
 
-  async getSession(sessionId: string, customerPhone?: string) {
+  async getSession(
+    sessionId: string,
+    customerPhone?: string,
+    remoteJidAlt?: string,
+  ) {
     let session = await prisma.aIAgentSession.findUnique({
       where: { id: sessionId },
       include: {
@@ -203,32 +207,100 @@ class AIAgentService {
       },
     });
 
-    if (!session || isPast(session.expires_at)) {
-      if (session) {
+    // Handle expired sessions
+    if (session && isPast(session.expires_at)) {
+      logger.info(
+        `🧹 [AIAgent] Deletando sessão expirada e mensagens: ${sessionId}`,
+      );
+
+      await prisma.aIAgentMessage.deleteMany({
+        where: { session_id: sessionId },
+      });
+      await prisma.aISessionProductHistory.deleteMany({
+        where: { session_id: sessionId },
+      });
+
+      await prisma.aIAgentSession.delete({ where: { id: sessionId } });
+      session = null;
+    }
+
+    // If session doesn't exist, create or find one
+    if (!session) {
+      // 🔐 Strategy for phone matching:
+      // 1. If customerPhone is provided → use it directly
+      // 2. If remoteJidAlt is provided → try to find a session with this remote_jid_alt
+      // 3. If found via remoteJidAlt and we now have customerPhone → update it
+
+      let identifyingPhone: string | null = customerPhone || null;
+      let identifyingRemoteJid: string | null = remoteJidAlt || null;
+
+      // If we have remoteJidAlt but no customerPhone, try to find an existing session
+      if (!identifyingPhone && identifyingRemoteJid) {
         logger.info(
-          `🧹 [AIAgent] Deletando sessão expirada e mensagens: ${sessionId}`,
+          `🔍 [AIAgent] Procurando sessão por remoteJidAlt: ${identifyingRemoteJid}`,
         );
-
-        await prisma.aIAgentMessage.deleteMany({
-          where: { session_id: sessionId },
+        const existingByRemoteJid = await prisma.aIAgentSession.findFirst({
+          where: { remote_jid_alt: identifyingRemoteJid },
+          include: {
+            messages: {
+              orderBy: { created_at: "asc" },
+            },
+          },
         });
-        await prisma.aISessionProductHistory.deleteMany({
-          where: { session_id: sessionId },
-        });
 
-        await prisma.aIAgentSession.delete({ where: { id: sessionId } });
+        if (existingByRemoteJid && !isPast(existingByRemoteJid.expires_at)) {
+          logger.info(
+            `✅ [AIAgent] Encontrada sessão existente por remoteJidAlt: ${existingByRemoteJid.id}`,
+          );
+          return existingByRemoteJid;
+        }
       }
 
+      // 🔧 Create new session - avoid null customer_phone to prevent unique constraint violation
       session = await prisma.aIAgentSession.create({
         data: {
           id: sessionId,
-          customer_phone: customerPhone,
+          customer_phone: identifyingPhone,
+          remote_jid_alt: identifyingRemoteJid,
           expires_at: addDays(new Date(), 5), // Default 5 days expiration
         },
         include: {
           messages: true,
         },
       });
+
+      logger.info(
+        `✨ [AIAgent] Nova sessão criada: ${sessionId} (phone: ${identifyingPhone || "null"}, remoteJid: ${identifyingRemoteJid || "null"})`,
+      );
+    } else if (customerPhone || remoteJidAlt) {
+      // Update existing session with new phone/remoteJid info
+      // This handles the case where remoteJidAlt unlocks the actual customerPhone
+      if (customerPhone && !session.customer_phone) {
+        logger.info(
+          `📱 [AIAgent] Atualizando sessão com phone real: ${sessionId} (${customerPhone})`,
+        );
+
+        session = await prisma.aIAgentSession.update({
+          where: { id: sessionId },
+          data: {
+            customer_phone: customerPhone,
+            remote_jid_alt: remoteJidAlt,
+          },
+          include: {
+            messages: true,
+          },
+        });
+      } else if (remoteJidAlt && !session.remote_jid_alt) {
+        session = await prisma.aIAgentSession.update({
+          where: { id: sessionId },
+          data: {
+            remote_jid_alt: remoteJidAlt,
+          },
+          include: {
+            messages: true,
+          },
+        });
+      }
     }
 
     return session;
@@ -342,8 +414,13 @@ class AIAgentService {
     userMessage: string,
     customerPhone?: string,
     customerName?: string,
+    remoteJidAlt?: string,
   ) {
-    const session = await this.getSession(sessionId, customerPhone);
+    const session = await this.getSession(
+      sessionId,
+      customerPhone,
+      remoteJidAlt,
+    );
 
     // ⛔ PROTEÇÃO CRÍTICA: Bloquear perguntas sobre informações sensíveis
     const msgLower = userMessage.toLowerCase();
@@ -1093,6 +1170,38 @@ Seja carinhosa, empática e prestativa. 💕`,
 
   // Helper to collect final response and save it to DB
   async saveResponse(sessionId: string, content: string) {
+    // Get session to check if we have phone info to sync
+    const session = await prisma.aIAgentSession.findUnique({
+      where: { id: sessionId },
+      select: { customer_phone: true, remote_jid_alt: true },
+    });
+
+    // 🔄 Auto-sync customer record if phone is now available
+    if (session?.customer_phone) {
+      const existingCustomer = await prisma.customer.findUnique({
+        where: { number: session.customer_phone },
+      });
+
+      if (!existingCustomer) {
+        // Create new customer record
+        await prisma.customer.create({
+          data: {
+            number: session.customer_phone,
+            remote_jid_alt: session.remote_jid_alt,
+          },
+        });
+        logger.info(
+          `✨ [Customer] Novo cliente criado: ${session.customer_phone}`,
+        );
+      } else if (session.remote_jid_alt && !existingCustomer.remote_jid_alt) {
+        // Update customer with remote_jid_alt if we have it
+        await prisma.customer.update({
+          where: { number: session.customer_phone },
+          data: { remote_jid_alt: session.remote_jid_alt },
+        });
+      }
+    }
+
     await prisma.aIAgentMessage.create({
       data: {
         session_id: sessionId,

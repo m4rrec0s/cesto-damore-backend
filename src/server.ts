@@ -95,24 +95,31 @@ cron.schedule("*/10 * * * *", async () => {
           lt: now,
         },
       },
-      select: { id: true },
+      select: { id: true, customer_phone: true },
     });
 
     if (expiredSessionIds.length > 0) {
       const ids = expiredSessionIds.map((s) => s.id);
+      const phoneNumbers = expiredSessionIds
+        .map((s) => s.customer_phone)
+        .filter((phone) => phone !== null) as string[];
 
+      // 🔧 FIXED: Delete in correct order to avoid foreign key violation
+      // 1. Delete messages (depends on session)
       await prisma.aIAgentMessage.deleteMany({
         where: {
           session_id: { in: ids },
         },
       });
 
+      // 2. Delete product history (depends on session)
       await prisma.aISessionProductHistory.deleteMany({
         where: {
           session_id: { in: ids },
         },
       });
 
+      // 3. Delete sessions (has foreign key to customers)
       const expiredCount = await prisma.aIAgentSession.deleteMany({
         where: {
           id: { in: ids },
@@ -122,6 +129,29 @@ cron.schedule("*/10 * * * *", async () => {
       logger.info(
         `🕒 [Cron] Limpeza concluída: ${expiredCount.count} sessões e seus dados removidos`,
       );
+
+      // 4. Clean up orphaned customer records (if they have no other sessions)
+      if (phoneNumbers.length > 0) {
+        const orphanedCustomers = await prisma.customer.findMany({
+          where: {
+            number: { in: phoneNumbers },
+            aiAgentSession: null,
+          },
+          select: { number: true },
+        });
+
+        if (orphanedCustomers.length > 0) {
+          const orphanedNumbers = orphanedCustomers.map((c) => c.number);
+          const deletedCount = await prisma.customer.deleteMany({
+            where: {
+              number: { in: orphanedNumbers },
+            },
+          });
+          logger.info(
+            `🕒 [Cron] Limpeza de clientes órfãos: ${deletedCount.count} registros removidos`,
+          );
+        }
+      }
     }
 
     const expiredMemories = await prisma.customerMemory.deleteMany({

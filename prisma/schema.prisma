@@ -367,13 +367,14 @@ model AIAgentSession {
   id             String           @id @default(uuid())
   user_id        String?
   customer_phone String?
+  remote_jid_alt String? // 🔐 Encrypted WhatsApp JID for when customerPhone is null
   is_blocked     Boolean          @default(false)
   expires_at     DateTime
   created_at     DateTime         @default(now())
   messages       AIAgentMessage[]
-  customer       Customer?
 
   @@unique([customer_phone])
+  @@index([remote_jid_alt])
 }
 
 model AIAgentMessage {
@@ -443,14 +444,14 @@ model AISummary {
 }
 
 model Customer {
-  number             String          @id
+  number             String         @id
   name               String?
   last_message_sent  DateTime?
   service_status     String?
-  already_a_customer Boolean         @default(false)
-  follow_up          Boolean         @default(false)
+  already_a_customer Boolean        @default(false)
+  follow_up          Boolean        @default(false)
+  remote_jid_alt     String? // 🔐 Encrypted WhatsApp JID for identifier matching
   followUpSent       FollowUpSent[]
-  aiAgentSession     AIAgentSession? @relation(fields: [number], references: [customer_phone])
 
   @@map("clientes")
 }

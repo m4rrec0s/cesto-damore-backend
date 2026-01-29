@@ -135,7 +135,7 @@ class ItemController {
       if (req.body.base_price !== undefined)
         data.base_price = parseFloat(req.body.base_price);
       if (req.body.allows_customization !== undefined)
-        data.allows_customization = req.body.allows_customization === "true";
+        data.allows_customization = req.body.allows_customization === true || req.body.allows_customization === "true";
       if (req.body.additional_id !== undefined)
         data.additional_id =
           req.body.additional_id && req.body.additional_id !== ""

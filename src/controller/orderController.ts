@@ -10,7 +10,7 @@ class OrderController {
 
       const orders = await orderService.getAllOrders(
         status ? { status: String(status) } : undefined,
-        { page: pageNum, limit: limitNum }
+        { page: pageNum, limit: limitNum },
       );
       res.json(orders);
     } catch (error: any) {
@@ -48,6 +48,34 @@ class OrderController {
       res.status(200).json(orders);
     } catch (error: any) {
       console.error("Erro ao buscar pedidos do usuário:", error);
+
+      if (error.message.includes("obrigatório")) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
+
+  async getPendingOrderByUserId(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+
+      if (!userId) {
+        return res.status(400).json({ error: "ID do usuário é obrigatório" });
+      }
+
+      const pendingOrder = await orderService.getPendingOrderByUserId(userId);
+
+      if (!pendingOrder) {
+        return res
+          .status(404)
+          .json({ error: "Nenhum pedido pendente encontrado" });
+      }
+
+      res.status(200).json(pendingOrder);
+    } catch (error: any) {
+      console.error("Erro ao buscar pedido pendente:", error);
 
       if (error.message.includes("obrigatório")) {
         return res.status(400).json({ error: error.message });
@@ -138,7 +166,7 @@ class OrderController {
       const order = await orderService.getOrderById(id);
       if (order.user_id !== userId) {
         console.warn(
-          `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`
+          `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`,
         );
         return res.status(403).json({
           error: "Você não tem permissão para deletar este pedido",
@@ -154,7 +182,7 @@ class OrderController {
 
       const result = await orderService.deleteOrder(id);
       console.log(
-        `✅ [remove] Pedido ${id} deletado com sucesso por usuário ${userId}`
+        `✅ [remove] Pedido ${id} deletado com sucesso por usuário ${userId}`,
       );
       res.json(result);
     } catch (error: any) {
@@ -283,7 +311,7 @@ class OrderController {
 
       if (userId && existingOrder.user_id !== userId) {
         console.warn(
-          "⚠️ [updateItems] Acesso negado: usuário não é dono do pedido"
+          "⚠️ [updateItems] Acesso negado: usuário não é dono do pedido",
         );
         return res
           .status(403)

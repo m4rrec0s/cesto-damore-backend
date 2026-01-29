@@ -97,7 +97,7 @@ function hashCustomizations(customizations?: any[]): string {
   }
 
   const sorted = [...customizations].sort((a, b) =>
-    (a.customization_id || "").localeCompare(b.customization_id || "")
+    (a.customization_id || "").localeCompare(b.customization_id || ""),
   );
   const hashData = sorted.map((c) => ({
     id: c.customization_id || "",
@@ -107,9 +107,9 @@ function hashCustomizations(customizations?: any[]): string {
     item: c.selected_item ? JSON.stringify(c.selected_item) : "",
     photos: Array.isArray(c.photos)
       ? c.photos
-        .map((p: any) => p.temp_file_id || p.preview_url || "")
-        .sort()
-        .join(",")
+          .map((p: any) => p.temp_file_id || p.preview_url || "")
+          .sort()
+          .join(",")
       : "",
   }));
 
@@ -138,7 +138,7 @@ class OrderService {
 
               // Encontrar a opção selecionada
               const selectedOption = options.find(
-                (opt: any) => opt.id === customData.selected_option
+                (opt: any) => opt.id === customData.selected_option,
               );
 
               if (selectedOption) {
@@ -155,7 +155,7 @@ class OrderService {
                 typeof customData.selected_item === "string"
                   ? customData.selected_item
                   : (customData.selected_item as { selected_item?: string })
-                    .selected_item;
+                      .selected_item;
 
               if (selected) {
                 customData.label_selected = selected;
@@ -171,7 +171,7 @@ class OrderService {
             console.error(
               "Erro ao enriquecer customização:",
               customization.id,
-              error
+              error,
             );
             return customization;
           }
@@ -235,7 +235,7 @@ class OrderService {
             console.error(
               "Erro ao sanitizar customização:",
               customization.id,
-              error
+              error,
             );
             return customization;
           }
@@ -249,8 +249,8 @@ class OrderService {
     if (!ORDER_STATUSES.includes(normalized as OrderStatus)) {
       throw new Error(
         `Status inválido. Utilize um dos seguintes: ${ORDER_STATUSES.join(
-          ", "
-        )}`
+          ", ",
+        )}`,
       );
     }
     return normalized as OrderStatus;
@@ -376,6 +376,49 @@ class OrderService {
     return this.sanitizeBase64FromCustomizations(enriched);
   }
 
+  async getPendingOrderByUserId(userId: string) {
+    if (!userId) {
+      throw new Error("ID do usuário é obrigatório");
+    }
+
+    const pendingOrder = await prisma.order.findFirst({
+      where: {
+        user_id: userId,
+        status: "PENDING",
+      },
+      include: {
+        items: {
+          include: {
+            additionals: {
+              include: {
+                additional: true,
+              },
+            },
+            product: true,
+            customizations: {
+              include: {
+                customization: true,
+              },
+            },
+          },
+        },
+        user: true,
+        payment: true,
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    });
+
+    if (!pendingOrder) {
+      return null;
+    }
+
+    const enriched = this.enrichCustomizations([pendingOrder]);
+    const sanitized = this.sanitizeBase64FromCustomizations(enriched);
+    return sanitized[0];
+  }
+
   async getOrderById(id: string) {
     if (!id) {
       throw new Error("ID do pedido é obrigatório");
@@ -448,7 +491,7 @@ class OrderService {
     ) {
       logger.error(
         "❌ [OrderService] Telefone com tamanho inválido:",
-        phoneDigits.length
+        phoneDigits.length,
       );
       throw new Error("Número do destinatário deve ter entre 10 e 13 dígitos");
     }
@@ -460,13 +503,13 @@ class OrderService {
     const paymentMethod = normalizeText(String(data.payment_method || ""));
     logger.debug(
       "💳 [OrderService] Método de pagamento normalizado:",
-      paymentMethod
+      paymentMethod,
     );
 
     if (!data.is_draft && paymentMethod !== "pix" && paymentMethod !== "card") {
       console.error(
         "❌ [OrderService] Método de pagamento inválido:",
-        paymentMethod
+        paymentMethod,
       );
       throw new Error("Forma de pagamento inválida. Utilize pix ou card");
     }
@@ -513,7 +556,7 @@ class OrderService {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(item.product_id)) {
         throw new Error(
-          `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`
+          `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`,
         );
       }
       if (!item.quantity || item.quantity <= 0) {
@@ -531,18 +574,19 @@ class OrderService {
             additional.additional_id.trim() === ""
           ) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1} precisa de um ID válido`
+              `Item ${i + 1}: adicional ${j + 1} precisa de um ID válido`,
             );
           }
           if (!additional.quantity || additional.quantity <= 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1
-              } deve possuir quantidade maior que zero`
+              `Item ${i + 1}: adicional ${
+                j + 1
+              } deve possuir quantidade maior que zero`,
             );
           }
           if (additional.price === undefined || additional.price < 0) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1} deve possuir preço válido`
+              `Item ${i + 1}: adicional ${j + 1} deve possuir preço válido`,
             );
           }
         }
@@ -553,12 +597,12 @@ class OrderService {
       try {
         await this.cancelPreviousPendingOrders(data.user_id);
         logger.info(
-          `✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`
+          `✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`,
         );
       } catch (error) {
         logger.error(
           "⚠️ Erro ao cancelar pedidos anteriores (continuando):",
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : error,
         );
       }
 
@@ -572,7 +616,7 @@ class OrderService {
       const productIds = data.items.map((item) => item.product_id);
       console.debug(
         "[OrderService.createOrder] payload productIds:",
-        productIds
+        productIds,
       );
       const products = await prisma.product.findMany({
         where: { id: { in: productIds } },
@@ -601,13 +645,14 @@ class OrderService {
           const validation =
             await productComponentService.validateComponentsStock(
               product.id,
-              orderItem.quantity
+              orderItem.quantity,
             );
 
           if (!validation.valid) {
             throw new Error(
-              `Estoque insuficiente para ${product.name
-              }:\n${validation.errors.join("\n")}`
+              `Estoque insuficiente para ${
+                product.name
+              }:\n${validation.errors.join("\n")}`,
             );
           }
         }
@@ -615,7 +660,7 @@ class OrderService {
 
       const additionalsIds = data.items
         .flatMap(
-          (item) => item.additionals?.map((ad) => ad.additional_id) || []
+          (item) => item.additionals?.map((ad) => ad.additional_id) || [],
         )
         .filter(Boolean);
 
@@ -633,7 +678,7 @@ class OrderService {
         const baseTotal = item.price * item.quantity;
         const additionalsTotal = (item.additionals || []).reduce(
           (acc, additional) => acc + additional.price * additional.quantity,
-          0
+          0,
         );
         return sum + baseTotal + additionalsTotal;
       }, 0);
@@ -657,7 +702,7 @@ class OrderService {
 
       const total = parseFloat(itemsTotal.toFixed(2));
       const grand_total = parseFloat(
-        (total - discount + shipping_price).toFixed(2)
+        (total - discount + shipping_price).toFixed(2),
       );
 
       if (grand_total <= 0) {
@@ -671,7 +716,7 @@ class OrderService {
 
         if (!stockValidation.valid) {
           throw new Error(
-            `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`
+            `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`,
           );
         }
       }
@@ -771,7 +816,7 @@ class OrderService {
       }
       const createDuration = Date.now() - createStart;
       console.log(
-        `✅ [OrderService.createOrder] inserted items in ${createDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`
+        `✅ [OrderService.createOrder] inserted items in ${createDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`,
       );
 
       // ========== DECREMENTO DE ESTOQUE REMOVIDO DA CRIAÇÃO ==========
@@ -784,13 +829,13 @@ class OrderService {
         if (orderWithUser?.user?.phone) {
           await customerManagementService.syncAppUserToN8N(data.user_id);
           console.info(
-            `✅ Cliente sincronizado com n8n: ${orderWithUser.user.phone}`
+            `✅ Cliente sincronizado com n8n: ${orderWithUser.user.phone}`,
           );
         }
       } catch (syncError: any) {
         console.error(
           "⚠️ Erro ao sincronizar cliente com n8n:",
-          syncError.message
+          syncError.message,
         );
         // Não falha o pedido se a sincronização falhar
       }
@@ -829,12 +874,12 @@ class OrderService {
       // ✅ Deletar pasta raiz (com cascata de subpastas)
       await googleDriveService.deleteFolder(order.google_drive_folder_id);
       logger.info(
-        `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`
+        `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`,
       );
     } catch (err) {
       logger.warn(
         `⚠️ Erro ao deletar pasta Google Drive do pedido ${orderId}:`,
-        err
+        err,
       );
       // Não bloquear deleção do pedido se Drive falhar
     }
@@ -933,7 +978,7 @@ class OrderService {
               where: { order_item_id: { in: itemIds } },
             });
           logger.info(
-            `  ✓ Customizações deletadas: ${deletedCustomizations.count}`
+            `  ✓ Customizações deletadas: ${deletedCustomizations.count}`,
           );
 
           const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
@@ -952,12 +997,12 @@ class OrderService {
             where: { order_id: id },
           });
           logger.info(
-            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`
+            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
           );
         } catch (err) {
           logger.info(
             "  ℹ️ Sem personalizações para deletar (ou erro):",
-            (err as any)?.message || err
+            (err as any)?.message || err,
           );
         }
 
@@ -974,7 +1019,7 @@ class OrderService {
         } catch (err) {
           logger.warn(
             "  ℹ️ Erro ao deletar pagamento (pode não existir):",
-            (err as any)?.message || err
+            (err as any)?.message || err,
           );
         }
 
@@ -986,7 +1031,7 @@ class OrderService {
         const tempFileService = require("../services/tempFileService").default;
         const result = tempFileService.deleteFiles(tempFilesToDelete);
         logger.info(
-          `🗑️ Arquivos temporários deletados: ${result.deleted}, falharam: ${result.failed}`
+          `🗑️ Arquivos temporários deletados: ${result.deleted}, falharam: ${result.failed}`,
         );
       }
 
@@ -1040,7 +1085,7 @@ class OrderService {
     }
 
     console.log(
-      `[OrderService] Atualizando itens do pedido ${orderId} - quantidade: ${items.length}`
+      `[OrderService] Atualizando itens do pedido ${orderId} - quantidade: ${items.length}`,
     );
 
     // Validação básica dos itens
@@ -1054,7 +1099,7 @@ class OrderService {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(item.product_id)) {
         throw new Error(
-          `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`
+          `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`,
         );
       }
       if (!item.quantity || item.quantity <= 0) {
@@ -1071,7 +1116,7 @@ class OrderService {
             additional.additional_id.trim() === ""
           ) {
             throw new Error(
-              `Item ${i + 1}: adicional ${j + 1} precisa de um ID válido`
+              `Item ${i + 1}: adicional ${j + 1} precisa de um ID válido`,
             );
           }
         }
@@ -1081,11 +1126,11 @@ class OrderService {
     const productIds = items.map((i) => i.product_id);
     console.debug(
       `[OrderService.updateOrderItems] orderId=${orderId} payload items:`,
-      items
+      items,
     );
     console.debug(
       `[OrderService.updateOrderItems] orderId=${orderId} items productIds:`,
-      productIds
+      productIds,
     );
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
@@ -1113,7 +1158,7 @@ class OrderService {
         const foundIds = additionals.map((a) => a.id);
         const missing = additionalsIds.filter((id) => !foundIds.includes(id));
         const err = new Error(
-          `Adicionais não encontrados: ${missing.join(",")}`
+          `Adicionais não encontrados: ${missing.join(",")}`,
         );
         (err as any).code = "MISSING_ADDITIONALS";
         (err as any).missing = missing;
@@ -1125,7 +1170,7 @@ class OrderService {
       const stockValidation = await stockService.validateOrderStock(items);
       if (!stockValidation.valid) {
         throw new Error(
-          `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`
+          `Estoque insuficiente:\n${stockValidation.errors.join("\n")}`,
         );
       }
     }
@@ -1133,7 +1178,7 @@ class OrderService {
     const itemsTotal = items.reduce((sum, item) => {
       const additionalTotal = (item.additionals || []).reduce(
         (acc, add) => acc + (add.price || 0) * item.quantity,
-        0
+        0,
       );
       return sum + item.price * item.quantity + additionalTotal;
     }, 0);
@@ -1146,7 +1191,7 @@ class OrderService {
     const shipping_price = order.shipping_price || 0;
     const total = parseFloat(itemsTotal.toFixed(2));
     const grand_total = parseFloat(
-      (total - discount + shipping_price).toFixed(2)
+      (total - discount + shipping_price).toFixed(2),
     );
 
     // ✅ Use transaction to ensure atomicity and prevent FK constraint violations
@@ -1254,26 +1299,26 @@ class OrderService {
           });
           const txDuration = Date.now() - txStart;
           console.log(
-            `[OrderService] updateOrderItems transaction completed in ${txDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`
+            `[OrderService] updateOrderItems transaction completed in ${txDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`,
           );
         },
-        { timeout: 20000 }
+        { timeout: 20000 },
       );
     } catch (error: any) {
       console.error(
         `[OrderService] updateOrderItems transaction failed for order ${orderId}:`,
-        error
+        error,
       );
       if (error?.code === "P2028") {
         throw new Error(
-          "Erro ao atualizar itens do pedido: tempo limite da transação excedido"
+          "Erro ao atualizar itens do pedido: tempo limite da transação excedido",
         );
       }
       throw error;
     }
 
     console.log(
-      `[OrderService] Itens atualizados do pedido ${orderId} - total: ${total}`
+      `[OrderService] Itens atualizados do pedido ${orderId} - total: ${total}`,
     );
 
     return await this.getOrderById(orderId);
@@ -1290,7 +1335,7 @@ class OrderService {
       recipient_phone?: string | null;
       delivery_date?: Date | string | null;
       shipping_price?: number; // ✅ NOVO: permitir atualizar frete
-    }
+    },
   ) {
     if (!orderId) {
       throw new Error("ID do pedido é obrigatório");
@@ -1386,7 +1431,7 @@ class OrderService {
       const currentTotal = order.total;
       const currentDiscount = order.discount || 0;
       const newGrandTotal = parseFloat(
-        (currentTotal - currentDiscount + data.shipping_price).toFixed(2)
+        (currentTotal - currentDiscount + data.shipping_price).toFixed(2),
       );
 
       if (newGrandTotal <= 0) {
@@ -1407,7 +1452,7 @@ class OrderService {
   async updateOrderStatus(
     id: string,
     newStatus: string,
-    options: UpdateStatusOptions = {}
+    options: UpdateStatusOptions = {},
   ) {
     if (!id) {
       throw new Error("ID do pedido é obrigatório");
@@ -1454,22 +1499,27 @@ class OrderService {
     // ✅ NOVO: Decrementar estoque quando o pedido for pago
     if (normalizedStatus === "PAID" && current.status !== "PAID") {
       try {
-        logger.info(`📦 [OrderService] Pedido ${id} pago - decrementando estoque...`);
+        logger.info(
+          `📦 [OrderService] Pedido ${id} pago - decrementando estoque...`,
+        );
 
         // Transformar items para o formato esperado pelo stockService
-        const stockItems = updated.items.map(item => ({
+        const stockItems = updated.items.map((item) => ({
           product_id: item.product_id,
           quantity: item.quantity,
-          additionals: item.additionals.map(ad => ({
+          additionals: item.additionals.map((ad) => ({
             additional_id: ad.additional_id,
-            quantity: ad.quantity
-          }))
+            quantity: ad.quantity,
+          })),
         }));
 
         await stockService.decrementOrderStock(stockItems);
         logger.info(`✅ Estoque decrementado para o pedido ${id}`);
       } catch (stockError) {
-        logger.error(`❌ Erro crítico ao decrementar estoque do pedido ${id}:`, stockError);
+        logger.error(
+          `❌ Erro crítico ao decrementar estoque do pedido ${id}:`,
+          stockError,
+        );
         // O pedido permanece PAID, mas o erro é registrado para intervenção manual se necessário
       }
     }
@@ -1524,18 +1574,18 @@ class OrderService {
             },
             delivery: updated.delivery_address
               ? {
-                address: updated.delivery_address,
-                date: updated.delivery_date || undefined,
-              }
+                  address: updated.delivery_address,
+                  date: updated.delivery_date || undefined,
+                }
               : undefined,
             googleDriveUrl: driveLink || undefined,
           },
-          normalizedStatus
+          normalizedStatus,
         );
       } catch (error) {
         console.error(
           "⚠️ Erro ao enviar notificação de atualização de pedido:",
-          (error as Error).message
+          (error as Error).message,
         );
       }
     }
@@ -1544,7 +1594,7 @@ class OrderService {
     if (normalizedStatus === "DELIVERED") {
       try {
         logger.info(
-          `📦 [OrderService] Pedido ${id} marcado como ENTREGUE - limpando recursos...`
+          `📦 [OrderService] Pedido ${id} marcado como ENTREGUE - limpando recursos...`,
         );
 
         // Deletar Google Drive folder
@@ -1553,13 +1603,13 @@ class OrderService {
             .deleteFolder(updated.google_drive_folder_id)
             .then(() => {
               logger.info(
-                `✅ Pasta Google Drive deletada: ${updated.google_drive_folder_id}`
+                `✅ Pasta Google Drive deletada: ${updated.google_drive_folder_id}`,
               );
             })
             .catch((err) => {
               logger.warn(
                 `⚠️ Erro ao deletar pasta Drive ${updated.google_drive_folder_id}:`,
-                err
+                err,
               );
             });
         }
@@ -1575,7 +1625,7 @@ class OrderService {
           });
 
         logger.info(
-          `🗑️ ${customizationsDeleted.count} customização(ões) deletada(s)`
+          `🗑️ ${customizationsDeleted.count} customização(ões) deletada(s)`,
         );
 
         // ✅ Deletar Personalization (canvas/imagens geradas)
@@ -1584,11 +1634,11 @@ class OrderService {
             where: {
               order_id: id,
             },
-          }
+          },
         );
 
         logger.info(
-          `🗑️ ${personalizationsDeleted.count} personalização(ões) deletada(s)`
+          `🗑️ ${personalizationsDeleted.count} personalização(ões) deletada(s)`,
         );
 
         // ✅ NOVO: Deletar arquivos temporários da VPS
@@ -1635,7 +1685,7 @@ class OrderService {
                 const filePath = path.join(
                   baseStorageDir,
                   "temp",
-                  tempFileName
+                  tempFileName,
                 );
 
                 // Validação de segurança
@@ -1645,7 +1695,7 @@ class OrderService {
                 ) {
                   fs.unlinkSync(filePath);
                   logger.info(
-                    `🗑️ Arquivo temporário deletado: ${tempFileName}`
+                    `🗑️ Arquivo temporário deletado: ${tempFileName}`,
                   );
                   tempFilesDeleted++;
                 }
@@ -1660,17 +1710,17 @@ class OrderService {
 
         if (tempFilesDeleted > 0) {
           logger.info(
-            `🗑️ ${tempFilesDeleted} arquivo(s) temporário(s) deletado(s)`
+            `🗑️ ${tempFilesDeleted} arquivo(s) temporário(s) deletado(s)`,
           );
         }
 
         logger.info(
-          `✅ [OrderService] Limpeza de recursos do pedido ${id} concluída`
+          `✅ [OrderService] Limpeza de recursos do pedido ${id} concluída`,
         );
       } catch (err) {
         logger.warn(
           `⚠️ Erro na limpeza de recursos do pedido entregue ${id}:`,
-          err
+          err,
         );
         // Não bloquear - pedido continua sendo retornado
       }
@@ -1740,7 +1790,7 @@ class OrderService {
     }
     if (order.status !== "PENDING") {
       throw new Error(
-        "Apenas pedidos pendentes podem ser cancelados pelo cliente"
+        "Apenas pedidos pendentes podem ser cancelados pelo cliente",
       );
     }
 
@@ -1749,7 +1799,7 @@ class OrderService {
         const PaymentService = require("./paymentService").default;
         await PaymentService.cancelPayment(order.payment.mercado_pago_id);
         console.log(
-          `✅ Pagamento ${order.payment.mercado_pago_id} cancelado no Mercado Pago`
+          `✅ Pagamento ${order.payment.mercado_pago_id} cancelado no Mercado Pago`,
         );
       } catch (error) {
         console.error("Erro ao cancelar pagamento no Mercado Pago:", error);
@@ -1807,13 +1857,13 @@ class OrderService {
 
       if (pendingOrders.length === 0) {
         console.log(
-          `ℹ️ [OrderService] Nenhum pedido PENDING anterior encontrado para usuário ${userId}`
+          `ℹ️ [OrderService] Nenhum pedido PENDING anterior encontrado para usuário ${userId}`,
         );
         return { canceled: 0 };
       }
 
       console.log(
-        `🗑️ [OrderService] Cancelando ${pendingOrders.length} pedido(s) PENDING anterior(es) do usuário ${userId}`
+        `🗑️ [OrderService] Cancelando ${pendingOrders.length} pedido(s) PENDING anterior(es) do usuário ${userId}`,
       );
 
       // Cancelar cada pedido PENDING antigo
@@ -1825,23 +1875,23 @@ class OrderService {
         } catch (error) {
           console.error(
             `⚠️ Erro ao cancelar pedido ${order.id}:`,
-            error instanceof Error ? error.message : error
+            error instanceof Error ? error.message : error,
           );
         }
       }
 
       console.log(
-        `✅ [OrderService] ${canceledCount} pedido(s) PENDING cancelado(s) com sucesso`
+        `✅ [OrderService] ${canceledCount} pedido(s) PENDING cancelado(s) com sucesso`,
       );
 
       return { canceled: canceledCount };
     } catch (error: any) {
       console.error(
         `❌ [OrderService] Erro ao canc elar pedidos PENDING anteriores:`,
-        error
+        error,
       );
       throw new Error(
-        `Erro ao cancelar pedidos pendentes anteriores: ${error.message}`
+        `Erro ao cancelar pedidos pendentes anteriores: ${error.message}`,
       );
     }
   }
@@ -1866,13 +1916,13 @@ class OrderService {
 
       if (abandonedOrders.length === 0) {
         console.log(
-          "ℹ️ [OrderService] Nenhum pedido abandonado encontrado para limpeza"
+          "ℹ️ [OrderService] Nenhum pedido abandonado encontrado para limpeza",
         );
         return { cleaned: 0 };
       }
 
       console.log(
-        `🧹 [OrderService] Limpando ${abandonedOrders.length} pedido(s) abandonado(s)`
+        `🧹 [OrderService] Limpando ${abandonedOrders.length} pedido(s) abandonado(s)`,
       );
 
       // ✅ NOVO: Deletar pastas Google Drive em paralelo
@@ -1883,16 +1933,16 @@ class OrderService {
             .deleteFolder(order.google_drive_folder_id!)
             .then(() => {
               logger.info(
-                `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`
+                `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`,
               );
             })
             .catch((err) => {
               logger.warn(
                 `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
-                err
+                err,
               );
               // Não bloquear limpeza se Drive falhar
-            })
+            }),
         );
       await Promise.all(driveDeletePromises);
 
@@ -1904,20 +1954,20 @@ class OrderService {
         } catch (error) {
           console.error(
             `⚠️ Erro ao limpar pedido abandonado ${order.id}:`,
-            error instanceof Error ? error.message : error
+            error instanceof Error ? error.message : error,
           );
         }
       }
 
       console.log(
-        `✅ [OrderService] ${cleanedCount} pedido(s) abandonado(s) limpo(s) com sucesso`
+        `✅ [OrderService] ${cleanedCount} pedido(s) abandonado(s) limpo(s) com sucesso`,
       );
 
       return { cleaned: cleanedCount };
     } catch (error: any) {
       console.error(
         `❌ [OrderService] Erro ao limpar pedidos abandonados:`,
-        error
+        error,
       );
       throw new Error(`Erro ao limpar pedidos abandonados: ${error.message}`);
     }
@@ -1932,13 +1982,13 @@ class OrderService {
 
       if (canceledOrders.length === 0) {
         console.log(
-          "ℹ️ [OrderService] Nenhum pedido cancelado encontrado para exclusão"
+          "ℹ️ [OrderService] Nenhum pedido cancelado encontrado para exclusão",
         );
         return { deleted: 0 };
       }
 
       console.log(
-        `🗑️ [OrderService] Iniciando deleção de ${canceledOrders.length} pedido(s) cancelado(s)`
+        `🗑️ [OrderService] Iniciando deleção de ${canceledOrders.length} pedido(s) cancelado(s)`,
       );
 
       // ✅ NOVO: Deletar pastas Google Drive em paralelo ANTES de deletar do banco
@@ -1949,16 +1999,16 @@ class OrderService {
             .deleteFolder(order.google_drive_folder_id!)
             .then(() => {
               logger.info(
-                `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`
+                `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`,
               );
             })
             .catch((err) => {
               logger.warn(
                 `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
-                err
+                err,
               );
               // Não bloquear deleção se Drive falhar
-            })
+            }),
         );
       await Promise.all(driveDeletePromises);
 
@@ -1977,7 +2027,7 @@ class OrderService {
               where: { order_item_id: { in: itemIds } },
             });
           console.log(
-            `  ✓ Customizações deletadas: ${deletedCustomizations.count}`
+            `  ✓ Customizações deletadas: ${deletedCustomizations.count}`,
           );
 
           const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
@@ -1996,12 +2046,12 @@ class OrderService {
             where: { order_id: { in: orderIds } },
           });
           console.log(
-            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`
+            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
           );
         } catch (err) {
           console.log(
             "  ℹ️ Sem personalizações para deletar (ou erro):",
-            (err as any)?.message || err
+            (err as any)?.message || err,
           );
         }
 
@@ -2013,7 +2063,7 @@ class OrderService {
         } catch (err) {
           console.log(
             "  ℹ️ Erro ao deletar pagamentos (podem não existir):",
-            (err as any)?.message || err
+            (err as any)?.message || err,
           );
         }
 
@@ -2024,14 +2074,14 @@ class OrderService {
       });
 
       console.log(
-        `✅ [OrderService] ${canceledOrders.length} pedido(s) cancelado(s) deletado(s) com sucesso`
+        `✅ [OrderService] ${canceledOrders.length} pedido(s) cancelado(s) deletado(s) com sucesso`,
       );
 
       return { deleted: canceledOrders.length };
     } catch (error: any) {
       console.error(
         `❌ [OrderService] Erro ao deletar pedidos cancelados:`,
-        error
+        error,
       );
       throw new Error(`Erro ao deletar pedidos cancelados: ${error.message}`);
     }

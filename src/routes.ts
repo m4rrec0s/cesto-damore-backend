@@ -203,6 +203,11 @@ router.get(
   authenticateToken,
   orderController.getByUserId,
 );
+router.get(
+  "/users/:userId/orders/pending",
+  authenticateToken,
+  orderController.getPendingOrderByUserId,
+);
 router.get("/users/:id", authenticateToken, userController.show);
 router.post(
   "/users",

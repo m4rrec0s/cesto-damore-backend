@@ -395,7 +395,8 @@ class ScheduledJobsService {
       }
 
       const files = fs.readdirSync(backupDir);
-      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      // ✅ NOVO: Aumentado para 30 dias (customizações finais devem persistir por mais tempo)
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
       let deletedCount = 0;
       let totalSize = 0;
@@ -404,8 +405,8 @@ class ScheduledJobsService {
         const filePath = path.join(backupDir, file);
         const stats = fs.statSync(filePath);
 
-        // Verificar se arquivo é antigo o suficiente
-        if (stats.mtimeMs < sevenDaysAgo) {
+        // Verificar se arquivo é antigo o suficiente (30 dias)
+        if (stats.mtimeMs < thirtyDaysAgo) {
           try {
             totalSize += stats.size;
             fs.unlinkSync(filePath);

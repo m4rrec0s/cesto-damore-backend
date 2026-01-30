@@ -830,13 +830,13 @@ Seja carinhosa, empática e prestativa. 💕`,
         );
       const isFirstIteration = iteration === 1;
 
-      // Force tool usage on first iteration if it's clearly a product query
-      const toolChoice =
-        isFirstIteration && isProductQuery ? "required" : "auto";
+      // ⚠️ CRITICAL FIX: Do NOT use "required" - it causes the LLM to discuss calling the tool
+      // Instead, we inject system guidance and let the LLM choose naturally
+      const toolChoice = "auto";
 
-      if (toolChoice === "required") {
+      if (isFirstIteration && isProductQuery) {
         logger.info(
-          `🎯 Forcing tool usage for product query: "${userText.substring(0, 50)}..."`,
+          `🎯 Product query detected: "${userText.substring(0, 50)}..."`,
         );
       }
 

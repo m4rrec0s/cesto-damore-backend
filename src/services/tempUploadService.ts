@@ -235,11 +235,12 @@ class TempUploadService {
         }
       }
 
-      // Cleanup: deletar registros muito antigos (após 7 dias de expiração)
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      // Cleanup: deletar registros muito antigos (após 30 dias de expiração)
+      // ✅ NOVO: Aumentado para 30 dias para manter customizações finais por mais tempo
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       await prisma.tempUpload.deleteMany({
         where: {
-          deletedAt: { lt: sevenDaysAgo },
+          deletedAt: { lt: thirtyDaysAgo },
         },
       });
 

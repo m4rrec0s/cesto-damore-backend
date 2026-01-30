@@ -206,9 +206,11 @@ function validateDynamicLayoutCustomization(
   }
 
   // 🔥 NOVO: Verificar se o design foi finalizado (tem preview_url)
+  // ✅ CORREÇÃO: Aceitar também previewUrl (campo direto) além de final_artwork.preview_url
   const hasPreview =
     data.final_artwork?.preview_url ||
     data.image?.preview_url ||
+    data.previewUrl || // ✅ NOVO: Campo direto usado pelo frontend
     (Array.isArray(data.final_artworks) &&
       data.final_artworks.some((a: any) => a.preview_url));
 
@@ -231,9 +233,11 @@ function validateDynamicLayoutCustomization(
 
   // 🔥 NOVO: Validar preview_url não é blob ou base64
   if (hasPreview) {
+    // ✅ CORREÇÃO: Verificar todos os campos possíveis
     const previewUrl =
       data.final_artwork?.preview_url ||
       data.image?.preview_url ||
+      data.previewUrl || // ✅ NOVO: Campo direto
       data.final_artworks?.[0]?.preview_url;
 
     if (

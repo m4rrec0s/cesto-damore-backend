@@ -33,7 +33,7 @@ class OrderCustomizationController {
    */
   private async convertBase64ToFile(
     base64String: string,
-    fileName: string = "artwork"
+    fileName: string = "artwork",
   ): Promise<string | null> {
     try {
       logger.info(`🔄 [convertBase64ToFile] Iniciando conversão: ${fileName}`);
@@ -45,7 +45,7 @@ class OrderCustomizationController {
         const matches = base64String.match(/data:[^;]+;base64,(.+)/);
         if (!matches) {
           logger.warn(
-            `❌ Formato base64 inválido: ${base64String.substring(0, 50)}`
+            `❌ Formato base64 inválido: ${base64String.substring(0, 50)}`,
           );
           return null;
         }
@@ -66,7 +66,7 @@ class OrderCustomizationController {
     } catch (error: any) {
       logger.error(
         `❌ [convertBase64ToFile] Erro: ${error.message}`,
-        error.stack
+        error.stack,
       );
       return null;
     }
@@ -77,6 +77,8 @@ class OrderCustomizationController {
    * Detecta e converte:
    * - { base64: "data:...", ... }
    * - { photos: [{ base64: "...", ...}, ...] }
+   * - { previewUrl: "data:image...", ... }
+   * - { highQualityUrl: "data:image...", ... }
    * ✅ IMPORTANTE: Remove base64 do payload SEMPRE, mantém apenas preview_url
    * ✅ CRÍTICO: Deve deletar base64 em TODOS os objetos recursivamente
    */
@@ -92,11 +94,46 @@ class OrderCustomizationController {
     if (typeof data === "object") {
       const processed: any = {};
 
+      // 🔥 CRÍTICO: Detectar e remover previewUrl/highQualityUrl com base64
+      if (
+        data.previewUrl &&
+        typeof data.previewUrl === "string" &&
+        data.previewUrl.startsWith("data:image")
+      ) {
+        logger.warn(
+          "⚠️ [processBase64InData] Detectado previewUrl com base64! Removendo para evitar salvar no BD",
+        );
+        // Se já tem final_artwork.preview_url, usar ela; senão remover
+        if (!data.final_artwork?.preview_url) {
+          processed.previewUrl = undefined;
+        }
+      } else if (data.previewUrl) {
+        processed.previewUrl = data.previewUrl;
+      }
+
+      if (
+        data.highQualityUrl &&
+        typeof data.highQualityUrl === "string" &&
+        data.highQualityUrl.startsWith("data:image")
+      ) {
+        logger.warn(
+          "⚠️ [processBase64InData] Detectado highQualityUrl com base64! Removendo para evitar salvar no BD",
+        );
+        processed.highQualityUrl = undefined;
+      } else if (data.highQualityUrl) {
+        processed.highQualityUrl = data.highQualityUrl;
+      }
+
       for (const [key, value] of Object.entries(data)) {
+        // Pular previewUrl/highQualityUrl já processados acima
+        if (key === "previewUrl" || key === "highQualityUrl") {
+          continue;
+        }
+
         // ✅ SPECIAL CASE: Se for array de fotos, processar cada item
         if (key === "photos" && Array.isArray(value)) {
           logger.debug(
-            `🔄 [processBase64InData] Detectado array "photos" com ${value.length} itens`
+            `🔄 [processBase64InData] Detectado array "photos" com ${value.length} itens`,
           );
           processed[key] = await Promise.all(
             value.map(async (photo: any, idx: number) => {
@@ -108,18 +145,18 @@ class OrderCustomizationController {
 
               if (base64 && photo.preview_url) {
                 logger.debug(
-                  `   [${idx}] Foto com preview_url detectada, removendo base64`
+                  `   [${idx}] Foto com preview_url detectada, removendo base64`,
                 );
                 return photoSemBase64;
               }
 
               if (base64) {
                 logger.info(
-                  `   [${idx}] Foto com base64 detectada, convertendo...`
+                  `   [${idx}] Foto com base64 detectada, convertendo...`,
                 );
                 const url = await this.convertBase64ToFile(
                   base64,
-                  photo.original_name || `photo-${idx}`
+                  photo.original_name || `photo-${idx}`,
                 );
                 if (url) {
                   logger.info(`   [${idx}] ✅ Convertida para: ${url}`);
@@ -134,7 +171,7 @@ class OrderCustomizationController {
               }
 
               return photoSemBase64;
-            })
+            }),
           );
           continue;
         }
@@ -156,11 +193,11 @@ class OrderCustomizationController {
           // Se tinha base64 e consegue converter
           if (objBase64 && typeof objBase64 === "string") {
             logger.info(
-              `🔄 [processBase64InData] Detectado base64 em "${key}"`
+              `🔄 [processBase64InData] Detectado base64 em "${key}"`,
             );
             const url = await this.convertBase64ToFile(
               objBase64,
-              obj.fileName || "artwork"
+              obj.fileName || "artwork",
             );
             if (url) {
               processed[key] = { ...objSemBase64, preview_url: url };
@@ -168,7 +205,7 @@ class OrderCustomizationController {
             } else {
               // Falha na conversão, retornar sem base64 mesmo assim
               logger.warn(
-                `⚠️ Falha ao converter base64 em "${key}", retornando sem base64`
+                `⚠️ Falha ao converter base64 em "${key}", retornando sem base64`,
               );
               processed[key] = objSemBase64;
             }
@@ -188,7 +225,7 @@ class OrderCustomizationController {
             const { base64: nestedBase64, ...valueSemBase64 } = processedValue;
             if (nestedBase64) {
               logger.debug(
-                `🗑️ [processBase64InData] Removendo base64 aninhado em "${key}"`
+                `🗑️ [processBase64InData] Removendo base64 aninhado em "${key}"`,
               );
             }
             processed[key] = valueSemBase64;
@@ -223,9 +260,8 @@ class OrderCustomizationController {
         return res.status(404).json({ error: "Pedido não encontrado" });
       }
 
-      const items = await orderCustomizationService.listOrderCustomizations(
-        orderId
-      );
+      const items =
+        await orderCustomizationService.listOrderCustomizations(orderId);
 
       return res.json({
         orderId,
@@ -256,7 +292,7 @@ class OrderCustomizationController {
 
       const { orderId, itemId } = paramsSchema.parse(req.params);
       logger.info(
-        `🎯 [saveOrderItemCustomization] orderId=${orderId}, itemId=${itemId}`
+        `🎯 [saveOrderItemCustomization] orderId=${orderId}, itemId=${itemId}`,
       );
 
       const payload = customizationPayloadSchema.parse(req.body);
@@ -266,14 +302,14 @@ class OrderCustomizationController {
       logger.debug(
         `   finalArtwork.base64? ${
           payload.finalArtwork ? !!payload.finalArtwork.base64 : "N/A"
-        }`
+        }`,
       );
 
       // ✅ DEBUG: Log do payload.data para DYNAMIC_LAYOUT
       if (payload.customizationType === "DYNAMIC_LAYOUT") {
         logger.debug(
           `📦 [DYNAMIC_LAYOUT] Payload.data:`,
-          JSON.stringify(payload.data).substring(0, 500)
+          JSON.stringify(payload.data).substring(0, 500),
         );
       }
 
@@ -281,7 +317,7 @@ class OrderCustomizationController {
 
       // ✅ NOVO: Processar base64 antes de salvar
       logger.info(
-        `📝 Processando customização com base64... tipo=${payload.customizationType}`
+        `📝 Processando customização com base64... tipo=${payload.customizationType}`,
       );
 
       const customizationData = {
@@ -291,11 +327,11 @@ class OrderCustomizationController {
       // Se tiver finalArtwork com base64, converter para arquivo
       if (payload.finalArtwork && payload.finalArtwork.base64) {
         logger.info(
-          `🔄 Detectado finalArtwork com base64! Convertendo... fileName=${payload.finalArtwork.fileName}`
+          `🔄 Detectado finalArtwork com base64! Convertendo... fileName=${payload.finalArtwork.fileName}`,
         );
         const url = await this.convertBase64ToFile(
           payload.finalArtwork.base64,
-          payload.finalArtwork.fileName || "artwork"
+          payload.finalArtwork.fileName || "artwork",
         );
         if (url) {
           // ✅ Deletar base64 do objeto
@@ -311,8 +347,8 @@ class OrderCustomizationController {
       } else if (payload.finalArtwork) {
         logger.info(
           `ℹ️ finalArtwork sem base64, usando como está: ${JSON.stringify(
-            payload.finalArtwork
-          ).substring(0, 100)}`
+            payload.finalArtwork,
+          ).substring(0, 100)}`,
         );
         // ✅ Mesmo sem base64, deletar o campo se existir
         const { base64, ...artworkSemBase64 } = payload.finalArtwork;
@@ -322,7 +358,7 @@ class OrderCustomizationController {
       // Se tiver finalArtworks (array), converter cada um
       if (payload.finalArtworks && Array.isArray(payload.finalArtworks)) {
         logger.info(
-          `🔄 Processando array de ${payload.finalArtworks.length} artworks...`
+          `🔄 Processando array de ${payload.finalArtworks.length} artworks...`,
         );
         customizationData.final_artworks = await Promise.all(
           payload.finalArtworks.map(async (artwork, idx) => {
@@ -330,7 +366,7 @@ class OrderCustomizationController {
               logger.info(`   [${idx}] Convertendo artwork com base64...`);
               const url = await this.convertBase64ToFile(
                 artwork.base64,
-                artwork.fileName || `artwork-${idx}`
+                artwork.fileName || `artwork-${idx}`,
               );
               if (url) {
                 logger.info(`   [${idx}] ✅ Convertido para: ${url}`);
@@ -349,7 +385,7 @@ class OrderCustomizationController {
             // ✅ Deletar base64 mesmo sem conversão
             const { base64, ...artworkSemBase64 } = artwork;
             return artworkSemBase64;
-          })
+          }),
         );
       }
 
@@ -361,11 +397,11 @@ class OrderCustomizationController {
         customizationData.image.base64
       ) {
         logger.info(
-          `🔄 [DYNAMIC_LAYOUT] Detectado image.base64 em data.image, convertendo...`
+          `🔄 [DYNAMIC_LAYOUT] Detectado image.base64 em data.image, convertendo...`,
         );
         const url = await this.convertBase64ToFile(
           customizationData.image.base64,
-          customizationData.image.fileName || "base-layout-image"
+          customizationData.image.fileName || "base-layout-image",
         );
         if (url) {
           logger.info(`✅ [DYNAMIC_LAYOUT] Imagem convertida para: ${url}`);
@@ -380,21 +416,21 @@ class OrderCustomizationController {
         // ✅ DEBUG: Se é DYNAMIC_LAYOUT mas não tem image.base64, logar para investigar
         logger.warn(
           `⚠️ [DYNAMIC_LAYOUT] Sem image.base64! customizationData:`,
-          JSON.stringify(customizationData).substring(0, 300)
+          JSON.stringify(customizationData).substring(0, 300),
         );
       }
 
       // ✅ NOVO: Processar recursivamente qualquer base64 nos dados
       logger.debug(
         `📝 [ANTES processBase64InData] customizationData para ${payload.customizationType}:`,
-        JSON.stringify(customizationData).substring(0, 500)
+        JSON.stringify(customizationData).substring(0, 500),
       );
 
       let processedData = await this.processBase64InData(customizationData);
 
       logger.debug(
         `✅ [DEPOIS processBase64InData] customizationData para ${payload.customizationType}:`,
-        JSON.stringify(processedData).substring(0, 500)
+        JSON.stringify(processedData).substring(0, 500),
       );
 
       const record = await orderCustomizationService.saveOrderItemCustomization(
@@ -405,7 +441,7 @@ class OrderCustomizationController {
           title: payload.title,
           customizationData: processedData,
           selectedLayoutId: payload.selectedLayoutId,
-        }
+        },
       );
 
       logger.info(`✅ Customização salva com sucesso: ${record.id}`);

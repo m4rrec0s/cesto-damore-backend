@@ -8,6 +8,7 @@ import cron from "node-cron";
 import orderService from "./services/orderService";
 import { PaymentService } from "./services/paymentService";
 import { webhookNotificationService } from "./services/webhookNotificationService";
+import scheduledJobsService from "./services/scheduledJobsService"; // 🔥 NOVO
 import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
@@ -326,4 +327,20 @@ cron.schedule("*/20 * * * *", async () => {
       error,
     );
   }
+});
+
+// 🔥 NOVO: Iniciar scheduled jobs (webhooks offline + Drive retry)
+scheduledJobsService.start();
+
+// 🔥 NOVO: Graceful shutdown
+process.on("SIGTERM", () => {
+  logger.info("🛑 SIGTERM recebido, parando scheduled jobs...");
+  scheduledJobsService.stop();
+  process.exit(0);
+});
+
+process.on("SIGINT", () => {
+  logger.info("🛑 SIGINT recebido, parando scheduled jobs...");
+  scheduledJobsService.stop();
+  process.exit(0);
 });

@@ -76,14 +76,14 @@ class OrderCustomizationService {
             existingData.image?.preview_url &&
             existingData.image.preview_url.includes("/uploads/temp/") &&
             input.customizationData.image?.preview_url !==
-            existingData.image.preview_url
+              existingData.image.preview_url
           ) {
             const oldFilename = existingData.image.preview_url
               .split("/uploads/temp/")
               .pop();
             if (oldFilename) oldTempFiles.push(oldFilename);
             logger.debug(
-              `🗑️ [saveOrderItemCustomization] Marcando artwork antigo: ${oldFilename}`
+              `🗑️ [saveOrderItemCustomization] Marcando artwork antigo: ${oldFilename}`,
             );
           }
 
@@ -97,12 +97,12 @@ class OrderCustomizationService {
                 if (oldFilename) {
                   // Verificar se essa imagem ainda existe nas novas
                   const stillExists = input.customizationData.images?.some(
-                    (newImg: any) => newImg.preview_url === img.preview_url
+                    (newImg: any) => newImg.preview_url === img.preview_url,
                   );
                   if (!stillExists) {
                     oldTempFiles.push(oldFilename);
                     logger.debug(
-                      `🗑️ [saveOrderItemCustomization] Marcando imagem antiga: ${oldFilename}`
+                      `🗑️ [saveOrderItemCustomization] Marcando imagem antiga: ${oldFilename}`,
                     );
                   }
                 }
@@ -124,12 +124,12 @@ class OrderCustomizationService {
               if (oldFilename) {
                 // Verificar se essa foto ainda existe nas novas
                 const stillExists = input.customizationData.photos?.some(
-                  (newPhoto: any) => newPhoto.preview_url === photo.preview_url
+                  (newPhoto: any) => newPhoto.preview_url === photo.preview_url,
                 );
                 if (!stillExists) {
                   oldTempFiles.push(oldFilename);
                   logger.debug(
-                    `🗑️ [saveOrderItemCustomization] Marcando foto antiga: ${oldFilename}`
+                    `🗑️ [saveOrderItemCustomization] Marcando foto antiga: ${oldFilename}`,
                   );
                 }
               }
@@ -146,7 +146,7 @@ class OrderCustomizationService {
       input.customizationType,
       input.customizationData,
       input.customizationRuleId,
-      input.selectedLayoutId
+      input.selectedLayoutId,
     );
 
     if (computedLabel) {
@@ -171,7 +171,7 @@ class OrderCustomizationService {
       const hasTempUrls = /\/uploads\/temp\//.test(payload.value);
       const containsBase64 = /data:[^;]+;base64,/.test(payload.value);
       logger.debug(
-        `🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${input.customizationRuleId}`
+        `🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${input.customizationRuleId}`,
       );
     } catch (err) {
       /* ignore logging errors */
@@ -196,7 +196,7 @@ class OrderCustomizationService {
     // ✅ DELETAR arquivos antigos após upsert bem-sucedido
     if (oldTempFiles.length > 0) {
       logger.info(
-        `🗑️ Deletando ${oldTempFiles.length} arquivos antigos substituídos`
+        `🗑️ Deletando ${oldTempFiles.length} arquivos antigos substituídos`,
       );
       for (const filename of oldTempFiles) {
         try {
@@ -206,7 +206,7 @@ class OrderCustomizationService {
             process.cwd(),
             "uploads",
             "temp",
-            filename
+            filename,
           );
           await fs.unlink(filePath);
           logger.debug(`✅ Deletado: ${filename}`);
@@ -244,7 +244,9 @@ class OrderCustomizationService {
       },
     });
 
-    logger.info(`📋 [OrderCustomizationService] Encontrados ${orderItems.length} itens no pedido ${orderId}`);
+    logger.info(
+      `📋 [OrderCustomizationService] Encontrados ${orderItems.length} itens no pedido ${orderId}`,
+    );
 
     const result = orderItems.map((item) => {
       const allAvailable: any[] = [];
@@ -281,7 +283,9 @@ class OrderCustomizationService {
         };
       });
 
-      logger.info(`📦 Item ${item.id}: ${allAvailable.length} regras, ${filledCustomizations.length} preenchidas`);
+      logger.info(
+        `📦 Item ${item.id}: ${allAvailable.length} regras, ${filledCustomizations.length} preenchidas`,
+      );
 
       return {
         orderItemId: item.id,
@@ -315,7 +319,7 @@ class OrderCustomizationService {
 
   async updateOrderItemCustomization(
     customizationId: string,
-    input: Partial<SaveOrderCustomizationInput>
+    input: Partial<SaveOrderCustomizationInput>,
   ) {
     const existing = await prisma.orderItemCustomization.findUnique({
       where: { id: customizationId },
@@ -336,7 +340,7 @@ class OrderCustomizationService {
       input.customizationData?.image?.preview_url &&
       existingData.image?.preview_url &&
       input.customizationData.image.preview_url !==
-      existingData.image.preview_url
+        existingData.image.preview_url
     ) {
       // Se o novo canvas preview é diferente do antigo, deletar o antigo
       if (existingData.image.preview_url.includes("/uploads/temp/")) {
@@ -345,7 +349,7 @@ class OrderCustomizationService {
           .pop();
         if (oldFilename) oldTempFiles.push(oldFilename);
         logger.debug(
-          `🗑️ [updateOrderItemCustomization] Marcando canvas antigo para deleção: ${oldFilename}`
+          `🗑️ [updateOrderItemCustomization] Marcando canvas antigo para deleção: ${oldFilename}`,
         );
       }
     }
@@ -372,7 +376,7 @@ class OrderCustomizationService {
       input.customizationType ?? mergedCustomizationData.customization_type,
       mergedCustomizationData,
       input.customizationRuleId ?? existing.customization_id,
-      input.selectedLayoutId ?? mergedCustomizationData.selected_layout_id
+      input.selectedLayoutId ?? mergedCustomizationData.selected_layout_id,
     );
 
     if (updatedLabel) {
@@ -404,8 +408,9 @@ class OrderCustomizationService {
     try {
       const containsBase64 = /data:[^;]+;base64,/.test(updateData.value);
       logger.debug(
-        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${input.customizationType
-        }, ruleId=${input.customizationRuleId ?? existing.customization_id}`
+        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${
+          input.customizationType
+        }, ruleId=${input.customizationRuleId ?? existing.customization_id}`,
       );
     } catch (err) {
       /* ignore logging errors */
@@ -422,11 +427,11 @@ class OrderCustomizationService {
         const tempFileService = require("./tempFileService").default;
         const deleteResult = tempFileService.deleteFiles(oldTempFiles);
         logger.debug(
-          `🗑️ [updateOrderItemCustomization] ${deleteResult.deleted} arquivos antigos deletados, ${deleteResult.failed} falharam`
+          `🗑️ [updateOrderItemCustomization] ${deleteResult.deleted} arquivos antigos deletados, ${deleteResult.failed} falharam`,
         );
       } catch (error: any) {
         logger.warn(
-          `⚠️ Erro ao deletar arquivos antigos na atualização: ${error.message}`
+          `⚠️ Erro ao deletar arquivos antigos na atualização: ${error.message}`,
         );
         // Não falha o processo se não conseguir deletar
       }
@@ -439,8 +444,65 @@ class OrderCustomizationService {
    * ✅ NOVO: Após fazer upload para Google Drive, deletar arquivos temporários
    * Extrai filenames de /uploads/temp/ URLs e deleta os arquivos
    */
+  /**
+   * 🔥 NOVO: Criar backup redundante antes de deletar arquivos temp
+   */
+  private async backupTempFilesBeforeDelete(
+    files: string[],
+  ): Promise<{ success: number; failed: number }> {
+    const baseStorageDir =
+      process.env.NODE_ENV === "production"
+        ? "/app/storage"
+        : path.join(process.cwd(), "storage");
+
+    const tempDir = path.join(baseStorageDir, "temp");
+    const backupDir = path.join(baseStorageDir, "backup");
+
+    // Criar diretório de backup se não existir
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+      logger.info(`📁 Diretório de backup criado: ${backupDir}`);
+    }
+
+    let success = 0;
+    let failed = 0;
+
+    for (const filename of files) {
+      try {
+        const sourcePath = path.join(tempDir, filename);
+
+        // Verificar se arquivo existe
+        if (!fs.existsSync(sourcePath)) {
+          logger.warn(`⚠️ Arquivo não encontrado para backup: ${filename}`);
+          failed++;
+          continue;
+        }
+
+        // Criar nome único com timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const backupFilename = `${timestamp}_${filename}`;
+        const backupPath = path.join(backupDir, backupFilename);
+
+        // Copiar arquivo (não mover)
+        fs.copyFileSync(sourcePath, backupPath);
+
+        success++;
+        logger.debug(`✅ Backup criado: ${backupFilename}`);
+      } catch (error) {
+        logger.error(`❌ Erro ao fazer backup de ${filename}:`, error);
+        failed++;
+      }
+    }
+
+    logger.info(
+      `📦 Backup concluído: ${success} arquivos copiados, ${failed} falharam`,
+    );
+
+    return { success, failed };
+  }
+
   private async deleteUploadedTempFiles(
-    assets: Array<{ url: string; filename?: string }>
+    assets: Array<{ url: string; filename?: string }>,
   ): Promise<void> {
     try {
       const tempFileService = require("./tempFileService").default;
@@ -457,17 +519,23 @@ class OrderCustomizationService {
       }
 
       if (tempFilesToDelete.length > 0) {
+        // 🔥 NOVO: Criar backup antes de deletar
         logger.info(
-          `🗑️ [finalizeOrderCustomizations] Deletando ${tempFilesToDelete.length} arquivos temporários...`
+          `🔄 [finalizeOrderCustomizations] Criando backup de ${tempFilesToDelete.length} arquivos antes de deletar...`,
+        );
+        await this.backupTempFilesBeforeDelete(tempFilesToDelete);
+
+        logger.info(
+          `🗑️ [finalizeOrderCustomizations] Deletando ${tempFilesToDelete.length} arquivos temporários...`,
         );
         const result = tempFileService.deleteFiles(tempFilesToDelete);
         logger.info(
-          `✅ [finalizeOrderCustomizations] ${result.deleted} temp files deletados, ${result.failed} falharam`
+          `✅ [finalizeOrderCustomizations] ${result.deleted} temp files deletados, ${result.failed} falharam`,
         );
       }
     } catch (error: any) {
       logger.warn(
-        `⚠️ Erro ao deletar temp files após upload: ${error.message}`
+        `⚠️ Erro ao deletar temp files após upload: ${error.message}`,
       );
       // Não falha o processo se não conseguir deletar
     }
@@ -475,7 +543,7 @@ class OrderCustomizationService {
 
   async finalizeOrderCustomizations(orderId: string): Promise<FinalizeResult> {
     logger.debug(
-      `🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`
+      `🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`,
     );
 
     // ✅ VERIFICAÇÃO DE IDEMPOTÊNCIA: Se a pasta já foi criada, retornar dados existentes
@@ -493,7 +561,7 @@ class OrderCustomizationService {
       existingOrder?.google_drive_folder_id
     ) {
       logger.info(
-        `🟢 Customizações já foram processadas para ${orderId}, retornando dados existentes`
+        `🟢 Customizações já foram processadas para ${orderId}, retornando dados existentes`,
       );
       return {
         folderId: existingOrder.google_drive_folder_id,
@@ -534,8 +602,9 @@ class OrderCustomizationService {
         .replace(/[^a-zA-Z0-9]/g, "_")
         .substring(0, 40);
 
-      const folderName = `Pedido_${safeCustomerName}_${new Date().toISOString().split("T")[0]
-        }_${orderId.substring(0, 8)}`;
+      const folderName = `Pedido_${safeCustomerName}_${
+        new Date().toISOString().split("T")[0]
+      }_${orderId.substring(0, 8)}`;
 
       mainFolderId = await googleDriveService.createFolder(folderName);
       await googleDriveService.makeFolderPublic(mainFolderId);
@@ -564,12 +633,12 @@ class OrderCustomizationService {
         folderNameMap[customizationType] || customizationType;
       const subfolderId = await googleDriveService.createFolder(
         subfolderName,
-        mainFolder
+        mainFolder,
       );
       await googleDriveService.makeFolderPublic(subfolderId);
       subfolderMap[customizationType] = subfolderId;
       logger.info(
-        `📁 Subpasta criada para ${customizationType}: ${subfolderId}`
+        `📁 Subpasta criada para ${customizationType}: ${subfolderId}`,
       );
       return subfolderId;
     };
@@ -577,7 +646,7 @@ class OrderCustomizationService {
     for (const item of order.items) {
       for (const customization of item.customizations) {
         logger.debug(
-          `🔎 processando customization ${customization.id} do item ${item.id}`
+          `🔎 processando customization ${customization.id} do item ${item.id}`,
         );
         const data = this.parseCustomizationData(customization.value);
         const customizationType = data.customization_type || "DEFAULT";
@@ -597,9 +666,9 @@ class OrderCustomizationService {
             this.uploadArtworkFromUrl(
               asset,
               { id: customization.id },
-              targetFolder
-            )
-          )
+              targetFolder,
+            ),
+          ),
         );
 
         uploadedFiles += uploads.length;
@@ -618,7 +687,7 @@ class OrderCustomizationService {
                 cType,
                 sanitizedData,
                 customization.customization_id as any,
-                sanitizedData.selected_layout_id
+                sanitizedData.selected_layout_id,
               );
               if (computed) {
                 sanitizedData.label_selected = computed;
@@ -629,7 +698,7 @@ class OrderCustomizationService {
                   sanitizedData.selected_item_label = computed;
                 }
                 logger.info(
-                  `🧭 Recomputed label_selected for customization ${customization.id}: ${computed}`
+                  `🧭 Recomputed label_selected for customization ${customization.id}: ${computed}`,
                 );
               }
             }
@@ -637,7 +706,7 @@ class OrderCustomizationService {
         } catch (err) {
           logger.warn(
             `⚠️ Falha ao recomputar label_selected para customization ${customization.id}:`,
-            err
+            err,
           );
         }
 
@@ -646,7 +715,7 @@ class OrderCustomizationService {
           this.removeBase64FieldsRecursive(sanitizedData);
         if (removedFieldsCount > 0) {
           logger.info(
-            `✅ Removidos ${removedFieldsCount} campo(s) base64 do payload antes de salvar`
+            `✅ Removidos ${removedFieldsCount} campo(s) base64 do payload antes de salvar`,
           );
         }
 
@@ -671,7 +740,7 @@ class OrderCustomizationService {
           if (updatedVal && dataUriPattern.test(updatedVal)) {
             logger.warn(
               "🚨 Detected data URI / base64 content in saved customization value after sanitization:",
-              customization.id
+              customization.id,
             );
             base64Detected = true;
             base64AffectedIds.push(customization.id);
@@ -681,7 +750,7 @@ class OrderCustomizationService {
               const removed = this.removeBase64FieldsRecursive(parsed);
               if (removed > 0) {
                 logger.info(
-                  `🔁 Re-sanitizing customization ${customization.id}, removed ${removed} lingering base64 fields`
+                  `🔁 Re-sanitizing customization ${customization.id}, removed ${removed} lingering base64 fields`,
                 );
                 await prisma.orderItemCustomization.update({
                   where: { id: customization.id },
@@ -696,7 +765,7 @@ class OrderCustomizationService {
                 const refVal = refetch ? String(refetch.value) : "";
                 if (!dataUriPattern.test(refVal)) {
                   logger.info(
-                    `✅ Re-sanitization successful for customization ${customization.id}`
+                    `✅ Re-sanitization successful for customization ${customization.id}`,
                   );
                   // remove from base64AffectedIds since it was fixed
                   const idx = base64AffectedIds.indexOf(customization.id);
@@ -706,14 +775,14 @@ class OrderCustomizationService {
             } catch (err) {
               logger.warn(
                 `⚠️ Falha ao re-sanitizar customization ${customization.id}:`,
-                err
+                err,
               );
             }
           }
         } catch (verifyErr) {
           logger.error(
             "Erro ao verificar registro após sanitização:",
-            verifyErr
+            verifyErr,
           );
         }
       }
@@ -778,7 +847,7 @@ class OrderCustomizationService {
     };
 
     logger.info(
-      `✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles} folderId=${mainFolderId}`
+      `✅ finalizeOrderCustomizations concluído orderId=${orderId} uploads=${uploadedFiles} folderId=${mainFolderId}`,
     );
 
     return result;
@@ -834,7 +903,7 @@ class OrderCustomizationService {
     customizationType: CustomizationType,
     customizationData: Record<string, any> | undefined,
     customizationRuleId?: string | null,
-    selectedLayoutId?: string | null
+    selectedLayoutId?: string | null,
   ): Promise<string | undefined> {
     if (!customizationData) return undefined;
 
@@ -865,14 +934,14 @@ class OrderCustomizationService {
 
           const ruleOptions = (rule?.customization_data as any)?.options || [];
           const match = (ruleOptions as any[]).find(
-            (o: any) => o.id === selectedOption
+            (o: any) => o.id === selectedOption,
           );
           if (match) return match.label || match.name || match.title;
         } catch (error) {
           // ignore DB errors and return undefined
           console.warn(
             "computeLabelSelected: erro ao buscar customization rule",
-            error
+            error,
           );
         }
       }
@@ -960,7 +1029,7 @@ class OrderCustomizationService {
             });
           } else {
             logger.warn(
-              `⚠️ Photo ${index} ainda contém base64/blob (devia ter sido migrado)`
+              `⚠️ Photo ${index} ainda contém base64/blob (devia ter sido migrado)`,
             );
           }
         }
@@ -986,7 +1055,7 @@ class OrderCustomizationService {
         // Se for base64, manter suporte (caso chegue durante transição)
         else if (textContent.startsWith("data:image")) {
           logger.warn(
-            `⚠️ DYNAMIC_LAYOUT ainda contém base64 em campo 'text' (devia ter sido migrado)`
+            `⚠️ DYNAMIC_LAYOUT ainda contém base64 em campo 'text' (devia ter sido migrado)`,
           );
           // Será processado no método uploadArtwork que mantém suporte a base64
           assets.push({
@@ -1021,7 +1090,7 @@ class OrderCustomizationService {
     });
 
     logger.debug(
-      `📦 extractArtworkAssets: ${assets.length} assets extraídos (${photos.length} photos, ${images.length} images)`
+      `📦 extractArtworkAssets: ${assets.length} assets extraídos (${photos.length} photos, ${images.length} images)`,
     );
 
     return assets;
@@ -1034,13 +1103,13 @@ class OrderCustomizationService {
   private async uploadArtworkFromUrl(
     asset: { url: string; filename: string; mimeType: string },
     customization: { id: string },
-    folderId: string
+    folderId: string,
   ) {
     try {
       const { url, filename, mimeType } = asset;
 
       logger.debug(
-        `📤 uploadArtworkFromUrl: ${filename} (${url}) -> Drive folder ${folderId}`
+        `📤 uploadArtworkFromUrl: ${filename} (${url}) -> Drive folder ${folderId}`,
       );
 
       let fileBuffer: Buffer | null = null;
@@ -1066,7 +1135,7 @@ class OrderCustomizationService {
 
         fileBuffer = fs.readFileSync(filePath);
         logger.debug(
-          `✅ Arquivo lido do temp: ${tempFileName} (${fileBuffer.length} bytes)`
+          `✅ Arquivo lido do temp: ${tempFileName} (${fileBuffer.length} bytes)`,
         );
       }
       // Se for URL HTTP (para compatibilidade/fallback)
@@ -1082,7 +1151,7 @@ class OrderCustomizationService {
       // Se for base64 (para compatibilidade durante migração)
       else if (url.startsWith("data:")) {
         logger.warn(
-          `⚠️ Asset ainda contém base64 (devia ter sido migrado): ${filename}`
+          `⚠️ Asset ainda contém base64 (devia ter sido migrado): ${filename}`,
         );
         // Extrair base64
         const matches = url.match(/data:[^;]*;base64,(.*)/);
@@ -1104,18 +1173,18 @@ class OrderCustomizationService {
         filename ||
         `customization-${customization.id.slice(0, 8)}-${randomUUID().slice(
           0,
-          8
+          8,
         )}.${extension}`;
 
       const upload = await googleDriveService.uploadBuffer(
         fileBuffer,
         fileName,
         folderId,
-        mimeType
+        mimeType,
       );
 
       logger.info(
-        `✅ Arquivo enviado para Drive: ${fileName} (id=${upload.id}, size=${fileBuffer.length})`
+        `✅ Arquivo enviado para Drive: ${fileName} (id=${upload.id}, size=${fileBuffer.length})`,
       );
 
       // ⚠️ NOTA: Temp files deletados no final do ciclo de vida (status DELIVERED)
@@ -1130,7 +1199,7 @@ class OrderCustomizationService {
     } catch (error: any) {
       logger.error(
         `❌ Erro ao fazer upload de artwork: ${asset.filename}`,
-        error
+        error,
       );
       throw error;
     }
@@ -1139,7 +1208,7 @@ class OrderCustomizationService {
   private async uploadArtwork(
     asset: ArtworkAsset,
     customization: { id: string },
-    folderId: string
+    folderId: string,
   ) {
     const base64Content = this.getBase64Content(asset);
     if (!base64Content) {
@@ -1154,14 +1223,14 @@ class OrderCustomizationService {
       asset.fileName ||
       `customization-${customization.id.slice(0, 8)}-${randomUUID().slice(
         0,
-        8
+        8,
       )}.${extension}`;
 
     const upload = await googleDriveService.uploadBuffer(
       fileBuffer,
       fileName,
       folderId,
-      mimeType
+      mimeType,
     );
 
     return {
@@ -1178,7 +1247,7 @@ class OrderCustomizationService {
       webContentLink: string;
       fileName: string;
       mimeType: string;
-    }>
+    }>,
   ) {
     const sanitized = { ...data };
 
@@ -1194,7 +1263,7 @@ class OrderCustomizationService {
       };
       if (uploads[0]) {
         logger.info(
-          `✅ final_artwork sanitized and uploaded: ${uploads[0]?.fileName} (driveId=${uploads[0]?.id})`
+          `✅ final_artwork sanitized and uploaded: ${uploads[0]?.fileName} (driveId=${uploads[0]?.id})`,
         );
       } else {
         logger.warn(`⚠️ final_artwork sanitized but no upload info found`);
@@ -1211,17 +1280,17 @@ class OrderCustomizationService {
           fileName: uploads[index]?.fileName || entry?.fileName,
           google_drive_file_id: uploads[index]?.id,
           google_drive_url: uploads[index]?.webContentLink,
-        })
+        }),
       );
       sanitized.final_artworks.forEach((entry: any, index: number) => {
         const up = uploads[index];
         if (up) {
           logger.info(
-            `✅ final_artworks[${index}] sanitized and uploaded: ${up.fileName} (driveId=${up.id})`
+            `✅ final_artworks[${index}] sanitized and uploaded: ${up.fileName} (driveId=${up.id})`,
           );
         } else {
           logger.warn(
-            `⚠️ final_artworks[${index}] sanitized but no upload info found`
+            `⚠️ final_artworks[${index}] sanitized but no upload info found`,
           );
         }
       });
@@ -1253,11 +1322,11 @@ class OrderCustomizationService {
 
         if (upload) {
           logger.info(
-            `✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`
+            `✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`,
           );
         } else {
           logger.warn(
-            `⚠️ Photo sanitized but no upload info found for index ${idx}`
+            `⚠️ Photo sanitized but no upload info found for index ${idx}`,
           );
         }
 
@@ -1283,13 +1352,15 @@ class OrderCustomizationService {
 
         if (upload) {
           logger.info(
-            `✅ LAYOUT_BASE image[${idx}] (slot: ${image.slot || "unknown"
-            }) sanitized and uploaded: ${upload.fileName} (driveId=${upload.id
-            })`
+            `✅ LAYOUT_BASE image[${idx}] (slot: ${
+              image.slot || "unknown"
+            }) sanitized and uploaded: ${upload.fileName} (driveId=${
+              upload.id
+            })`,
           );
         } else {
           logger.warn(
-            `⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`
+            `⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`,
           );
         }
 
@@ -1326,7 +1397,7 @@ class OrderCustomizationService {
 
     if (Array.isArray(obj)) {
       obj.forEach(
-        (item) => (removedCount += this.removeBase64FieldsRecursive(item) || 0)
+        (item) => (removedCount += this.removeBase64FieldsRecursive(item) || 0),
       );
       return removedCount;
     }

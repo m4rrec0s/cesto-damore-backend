@@ -9,6 +9,7 @@ import whatsappService from "./whatsappService";
 import orderCustomizationService from "./orderCustomizationService";
 import { webhookNotificationService } from "./webhookNotificationService";
 import orderService from "./orderService";
+import alertService from "./alertService"; // 🔥 NOVO
 import logger from "../utils/logger";
 
 type OrderWithPaymentDetails = Prisma.OrderGetPayload<{
@@ -29,7 +30,7 @@ const roundCurrency = (value: number) =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
 const normalizeOrderPaymentMethod = (
-  method?: string | null
+  method?: string | null,
 ): "pix" | "card" | null => {
   if (!method) return null;
   const normalized = method.trim().toLowerCase();
@@ -91,7 +92,7 @@ export class PaymentService {
   // In-memory guard to avoid duplicate confirmation sends within same process
   private static notificationSentOrders: Set<string> = new Set();
   private static async loadOrderWithDetails(
-    orderId: string
+    orderId: string,
   ): Promise<OrderWithPaymentDetails | null> {
     return prisma.order.findUnique({
       where: { id: orderId },
@@ -115,7 +116,7 @@ export class PaymentService {
       const additionalsTotal = item.additionals.reduce(
         (acc, additional) =>
           acc + Number(additional.price) * additional.quantity,
-        0
+        0,
       );
       return sum + baseTotal + additionalsTotal;
     }, 0);
@@ -137,7 +138,7 @@ export class PaymentService {
 
   private static async ensureOrderTotalsUpToDate(
     order: OrderWithPaymentDetails,
-    summary: ReturnType<typeof PaymentService.calculateOrderSummary>
+    summary: ReturnType<typeof PaymentService.calculateOrderSummary>,
   ) {
     const needsUpdate =
       roundCurrency(order.total ?? 0) !== summary.total ||
@@ -182,7 +183,7 @@ export class PaymentService {
       }
 
       const orderPaymentMethod = normalizeOrderPaymentMethod(
-        order.payment_method
+        order.payment_method,
       );
 
       if (!orderPaymentMethod) {
@@ -193,7 +194,7 @@ export class PaymentService {
         const existingPayment = order.payment;
         const isProduction = process.env.NODE_ENV === "production";
         const paymentFinalized = ["APPROVED", "AUTHORIZED"].includes(
-          existingPayment.status
+          existingPayment.status,
         );
 
         if (isProduction && paymentFinalized) {
@@ -217,8 +218,9 @@ export class PaymentService {
         {
           id: order.id,
           title: `Pedido ${order.id}`,
-          description: `Pagamento ${orderPaymentMethod === "pix" ? "PIX" : "Cartão"
-            } - ${order.items.length} item(s)`,
+          description: `Pagamento ${
+            orderPaymentMethod === "pix" ? "PIX" : "Cartão"
+          } - ${order.items.length} item(s)`,
           quantity: 1,
           unit_price: summary.grandTotal,
         },
@@ -234,12 +236,12 @@ export class PaymentService {
         paymentMethodsConfig.excluded_payment_types.push(
           { id: "credit_card" },
           { id: "debit_card" },
-          { id: "ticket" }
+          { id: "ticket" },
         );
       } else {
         paymentMethodsConfig.excluded_payment_types.push(
           { id: "bank_transfer" },
-          { id: "ticket" }
+          { id: "ticket" },
         );
       }
 
@@ -298,14 +300,15 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao criar preferência:", error);
       throw new Error(
-        `Falha ao criar preferência de pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
-        }`
+        `Falha ao criar preferência de pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
+        }`,
       );
     }
   }
 
   static async processTransparentCheckout(
-    data: ProcessTransparentCheckoutData
+    data: ProcessTransparentCheckoutData,
   ) {
     try {
       if (!data.orderId || !data.userId || !data.payerEmail) {
@@ -339,7 +342,7 @@ export class PaymentService {
       // informado pelo payload (data.paymentMethodId). Se encontrarmos um método
       // válido no payload, persistimos no pedido para manter a consistência.
       let orderPaymentMethod = normalizeOrderPaymentMethod(
-        order.payment_method
+        order.payment_method,
       );
 
       if (!orderPaymentMethod && data.paymentMethodId) {
@@ -352,12 +355,12 @@ export class PaymentService {
               data: { payment_method: orderPaymentMethod },
             });
             logger.info(
-              `🛠️ Pedido ${order.id} atualizado com payment_method: ${orderPaymentMethod}`
+              `🛠️ Pedido ${order.id} atualizado com payment_method: ${orderPaymentMethod}`,
             );
           } catch (upErr) {
             logger.warn(
               "⚠️ Não foi possível atualizar payment_method do pedido:",
-              upErr
+              upErr,
             );
             // Continuamos mesmo se não conseguir persistir — o fluxo de pagamento
             // seguirá considerando orderPaymentMethod definido.
@@ -389,13 +392,13 @@ export class PaymentService {
           ) {
             try {
               logger.info(
-                `🔄 Cancelando pagamento anterior: ${order.payment.mercado_pago_id}`
+                `🔄 Cancelando pagamento anterior: ${order.payment.mercado_pago_id}`,
               );
               await this.cancelPayment(order.payment.mercado_pago_id);
             } catch (cancelError) {
               logger.warn(
                 "⚠️ Não foi possível cancelar pagamento anterior:",
-                cancelError
+                cancelError,
               );
               // Continua mesmo se falhar, pois vamos criar um novo
             }
@@ -407,7 +410,7 @@ export class PaymentService {
           });
 
           logger.info(
-            `♻️ Pagamento anterior removido (status era: ${order.payment.status}). Criando novo pagamento ${data.paymentMethodId}...`
+            `♻️ Pagamento anterior removido (status era: ${order.payment.status}). Criando novo pagamento ${data.paymentMethodId}...`,
           );
         }
       }
@@ -425,8 +428,9 @@ export class PaymentService {
 
       const paymentData: any = {
         transaction_amount: roundCurrency(summary.grandTotal),
-        description: `Pedido ${order.id.substring(0, 8)} - ${order.items.length
-          } item(s)`,
+        description: `Pedido ${order.id.substring(0, 8)} - ${
+          order.items.length
+        } item(s)`,
         payment_method_id: data.paymentMethodId,
         payer: {
           email: data.payerEmail,
@@ -453,7 +457,7 @@ export class PaymentService {
       } else {
         if (!data.cardToken) {
           throw new Error(
-            "Token do cartão é obrigatório para pagamento com cartão"
+            "Token do cartão é obrigatório para pagamento com cartão",
           );
         }
 
@@ -505,8 +509,9 @@ export class PaymentService {
         paymentData.statement_descriptor = "CESTO D'AMORE";
       }
 
-      const idempotencyKey = `${data.paymentMethodId}-${data.orderId
-        }-${randomUUID()}`;
+      const idempotencyKey = `${data.paymentMethodId}-${
+        data.orderId
+      }-${randomUUID()}`;
 
       const paymentResponse = await payment.create({
         body: paymentData,
@@ -543,12 +548,12 @@ export class PaymentService {
         try {
           const finalizeRes =
             await orderCustomizationService.finalizeOrderCustomizations(
-              data.orderId
+              data.orderId,
             );
           logger.info(
             `✅ finalizeOrderCustomizations result (transparent checkout): ${JSON.stringify(
-              finalizeRes
-            )}`
+              finalizeRes,
+            )}`,
           );
 
           // Only send WhatsApp if we have a folder URL (or no files to upload but no error)
@@ -573,22 +578,22 @@ export class PaymentService {
               setTimeout(
                 () =>
                   PaymentService.notificationSentOrders.delete(data.orderId),
-                1000 * 60 * 15
+                1000 * 60 * 15,
               );
             } else {
               logger.info(
-                `🟡 Notificação de pedido já enviada (cache) para ${data.orderId}, pulando.`
+                `🟡 Notificação de pedido já enviada (cache) para ${data.orderId}, pulando.`,
               );
             }
           } else {
             logger.warn(
-              `⚠️ Finalize não ready (transparent checkout) for order ${data.orderId}, skipping WhatsApp send`
+              `⚠️ Finalize não ready (transparent checkout) for order ${data.orderId}, skipping WhatsApp send`,
             );
           }
         } catch (err) {
           console.error(
             "⚠️ Erro na finalização das customizações (transparent checkout):",
-            err
+            err,
           );
           webhookNotificationService.notifyPaymentUpdate(data.orderId, {
             status: "approved",
@@ -611,8 +616,9 @@ export class PaymentService {
         });
 
         logger.info(
-          `📤 Notificação SSE enviada (checkout transparente) - Pedido ${data.orderId
-          } status: ${paymentResponse.status}`
+          `📤 Notificação SSE enviada (checkout transparente) - Pedido ${
+            data.orderId
+          } status: ${paymentResponse.status}`,
         );
       }
 
@@ -649,7 +655,7 @@ export class PaymentService {
         const serializedError = JSON.stringify(
           error,
           Object.getOwnPropertyNames(error),
-          2
+          2,
         );
         console.error("📛 Detalhes completos do erro:", serializedError);
 
@@ -657,19 +663,19 @@ export class PaymentService {
         if (mpError.cause) {
           console.error(
             "📛 Causa do erro:",
-            JSON.stringify(mpError.cause, null, 2)
+            JSON.stringify(mpError.cause, null, 2),
           );
         }
         if (mpError.response) {
           console.error(
             "📛 Resposta da API:",
-            JSON.stringify(mpError.response, null, 2)
+            JSON.stringify(mpError.response, null, 2),
           );
         }
         if (mpError.status || mpError.statusCode) {
           console.error(
             "📛 Status HTTP:",
-            mpError.status || mpError.statusCode
+            mpError.status || mpError.statusCode,
           );
         }
       }
@@ -688,7 +694,7 @@ export class PaymentService {
 
       // Create error with cause preserved for controller to extract friendly message
       const paymentError = new Error(
-        `Falha ao processar pagamento: ${errorMessage}`
+        `Falha ao processar pagamento: ${errorMessage}`,
       ) as any;
       if (error && typeof error === "object") {
         const mpError = error as any;
@@ -742,7 +748,7 @@ export class PaymentService {
       }
 
       const normalizedOrderMethod = normalizeOrderPaymentMethod(
-        order.payment_method
+        order.payment_method,
       );
       const resolvedMethod =
         data.paymentMethodId ??
@@ -750,7 +756,7 @@ export class PaymentService {
 
       if (!["pix", "credit_card", "debit_card"].includes(resolvedMethod)) {
         throw new Error(
-          "Método de pagamento inválido. Use: pix, credit_card ou debit_card"
+          "Método de pagamento inválido. Use: pix, credit_card ou debit_card",
         );
       }
 
@@ -759,7 +765,7 @@ export class PaymentService {
 
       if (requiresToken && !data.token) {
         throw new Error(
-          "Token do cartão é obrigatório para pagamentos com cartão"
+          "Token do cartão é obrigatório para pagamentos com cartão",
         );
       }
 
@@ -785,15 +791,15 @@ export class PaymentService {
 
       const cardMetadata =
         mercadoPagoResult.first_six_digits ||
-          mercadoPagoResult.last_four_digits ||
-          mercadoPagoResult.cardholder_name
+        mercadoPagoResult.last_four_digits ||
+        mercadoPagoResult.cardholder_name
           ? {
-            card: {
-              first_six_digits: mercadoPagoResult.first_six_digits,
-              last_four_digits: mercadoPagoResult.last_four_digits,
-              cardholder_name: mercadoPagoResult.cardholder_name,
-            },
-          }
+              card: {
+                first_six_digits: mercadoPagoResult.first_six_digits,
+                last_four_digits: mercadoPagoResult.last_four_digits,
+                cardholder_name: mercadoPagoResult.cardholder_name,
+              },
+            }
           : null;
 
       const paymentRecord = await prisma.payment.upsert({
@@ -848,7 +854,7 @@ export class PaymentService {
           .then(async (customizationResult) => {
             logger.info(
               "✅ Customizações finalizadas com sucesso (background):",
-              customizationResult
+              customizationResult,
             );
 
             // ✅ NOVO: Salvar Drive folder info no banco e enviar WhatsApp
@@ -880,7 +886,7 @@ export class PaymentService {
                   },
                 });
                 logger.info(
-                  `📁 Ordem ${order.id} atualizada com Drive folder: ${customizationResult.folderId}`
+                  `📁 Ordem ${order.id} atualizada com Drive folder: ${customizationResult.folderId}`,
                 );
 
                 // ✅ NOVO: Enviar WhatsApp com link do Drive
@@ -908,19 +914,19 @@ export class PaymentService {
                       googleDriveUrl: customizationResult.folderUrl,
                     });
                     logger.info(
-                      `📱 WhatsApp enviado para ${orderWithUser.user.phone} com link do Drive`
+                      `📱 WhatsApp enviado para ${orderWithUser.user.phone} com link do Drive`,
                     );
                   } catch (whatsappErr) {
                     logger.warn(
                       `⚠️ Erro ao enviar WhatsApp para ${orderWithUser.user?.phone}:`,
-                      whatsappErr
+                      whatsappErr,
                     );
                   }
                 }
               } catch (updateErr) {
                 logger.error(
                   `⚠️ Erro ao atualizar ordem com Drive folder:`,
-                  updateErr
+                  updateErr,
                 );
               }
             }
@@ -928,7 +934,7 @@ export class PaymentService {
           .catch((finalizeErr) => {
             logger.error(
               "⚠️ Erro ao finalizar customizações após pagamento aprovada (background, continuando):",
-              finalizeErr
+              finalizeErr,
             );
           });
       }
@@ -953,8 +959,9 @@ export class PaymentService {
     } catch (error) {
       console.error("❌ Erro ao criar pagamento:", error);
       throw new Error(
-        `Falha ao criar pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
-        }`
+        `Falha ao criar pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
+        }`,
       );
     }
   }
@@ -1034,7 +1041,7 @@ export class PaymentService {
           headers: {
             Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
           },
-        }
+        },
       );
 
       if (!response.ok) {
@@ -1046,8 +1053,9 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao buscar métodos de pagamento:", error);
       throw new Error(
-        `Falha ao buscar métodos de pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
-        }`
+        `Falha ao buscar métodos de pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
+        }`,
       );
     }
   }
@@ -1061,7 +1069,7 @@ export class PaymentService {
   static async getInstallmentOptions(
     amount: number,
     paymentMethodId: string,
-    bin?: string
+    bin?: string,
   ) {
     try {
       // Construir URL com parâmetros
@@ -1085,7 +1093,7 @@ export class PaymentService {
 
       if (!response.ok) {
         throw new Error(
-          `Erro ao buscar opções de parcelamento: ${response.statusText}`
+          `Erro ao buscar opções de parcelamento: ${response.statusText}`,
         );
       }
 
@@ -1164,8 +1172,9 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao buscar pagamento:", error);
       throw new Error(
-        `Falha ao buscar pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
-        }`
+        `Falha ao buscar pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
+        }`,
       );
     }
   }
@@ -1206,7 +1215,7 @@ export class PaymentService {
           // ✅ NOVO: Só reprocessar se o pagamento foi APPROVED
           if (dbPayment.status !== "APPROVED") {
             console.warn(
-              `Reprocess: pagamento ${paymentId} não aprovado (status: ${dbPayment.status}), pulando.`
+              `Reprocess: pagamento ${paymentId} não aprovado (status: ${dbPayment.status}), pulando.`,
             );
             await prisma.webhookLog.updateMany({
               where: { id: log.id },
@@ -1216,11 +1225,11 @@ export class PaymentService {
           }
 
           console.log(
-            `🔁 Reprocessando finalização - orderId=${dbPayment.order_id}`
+            `🔁 Reprocessando finalização - orderId=${dbPayment.order_id}`,
           );
           const finalizeRes =
             await orderCustomizationService.finalizeOrderCustomizations(
-              dbPayment.order_id
+              dbPayment.order_id,
             );
           const succeeded = !finalizeRes?.base64Detected;
           await prisma.webhookLog.updateMany({
@@ -1231,8 +1240,8 @@ export class PaymentService {
               error_message: succeeded
                 ? undefined
                 : `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
-                  ","
-                )}`,
+                    ",",
+                  )}`,
             },
           });
         } catch (err: any) {
@@ -1283,7 +1292,7 @@ export class PaymentService {
       logger.error(
         "Erro ao reprocessar finalização para pedido:",
         orderId,
-        error
+        error,
       );
       throw error;
     }
@@ -1309,7 +1318,7 @@ export class PaymentService {
           {
             action: data.action,
             paymentId: data.data?.id,
-          }
+          },
         );
         return {
           success: true,
@@ -1381,7 +1390,7 @@ export class PaymentService {
           if (mpStatus === "approved" && dbStatus !== "approved") {
             console.warn(
               "⚠️ Webhook marked processed but DB out-of-sync (MP approved, DB not) - reprocessing",
-              { resourceId }
+              { resourceId },
             );
             // Reprocess to ensure order/payment state is updated
             await this.processPaymentNotification(resourceId);
@@ -1399,7 +1408,7 @@ export class PaymentService {
         } catch (err) {
           console.error(
             "Erro ao verificar estado do pagamento para webhooks duplicados:",
-            err
+            err,
           );
         }
 
@@ -1460,7 +1469,7 @@ export class PaymentService {
         // If payment was not processed (e.g., not found in DB), do not mark as processed
         console.warn(
           "⚠️ Webhook processing completed but payment was NOT processed (not updating webhookLog.processed)",
-          { resourceId, topic: webhookType }
+          { resourceId, topic: webhookType },
         );
       }
 
@@ -1485,11 +1494,11 @@ export class PaymentService {
           };
           await fs.appendFile(
             process.env.WEBHOOK_OFFLINE_LOG_FILE ||
-            "./webhook_offline_log.ndjson",
-            JSON.stringify(logEntry) + "\n"
+              "./webhook_offline_log.ndjson",
+            JSON.stringify(logEntry) + "\n",
           );
           console.warn(
-            "⚠️ Webhook armazenado localmente por indisponibilidade do BD"
+            "⚠️ Webhook armazenado localmente por indisponibilidade do BD",
           );
         } catch (fileErr) {
           console.error("Falha ao salvar webhook offline:", fileErr);
@@ -1565,7 +1574,7 @@ export class PaymentService {
     try {
       const paymentInfo = await this.getPayment(paymentId);
       console.log(
-        `🔔 processPaymentNotification - paymentId=${paymentId} status=${paymentInfo?.status}`
+        `🔔 processPaymentNotification - paymentId=${paymentId} status=${paymentInfo?.status}`,
       );
 
       const dbPayment = await prisma.payment.findFirst({
@@ -1574,8 +1583,9 @@ export class PaymentService {
       });
 
       console.log(
-        `🔎 dbPayment found: ${dbPayment ? dbPayment.id : "null"} status: ${dbPayment ? dbPayment.status : "N/A"
-        }`
+        `🔎 dbPayment found: ${dbPayment ? dbPayment.id : "null"} status: ${
+          dbPayment ? dbPayment.status : "N/A"
+        }`,
       );
 
       if (!dbPayment) {
@@ -1613,7 +1623,7 @@ export class PaymentService {
       if (updateResult.count === 0) {
         // Another process has already updated this payment to the target status -> skip send/finalize
         console.log(
-          `⚠️ Pagamento ${dbPayment.id} já atualizado para ${newStatus} por outro processo - pulando notificações e finalização`
+          `⚠️ Pagamento ${dbPayment.id} já atualizado para ${newStatus} por outro processo - pulando notificações e finalização`,
         );
         return true;
       }
@@ -1638,29 +1648,29 @@ export class PaymentService {
 
         if (existingFinalized) {
           logger.info(
-            `🟢 Customizações já finalizadas para ${dbPayment.order_id} (via webhookLog), pulando finalização.`
+            `🟢 Customizações já finalizadas para ${dbPayment.order_id} (via webhookLog), pulando finalização.`,
           );
           // Still send notifications if not already sent
           if (!PaymentService.notificationSentOrders.has(dbPayment.order_id)) {
             try {
               const finalGoogleDriveUrl = await this.getOrderGoogleDriveUrl(
-                dbPayment.order_id
+                dbPayment.order_id,
               );
               await this.sendOrderConfirmationNotification(
                 dbPayment.order_id,
-                finalGoogleDriveUrl
+                finalGoogleDriveUrl,
               );
               PaymentService.notificationSentOrders.add(dbPayment.order_id);
               setTimeout(
                 () =>
                   PaymentService.notificationSentOrders.delete(
-                    dbPayment.order_id
+                    dbPayment.order_id,
                   ),
-                1000 * 60 * 15
+                1000 * 60 * 15,
               );
             } catch (err) {
               logger.warn(
-                `⚠️ Erro ao enviar notificação após finalização anterior: ${err}`
+                `⚠️ Erro ao enviar notificação após finalização anterior: ${err}`,
               );
             }
           }
@@ -1670,12 +1680,12 @@ export class PaymentService {
           try {
             const finalizeRes =
               await orderCustomizationService.finalizeOrderCustomizations(
-                dbPayment.order_id
+                dbPayment.order_id,
               );
             logger.info(
               `✅ finalizeOrderCustomizations result: ${JSON.stringify(
-                finalizeRes
-              )}`
+                finalizeRes,
+              )}`,
             );
 
             // Store the folder URL for notifications
@@ -1685,15 +1695,26 @@ export class PaymentService {
             await prisma.webhookLog.updateMany({
               where: { resource_id: paymentId, topic: "payment" },
               data: {
-                finalization_succeeded: finalizeRes.base64Detected ? false : true,
+                finalization_succeeded: finalizeRes.base64Detected
+                  ? false
+                  : true,
                 finalization_attempts: { increment: 1 } as any,
                 error_message: finalizeRes.base64Detected
                   ? `Base64 left in customizations: ${finalizeRes.base64AffectedIds?.join(
-                    ","
-                  )}`
+                      ",",
+                    )}`
                   : undefined,
               },
             });
+
+            // 🔥 NOVO: Enviar alerta se base64 residual detectado
+            if (finalizeRes.base64Detected && finalizeRes.base64AffectedIds) {
+              await alertService.alertBase64Residual(
+                dbPayment.order_id,
+                finalizeRes.base64AffectedIds,
+                finalizeRes.uploadedFiles,
+              );
+            }
 
             // Only notify if finalization produced a drive link (or no artifacts but no errors). Prefer: only notify if googleDrive link found.
             const willNotify =
@@ -1702,18 +1723,21 @@ export class PaymentService {
 
             if (willNotify) {
               // 🔔 Notificar frontend via SSE sobre pagamento aprovado
-              webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
-                status: "approved",
-                paymentId: dbPayment.id,
-                mercadoPagoId: paymentId,
-                approvedAt: new Date().toLocaleString("pt-BR", {
-                  timeZone: "America/Sao_Paulo",
-                }),
-                paymentMethod: paymentInfo.payment_method_id || undefined,
-              });
+              webhookNotificationService.notifyPaymentUpdate(
+                dbPayment.order_id,
+                {
+                  status: "approved",
+                  paymentId: dbPayment.id,
+                  mercadoPagoId: paymentId,
+                  approvedAt: new Date().toLocaleString("pt-BR", {
+                    timeZone: "America/Sao_Paulo",
+                  }),
+                  paymentMethod: paymentInfo.payment_method_id || undefined,
+                },
+              );
 
               console.log(
-                `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`
+                `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`,
               );
 
               // Send group + buyer notifications only AFTER Drive link is ready
@@ -1722,41 +1746,44 @@ export class PaymentService {
               ) {
                 await this.sendOrderConfirmationNotification(
                   dbPayment.order_id,
-                  googleDriveUrl
+                  googleDriveUrl,
                 );
                 PaymentService.notificationSentOrders.add(dbPayment.order_id);
                 setTimeout(
                   () =>
                     PaymentService.notificationSentOrders.delete(
-                      dbPayment.order_id
+                      dbPayment.order_id,
                     ),
-                  1000 * 60 * 15
+                  1000 * 60 * 15,
                 );
               } else {
                 logger.info(
-                  `🟡 Notificação de pedido já enviada (cache) para ${dbPayment.order_id}, pulando.`
+                  `🟡 Notificação de pedido já enviada (cache) para ${dbPayment.order_id}, pulando.`,
                 );
               }
             } else {
               logger.warn(
-                `⚠️ Finalização não retornou link do Drive; pulando envio de notificações para order ${dbPayment.order_id}`
+                `⚠️ Finalização não retornou link do Drive; pulando envio de notificações para order ${dbPayment.order_id}`,
               );
 
               // Still notify frontend via SSE that it was approved
-              webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
-                status: "approved",
-                paymentId: dbPayment.id,
-                mercadoPagoId: paymentId,
-                approvedAt: new Date().toLocaleString("pt-BR", {
-                  timeZone: "America/Sao_Paulo",
-                }),
-                paymentMethod: paymentInfo.payment_method_id || undefined,
-              });
+              webhookNotificationService.notifyPaymentUpdate(
+                dbPayment.order_id,
+                {
+                  status: "approved",
+                  paymentId: dbPayment.id,
+                  mercadoPagoId: paymentId,
+                  approvedAt: new Date().toLocaleString("pt-BR", {
+                    timeZone: "America/Sao_Paulo",
+                  }),
+                  paymentMethod: paymentInfo.payment_method_id || undefined,
+                },
+              );
             }
           } catch (err) {
             logger.error(
               "⚠️ Erro na finalização das customizações antes do envio de notificações:",
-              err
+              err,
             );
             // Still try to notify to frontend that payment was approved (without whatsapp)
             webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
@@ -1769,7 +1796,7 @@ export class PaymentService {
               paymentMethod: paymentInfo.payment_method_id || undefined,
             });
             logger.warn(
-              `📤 Sent SSE notification despite finalization failure for order ${dbPayment.order_id}`
+              `📤 Sent SSE notification despite finalization failure for order ${dbPayment.order_id}`,
             );
           }
         }
@@ -1784,7 +1811,7 @@ export class PaymentService {
         });
 
         logger.info(
-          `📤 Notificação SSE enviada (webhook) - Pedido ${dbPayment.order_id} status: ${newStatus}`
+          `📤 Notificação SSE enviada (webhook) - Pedido ${dbPayment.order_id} status: ${newStatus}`,
         );
       }
 
@@ -1801,11 +1828,11 @@ export class PaymentService {
     }
   }
 
-  static async processMerchantOrderNotification(merchantOrderId: string) { }
+  static async processMerchantOrderNotification(merchantOrderId: string) {}
 
   static async sendOrderConfirmationNotification(
     orderId: string,
-    googleDriveUrl?: string
+    googleDriveUrl?: string,
   ) {
     try {
       const order = await prisma.order.findUnique({
@@ -1858,7 +1885,7 @@ export class PaymentService {
         } catch (error) {
           console.error(
             "Erro ao buscar URL do Google Drive para customizações:",
-            error
+            error,
           );
         }
       }
@@ -1894,12 +1921,12 @@ export class PaymentService {
         },
         delivery: order.delivery_address
           ? {
-            address: order.delivery_address,
-            city: order.user.city || "",
-            state: order.user.state || "",
-            zipCode: order.user.zip_code || "",
-            date: order.delivery_date || undefined,
-          }
+              address: order.delivery_address,
+              city: order.user.city || "",
+              state: order.user.state || "",
+              zipCode: order.user.zip_code || "",
+              date: order.delivery_date || undefined,
+            }
           : undefined,
       };
       // Include flags and complement for notification's business logic
@@ -1925,17 +1952,16 @@ export class PaymentService {
         });
       } else {
         console.warn(
-          "Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp."
+          "Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp.",
         );
       }
     } catch (error: any) {
       console.error(
         "Erro ao enviar notificação de pedido confirmado:",
-        error.message
+        error.message,
       );
     }
   }
-
 
   static validateWebhook(data: any, headers: any): boolean {
     try {
@@ -1975,8 +2001,9 @@ export class PaymentService {
     } catch (error) {
       console.error("Erro ao cancelar pagamento:", error);
       throw new Error(
-        `Falha ao cancelar pagamento: ${error instanceof Error ? error.message : "Erro desconhecido"
-        }`
+        `Falha ao cancelar pagamento: ${
+          error instanceof Error ? error.message : "Erro desconhecido"
+        }`,
       );
     }
   }
@@ -1985,7 +2012,7 @@ export class PaymentService {
    * ✅ NOVO: Busca URL do Google Drive da ordem (pasta raiz ou primeira customização)
    */
   private static async getOrderGoogleDriveUrl(
-    orderId: string
+    orderId: string,
   ): Promise<string | undefined> {
     try {
       // Tentar buscar pasta raiz primeiro
@@ -2018,7 +2045,7 @@ export class PaymentService {
     } catch (err) {
       logger.warn(
         `⚠️ Erro ao buscar URL do Google Drive para ${orderId}:`,
-        err
+        err,
       );
       return undefined;
     }

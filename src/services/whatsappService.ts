@@ -29,7 +29,7 @@ class WhatsAppService {
       !process.env.WHATSAPP_GROUP_ID
     ) {
       console.warn(
-        "⚠️ Variáveis de ambiente do WhatsApp não estão totalmente configuradas."
+        "⚠️ Variáveis de ambiente do WhatsApp não estão totalmente configuradas.",
       );
     }
 
@@ -57,7 +57,7 @@ class WhatsAppService {
   async sendMessage(text: string, phoneNumber?: string): Promise<boolean> {
     if (!this.isConfigured()) {
       console.warn(
-        "WhatsApp não configurado. Configure as variáveis de ambiente."
+        "WhatsApp não configurado. Configure as variáveis de ambiente.",
       );
       return false;
     }
@@ -70,7 +70,7 @@ class WhatsAppService {
 
       const response = await this.client.post(
         `/message/sendText/${this.config.instanceName}`,
-        payload
+        payload,
       );
 
       return true;
@@ -100,7 +100,7 @@ class WhatsAppService {
     itemId: string,
     itemName: string,
     itemType: "product" | "additional" | "color",
-    colorInfo?: { name: string; hex: string; additionalName: string }
+    colorInfo?: { name: string; hex: string; additionalName: string },
   ): Promise<boolean> {
     if (!this.canSendAlert(`critical-${itemId}`)) {
       return false;
@@ -136,11 +136,11 @@ class WhatsAppService {
     currentStock: number,
     threshold: number,
     itemType: "product" | "additional" | "color",
-    colorInfo?: { name: string; hex: string; additionalName: string }
+    colorInfo?: { name: string; hex: string; additionalName: string },
   ): Promise<boolean> {
     if (!this.canSendAlert(`low-${itemId}`)) {
       console.warn(
-        `Alerta de estoque baixo já enviado recentemente para ${itemId}`
+        `Alerta de estoque baixo já enviado recentemente para ${itemId}`,
       );
       return false;
     }
@@ -208,11 +208,11 @@ class WhatsAppService {
               item.type,
               item.color_name
                 ? {
-                  name: item.color_name,
-                  hex: item.color_hex_code || "",
-                  additionalName: item.additional_name || "",
-                }
-                : undefined
+                    name: item.color_name,
+                    hex: item.color_hex_code || "",
+                    additionalName: item.additional_name || "",
+                  }
+                : undefined,
             );
           } else {
             // Estoque baixo
@@ -224,11 +224,11 @@ class WhatsAppService {
               item.type,
               item.color_name
                 ? {
-                  name: item.color_name,
-                  hex: item.color_hex_code || "",
-                  additionalName: item.additional_name || "",
-                }
-                : undefined
+                    name: item.color_name,
+                    hex: item.color_hex_code || "",
+                    additionalName: item.additional_name || "",
+                  }
+                : undefined,
             );
           }
 
@@ -236,7 +236,7 @@ class WhatsAppService {
         } catch (error: any) {
           console.error(
             `Erro ao enviar alerta para ${item.name}:`,
-            error.message
+            error.message,
           );
           errors++;
         }
@@ -246,7 +246,7 @@ class WhatsAppService {
     } catch (error: any) {
       console.error(
         "Erro ao verificar e notificar estoque baixo:",
-        error.message
+        error.message,
       );
       return { checked: false, alerts_sent: 0, errors: 1 };
     }
@@ -273,13 +273,13 @@ class WhatsAppService {
         message += `⚠️ *Itens com Estoque Baixo:* ${report.low_stock_items.length}\n\n`;
 
         const critical = report.low_stock_items.filter(
-          (i) => i.current_stock === 0
+          (i) => i.current_stock === 0,
         );
         const low = report.low_stock_items.filter(
-          (i) => i.current_stock > 0 && i.current_stock <= 2
+          (i) => i.current_stock > 0 && i.current_stock <= 2,
         );
         const warning = report.low_stock_items.filter(
-          (i) => i.current_stock > 2
+          (i) => i.current_stock > 2,
         );
 
         if (critical.length > 0) {
@@ -334,7 +334,7 @@ class WhatsAppService {
     options: { notifyTeam?: boolean; notifyCustomer?: boolean } = {
       notifyTeam: true,
       notifyCustomer: false,
-    }
+    },
   ): Promise<boolean> {
     if (!this.isConfigured()) {
       console.warn("WhatsApp não configurado. Pulando notificação de pedido.");
@@ -354,7 +354,7 @@ class WhatsAppService {
         const sent = await this.sendMessage(teamMessage);
         if (sent) {
           console.info(
-            `Notificação de pedido ${orderData.orderId} enviada com sucesso`
+            `Notificação de pedido ${orderData.orderId} enviada com sucesso`,
           );
           teamSent = true;
         }
@@ -372,11 +372,11 @@ class WhatsAppService {
           if (phoneWithCountry.length >= 12) {
             customerSent = await this.sendDirectMessage(
               phoneWithCountry,
-              customerMessage
+              customerMessage,
             );
           } else {
             console.warn(
-              `Telefone inválido para notificação ao cliente: ${targetPhone}`
+              `Telefone inválido para notificação ao cliente: ${targetPhone}`,
             );
           }
         }
@@ -419,7 +419,7 @@ class WhatsAppService {
     teamMessage += `💰 Valor: R$ ${totalFormatted}\n`;
     if (orderData.paymentMethod) {
       teamMessage += `💳 Pagamento: ${this.formatPaymentMethod(
-        orderData.paymentMethod
+        orderData.paymentMethod,
       )}\n\n`;
     } else {
       teamMessage += `\n`;
@@ -465,7 +465,7 @@ class WhatsAppService {
       if (orderData.delivery.date) {
         teamMessage += `\n⏰ *Data/Hora de Entrega:*\n`;
         teamMessage += `${this.formatToBrasiliaTime(
-          orderData.delivery.date as any
+          orderData.delivery.date as any,
         )}\n`;
       }
     }
@@ -543,7 +543,7 @@ class WhatsAppService {
     // Total
     customerMessage += `\n💰 *TOTAL: R$ ${totalFormatted}*\n`;
     customerMessage += `💳 *Pagamento:* ${this.formatPaymentMethod(
-      orderData.paymentMethod || "Não especificado"
+      orderData.paymentMethod || "Não especificado",
     )}\n\n`;
 
     // Personalizações ou link
@@ -592,9 +592,15 @@ class WhatsAppService {
   /**
    * Envia mensagem direta para um número específico (não grupo)
    */
-  private async sendDirectMessage(
+  /**
+   * Envia uma mensagem direta para um número de WhatsApp
+   * @param phoneNumber - Número de telefone do destinatário
+   * @param message - Texto da mensagem a ser enviada
+   * @returns Promise<boolean> - True se enviada com sucesso
+   */
+  public async sendDirectMessage(
     phoneNumber: string,
-    message: string
+    message: string,
   ): Promise<boolean> {
     try {
       // Normaliza o número antes de enviar
@@ -711,7 +717,7 @@ class WhatsAppService {
       googleDriveUrl?: string;
     },
     newStatus: OrderStatus,
-    options: { notifyCustomer?: boolean; notifyTeam?: boolean } = {}
+    options: { notifyCustomer?: boolean; notifyTeam?: boolean } = {},
   ): Promise<void> {
     const { notifyCustomer = true, notifyTeam = true } = options;
 
@@ -730,7 +736,7 @@ class WhatsAppService {
       message += `📊 *Status:* ${statusInfo.label}\n`;
       message += `💰 *Valor:* R$ ${totalFormatted}\n`;
       message += `💳 *Pagamento:* ${this.formatPaymentMethod(
-        orderData.paymentMethod
+        orderData.paymentMethod,
       )}\n\n`;
       message += `👤 *Cliente:* ${orderData.customer.name} (${orderData.customer.email})\n`;
       if (orderData.customer.phone) {
@@ -752,7 +758,7 @@ class WhatsAppService {
         }
         if (orderData.delivery.date) {
           message += `\n🗓️ ${this.formatDateOnlyToBrasilia(
-            orderData.delivery.date
+            orderData.delivery.date,
           )}`;
         }
         message += "\n";
@@ -808,7 +814,7 @@ class WhatsAppService {
           }
           if (orderData.delivery.date) {
             message += `\n🗓️ Data prevista: ${this.formatDateOnlyToBrasilia(
-              orderData.delivery.date
+              orderData.delivery.date,
             )}`;
           }
         }
@@ -819,7 +825,7 @@ class WhatsAppService {
         await this.sendDirectMessage(customerPhone, message);
       } else {
         console.warn(
-          `Telefone do cliente inválido para notificação: ${orderData.customer.phone}`
+          `Telefone do cliente inválido para notificação: ${orderData.customer.phone}`,
         );
       }
     }
@@ -843,7 +849,7 @@ class WhatsAppService {
   }): Promise<boolean> {
     if (!this.isConfigured()) {
       console.warn(
-        "WhatsApp não configurado. Pulando notificação ao comprador."
+        "WhatsApp não configurado. Pulando notificação ao comprador.",
       );
       return false;
     }
@@ -902,7 +908,7 @@ class WhatsAppService {
 
       if (sent) {
         console.info(
-          `✅ Confirmação enviada ao comprador ${phoneWithCountry} - Pedido #${data.orderNumber}`
+          `✅ Confirmação enviada ao comprador ${phoneWithCountry} - Pedido #${data.orderNumber}`,
         );
       }
 
@@ -923,7 +929,7 @@ class WhatsAppService {
   }
 
   private formatDateOnlyToBrasilia(
-    isoDate: string | Date | undefined | null
+    isoDate: string | Date | undefined | null,
   ): string {
     if (!isoDate) return "";
     const date = typeof isoDate === "string" ? new Date(isoDate) : isoDate;

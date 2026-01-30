@@ -7,6 +7,7 @@ import googleDriveService from "./googleDriveService";
 import logger from "../utils/logger";
 import fs from "fs";
 import path from "path";
+import { validateOrderCustomizations } from "../utils/customizationValidator";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -672,6 +673,50 @@ class OrderService {
         if (additionals.length !== additionalsIds.length) {
           throw new Error("Um ou mais adicionais não foram encontrados");
         }
+      }
+
+      // 🔥 NOVO: Validar customizações obrigatórias antes de criar pedido
+      if (!data.is_draft) {
+        logger.info(
+          "🔍 [OrderService] Validando customizações obrigatórias...",
+        );
+
+        // Transformar CreateOrderItem para o formato esperado pelo validador
+        const itemsForValidation = data.items.map((item) => ({
+          product_id: item.product_id,
+          customizations: (item.customizations || []).map((customization) => ({
+            customization_id: customization.customization_id || "",
+            customization_type: customization.customization_type as any,
+            value:
+              customization.customization_data || customization.title || {},
+          })),
+        }));
+
+        const customizationValidation =
+          await validateOrderCustomizations(itemsForValidation);
+
+        if (!customizationValidation.isValid) {
+          logger.error(
+            "❌ [OrderService] Customizações inválidas:",
+            customizationValidation.errors,
+          );
+          const error = new Error(
+            `Customizações obrigatórias não preenchidas:\n${customizationValidation.errors.join("\n")}`,
+          );
+          (error as any).code = "INVALID_CUSTOMIZATIONS";
+          (error as any).errors = customizationValidation.errors;
+          throw error;
+        }
+
+        // Log warnings (não bloqueiam pedido)
+        if (customizationValidation.warnings.length > 0) {
+          logger.warn(
+            "⚠️ [OrderService] Avisos de customização:",
+            customizationValidation.warnings,
+          );
+        }
+
+        logger.info("✅ [OrderService] Customizações válidas");
       }
 
       const itemsTotal = data.items.reduce((sum, item) => {

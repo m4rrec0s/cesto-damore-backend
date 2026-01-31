@@ -28,6 +28,7 @@ app.use(apiRateLimit); // ✅ Proteção global contra DoS
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" }, // Permite imagens do backend no frontend
+    contentSecurityPolicy: false, // Desabilitado no backend pois o Next.js gerencia o CSP do frontend
   }),
 );
 

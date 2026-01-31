@@ -362,8 +362,25 @@ class AIAgentService {
       },
     });
 
+    // Buscar dados do customer para cada sessão (query manual sem foreign key)
+    const sessionsWithCustomer = await Promise.all(
+      sessions.map(async (session) => {
+        if (session.customer_phone) {
+          const customer = await prisma.customer.findUnique({
+            where: { number: session.customer_phone },
+            select: { name: true },
+          });
+          return {
+            ...session,
+            customer: customer || undefined,
+          };
+        }
+        return session;
+      }),
+    );
+
     // Ordenar pela última mensagem (ou created_at se não houver mensagens)
-    return sessions.sort((a, b) => {
+    return sessionsWithCustomer.sort((a, b) => {
       const dateA =
         a._count.messages > 0
           ? new Date(a.messages[0].created_at).getTime()

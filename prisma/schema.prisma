@@ -378,15 +378,16 @@ model AIAgentSession {
 }
 
 model AIAgentMessage {
-  id           String         @id @default(uuid())
-  session_id   String
-  role         String // 'user', 'assistant', 'system', 'tool'
-  content      String
-  name         String? // For tool names
-  tool_call_id String?
-  tool_calls   String? // Store JSON array of tool calls for assistant role
-  created_at   DateTime       @default(now())
-  session      AIAgentSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  id             String         @id @default(uuid())
+  session_id     String
+  role           String // 'user', 'assistant', 'system', 'tool'
+  content        String
+  name           String? // For tool names
+  tool_call_id   String?
+  tool_calls     String? // Store JSON array of tool calls for assistant role
+  sent_to_client Boolean        @default(false) // Marca se mensagem foi enviada ao cliente (modo incremental)
+  created_at     DateTime       @default(now())
+  session        AIAgentSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
 
   @@index([session_id])
 }

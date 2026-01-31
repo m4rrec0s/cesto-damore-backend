@@ -55,9 +55,12 @@ class CustomerManagementService {
       };
 
       if (customerData.name !== undefined) data.name = customerData.name;
-      if (customerData.service_status !== undefined) data.service_status = customerData.service_status;
-      if (customerData.already_a_customer !== undefined) data.already_a_customer = customerData.already_a_customer;
-      if (customerData.follow_up !== undefined) data.follow_up = customerData.follow_up;
+      if (customerData.service_status !== undefined)
+        data.service_status = customerData.service_status;
+      if (customerData.already_a_customer !== undefined)
+        data.already_a_customer = customerData.already_a_customer;
+      if (customerData.follow_up !== undefined)
+        data.follow_up = customerData.follow_up;
 
       const customer = await prisma.customer.upsert({
         where: { number: customerData.number },
@@ -74,7 +77,10 @@ class CustomerManagementService {
 
       return customer as N8NCustomer;
     } catch (error: any) {
-      console.error("Erro ao criar/atualizar cliente no Prisma:", error.message);
+      console.error(
+        "Erro ao criar/atualizar cliente no Prisma:",
+        error.message,
+      );
       throw error;
     }
   }
@@ -103,7 +109,6 @@ class CustomerManagementService {
     already_a_customer?: boolean;
     limit?: number;
     offset?: number;
-    onlyAISessions?: boolean; // Novo filtro
   }): Promise<{ customers: N8NCustomer[]; total: number }> {
     try {
       const {
@@ -112,22 +117,26 @@ class CustomerManagementService {
         already_a_customer,
         limit = 50,
         offset = 0,
-        onlyAISessions = true, // Default true para resolver o problema do usuário
       } = filters || {};
 
       const where: any = {};
       if (follow_up !== undefined) where.follow_up = follow_up;
       if (service_status) where.service_status = service_status;
-      if (already_a_customer !== undefined) where.already_a_customer = already_a_customer;
-
-      if (onlyAISessions) {
-        where.aiAgentSession = { isNot: null };
-      }
+      if (already_a_customer !== undefined)
+        where.already_a_customer = already_a_customer;
 
       const [customers, total] = await Promise.all([
         prisma.customer.findMany({
           where,
-          orderBy: { last_message_sent: 'desc' },
+          select: {
+            number: true,
+            name: true,
+            follow_up: true,
+            service_status: true,
+            already_a_customer: true,
+            last_message_sent: true,
+          },
+          orderBy: { last_message_sent: "desc" },
           take: limit,
           skip: offset,
         }),
@@ -165,7 +174,7 @@ class CustomerManagementService {
    */
   async updateCustomerStatus(
     phone: string,
-    alreadyCustomer: boolean
+    alreadyCustomer: boolean,
   ): Promise<boolean> {
     try {
       await prisma.customer.update({
@@ -174,7 +183,10 @@ class CustomerManagementService {
       });
       return true;
     } catch (error: any) {
-      console.error("Erro ao atualizar status de cliente no Prisma:", error.message);
+      console.error(
+        "Erro ao atualizar status de cliente no Prisma:",
+        error.message,
+      );
       return false;
     }
   }
@@ -184,7 +196,7 @@ class CustomerManagementService {
    */
   async sendMessageToCustomer(
     phone: string,
-    message: string
+    message: string,
   ): Promise<{ success: boolean; customer?: N8NCustomer }> {
     try {
       const sent = await whatsappService.sendMessage(message, phone);
@@ -210,7 +222,7 @@ class CustomerManagementService {
   }
 
   async getCompleteCustomerInfo(
-    phone: string
+    phone: string,
   ): Promise<CombinedCustomerInfo | null> {
     try {
       const n8nCustomer = await this.getN8NCustomerByPhone(phone);
@@ -231,14 +243,14 @@ class CustomerManagementService {
 
       const appUserWithOrders = appUser
         ? {
-          ...appUser,
-          orders: appUser.orders.map((order) => ({
-            id: order.id,
-            status: order.status,
-            total_price: order.total,
-            created_at: order.created_at,
-          })),
-        }
+            ...appUser,
+            orders: appUser.orders.map((order) => ({
+              id: order.id,
+              status: order.status,
+              total_price: order.total,
+              created_at: order.created_at,
+            })),
+          }
         : undefined;
 
       return {
@@ -249,7 +261,10 @@ class CustomerManagementService {
         last_order_status: appUser?.orders[0]?.status as string | undefined,
       };
     } catch (error: any) {
-      console.error("Erro ao buscar informações completas do cliente:", error.message);
+      console.error(
+        "Erro ao buscar informações completas do cliente:",
+        error.message,
+      );
       return null;
     }
   }
@@ -273,7 +288,10 @@ class CustomerManagementService {
 
       return true;
     } catch (error: any) {
-      console.error("Erro ao sincronizar usuário app -> Prisma:", error.message);
+      console.error(
+        "Erro ao sincronizar usuário app -> Prisma:",
+        error.message,
+      );
       return false;
     }
   }
@@ -282,9 +300,13 @@ class CustomerManagementService {
     try {
       const { customers } = await this.listN8NCustomers({ follow_up: true });
       const combinedInfo = await Promise.all(
-        customers.map((customer) => this.getCompleteCustomerInfo(customer.number))
+        customers.map((customer) =>
+          this.getCompleteCustomerInfo(customer.number),
+        ),
       );
-      return combinedInfo.filter((info) => info !== null) as CombinedCustomerInfo[];
+      return combinedInfo.filter(
+        (info) => info !== null,
+      ) as CombinedCustomerInfo[];
     } catch (error: any) {
       console.error("Erro ao buscar clientes para follow-up:", error.message);
       return [];
@@ -299,7 +321,10 @@ class CustomerManagementService {
       });
       return true;
     } catch (error: any) {
-      console.error("Erro ao atualizar status de serviço no Prisma:", error.message);
+      console.error(
+        "Erro ao atualizar status de serviço no Prisma:",
+        error.message,
+      );
       return false;
     }
   }
@@ -312,7 +337,10 @@ class CustomerManagementService {
       });
       return true;
     } catch (error: any) {
-      console.error("Erro ao atualizar nome do cliente no Prisma:", error.message);
+      console.error(
+        "Erro ao atualizar nome do cliente no Prisma:",
+        error.message,
+      );
       return false;
     }
   }

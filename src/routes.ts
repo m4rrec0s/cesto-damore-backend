@@ -993,6 +993,40 @@ router.get(
   validateAIAgentKey,
   aiAgentController.getHistory,
 );
+
+// 🔄 INCREMENTAL AI AGENT (TEST VERSION)
+router.post(
+  "/ai/agent/chat-incremental",
+  async (req: Request, res: Response) => {
+    try {
+      const { sessionId, message, customerPhone, customerName } = req.body;
+
+      if (!sessionId || !message || !customerPhone) {
+        return res.status(400).json({
+          error: "Missing required fields: sessionId, message, customerPhone",
+        });
+      }
+
+      const aiAgentServiceIncremental = (
+        await import("./services/aiAgentServiceIncremental")
+      ).default;
+
+      // Aguarda o processamento completo e retorna a mensagem
+      const result = await aiAgentServiceIncremental.chatIncremental(
+        sessionId,
+        message,
+        customerPhone,
+        customerName,
+      );
+
+      return res.json(result);
+    } catch (error: any) {
+      logger.error("❌ Error in /ai/agent/chat-incremental:", error);
+      return res.status(500).json({ error: error.message });
+    }
+  },
+);
+
 router.get(
   "/admin/ai/agent/sessions",
   authenticateToken,

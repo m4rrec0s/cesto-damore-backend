@@ -59,6 +59,7 @@ import {
   validatePaymentData,
   logFinancialOperation,
   validateAIAgentKey,
+  authRateLimit,
 } from "./middleware/security";
 
 const router = Router();
@@ -69,6 +70,8 @@ const router = Router();
 
 router.post(
   "/debug/test-upload",
+  authenticateToken,
+  requireAdmin,
   upload.single("image"),
   async (req: Request, res: Response) => {
     try {
@@ -148,12 +151,21 @@ router.get("/preview", (req: Request, res: Response) => {
 // ==========================================
 
 const getImagesPath = () =>
-  process.env.NODE_ENV === "production"
-    ? "/app/images"
+  process.env.UPLOAD_DIR
+    ? path.resolve(process.env.UPLOAD_DIR)
     : path.join(process.cwd(), "images");
 
 router.get("/images/:filename", (req: Request, res: Response) => {
-  const filePath = path.join(getImagesPath(), req.params.filename);
+  const filename = req.params.filename;
+  // Bloquear tentativas de path traversal
+  if (
+    filename.includes("..") ||
+    filename.includes("/") ||
+    filename.includes("\\")
+  ) {
+    return res.status(400).json({ error: "Nome de arquivo inválido" });
+  }
+  const filePath = path.join(getImagesPath(), filename);
   if (fs.existsSync(filePath)) return res.sendFile(filePath);
   res.status(404).json({ error: "Imagem não encontrada" });
 });
@@ -161,11 +173,15 @@ router.get("/images/:filename", (req: Request, res: Response) => {
 router.get(
   "/images/customizations/:filename",
   (req: Request, res: Response) => {
-    const filePath = path.join(
-      getImagesPath(),
-      "customizations",
-      req.params.filename,
-    );
+    const filename = req.params.filename;
+    if (
+      filename.includes("..") ||
+      filename.includes("/") ||
+      filename.includes("\\")
+    ) {
+      return res.status(400).json({ error: "Nome de arquivo inválido" });
+    }
+    const filePath = path.join(getImagesPath(), "customizations", filename);
     if (fs.existsSync(filePath)) return res.sendFile(filePath);
     res.status(404).json({ error: "Arquivo de customização não encontrado" });
   },
@@ -174,11 +190,22 @@ router.get(
 router.get(
   "/images/customizations/:folderId/:filename",
   (req: Request, res: Response) => {
+    const { folderId, filename } = req.params;
+    if (
+      filename.includes("..") ||
+      filename.includes("/") ||
+      filename.includes("\\") ||
+      folderId.includes("..") ||
+      folderId.includes("/") ||
+      folderId.includes("\\")
+    ) {
+      return res.status(400).json({ error: "Formato inválido" });
+    }
     const filePath = path.join(
       getImagesPath(),
       "customizations",
-      req.params.folderId,
-      req.params.filename,
+      folderId,
+      filename,
     );
     if (fs.existsSync(filePath)) return res.sendFile(filePath);
     res.status(404).json({ error: "Arquivo de customização não encontrado" });
@@ -189,10 +216,15 @@ router.get(
 // 3. AUTH & USER ROUTES
 // ==========================================
 
-router.post("/auth/google", authController.google);
-router.post("/auth/login", authController.login);
-router.post("/auth/verify-2fa", authController.verify2fa);
-router.post("/auth/register", upload.single("image"), authController.register);
+router.post("/auth/google", authRateLimit, authController.google);
+router.post("/auth/login", authRateLimit, authController.login);
+router.post("/auth/verify-2fa", authRateLimit, authController.verify2fa);
+router.post(
+  "/auth/register",
+  authRateLimit,
+  upload.single("image"),
+  authController.register,
+);
 router.post("/auth/refresh", authenticateToken, authController.refreshToken);
 
 router.get("/users/me", authenticateToken, userController.me);
@@ -1146,9 +1178,19 @@ router.post(
 );
 
 router.get("/oauth/status", oauthController.status);
-router.get("/oauth/authorize", oauthController.authorize);
+router.get(
+  "/oauth/authorize",
+  authenticateToken,
+  requireAdmin,
+  oauthController.authorize,
+);
 router.get("/oauth/callback", oauthController.callback);
-router.get("/oauth/debug", oauthController.debug);
+router.get(
+  "/oauth/debug",
+  authenticateToken,
+  requireAdmin,
+  oauthController.debug,
+);
 router.post(
   "/oauth/clear",
   authenticateToken,

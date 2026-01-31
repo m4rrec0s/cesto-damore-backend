@@ -14,8 +14,8 @@ services:
       # ├── code/          (código do Git)
       # ├── images/        (persistente, fora do Git)
       # └── storage/       (persistente, fora do Git)
-      - ../images:/app/images
-      - ../storage:/app/storage
+      - ../images:/usr/src/app/images
+      - ../storage:/usr/src/app/storage
     environment:
       - NODE_ENV=production
       - BASE_URL=${BASE_URL}

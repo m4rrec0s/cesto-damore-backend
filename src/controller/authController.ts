@@ -73,7 +73,7 @@ class AuthController {
           imageUrl = await saveImageLocally(
             compressedImage,
             req.file.originalname || `user_${Date.now()}.jpg`,
-            "image/jpeg"
+            "image/jpeg",
           );
         } catch (imageError: any) {
           return res.status(500).json({
@@ -87,7 +87,7 @@ class AuthController {
         email,
         password,
         name,
-        imageUrl
+        imageUrl,
       );
       res.status(201).json(result);
     } catch (error: any) {
@@ -111,7 +111,11 @@ class AuthController {
 
       // Importar a função aqui para evitar circular dependency
       const jwt = require("jsonwebtoken");
-      const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+      const jwtSecret = process.env.JWT_SECRET;
+
+      if (!jwtSecret) {
+        throw new Error("JWT_SECRET não configurado");
+      }
 
       const newToken = jwt.sign(
         {
@@ -122,7 +126,7 @@ class AuthController {
         jwtSecret,
         {
           expiresIn: "7d",
-        }
+        },
       );
 
       res.json({

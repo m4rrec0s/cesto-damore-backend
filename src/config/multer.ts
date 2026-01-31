@@ -32,7 +32,17 @@ export const uploadAny = multer({
 
 const storageTemp = multer.diskStorage({
   destination: (req, file, cb) => {
-    const { sessionId } = req.body;
+    let { sessionId } = req.body;
+
+    // ✅ SEGURANÇA: Sanitizar sessionId para prevenir Path Traversal
+    // Apenas alfanuméricos e hifens
+    if (sessionId) {
+      sessionId = sessionId.toString().replace(/[^a-zA-Z0-9-]/g, "");
+    }
+
+    if (!sessionId || sessionId.length === 0) {
+      sessionId = "default";
+    }
 
     // Pasta de storage FORA do diretório do código
     // Em produção (Docker): /app/storage
@@ -70,7 +80,11 @@ export const uploadTemp = multer({
   },
 });
 
-export const convertImagesToWebPLossy = async (req: any, res: any, next: any) => {
+export const convertImagesToWebPLossy = async (
+  req: any,
+  res: any,
+  next: any,
+) => {
   try {
     logger.debug("🔄 [MIDDLEWARE] convertImagesToWebP iniciado");
 
@@ -130,7 +144,7 @@ export const convertImagesToWebPLossy = async (req: any, res: any, next: any) =>
 export const convertImagesToWebPLossless = async (
   req: any,
   res: any,
-  next: any
+  next: any,
 ) => {
   try {
     const convert = async (file: any) => {

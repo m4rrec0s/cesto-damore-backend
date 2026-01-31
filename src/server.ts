@@ -1,8 +1,13 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import { validateEnv } from "./utils/envValidator";
+// Validar ambiente antes de carregar outras dependências que usem process.env
+validateEnv();
+
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import routes from "./routes";
 import cron from "node-cron";
 import orderService from "./services/orderService";
@@ -13,11 +18,42 @@ import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
 import followUpService from "./services/followUpService";
+import { apiRateLimit } from "./middleware/security";
 import path from "path";
 
 const app = express();
 
-app.use(cors());
+app.use(apiRateLimit); // ✅ Proteção global contra DoS
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // Permite imagens do backend no frontend
+  }),
+);
+
+const allowedOrigins = [
+  "https://cestodamore.com.br",
+  "https://www.cestodamore.com.br",
+  "https://api.cestodamore.com.br",
+  "http://185.205.246.213",
+  "http://localhost:3000",
+  "http://localhost:3333",
+  "http://localhost:5173", // Vite (Manager)
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origem ${origin} não permitida por CORS`));
+      }
+    },
+    credentials: true,
+  }),
+);
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -331,6 +367,18 @@ cron.schedule("*/20 * * * *", async () => {
 
 // 🔥 NOVO: Iniciar scheduled jobs (webhooks offline + Drive retry)
 scheduledJobsService.start();
+
+// ✅ SEGURANÇA: Handlers globais para evitar vazamento de memória e crash silencioso
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("🛑 Unhandled Rejection at:", promise, "reason:", reason);
+  // Em produção, você pode querer reportar isso a um serviço como Sentry
+});
+
+process.on("uncaughtException", (error) => {
+  logger.error("🛑 Uncaught Exception:", error);
+  // Recomendado: shutdown gracioso pois o estado do processo pode estar sujo
+  process.exit(1);
+});
 
 // 🔥 NOVO: Graceful shutdown
 process.on("SIGTERM", () => {

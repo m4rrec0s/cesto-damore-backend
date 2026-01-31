@@ -8,9 +8,7 @@ class TempFileService {
   constructor() {
     this.basePath = process.env.TEMP_UPLOADS_DIR
       ? path.resolve(process.env.TEMP_UPLOADS_DIR)
-      : process.env.NODE_ENV === "production"
-        ? "/app/storage/temp"
-        : path.join(process.cwd(), "storage", "temp");
+      : path.join(process.cwd(), "storage", "temp");
 
     this.ensureDirectory();
   }

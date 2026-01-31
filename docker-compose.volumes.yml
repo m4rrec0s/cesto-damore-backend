@@ -10,9 +10,9 @@ services:
     volumes:
       # OPÇÃO 1: Volumes nomeados (gerenciados pelo Docker)
       # Mais simples - Docker cria e gerencia automaticamente
-      - images-data:/code/images
-      - customizations-data:/code/customizations
-      - storage-data:/code/storage
+      - images-data:/usr/src/app/images
+      - customizations-data:/usr/src/app/images/customizations
+      - storage-data:/usr/src/app/storage
     environment:
       - NODE_ENV=production
       - BASE_URL=${BASE_URL}

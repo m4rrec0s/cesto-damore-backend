@@ -32,8 +32,8 @@ function ensureGoogleOAuthTokens() {
   if (missingVars.length > 0) {
     throw new Error(
       `Configuração OAuth do Google incompleta. Defina as variáveis: ${missingVars.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 
@@ -42,7 +42,7 @@ function ensureGoogleOAuthTokens() {
     const expiryNumber = Number(expiryRaw);
     if (!Number.isNaN(expiryNumber) && expiryNumber <= Date.now()) {
       throw new Error(
-        "Token de acesso do Google expirado. Refaça a autenticação OAuth2 para gerar novos tokens."
+        "Token de acesso do Google expirado. Refaça a autenticação OAuth2 para gerar novos tokens.",
       );
     }
   }
@@ -50,7 +50,12 @@ function ensureGoogleOAuthTokens() {
 
 // Nova função para criar JWT interno da aplicação
 function createAppJWT(userId: string, email: string) {
-  const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+  const jwtSecret = process.env.JWT_SECRET;
+
+  if (!jwtSecret) {
+    throw new Error("JWT_SECRET não configurado");
+  }
+
   return jwt.sign(
     {
       userId,
@@ -60,7 +65,7 @@ function createAppJWT(userId: string, email: string) {
     jwtSecret,
     {
       expiresIn: "7d", // Token dura 7 dias
-    }
+    },
   );
 }
 
@@ -86,7 +91,7 @@ class AuthService {
     email: string,
     password: string,
     name: string,
-    imageUrl?: string
+    imageUrl?: string,
   ) {
     try {
       // cria usuário no Firebase Auth via admin SDK
@@ -182,7 +187,7 @@ class AuthService {
     try {
       const response = await axios.post(
         `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`,
-        { email, password, returnSecureToken: true }
+        { email, password, returnSecureToken: true },
       );
 
       const { idToken, localId: uid } = response.data as {
@@ -204,7 +209,7 @@ class AuthService {
           });
         } else {
           throw new Error(
-            "Usuário não encontrado. Faça login com Google primeiro."
+            "Usuário não encontrado. Faça login com Google primeiro.",
           );
         }
       } else {
@@ -218,7 +223,7 @@ class AuthService {
       // 🔐 Check if 2FA is needed (Admin role)
       if (user.role.toLowerCase() === "admin") {
         const twoFactorCode = Math.floor(
-          100000 + Math.random() * 900000
+          100000 + Math.random() * 900000,
         ).toString();
         const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -252,7 +257,7 @@ class AuthService {
     } catch (error: any) {
       if (error.response?.status === 400) {
         throw new Error(
-          "Email ou senha incorretos, ou usuário não registrado no Firebase Auth"
+          "Email ou senha incorretos, ou usuário não registrado no Firebase Auth",
         );
       }
       throw error;

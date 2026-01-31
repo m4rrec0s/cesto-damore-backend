@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto-js";
+import rateLimit from "express-rate-limit";
 import prisma from "../database/prisma";
 import { mercadoPagoConfig } from "../config/mercadopago";
 import { auth } from "../config/firebase";
@@ -13,6 +14,36 @@ export interface AuthenticatedRequest extends Request {
     role?: string;
   };
 }
+
+// ✅ SEGURANÇA: Rate limit global para a API
+// Aumentado para 1000/15min para não impactar a interação com a IA
+export const apiRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 1000, // limite de 1000 requisições por janela por IP
+  message: {
+    error: "Muitas requisições vindas deste IP, tente novamente mais tarde.",
+    code: "TOO_MANY_REQUESTS",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Pula o limitador para o IP da própria VPS
+  skip: (req) => {
+    const clientIP = req.ip || req.connection.remoteAddress || "";
+    return clientIP.includes("185.205.246.213");
+  },
+});
+
+// ✅ SEGURANÇA: Rate limit estrito para login e rotas sensíveis
+export const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // limite de 10 tentativas por janela por IP
+  message: {
+    error: "Muitas tentativas de acesso, tente novamente após 15 minutos.",
+    code: "AUTH_THROTTLED",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 export const authenticateToken = async (
   req: AuthenticatedRequest,
@@ -34,7 +65,12 @@ export const authenticateToken = async (
     let decodedToken;
 
     try {
-      const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+      const jwtSecret = process.env.JWT_SECRET;
+
+      if (!jwtSecret) {
+        throw new Error("JWT_SECRET não configurado no servidor");
+      }
+
       decodedToken = jwt.verify(token, jwtSecret) as any;
 
       user = await prisma.user.findUnique({
@@ -91,10 +127,10 @@ export const authenticateToken = async (
       console.error("❌ Usuário não encontrado no banco:", {
         decodedToken: decodedToken
           ? {
-            userId: decodedToken.userId,
-            uid: decodedToken.uid,
-            email: decodedToken.email,
-          }
+              userId: decodedToken.userId,
+              uid: decodedToken.uid,
+              email: decodedToken.email,
+            }
           : null,
       });
       return res.status(401).json({
@@ -152,7 +188,12 @@ export const optionalAuthenticateToken = async (
     let decodedToken;
 
     try {
-      const jwtSecret = process.env.JWT_SECRET || "fallback-secret-key";
+      const jwtSecret = process.env.JWT_SECRET;
+
+      if (!jwtSecret) {
+        throw new Error("JWT_SECRET não configurado no servidor");
+      }
+
       decodedToken = jwt.verify(token, jwtSecret) as any;
 
       user = await prisma.user.findUnique({
@@ -248,19 +289,19 @@ export const validateMercadoPagoWebhook = (
     // Log seguro da estrutura do webhook
     const bodyPreview = req.body
       ? {
-        // Formato novo
-        type:
-          req.body.type || req.body.action?.split(".")[0] || req.body.topic,
-        action: req.body.action,
-        live_mode: req.body.live_mode,
-        paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
-        // Formato antigo
-        topic: req.body.topic,
-        resource: req.body.resource,
-        // Meta
-        hasData: !!req.body.data,
-        keys: Object.keys(req.body),
-      }
+          // Formato novo
+          type:
+            req.body.type || req.body.action?.split(".")[0] || req.body.topic,
+          action: req.body.action,
+          live_mode: req.body.live_mode,
+          paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
+          // Formato antigo
+          topic: req.body.topic,
+          resource: req.body.resource,
+          // Meta
+          hasData: !!req.body.data,
+          keys: Object.keys(req.body),
+        }
       : "body vazio";
 
     console.log("🔔 Webhook recebido do Mercado Pago", {
@@ -348,51 +389,31 @@ export const validateMercadoPagoWebhook = (
       });
     }
 
-    // ✅ ACEITAR WEBHOOKS DE TESTE IMEDIATAMENTE (live_mode: false)
-    const isTestMode = live_mode === false;
-    if (isTestMode) {
-      console.log(
-        "✅ Webhook em modo teste aceito (live_mode: false - bypassing validation)",
-      );
-      return next();
-    }
-
-    // Validação de IP (apenas para produção)
-    if (mercadoPagoConfig.security.enableIPWhitelist) {
-      const clientIP = req.ip || req.connection.remoteAddress || "";
-      const isAllowedIP = mercadoPagoConfig.security.allowedIPs.some(
-        (allowedRange) => {
-          return clientIP.includes(allowedRange.split("/")[0]);
-        },
-      );
-
-      if (!isAllowedIP) {
-        console.warn("Webhook rejeitado - IP não autorizado:", clientIP);
-        return res.status(403).json({
-          error: "IP não autorizado",
-          code: "IP_NOT_ALLOWED",
-        });
-      }
-    }
-
     const signatureHeader = req.headers["x-signature"] as string;
     const xRequestId = req.headers["x-request-id"] as string;
 
-    if (!signatureHeader || !xRequestId) {
-      console.warn(
-        "⚠️ Webhook sem headers de segurança - ACEITANDO MESMO ASSIM (troubleshooting)",
-        {
-          hasSignature: !!signatureHeader,
-          hasRequestId: !!xRequestId,
-          paymentId: data?.id,
-          type: type,
-          action: action,
-          live_mode: live_mode,
-        },
+    // ✅ SEGURANÇA: Verificação obrigatória do Secret
+    if (!mercadoPagoConfig.webhookSecret) {
+      console.error(
+        "❌ [SECURITY] MERCADO_PAGO_WEBHOOK_SECRET não configurado",
       );
-      // ⚠️ TEMPORARIAMENTE aceitar webhooks sem headers completos
-      // TODO: Reativar validação após confirmar funcionamento
-      return next();
+      return res.status(500).json({
+        error: "Configuração de segurança pendente no servidor",
+        code: "WEBHOOK_SECRET_MISSING",
+      });
+    }
+
+    if (!signatureHeader || !xRequestId) {
+      console.error("🚫 [SECURITY] Webhook sem headers de segurança", {
+        hasSignature: !!signatureHeader,
+        hasRequestId: !!xRequestId,
+        paymentId: data?.id,
+        type: type,
+      });
+      return res.status(401).json({
+        error: "Headers de segurança (x-signature, x-request-id) ausentes",
+        code: "MISSING_SECURITY_HEADERS",
+      });
     }
 
     // Validação de assinatura usando padrão oficial do Mercado Pago
@@ -450,32 +471,22 @@ export const validateMercadoPagoWebhook = (
         .toString(crypto.enc.Hex);
 
       if (hash !== expectedHash) {
-        console.warn(
-          "⚠️ Webhook com assinatura divergente - ACEITANDO MESMO ASSIM (troubleshooting)",
-          {
-            manifest: manifestString,
-            expectedHash: expectedHash.substring(0, 20) + "...",
-            receivedHash: hash.substring(0, 20) + "...",
-            secretLength: mercadoPagoConfig.webhookSecret?.length,
-            xSignatureFull: signatureHeader,
-            paymentId: dataId,
-            timestamp: timestamp,
-            requestId: xRequestId,
-          },
-        );
-
-        // ⚠️ TEMPORARIAMENTE aceitar webhooks com assinatura divergente
-        // TODO: Investigar se o secret está correto no painel do Mercado Pago
-        // return res.status(403).json({
-        //   error: "Assinatura de webhook inválida",
-        //   code: "INVALID_SIGNATURE",
-        // });
-      } else {
-        console.log("✅ Webhook validado com sucesso (assinatura correta)", {
+        console.warn("🚫 [SECURITY] Webhook rejeitado - assinatura inválida", {
           paymentId: dataId,
-          type: type,
+          receivedHash: hash.substring(0, 10) + "...",
+          expectedHash: expectedHash.substring(0, 10) + "...",
+        });
+
+        return res.status(403).json({
+          error: "Assinatura de webhook inválida",
+          code: "INVALID_SIGNATURE",
         });
       }
+
+      console.log("✅ Webhook validado com sucesso (assinatura correta)", {
+        paymentId: dataId,
+        type: type,
+      });
     } else {
       console.warn(
         "⚠️ MERCADO_PAGO_WEBHOOK_SECRET não configurado - validação desabilitada",

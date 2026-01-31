@@ -44,8 +44,6 @@ RUN npm run build
 # ========================
 FROM node:20-slim
 
-WORKDIR /code
-
 # Instalar dependências de runtime
 RUN apt-get update && apt-get install -y \
     libvips-dev \
@@ -54,28 +52,35 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Criar diretórios para bind mounts
-RUN mkdir -p /app/images \
-    /app/images/customizations \
-    /app/storage/temp \
-    /app/storage/final \
-    /app/storage && \
-    chmod 755 /app/images /app/images/customizations /app/storage /app/storage/temp /app/storage/final /app/storage
+WORKDIR /usr/src/app
+
+# Criar diretórios de armazenamento e ajustar permissões
+# Nota: Usamos o usuário 'node' pré-existente na imagem oficial para maior segurança
+RUN mkdir -p images/customizations \
+    storage/temp \
+    storage/final && \
+    chown -R node:node /usr/src/app
 
 # Copia package files
-COPY package*.json ./
+COPY --chown=node:node package*.json ./
 
-# Copia node_modules completo do builder (inclui Sharp já compilado)
-COPY --from=builder /code/node_modules ./node_modules
+# Copia node_modules completo do builder
+COPY --chown=node:node --from=builder /code/node_modules ./node_modules
 
-# Copia build
-COPY --from=builder /code/dist ./dist
-COPY --from=builder /code/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /code/prisma ./prisma
-COPY google-drive-token.json* ./
-COPY docker-entrypoint.sh ./
+# Copia build e arquivos necessários
+COPY --chown=node:node --from=builder /code/dist ./dist
+COPY --chown=node:node --from=builder /code/node_modules/.prisma ./node_modules/.prisma
+COPY --chown=node:node --from=builder /code/prisma ./prisma
+COPY --chown=node:node google-drive-token.json* ./
+COPY --chown=node:node docker-entrypoint.sh ./
 
 RUN chmod +x docker-entrypoint.sh
+
+# Muda para usuário não-root
+USER node
+
+EXPOSE 3333
+ENTRYPOINT ["./docker-entrypoint.sh"]
 
 EXPOSE 3333
 ENTRYPOINT ["./docker-entrypoint.sh"]

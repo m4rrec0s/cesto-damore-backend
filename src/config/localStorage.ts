@@ -3,10 +3,9 @@ import path from "path";
 import crypto from "crypto";
 import logger from "../utils/logger";
 
-const IMAGES_DIR =
-  process.env.NODE_ENV === "production"
-    ? "/app/images"
-    : path.join(process.cwd(), "images");
+const IMAGES_DIR = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(process.cwd(), "images");
 
 const BASE_URL = process.env.BASE_URL;
 

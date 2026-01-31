@@ -4,6 +4,21 @@ import mcpClientService from "./mcpClientService";
 import logger from "../utils/logger";
 import { addDays, isPast, format } from "date-fns";
 
+// Estados internos do processamento em duas fases
+enum ProcessingState {
+  ANALYZING = "ANALYZING",
+  GATHERING_DATA = "GATHERING_DATA",
+  SYNTHESIZING = "SYNTHESIZING",
+  READY_TO_RESPOND = "READY_TO_RESPOND",
+}
+
+interface ToolExecutionResult {
+  toolName: string;
+  input: any;
+  output: string;
+  success: boolean;
+}
+
 class AIAgentService {
   private openai: OpenAI;
   private model: string = "gpt-4o-mini";
@@ -73,6 +88,36 @@ class AIAgentService {
 
     // Sempre retorna core_identity primeiro, depois os dinâmicos
     return ["core_identity_guideline", ...uniquePrompts];
+  }
+
+  /**
+   * Prompt específico para a fase de síntese
+   */
+  private getSynthesisPrompt(toolResults: ToolExecutionResult[]): string {
+    const resultsText = toolResults
+      .map(
+        (r) =>
+          `FERRAMENTA: ${r.toolName}\nENTRADA: ${JSON.stringify(r.input)}\nRESULTADO: ${r.output}\n`,
+      )
+      .join("\n---\n");
+
+    return `Você coletou as seguintes informações através de ferramentas:
+
+${resultsText}
+
+AGORA é hora de responder ao cliente com UMA mensagem completa e organizada.
+
+REGRAS PARA SUA RESPOSTA:
+1. NÃO use mais tool_calls agora
+2. ORGANIZE todas as informações coletadas de forma clara
+3. Use emojis para deixar visual e amigável
+4. Seja natural e conversacional
+5. NUNCA mencione que "consultou" ou "verificou" algo
+6. Apresente as informações como se você já soubesse
+7. Sempre mencione tempo de produção dos produtos
+8. Se produto tiver "caneca" no nome, mencione opções de customização
+
+Gere APENAS a mensagem final para o cliente.`;
   }
 
   /**
@@ -521,11 +566,6 @@ class AIAgentService {
           follow_up: true,
         },
       });
-
-      // Reset follow-up history when customer sends a new message
-      await prisma.followUpSent.deleteMany({
-        where: { cliente_number: customerPhone },
-      });
     }
 
     // Check if session is blocked (transfered to human)
@@ -580,7 +620,7 @@ class AIAgentService {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).format(new Date(Date.now() + 86400000));
+    }).format(new Date(now.getTime() + 86400000));
 
     // Cálculo auxiliar de status para evitar alucinação da IA
     const dayOfWeek = now
@@ -696,10 +736,13 @@ Você opera via **MCP** com acesso a:
 - **Tools**: Ações executáveis (buscar produtos, validar datas, etc)
 
 ## INFORMAÇÕES DE CONTEXTO ADICIONAIS
-📅 DATA ATUAL: ${dateInCampina}
-⏰ HORÁRIO ATUAL: ${timeInCampina}
-🏪 STATUS DA LOJA: ${storeStatus}
-🌍 LOCALIDADE: Campina Grande - PB (UTC-3)
+📅 **DATA HOJE**: ${dateInCampina}
+📅 **DATA AMANHÃ**: ${tomorrowInCampina}
+⏰ **HORÁRIO ATUAL**: ${timeInCampina}
+🏪 **STATUS DA LOJA**: ${storeStatus}
+🌍 **LOCALIDADE**: Campina Grande - PB (UTC-3)
+
+⚠️ **ATENÇÃO**: Use EXATAMENTE estas datas ao falar com cliente. "Hoje" = ${dateInCampina}, "Amanhã" = ${tomorrowInCampina}
 
 ## ⛔ ANTI-ALUCINAÇÃO: CIDADES DE ENTREGA
 **CIDADES CONFIRMADAS PARA ENTREGA:**
@@ -728,7 +771,9 @@ Sempre consulte os prompts do MCP para obter as regras mais atualizadas.
 - ❌ **JAMAIS** envie mensagens de "Um momento", "Vou procurar", "Deixa eu ver" ou "Aguarde". 
 - ⚠️ **SILÊNCIO NAS TOOL CALLS**: Se você decidir chamar uma Tool, o campo \`content\` da sua mensagem DEVE ser mantido **TOTALMENTE VAZIO**. Não anuncie o que vai fazer. O cliente só deve ver a resposta final após o processamento da tool.
 - ❌ NUNCA invente produtos ou altere preços.
-- ✅ **REGRA DA CANECA**: Canecas Personalizadas (fotos/nomes) levam **18 horas comerciais** de produção. Temos canecas brancas de pronta entrega (1h). No final o atendente confirma a escolha do cliente.
+- ✅ **REGRA DA CANECA** (OBRIGATÓRIA): Se o produto contiver "caneca" no nome, SEMPRE adicione:
+  "🎁 Essa cesta tem canecas! Temos de pronta entrega (1h) e customizáveis com fotos/nomes (18h). Qual você prefere?"
+  Pergunte ANTES de validar horário de entrega.
 - ✅ **MOSTRE EXATAMENTE 2 PRODUTOS POR VEZ**. NUNCA 1, NUNCA 3, NUNCA 4. (Exceção: catálogo completo).
 - ✅ **FORMATO OBRIGATÓRIO (IMAGE FIRST + "_Opção X_")**:
   - NUNCA use markdown \`![alt](url)\`
@@ -808,122 +853,109 @@ Seja carinhosa, empática e prestativa. 💕`,
       }),
     ];
 
-    return this.runToolLoop(sessionId, messages);
+    return this.runTwoPhaseProcessing(sessionId, messages);
   }
 
-  private async runToolLoop(
+  /**
+   * ═══════════════════════════════════════════════════════════════
+   * PROCESSAMENTO EM DUAS FASES
+   * ═══════════════════════════════════════════════════════════════
+   */
+  private async runTwoPhaseProcessing(
     sessionId: string,
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   ): Promise<any> {
-    const MAX_ITERATIONS = 10; // Prevent infinite loops
-    let iteration = 0;
+    const MAX_TOOL_ITERATIONS = 10;
+    let currentState = ProcessingState.ANALYZING;
+    let toolExecutionResults: ToolExecutionResult[] = [];
 
-    while (iteration < MAX_ITERATIONS) {
-      iteration++;
+    // Fetch fresh tools from MCP
+    const tools = await mcpClientService.listTools();
+    const formattedTools = tools.map((t) => ({
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema,
+      },
+    }));
 
-      // Fetch fresh tools from MCP
-      const tools = await mcpClientService.listTools();
-      const formattedTools = tools.map((t) => ({
-        type: "function" as const,
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.inputSchema,
-        },
-      }));
+    // ═══════════════════════════════════════════════════════════════
+    // FASE 1: COLETA DE INFORMAÇÕES (LOOP INTERNO)
+    // ═══════════════════════════════════════════════════════════════
 
-      // 🔍 Detect if user is asking about products (force tool usage)
-      const lastUserMessage = [...messages]
-        .reverse()
-        .find((m) => m.role === "user");
-      const userText =
-        lastUserMessage && typeof lastUserMessage.content === "string"
-          ? lastUserMessage.content.toLowerCase()
-          : "";
+    logger.info("🔍 FASE 1: Iniciando coleta de informações...");
 
-      const isProductQuery =
-        /\b(cesta|produto|caneca|chocolate|café|buqu[êe]|flor|vinho|whisky|rosa|presente|gift|tem|quero|gostaria|mostrar|ver|opç[õo]|catálogo)\b/i.test(
-          userText,
-        );
-      const isFirstIteration = iteration === 1;
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      logger.info(
+        `🔄 [Iteração ${iteration + 1}/${MAX_TOOL_ITERATIONS}] Estado: ${currentState}`,
+      );
 
-      // ⚠️ CRITICAL FIX: Do NOT use "required" - it causes the LLM to discuss calling the tool
-      // Instead, we inject system guidance and let the LLM choose naturally
-      const toolChoice = "auto";
-
-      if (isFirstIteration && isProductQuery) {
-        logger.info(
-          `🎯 Product query detected: "${userText.substring(0, 50)}..."`,
-        );
-      }
-
-      // ✅ CRITICAL: Use stream: false to get complete response before checking tool_calls
-      const currentResponse = await this.openai.chat.completions.create({
+      const response = await this.openai.chat.completions.create({
         model: this.model,
         messages,
         tools: formattedTools,
-        tool_choice: toolChoice,
-        stream: false, // ✅ Must be false to check tool_calls synchronously
+        stream: false,
       });
 
-      const responseMessage = currentResponse.choices[0].message;
+      const responseMessage = response.choices[0].message;
 
-      // ✅ Check if LLM wants to call tools
+      // Se há tool_calls, executa e continua coletando
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+        currentState = ProcessingState.GATHERING_DATA;
+
         logger.info(
-          `🔄 [Iteration ${iteration}] LLM requested ${responseMessage.tool_calls.length} tool call(s)`,
+          `🛠️ Executando ${responseMessage.tool_calls.length} ferramenta(s)...`,
         );
 
-        // ⚠️ PROGRAMMATIC SILENCE: Discard any text content when tools are called
-        const silencedMessage = {
-          ...responseMessage,
-          content: "", // ✅ Force empty to prevent "Um momento" messages
-        };
-        messages.push(silencedMessage as any);
+        // Adiciona mensagem assistant ao contexto (com content vazio = silêncio)
+        messages.push({
+          role: "assistant",
+          content: "", // SILÊNCIO TOTAL
+          tool_calls: responseMessage.tool_calls as any,
+        });
 
-        // Save silenced assistant message
+        // Salva no banco
         await prisma.aIAgentMessage.create({
           data: {
             session_id: sessionId,
             role: "assistant",
-            content: "", // ✅ Save as empty
+            content: "",
             tool_calls: JSON.stringify(responseMessage.tool_calls),
           },
         });
 
-        // ✅ Execute all tool calls
+        // Executa cada tool
         for (const toolCall of responseMessage.tool_calls) {
           if (toolCall.type !== "function") continue;
 
           const name = toolCall.function.name;
           const args = JSON.parse(toolCall.function.arguments);
 
-          logger.info(`🔧 Executing tool: ${name}`, args);
+          logger.info(`🔧 Chamando: ${name}(${JSON.stringify(args)})`);
 
-          // 🔑 Normalize search terms
+          // Normaliza termos de busca
           if (name === "consultarCatalogo" && args.termo) {
             const termoOriginal = args.termo;
             const termoNormalizado = this.normalizarTermoBusca(termoOriginal);
             if (termoOriginal !== termoNormalizado) {
               logger.info(
-                `📝 Search term normalized: "${termoOriginal}" → "${termoNormalizado}"`,
+                `📝 Normalizado: "${termoOriginal}" → "${termoNormalizado}"`,
               );
               args.termo = termoNormalizado;
             }
           }
 
-          // ✅ Validate calculate_freight parameters
+          // Valida calculate_freight
           if (name === "calculate_freight") {
             const city = args.city || args.cityName || args.city_name;
             if (!city) {
-              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: cidade. Pergunte ao cliente: 'Qual é a sua cidade?'"}`;
-
+              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: cidade. Pergunte: 'Qual é a sua cidade?'"}`;
               messages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
                 content: errorMsg,
               });
-
               await prisma.aIAgentMessage.create({
                 data: {
                   session_id: sessionId,
@@ -933,33 +965,28 @@ Seja carinhosa, empática e prestativa. 💕`,
                   name: name,
                 } as any,
               });
-
               continue;
             }
           }
 
-          // ✅ Validate notify_human_support context (VALIDAÇÃO MELHORADA)
+          // Valida notify_human_support
           if (name === "notify_human_support") {
             const reason = (args.reason || "").toString();
             const isFinalization =
-              /finaliza|finaliza[cç][aã]o|pedido|finalizar|finalizado|end_of_checkout/i.test(
+              /finaliza|finaliza[cç][aã]o|pedido|finalizar|end_of_checkout/i.test(
                 reason,
               );
             const context = (
               args.customer_context ||
               args.customerContext ||
               ""
-            ).toString();
+            )
+              .toString()
+              .toLowerCase();
 
             if (isFinalization) {
-              // Palavras-chave que devem estar presentes para finalização
-              const contextLower = context.toLowerCase();
-
-              // Verificar se é retirada (não precisa endereço de entrega)
               const isRetirada =
-                contextLower.includes("retirada") ||
-                contextLower.includes("retirar");
-
+                context.includes("retirada") || context.includes("retirar");
               const checks = {
                 produto: [
                   "cesta",
@@ -979,28 +1006,24 @@ Seja carinhosa, empática e prestativa. 💕`,
                   "retirar",
                 ],
                 endereco: isRetirada
-                  ? ["retirada", "retirar", "loja"] // Se retirada, aceita sem endereço
+                  ? ["retirada", "retirar", "loja"]
                   : ["endereço", "rua", "bairro", "cidade"],
                 pagamento: ["pix", "cartão", "pagamento", "crédito", "débito"],
               };
 
               const missing = [];
-
               for (const [category, keywords] of Object.entries(checks)) {
-                if (!keywords.some((kw) => contextLower.includes(kw))) {
+                if (!keywords.some((kw) => context.includes(kw)))
                   missing.push(category);
-                }
               }
 
               if (missing.length > 0) {
-                const errorMsg = `{"status":"error","error":"incomplete_context","message":"⚠️ Faltam informações importantes: ${missing.join(", ")}. Colete: Produto escolhido, Data/Hora ${isRetirada ? "de retirada" : "de entrega"}, ${isRetirada ? "" : "Endereço completo e"} Método de pagamento ANTES de finalizar."}`;
-
+                const errorMsg = `{"status":"error","error":"incomplete_context","message":"⚠️ Faltam: ${missing.join(", ")}. Colete tudo ANTES de finalizar."}`;
                 messages.push({
                   role: "tool",
                   tool_call_id: toolCall.id,
                   content: errorMsg,
                 });
-
                 await prisma.aIAgentMessage.create({
                   data: {
                     session_id: sessionId,
@@ -1010,74 +1033,52 @@ Seja carinhosa, empática e prestativa. 💕`,
                     name: name,
                   } as any,
                 });
-
                 continue;
               }
-            } else {
-              // Generic notification logic
-              if (!args.customer_phone && !args.customerPhone) {
-                try {
-                  const sessRec = await prisma.aIAgentSession.findUnique({
-                    where: { id: sessionId },
-                  });
-                  if (sessRec?.customer_phone) {
-                    args.customer_phone = sessRec.customer_phone;
-                  }
-                } catch (e) {
-                  logger.debug(
-                    "Could not fetch session phone to include in notify_human_support",
-                    e,
-                  );
-                }
-              }
-
-              if (!context || context.trim() === "") {
-                args.customer_context =
-                  args.customer_context ||
-                  "Cliente solicitou conversar com um atendente humano. Contexto não fornecido pela IA.";
-              }
             }
-          }
-
-          // ✅ Inject session_id for notify_human_support to enable automatic blocking
-          if (name === "notify_human_support") {
             args.session_id = sessionId;
-            logger.info(
-              `🔒 Added session_id to notify_human_support for auto-blocking: ${sessionId}`,
-            );
           }
 
-          // ✅ Execute the tool
+          // Executa a tool
           let result: any;
+          let success = true;
           try {
             result = await mcpClientService.callTool(name, args);
           } catch (error: any) {
-            logger.error(`❌ Error executing tool ${name}:`, error);
+            logger.error(`❌ Erro na tool ${name}: ${error.message}`);
             result = `Erro ao executar ${name}: ${error.message}`;
+            success = false;
           }
 
-          // ✅ Normalize tool output
+          // Normaliza resultado
           let toolOutputText: string;
-          try {
-            if (typeof result === "string") {
-              toolOutputText = result;
-            } else if (
-              result &&
-              (result.raw || result.humanized || result.data)
-            ) {
-              toolOutputText =
-                result.raw ||
-                result.humanized ||
-                JSON.stringify(result.data || result);
-            } else {
-              toolOutputText = JSON.stringify(result);
-            }
-          } catch (e) {
+          if (typeof result === "string") {
+            toolOutputText = result;
+          } else if (
+            result &&
+            (result.raw || result.humanized || result.data)
+          ) {
             toolOutputText =
-              typeof result === "string" ? result : JSON.stringify(result);
+              result.raw ||
+              result.humanized ||
+              JSON.stringify(result.data || result);
+          } else {
+            toolOutputText = JSON.stringify(result);
           }
 
-          // ✅ Track sent products (consultarCatalogo only)
+          logger.info(
+            `✅ Resultado: ${toolOutputText.substring(0, 100)}${toolOutputText.length > 100 ? "..." : ""}`,
+          );
+
+          // Registra execução
+          toolExecutionResults.push({
+            toolName: name,
+            input: args,
+            output: toolOutputText,
+            success,
+          });
+
+          // Rastreia produtos enviados
           if (name === "consultarCatalogo") {
             try {
               const parsed =
@@ -1088,44 +1089,26 @@ Seja carinhosa, empática e prestativa. 💕`,
                 ...(parsed.exatos || []),
                 ...(parsed.fallback || []),
               ];
-
-              if (allProducts.length > 2) {
-                logger.warn(
-                  `⚠️ consultarCatalogo returned ${allProducts.length} products, limiting to 2`,
-                );
-                const firstTwo = allProducts.slice(0, 2);
-                const rebuiltResponse = {
-                  ...parsed,
-                  exatos: firstTwo.filter((p) => p.tipo_resultado === "EXATO"),
-                  fallback: firstTwo.filter(
-                    (p) => p.tipo_resultado === "FALLBACK",
-                  ),
-                };
-                toolOutputText = JSON.stringify(rebuiltResponse);
-              }
-
               const trackedProducts = allProducts.slice(0, 2);
               for (const product of trackedProducts) {
                 if (product.id) {
                   await this.recordProductSent(sessionId, product.id);
-                  logger.info(
-                    `✅ Tracked product ${product.id} as sent in session ${sessionId}`,
-                  );
+                  logger.info(`✅ Rastreado produto ${product.id}`);
                 }
               }
             } catch (e) {
-              logger.debug("Could not extract product IDs", e);
+              logger.debug("Não foi possível extrair IDs de produtos", e);
             }
           }
 
-          // ✅ Add tool result to messages
+          // Adiciona resultado ao contexto
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,
             content: toolOutputText,
           });
 
-          // ✅ Save tool result to DB
+          // Salva no banco
           await prisma.aIAgentMessage.create({
             data: {
               session_id: sessionId,
@@ -1136,85 +1119,67 @@ Seja carinhosa, empática e prestativa. 💕`,
             } as any,
           });
 
-          // ✅ Memory save logic for notify_human_support (OBRIGATÓRIO)
+          // Salva memória após notify_human_support
           if (name === "notify_human_support") {
-            const success =
-              toolOutputText.toLowerCase().includes("notifica") ||
-              toolOutputText.toLowerCase().includes("sucesso");
-            if (success) {
-              try {
-                let customerPhone = (
-                  args.customer_phone ||
-                  args.customerPhone ||
-                  ""
-                ).toString();
-                if (!customerPhone) {
-                  const sessRec = await prisma.aIAgentSession.findUnique({
-                    where: { id: sessionId },
-                  });
-                  customerPhone = sessRec?.customer_phone || "";
-                }
-                const customerContext =
-                  args.customer_context ||
-                  args.customerContext ||
-                  toolOutputText;
-                if (customerPhone) {
-                  await mcpClientService.callTool("save_customer_summary", {
-                    customer_phone: customerPhone,
-                    summary: customerContext,
-                  });
-                  logger.info(`💾 Saved customer summary for ${customerPhone}`);
-                } else {
-                  logger.warn(
-                    "⚠️ notify_human_support called without customer phone - memory not saved",
-                  );
-                }
-              } catch (e) {
-                logger.error(
-                  "❌ CRITICAL: Failed to save customer summary after notify_human_support",
-                  e,
-                );
-                // Continue anyway, notification is more important
+            try {
+              let customerPhone = (
+                args.customer_phone ||
+                args.customerPhone ||
+                ""
+              ).toString();
+              if (!customerPhone) {
+                const sessRec = await prisma.aIAgentSession.findUnique({
+                  where: { id: sessionId },
+                });
+                customerPhone = sessRec?.customer_phone || "";
               }
+              if (customerPhone) {
+                await mcpClientService.callTool("save_customer_summary", {
+                  customer_phone: customerPhone,
+                  summary: args.customer_context || toolOutputText,
+                });
+                logger.info(`💾 Memória salva para ${customerPhone}`);
+              }
+            } catch (e) {
+              logger.error("❌ Falha ao salvar memória", e);
             }
-          }
-
-          // ✅ ALWAYS save memory after important tool calls
-          if (name === "save_customer_summary") {
-            logger.info(`💾 Customer memory saved: ${args.customer_phone}`);
           }
         }
 
-        // ✅✅✅ CRITICAL: Continue the loop to let LLM process tool results
-        logger.info(`🔄 Continuing loop to process tool results...`);
-        continue; // ← This is the key! Loop back to call OpenAI again
-      } else {
-        // ✅ No more tool calls - return final streaming response
-        logger.info(
-          `✅ [Iteration ${iteration}] No tool calls, returning final response`,
-        );
-
-        // ✅ IMPORTANT: Now we can stream the final response to the user
-        return this.openai.chat.completions.create({
-          model: this.model,
-          messages,
-          stream: true, // ✅ Stream the final user-facing response
-        });
+        // Continua o loop para processar os resultados
+        continue;
       }
+
+      // Se NÃO há tool_calls, significa que a LLM decidiu que tem informações suficientes
+      logger.info(
+        "✅ FASE 1 Concluída: Todas as informações necessárias foram coletadas",
+      );
+      currentState = ProcessingState.READY_TO_RESPOND;
+      break;
     }
 
-    // ✅ Safety: If we hit max iterations, return a helpful error
-    logger.error(`❌ Max iterations (${MAX_ITERATIONS}) reached in tool loop`);
+    // ═══════════════════════════════════════════════════════════════
+    // FASE 2: SÍNTESE E RESPOSTA AO CLIENTE (COM STREAM)
+    // ═══════════════════════════════════════════════════════════════
+
+    if (currentState !== ProcessingState.READY_TO_RESPOND) {
+      logger.warn("⚠️ Limite de iterações atingido, forçando resposta");
+    }
+
+    logger.info("📝 FASE 2: Gerando resposta organizada para o cliente...");
+
+    // Adiciona prompt de síntese se houveram tools executadas
+    if (toolExecutionResults.length > 0) {
+      messages.push({
+        role: "system",
+        content: this.getSynthesisPrompt(toolExecutionResults),
+      });
+    }
+
+    // Retorna stream da resposta final
     return this.openai.chat.completions.create({
       model: this.model,
-      messages: [
-        ...messages,
-        {
-          role: "system",
-          content:
-            "Você atingiu o limite de operações. Por favor, resuma o que conseguiu até agora e pergunte ao cliente se ele precisa de mais alguma coisa.",
-        },
-      ],
+      messages,
       stream: true,
     });
   }

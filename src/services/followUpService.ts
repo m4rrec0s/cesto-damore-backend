@@ -97,13 +97,18 @@ class FollowUpService {
         }
 
         if (jaEnviouUltimo) {
+          // Reset follow-up history after 48h follow-up is sent
+          await prisma.followUpSent.deleteMany({
+            where: { cliente_number: customer.number },
+          });
+
           await prisma.customer.update({
             where: { number: customer.number },
             data: { follow_up: false },
           });
 
           logger.info(
-            `🔒 [FollowUp] Follow-up desativado para ${customer.number} (ciclo completo)`,
+            `🔒 [FollowUp] Follow-up desativado e histórico resetado para ${customer.number} (ciclo completo)`,
           );
         }
       }

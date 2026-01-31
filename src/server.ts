@@ -60,20 +60,20 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-const tempDir = process.env.TEMP_UPLOADS_DIR
-  ? path.resolve(process.env.TEMP_UPLOADS_DIR)
-  : process.env.NODE_ENV === "production"
-    ? "/app/storage/temp"
-    : path.join(process.cwd(), "storage", "temp");
+const normalizePath = (envVar?: string, defaultPath: string = "") => {
+  if (!envVar) return path.join(process.cwd(), defaultPath);
+  if (path.isAbsolute(envVar) && envVar.startsWith("/app/")) {
+    return path.join(process.cwd(), envVar.replace("/app/", ""));
+  }
+  return path.resolve(envVar);
+};
+
+const tempDir = normalizePath(process.env.TEMP_UPLOADS_DIR, "storage/temp");
 
 logger.info(`📂 [Server] Serving temp files from: ${tempDir}`);
 app.use("/uploads/temp", express.static(tempDir));
 
-const imagesDir = process.env.UPLOAD_DIR
-  ? path.resolve(process.env.UPLOAD_DIR)
-  : process.env.NODE_ENV === "production"
-    ? "/app/images"
-    : path.join(process.cwd(), "images");
+const imagesDir = normalizePath(process.env.UPLOAD_DIR, "images");
 
 logger.info(`📂 [Server] Serving images from: ${imagesDir}`);
 app.use("/images", express.static(imagesDir));

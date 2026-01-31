@@ -381,10 +381,7 @@ class ScheduledJobsService {
       const fs = await import("fs");
       const path = await import("path");
 
-      const baseStorageDir =
-        process.env.NODE_ENV === "production"
-          ? "/app/storage"
-          : path.join(process.cwd(), "storage");
+      const baseStorageDir = path.join(process.cwd(), "storage");
 
       const backupDir = path.join(baseStorageDir, "backup");
 

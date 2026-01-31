@@ -1697,10 +1697,7 @@ class OrderService {
             },
           });
 
-        const baseStorageDir =
-          process.env.NODE_ENV === "production"
-            ? "/app/storage"
-            : path.join(process.cwd(), "storage");
+        const baseStorageDir = path.join(process.cwd(), "storage");
 
         let tempFilesDeleted = 0;
 

@@ -6,9 +6,16 @@ class TempFileService {
   private basePath: string;
 
   constructor() {
-    this.basePath = process.env.TEMP_UPLOADS_DIR
-      ? path.resolve(process.env.TEMP_UPLOADS_DIR)
-      : path.join(process.cwd(), "storage", "temp");
+    const envPath = process.env.TEMP_UPLOADS_DIR;
+    if (envPath) {
+      if (path.isAbsolute(envPath) && envPath.startsWith("/app/")) {
+        this.basePath = path.join(process.cwd(), envPath.replace("/app/", ""));
+      } else {
+        this.basePath = path.resolve(envPath);
+      }
+    } else {
+      this.basePath = path.join(process.cwd(), "storage", "temp");
+    }
 
     this.ensureDirectory();
   }

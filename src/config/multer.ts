@@ -44,13 +44,11 @@ const storageTemp = multer.diskStorage({
       sessionId = "default";
     }
 
-    // Pasta de storage FORA do diretório do código
-    // Em produção (Docker): /app/storage
-    // Em desenvolvimento: ./storage
-    const baseStorageDir =
-      process.env.NODE_ENV === "production" ? "/app/storage" : "storage";
+    // Pasta de storage
+    // Garantimos que o caminho seja relativo ao diretório de trabalho do app
+    const baseStorageDir = path.join(process.cwd(), "storage");
 
-    const tempDir = `${baseStorageDir}/temp/${sessionId || "default"}`;
+    const tempDir = path.join(baseStorageDir, "temp", sessionId || "default");
 
     const fs = require("fs");
     if (!fs.existsSync(tempDir)) {

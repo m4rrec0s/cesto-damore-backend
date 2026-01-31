@@ -4,9 +4,26 @@ import crypto from "crypto";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
-const TEMP_UPLOADS_DIR = process.env.TEMP_UPLOADS_DIR as string;
-const FINAL_UPLOADS_DIR = process.env.FINAL_UPLOADS_DIR as string;
-const DEFAULT_TTL_HOURS = parseInt(process.env.TEMP_UPLOAD_TTL_HOURS as string);
+// Normalização de caminhos para evitar erro EACCES em Docker
+const normalizeStoragePath = (envVar?: string, defaultPath: string = "") => {
+  if (!envVar) return path.join(process.cwd(), defaultPath);
+  // Se o caminho for absoluto e começar com /app/ (legado), converter para relativo ao WORKDIR
+  if (path.isAbsolute(envVar) && envVar.startsWith("/app/")) {
+    return path.join(process.cwd(), envVar.replace("/app/", ""));
+  }
+  return path.resolve(envVar);
+};
+
+const TEMP_UPLOADS_DIR = normalizeStoragePath(
+  process.env.TEMP_UPLOADS_DIR,
+  "storage/temp",
+);
+const FINAL_UPLOADS_DIR = normalizeStoragePath(
+  process.env.FINAL_UPLOADS_DIR,
+  "storage/final",
+);
+
+const DEFAULT_TTL_HOURS = parseInt(process.env.TEMP_UPLOAD_TTL_HOURS || "24");
 
 // Garantir que os diretórios existem
 if (!fs.existsSync(TEMP_UPLOADS_DIR)) {

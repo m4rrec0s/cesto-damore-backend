@@ -450,10 +450,7 @@ class OrderCustomizationService {
   private async backupTempFilesBeforeDelete(
     files: string[],
   ): Promise<{ success: number; failed: number }> {
-    const baseStorageDir =
-      process.env.NODE_ENV === "production"
-        ? "/app/storage"
-        : path.join(process.cwd(), "storage");
+    const baseStorageDir = path.join(process.cwd(), "storage");
 
     const tempDir = path.join(baseStorageDir, "temp");
     const backupDir = path.join(baseStorageDir, "backup");
@@ -1117,10 +1114,7 @@ class OrderCustomizationService {
       // Se for URL temporária local (/uploads/temp/...)
       if (url.startsWith("/uploads/temp/")) {
         const tempFileName = url.replace("/uploads/temp/", "");
-        const baseStorageDir =
-          process.env.NODE_ENV === "production"
-            ? "/app/storage"
-            : path.join(process.cwd(), "storage");
+        const baseStorageDir = path.join(process.cwd(), "storage");
         const filePath = path.join(baseStorageDir, "temp", tempFileName);
 
         // Validação de segurança: garantir que não está tentando fazer path traversal

@@ -16,27 +16,32 @@ export interface AuthenticatedRequest extends Request {
 }
 
 // ✅ SEGURANÇA: Rate limit global para a API
-// Aumentado para 1000/15min para não impactar a interação com a IA
+// Aumentado para 2000/15min para suportar interações intensas com a IA e múltiplos usuários
 export const apiRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 1000, // limite de 1000 requisições por janela por IP
+  max: 2000, // limite de 2000 requisições por janela por IP
   message: {
     error: "Muitas requisições vindas deste IP, tente novamente mais tarde.",
     code: "TOO_MANY_REQUESTS",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Pula o limitador para o IP da própria VPS
+  // Pula o limitador para o IP da própria VPS e localhost
   skip: (req) => {
     const clientIP = req.ip || req.connection.remoteAddress || "";
-    return clientIP.includes("185.205.246.213");
+    return (
+      clientIP.includes("185.205.246.213") ||
+      clientIP === "::1" ||
+      clientIP === "127.0.0.1"
+    );
   },
 });
 
-// ✅ SEGURANÇA: Rate limit estrito para login e rotas sensíveis
+// ✅ SEGURANÇA: Rate limit para login e rotas sensíveis
+// Aumentado para 30 tentativas por 15 minutos para evitar bloqueios por erros de digitação
 export const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 10, // limite de 10 tentativas por janela por IP
+  max: 30, // limite de 30 tentativas por janela por IP
   message: {
     error: "Muitas tentativas de acesso, tente novamente após 15 minutos.",
     code: "AUTH_THROTTLED",

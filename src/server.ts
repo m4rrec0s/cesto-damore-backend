@@ -23,7 +23,9 @@ import path from "path";
 
 const app = express();
 
-app.use(apiRateLimit); // ✅ Proteção global contra DoS
+// ✅ SEGURANÇA: Confiar no proxy (Railway, Cloudflare, Nginx)
+// Necessário para que o rate limit identifique o IP real do cliente
+app.set("trust proxy", 1);
 
 app.use(
   helmet({

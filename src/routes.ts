@@ -60,9 +60,14 @@ import {
   logFinancialOperation,
   validateAIAgentKey,
   authRateLimit,
+  apiRateLimit,
 } from "./middleware/security";
 
 const router = Router();
+
+// ✅ SEGURANÇA: Aplicar limite de requisições apenas nas rotas de API
+// Isso evita que o limite bloqueie o carregamento de imagens estáticas
+router.use(apiRateLimit);
 
 // ==========================================
 // 1. UTIL & DEBUG ROUTES

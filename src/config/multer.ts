@@ -1,5 +1,6 @@
 import multer from "multer";
 import sharp from "sharp";
+import path from "path";
 import logger from "../utils/logger";
 
 const storage = multer.memoryStorage();

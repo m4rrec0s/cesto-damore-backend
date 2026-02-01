@@ -615,12 +615,14 @@ class OrderService {
       }
 
       const productIds = data.items.map((item) => item.product_id);
+      const uniqueProductIds = [...new Set(productIds)];
+
       console.debug(
         "[OrderService.createOrder] payload productIds:",
         productIds,
       );
       const products = await prisma.product.findMany({
-        where: { id: { in: productIds } },
+        where: { id: { in: uniqueProductIds } },
         include: {
           components: {
             include: {
@@ -630,9 +632,9 @@ class OrderService {
         },
       });
 
-      if (products.length !== productIds.length) {
+      if (products.length !== uniqueProductIds.length) {
         const foundIds = products.map((p) => p.id);
-        const missing = productIds.filter((id) => !foundIds.includes(id));
+        const missing = uniqueProductIds.filter((id) => !foundIds.includes(id));
         const err = new Error(`Produtos não encontrados: ${missing.join(",")}`);
         (err as any).code = "MISSING_PRODUCTS";
         (err as any).missing = missing;
@@ -665,13 +667,24 @@ class OrderService {
         )
         .filter(Boolean);
 
-      if (additionalsIds.length > 0) {
+      const uniqueAdditionalsIds = [...new Set(additionalsIds)];
+
+      if (uniqueAdditionalsIds.length > 0) {
         const additionals = await prisma.item.findMany({
-          where: { id: { in: additionalsIds } },
+          where: { id: { in: uniqueAdditionalsIds } },
         });
 
-        if (additionals.length !== additionalsIds.length) {
-          throw new Error("Um ou mais adicionais não foram encontrados");
+        if (additionals.length !== uniqueAdditionalsIds.length) {
+          const foundIds = additionals.map((a) => a.id);
+          const missing = uniqueAdditionalsIds.filter(
+            (id) => !foundIds.includes(id),
+          );
+          const err = new Error(
+            `Um ou mais adicionais não foram encontrados: ${missing.join(",")}`,
+          );
+          (err as any).code = "MISSING_ADDITIONALS";
+          (err as any).missing = missing;
+          throw err;
         }
       }
 
@@ -1169,6 +1182,8 @@ class OrderService {
     }
 
     const productIds = items.map((i) => i.product_id);
+    const uniqueProductIds = [...new Set(productIds)];
+
     console.debug(
       `[OrderService.updateOrderItems] orderId=${orderId} payload items:`,
       items,
@@ -1178,11 +1193,11 @@ class OrderService {
       productIds,
     );
     const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { id: { in: uniqueProductIds } },
     });
-    if (products.length !== productIds.length) {
+    if (products.length !== uniqueProductIds.length) {
       const foundIds = products.map((p) => p.id);
-      const missing = productIds.filter((id) => !foundIds.includes(id));
+      const missing = uniqueProductIds.filter((id) => !foundIds.includes(id));
       const err = new Error(`Produtos não encontrados: ${missing.join(",")}`);
       (err as any).code = "MISSING_PRODUCTS";
       (err as any).missing = missing;
@@ -1194,14 +1209,18 @@ class OrderService {
       .flatMap((item) => item.additionals?.map((ad) => ad.additional_id) || [])
       .filter(Boolean);
 
-    if (additionalsIds.length > 0) {
+    const uniqueAdditionalsIds = [...new Set(additionalsIds)];
+
+    if (uniqueAdditionalsIds.length > 0) {
       const additionals = await prisma.item.findMany({
-        where: { id: { in: additionalsIds } },
+        where: { id: { in: uniqueAdditionalsIds } },
       });
 
-      if (additionals.length !== additionalsIds.length) {
+      if (additionals.length !== uniqueAdditionalsIds.length) {
         const foundIds = additionals.map((a) => a.id);
-        const missing = additionalsIds.filter((id) => !foundIds.includes(id));
+        const missing = uniqueAdditionalsIds.filter(
+          (id) => !foundIds.includes(id),
+        );
         const err = new Error(
           `Adicionais não encontrados: ${missing.join(",")}`,
         );

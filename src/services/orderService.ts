@@ -735,14 +735,26 @@ class OrderService {
       const itemsTotal = data.items.reduce((sum, item) => {
         const baseTotal = item.price * item.quantity;
         const additionalsTotal = (item.additionals || []).reduce(
-          (acc, additional) => acc + additional.price * additional.quantity,
+          (acc, additional) =>
+            acc + (additional.price || 0) * (additional.quantity || 0),
           0,
         );
         return sum + baseTotal + additionalsTotal;
       }, 0);
 
-      if (itemsTotal <= 0) {
-        throw new Error("Total dos itens deve ser maior que zero");
+      if (itemsTotal <= 0 || isNaN(itemsTotal)) {
+        logger.error("❌ [OrderService] Total calculado inválido:", {
+          itemsTotal,
+          discount: data.discount,
+          items: data.items.map((i) => ({
+            p: i.product_id,
+            q: i.quantity,
+            pr: i.price,
+          })),
+        });
+        throw new Error(
+          "Total dos itens deve ser um valor válido maior que zero",
+        );
       }
 
       const discount = data.discount && data.discount > 0 ? data.discount : 0;
@@ -1241,11 +1253,29 @@ class OrderService {
 
     const itemsTotal = items.reduce((sum, item) => {
       const additionalTotal = (item.additionals || []).reduce(
-        (acc, add) => acc + (add.price || 0) * item.quantity,
+        (acc, add) => acc + (add.price || 0) * (add.quantity || 0),
         0,
       );
       return sum + item.price * item.quantity + additionalTotal;
     }, 0);
+
+    if (itemsTotal <= 0 || isNaN(itemsTotal)) {
+      logger.error(
+        "❌ [OrderService.updateOrderItems] Total calculado inválido:",
+        {
+          itemsTotal,
+          orderId,
+          items: items.map((i) => ({
+            p: i.product_id,
+            q: i.quantity,
+            pr: i.price,
+          })),
+        },
+      );
+      throw new Error(
+        "Total dos itens deve ser um valor válido maior que zero",
+      );
+    }
 
     const discount = order.discount || 0;
     if (discount < 0) throw new Error("Desconto não pode ser negativo");
@@ -1332,15 +1362,19 @@ class OrderService {
                 const isValidUUID =
                   customization_id && uuidRegex.test(customization_id);
 
+                // ✅ NOVO: Sanitizar base64 antes de salvar no banco
+                const customizationDataToSave = {
+                  customization_type,
+                  title,
+                  ...(customization_data || {}),
+                  ...otherFields,
+                };
+                this.removeBase64Recursive(customizationDataToSave);
+
                 customizationsBatch.push({
                   order_item_id: createdItem.id,
                   customization_id: isValidUUID ? customization_id : null,
-                  value: JSON.stringify({
-                    customization_type,
-                    title,
-                    ...(customization_data || {}),
-                    ...otherFields,
-                  }),
+                  value: JSON.stringify(customizationDataToSave),
                 });
               }
             }

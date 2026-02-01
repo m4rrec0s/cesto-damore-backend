@@ -21,12 +21,33 @@ class TempFileService {
   }
 
   /**
-   * Garante que o diretório de temp existe
+   * Garante que o diretório de temp existe com permissões corretas
    */
   private ensureDirectory(): void {
     if (!fs.existsSync(this.basePath)) {
-      fs.mkdirSync(this.basePath, { recursive: true });
-      logger.info(`✅ Criado diretório de temp: ${this.basePath}`);
+      try {
+        fs.mkdirSync(this.basePath, { recursive: true, mode: 0o755 });
+        logger.info(`✅ Criado diretório de temp: ${this.basePath}`);
+      } catch (error: any) {
+        logger.error(
+          `❌ Erro ao criar diretório ${this.basePath}:`,
+          error.message,
+        );
+
+        // Fallback: tentar com caminho relativo
+        const fallbackPath = path.join(process.cwd(), "storage", "temp");
+        if (fallbackPath !== this.basePath) {
+          try {
+            fs.mkdirSync(fallbackPath, { recursive: true, mode: 0o755 });
+            this.basePath = fallbackPath;
+            logger.info(
+              `✅ Criado diretório de temp (fallback): ${fallbackPath}`,
+            );
+          } catch (fallbackError) {
+            logger.error(`❌ Erro ao criar diretório fallback:`, fallbackError);
+          }
+        }
+      }
     }
   }
 
@@ -43,6 +64,9 @@ class TempFileService {
     url: string;
   }> {
     try {
+      // Garantir que o diretório existe
+      this.ensureDirectory();
+
       // Sanitizar nome do arquivo
       const sanitized = originalName
         .replace(/[^a-zA-Z0-9._-]/g, "_")
@@ -53,8 +77,27 @@ class TempFileService {
       const filename = `${timestamp}-${sanitized}`;
       const filepath = path.join(this.basePath, filename);
 
-      // Salvar arquivo
-      fs.writeFileSync(filepath, buffer);
+      // Salvar arquivo com tratamento de erro
+      try {
+        fs.writeFileSync(filepath, buffer);
+      } catch (writeError: any) {
+        logger.error(`⚠️ Erro ao escrever em ${filepath}:`, writeError.message);
+
+        // Fallback: tentar com caminho relativo
+        const fallbackPath = path.join(
+          process.cwd(),
+          "storage",
+          "temp",
+          filename,
+        );
+        fs.mkdirSync(path.dirname(fallbackPath), {
+          recursive: true,
+          mode: 0o755,
+        });
+        fs.writeFileSync(fallbackPath, buffer);
+
+        logger.info(`✅ Arquivo salvo em fallback: ${fallbackPath}`);
+      }
 
       // Construir URL para acesso
       const baseUrl = process.env.BASE_URL || "http://localhost:3333";

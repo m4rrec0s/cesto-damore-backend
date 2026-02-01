@@ -54,12 +54,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /usr/src/app
 
-# Criar diretórios de armazenamento e ajustar permissões
-# Nota: Usamos o usuário 'node' pré-existente na imagem oficial para maior segurança
+# Criar diretórios de armazenamento com permissões corretas
+# IMPORTANTE: criar com permissão 755 ANTES de trocar de usuário
 RUN mkdir -p images/customizations \
     storage/temp \
     storage/final && \
-    chown -R node:node /usr/src/app
+    chmod -R 755 images storage && \
+    chown -R node:node /usr/src/app && \
+    chmod -R u+w storage
 
 # Copia package files
 COPY --chown=node:node package*.json ./

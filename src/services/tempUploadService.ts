@@ -25,13 +25,33 @@ const FINAL_UPLOADS_DIR = normalizeStoragePath(
 
 const DEFAULT_TTL_HOURS = parseInt(process.env.TEMP_UPLOAD_TTL_HOURS || "24");
 
-// Garantir que os diretórios existem
-if (!fs.existsSync(TEMP_UPLOADS_DIR)) {
-  fs.mkdirSync(TEMP_UPLOADS_DIR, { recursive: true });
-}
-if (!fs.existsSync(FINAL_UPLOADS_DIR)) {
-  fs.mkdirSync(FINAL_UPLOADS_DIR, { recursive: true });
-}
+// Garantir que os diretórios existem com permissões corretas
+const ensureDirectory = (dirPath: string) => {
+  if (!fs.existsSync(dirPath)) {
+    try {
+      fs.mkdirSync(dirPath, { recursive: true, mode: 0o755 });
+      logger.info(`📁 Diretório criado: ${dirPath}`);
+    } catch (error) {
+      logger.error(`❌ Erro ao criar diretório ${dirPath}:`, error);
+      // Se falhar em Docker com /app/, tentar com caminho relativo
+      const fallbackPath = dirPath.replace(/^\/app\//, "./");
+      if (fallbackPath !== dirPath) {
+        try {
+          fs.mkdirSync(fallbackPath, { recursive: true, mode: 0o755 });
+          logger.info(`📁 Diretório criado (fallback): ${fallbackPath}`);
+        } catch (fallbackError) {
+          logger.error(
+            `❌ Erro ao criar diretório fallback ${fallbackPath}:`,
+            fallbackError,
+          );
+        }
+      }
+    }
+  }
+};
+
+ensureDirectory(TEMP_UPLOADS_DIR);
+ensureDirectory(FINAL_UPLOADS_DIR);
 
 interface UploadOptions {
   userId?: string;
@@ -64,8 +84,23 @@ class TempUploadService {
       const filename = `${Date.now()}_${hash}${ext}`;
       const filePath = path.join(TEMP_UPLOADS_DIR, filename);
 
-      // Salvar arquivo
-      fs.writeFileSync(filePath, fileBuffer);
+      // Garantir que o diretório existe antes de escrever
+      ensureDirectory(TEMP_UPLOADS_DIR);
+
+      // Salvar arquivo com tratamento de erro
+      try {
+        fs.writeFileSync(filePath, fileBuffer);
+      } catch (writeError: any) {
+        // Se falhar, pode ser problema de permissão - tentar com fallback
+        logger.error(`⚠️ Erro ao escrever em ${filePath}:`, writeError.message);
+
+        // Tentar criar arquivo no diretório relativo
+        const fallbackPath = path.join("./storage/temp", filename);
+        ensureDirectory(path.dirname(fallbackPath));
+        fs.writeFileSync(fallbackPath, fileBuffer);
+
+        logger.info(`✅ Arquivo salvo em fallback: ${fallbackPath}`);
+      }
 
       // Calcular expiração
       const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);

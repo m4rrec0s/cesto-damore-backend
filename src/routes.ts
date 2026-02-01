@@ -217,6 +217,29 @@ router.get(
   },
 );
 
+// Servir arquivos temporários (uploads)
+const getTempUploadsPath = () =>
+  process.env.TEMP_UPLOADS_DIR
+    ? path.resolve(process.env.TEMP_UPLOADS_DIR)
+    : path.join(process.cwd(), "storage", "temp");
+
+router.get("/uploads/temp/:filename", (req: Request, res: Response) => {
+  const filename = req.params.filename;
+  // Bloquear tentativas de path traversal
+  if (
+    filename.includes("..") ||
+    filename.includes("/") ||
+    filename.includes("\\")
+  ) {
+    return res.status(400).json({ error: "Nome de arquivo inválido" });
+  }
+  const filePath = path.join(getTempUploadsPath(), filename);
+  if (fs.existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+  res.status(404).json({ error: "Arquivo temporário não encontrado" });
+});
+
 // ==========================================
 // 3. AUTH & USER ROUTES
 // ==========================================

@@ -31,49 +31,43 @@ interface ArtworkAsset {
   fileName?: string;
 }
 
-/**
- * Serviço para gerenciar customizações de pedidos
- *
- * NOVO FLUXO (após migração para temp files):
- * 1. Frontend faz upload de imagens para /temp/upload (salva em /storage/temp)
- * 2. Frontend envia customização com URLs temporárias (não base64)
- * 3. Backend salva URLs temporárias no banco
- * 4. Webhook pós-pagamento: finalizeOrderCustomizations() busca arquivos do temp
- * 5. Faz upload para Google Drive
- * 6. Deleta arquivos temporários
- */
 class OrderCustomizationService {
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
     const ruleId = input.customizationRuleId || "default";
     const componentId = input.customizationData.componentId;
-    const dbCustomizationId = componentId ? `${ruleId}:${componentId}` : ruleId;
 
-    // ✅ NOVO: Buscar customização existente para fazer upsert
-    const existing = await prisma.orderItemCustomization.findFirst({
+    const allCustomizations = await prisma.orderItemCustomization.findMany({
       where: {
         order_item_id: input.orderItemId,
-        customization_id: dbCustomizationId,
       },
     });
 
-    // O schema atual tem apenas: order_item_id, customization_id, value
-    // Vamos salvar todos os dados extras no campo "value" como JSON
+    const existing = allCustomizations.find((c) => {
+      try {
+        const val = JSON.parse(c.value);
+        const matchesRule =
+          c.customization_id === ruleId || val.customizationRuleId === ruleId;
+        const matchesComponent = val.componentId === componentId;
+        return matchesRule && matchesComponent;
+      } catch {
+        return false;
+      }
+    });
+
     const customizationValue: any = {
       ...input.customizationData,
+      customizationRuleId: ruleId,
       customization_type: input.customizationType,
       title: input.title,
       selected_layout_id: input.selectedLayoutId,
     };
 
-    // ✅ NOVO: Se está atualizando, coletar arquivos antigos para deletar
     const oldTempFiles: string[] = [];
     if (existing) {
       try {
         const existingData = this.parseCustomizationData(existing.value);
 
-        // Verificar e marcar arquivos antigos de DYNAMIC_LAYOUT para deleção
         if (input.customizationType === "DYNAMIC_LAYOUT") {
-          // Preview/artwork antigo
           if (
             existingData.image?.preview_url &&
             existingData.image.preview_url.includes("/uploads/temp/") &&
@@ -89,7 +83,6 @@ class OrderCustomizationService {
             );
           }
 
-          // Imagens antigas do layout (se houver array de images)
           if (existingData.images && Array.isArray(existingData.images)) {
             existingData.images.forEach((img: any) => {
               if (img.preview_url?.includes("/uploads/temp/")) {
@@ -97,7 +90,6 @@ class OrderCustomizationService {
                   .split("/uploads/temp/")
                   .pop();
                 if (oldFilename) {
-                  // Verificar se essa imagem ainda existe nas novas
                   const stillExists = input.customizationData.images?.some(
                     (newImg: any) => newImg.preview_url === img.preview_url,
                   );
@@ -113,7 +105,6 @@ class OrderCustomizationService {
           }
         }
 
-        // Verificar fotos antigas de IMAGES
         if (input.customizationType === "IMAGES" && existingData.photos) {
           const oldPhotos = Array.isArray(existingData.photos)
             ? existingData.photos
@@ -124,7 +115,6 @@ class OrderCustomizationService {
                 .split("/uploads/temp/")
                 .pop();
               if (oldFilename) {
-                // Verificar se essa foto ainda existe nas novas
                 const stillExists = input.customizationData.photos?.some(
                   (newPhoto: any) => newPhoto.preview_url === photo.preview_url,
                 );
@@ -143,7 +133,6 @@ class OrderCustomizationService {
       }
     }
 
-    // Compute and include label_selected when possible
     const computedLabel = await this.computeLabelSelected(
       input.customizationType,
       input.customizationData,
@@ -164,7 +153,16 @@ class OrderCustomizationService {
 
     const payload: any = {
       order_item_id: input.orderItemId,
-      customization_id: dbCustomizationId, // Usar chave composta para suportar múltiplos componentes
+      // Se tiver componentId, não podemos salvar no customization_id (FK UUID)
+      // então deixamos NULL se não for UUID puro. O identificador real está no JSON.
+      customization_id:
+        ruleId &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          ruleId,
+        ) &&
+        !componentId
+          ? ruleId
+          : null,
       value: JSON.stringify(customizationValue),
     };
 
@@ -173,27 +171,28 @@ class OrderCustomizationService {
       const hasTempUrls = /\/uploads\/temp\//.test(payload.value);
       const containsBase64 = /data:[^;]+;base64,/.test(payload.value);
       logger.debug(
-        `🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${ruleId}, dbId=${dbCustomizationId}`,
+        `🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${ruleId}, componentId=${componentId}`,
       );
     } catch (err) {
       /* ignore logging errors */
     }
 
-    // ✅ UPSERT: Atualizar se existir, criar se não
-    const record = await prisma.orderItemCustomization.upsert({
-      where: {
-        // Usar unique constraint composto (precisa existir no schema do Prisma)
-        order_item_id_customization_id: {
-          order_item_id: input.orderItemId,
-          customization_id: dbCustomizationId,
+    let record;
+    if (existing) {
+      // ✅ UPDATE se já existe (baseado no filtro lógico acima)
+      record = await prisma.orderItemCustomization.update({
+        where: { id: existing.id },
+        data: {
+          value: payload.value,
+          updated_at: new Date(),
         },
-      },
-      update: {
-        value: payload.value,
-        updated_at: new Date(),
-      },
-      create: payload,
-    });
+      });
+    } else {
+      // ✅ CREATE se não existe
+      record = await prisma.orderItemCustomization.create({
+        data: payload,
+      });
+    }
 
     // ✅ DELETAR arquivos antigos após upsert bem-sucedido
     if (oldTempFiles.length > 0) {

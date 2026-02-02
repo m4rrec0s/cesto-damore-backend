@@ -44,10 +44,22 @@ class OrderCustomizationService {
 
     const existing = allCustomizations.find((c) => {
       try {
-        const val = JSON.parse(c.value);
+        const val = this.parseCustomizationData(c.value);
+        // Matching logic: Must match Rule + Component
+        // We use both DB field and JSON content to be robust
+        const dbRuleId = c.customization_id;
+        const jsonRuleId = val.customizationRuleId || val.customization_id;
+
         const matchesRule =
-          c.customization_id === ruleId || val.customizationRuleId === ruleId;
-        const matchesComponent = val.componentId === componentId;
+          (dbRuleId &&
+            (dbRuleId === ruleId || dbRuleId.split(":")[0] === ruleId)) ||
+          (jsonRuleId &&
+            (jsonRuleId === ruleId || jsonRuleId.split(":")[0] === ruleId)) ||
+          (!dbRuleId && !jsonRuleId && ruleId === "default");
+
+        const matchesComponent =
+          val.componentId === componentId || (!val.componentId && !componentId);
+
         return matchesRule && matchesComponent;
       } catch {
         return false;
@@ -269,17 +281,17 @@ class OrderCustomizationService {
       }
 
       const filledCustomizations = item.customizations.map((c: any) => {
-        let parsedValue = {};
-        try {
-          parsedValue = JSON.parse(c.value || "{}");
-        } catch (e) {
-          logger.warn(`⚠️ Falha ao parsear value da customização ${c.id}`);
-        }
+        const parsedValue = this.parseCustomizationData(c.value);
 
         return {
           id: c.id,
           order_item_id: c.order_item_id,
-          customization_id: c.customization_id, // CORRIGIDO: Era customization_rule_id (que não existe no Prisma)
+          // ✅ Use rule id from JSON if DB field is null (very common for components)
+          customization_id:
+            c.customization_id ||
+            parsedValue.customizationRuleId ||
+            parsedValue.customization_id ||
+            "default",
           value: parsedValue,
         };
       });

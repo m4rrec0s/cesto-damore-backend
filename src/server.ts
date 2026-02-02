@@ -36,8 +36,6 @@ app.use(
 
 const allowedOrigins = [
   "https://cestodamore.com.br",
-  "https://www.cestodamore.com.br",
-  "https://api.cestodamore.com.br",
   "http://185.205.246.213",
   "http://localhost:3000",
   "http://localhost:3333",
@@ -47,7 +45,14 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Permitir requisições sem origin (como ferramentas de teste ou apps mobile)
+      if (!origin) return callback(null, true);
+
+      // Verificar se a origem pertence ao domínio cestodamore.com.br
+      const isMainDomain = origin === "https://cestodamore.com.br";
+      const isSubdomain = origin.endsWith(".cestodamore.com.br");
+
+      if (isMainDomain || isSubdomain || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error(`Origem ${origin} não permitida por CORS`));

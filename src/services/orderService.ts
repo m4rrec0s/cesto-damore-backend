@@ -1031,6 +1031,20 @@ class OrderService {
         }
       }
 
+      // ✅ NOVO: Buscar TempUploads vinculados a este pedido
+      const associatedUploads = await prisma.tempUpload.findMany({
+        where: { orderId: id },
+        select: { filename: true, filePath: true },
+      });
+
+      associatedUploads.forEach((upload) => {
+        if (upload.filename) {
+          filesToDelete.push(upload.filename);
+          // Arquivos permanentes costumam ter o prefixo ORDER_ID_
+          filesToDelete.push(`${id}_${upload.filename}`);
+        }
+      });
+
       await prisma.$transaction(async (tx) => {
         const items = await tx.orderItem.findMany({
           where: { order_id: id },
@@ -1071,7 +1085,12 @@ class OrderService {
           logger.info("  ℹ️ Sem pagamento para deletar");
         }
 
-        // 6. Por fim, deletar o pedido
+        // 6. Deletar registros de TempUpload vinculados
+        await tx.tempUpload.deleteMany({
+          where: { orderId: id },
+        });
+
+        // 7. Por fim, deletar o pedido
         await tx.order.delete({ where: { id } });
         logger.info("  ✓ Pedido deletado com sucesso do banco");
       });

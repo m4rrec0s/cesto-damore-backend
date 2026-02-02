@@ -44,11 +44,15 @@ interface ArtworkAsset {
  */
 class OrderCustomizationService {
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
+    const ruleId = input.customizationRuleId || "default";
+    const componentId = input.customizationData.componentId;
+    const dbCustomizationId = componentId ? `${ruleId}:${componentId}` : ruleId;
+
     // ✅ NOVO: Buscar customização existente para fazer upsert
     const existing = await prisma.orderItemCustomization.findFirst({
       where: {
         order_item_id: input.orderItemId,
-        customization_id: input.customizationRuleId || "default",
+        customization_id: dbCustomizationId,
       },
     });
 
@@ -160,7 +164,7 @@ class OrderCustomizationService {
 
     const payload: any = {
       order_item_id: input.orderItemId,
-      customization_id: input.customizationRuleId || "default", // Obrigatório no schema
+      customization_id: dbCustomizationId, // Usar chave composta para suportar múltiplos componentes
       value: JSON.stringify(customizationValue),
     };
 
@@ -169,7 +173,7 @@ class OrderCustomizationService {
       const hasTempUrls = /\/uploads\/temp\//.test(payload.value);
       const containsBase64 = /data:[^;]+;base64,/.test(payload.value);
       logger.debug(
-        `🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${input.customizationRuleId}`,
+        `🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${ruleId}, dbId=${dbCustomizationId}`,
       );
     } catch (err) {
       /* ignore logging errors */
@@ -181,7 +185,7 @@ class OrderCustomizationService {
         // Usar unique constraint composto (precisa existir no schema do Prisma)
         order_item_id_customization_id: {
           order_item_id: input.orderItemId,
-          customization_id: input.customizationRuleId || "default",
+          customization_id: dbCustomizationId,
         },
       },
       update: {
@@ -1001,19 +1005,43 @@ class OrderCustomizationService {
     const assets: Array<{ url: string; filename: string; mimeType: string }> =
       [];
 
-    // ✅ NOVO: Buscar URLs de arquivos temporários em vez de base64
+    // ✅ DYNAMIC_LAYOUT: Prioridade máxima para design final
+    if (data?.customization_type === "DYNAMIC_LAYOUT") {
+      const bestUrl =
+        data.highQualityUrl ||
+        data.high_quality_url ||
+        data.final_artwork?.preview_url ||
+        data.image?.preview_url ||
+        data.text;
 
-    // Suporte para campo "photos" - buscar URLs temporárias
-    const photos = Array.isArray(data?.photos) ? data.photos : [];
+      if (
+        bestUrl &&
+        typeof bestUrl === "string" &&
+        !bestUrl.startsWith("data:") &&
+        !bestUrl.startsWith("blob:")
+      ) {
+        assets.push({
+          url: bestUrl,
+          filename: `design-final-${Date.now()}.png`,
+          mimeType: "image/png",
+        });
+      }
+    }
 
-    photos.forEach((photo: any, index: number) => {
-      if (photo && typeof photo === "object") {
-        // ✅ NOVO: Buscar URL temporária em preview_url ou base64 (para compatibilidade)
-        let imageUrl = photo.preview_url || photo.base64 || photo.base64Data;
+    // Suporte para campo "photos" (IMAGES type)
+    if (data?.customization_type === "IMAGES") {
+      const photos = Array.isArray(data?.photos) ? data.photos : [];
+      photos.forEach((photo: any, index: number) => {
+        if (photo && typeof photo === "object") {
+          const imageUrl =
+            photo.preview_url || photo.base64 || photo.base64Data;
 
-        if (imageUrl && typeof imageUrl === "string") {
-          // Se for base64, ignorar (devia ter sido migrado)
-          if (!imageUrl.startsWith("data:") && !imageUrl.startsWith("blob:")) {
+          if (
+            imageUrl &&
+            typeof imageUrl === "string" &&
+            !imageUrl.startsWith("data:") &&
+            !imageUrl.startsWith("blob:")
+          ) {
             assets.push({
               url: imageUrl,
               filename:
@@ -1022,55 +1050,23 @@ class OrderCustomizationService {
                 `photo-${index + 1}.jpg`,
               mimeType: photo.mime_type || photo.mimeType || "image/jpeg",
             });
-          } else {
-            logger.warn(
-              `⚠️ Photo ${index} ainda contém base64/blob (devia ter sido migrado)`,
-            );
           }
         }
-      }
-    });
-
-    // Suporte para DYNAMIC_LAYOUT - buscar URL ou base64 do campo "text"
-    if (data?.customization_type === "DYNAMIC_LAYOUT" && data?.text) {
-      const textContent = data.text;
-
-      if (typeof textContent === "string") {
-        // Se for URL temporária
-        if (
-          textContent.startsWith("/uploads/temp/") ||
-          textContent.startsWith("http")
-        ) {
-          assets.push({
-            url: textContent,
-            filename: `layout-preview-${Date.now()}.png`,
-            mimeType: "image/png",
-          });
-        }
-        // Se for base64, manter suporte (caso chegue durante transição)
-        else if (textContent.startsWith("data:image")) {
-          logger.warn(
-            `⚠️ DYNAMIC_LAYOUT ainda contém base64 em campo 'text' (devia ter sido migrado)`,
-          );
-          // Será processado no método uploadArtwork que mantém suporte a base64
-          assets.push({
-            url: textContent,
-            filename: `layout-preview-${Date.now()}.png`,
-            mimeType: "image/png",
-          });
-        }
-      }
+      });
     }
 
-    // Suporte para "images" array (compatibilidade)
-    const images = Array.isArray(data?.images) ? data.images : [];
-
-    images.forEach((image: any, index: number) => {
-      if (image && typeof image === "object") {
-        let imageUrl = image.url || image.base64 || image.base64Data;
-
-        if (imageUrl && typeof imageUrl === "string") {
-          if (!imageUrl.startsWith("data:") && !imageUrl.startsWith("blob:")) {
+    // Suporte para "images" array (compatibilidade genérica se não for DYNAMIC_LAYOUT já processado)
+    if (data?.customization_type !== "DYNAMIC_LAYOUT") {
+      const images = Array.isArray(data?.images) ? data.images : [];
+      images.forEach((image: any, index: number) => {
+        if (image && typeof image === "object") {
+          const imageUrl = image.url || image.base64 || image.base64Data;
+          if (
+            imageUrl &&
+            typeof imageUrl === "string" &&
+            !imageUrl.startsWith("data:") &&
+            !imageUrl.startsWith("blob:")
+          ) {
             assets.push({
               url: imageUrl,
               filename:
@@ -1081,12 +1077,8 @@ class OrderCustomizationService {
             });
           }
         }
-      }
-    });
-
-    logger.debug(
-      `📦 extractArtworkAssets: ${assets.length} assets extraídos (${photos.length} photos, ${images.length} images)`,
-    );
+      });
+    }
 
     return assets;
   }

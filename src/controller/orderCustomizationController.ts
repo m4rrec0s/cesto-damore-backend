@@ -336,10 +336,17 @@ class OrderCustomizationController {
         if (url) {
           // ✅ Deletar base64 do objeto
           const { base64, ...artworkSemBase64 } = payload.finalArtwork;
-          customizationData.final_artwork = {
+          const finalArtworkData = {
             ...artworkSemBase64,
             preview_url: url,
           };
+          customizationData.final_artwork = finalArtworkData;
+          // ✅ CRÍTICO: Também salvar no campo text para compatibilidade e melhor qualidade no preview
+          customizationData.text = url;
+          // Se for DYNAMIC_LAYOUT, também atualizar campo image
+          if (payload.customizationType === "DYNAMIC_LAYOUT") {
+            customizationData.image = finalArtworkData;
+          }
           logger.info(`✅ finalArtwork convertido para: ${url}`);
         } else {
           logger.warn(`⚠️ Falha ao converter finalArtwork base64`);

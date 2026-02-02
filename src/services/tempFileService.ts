@@ -175,9 +175,25 @@ class TempFileService {
         return true;
       }
 
-      // 3. Se chegou aqui, não encontrou em nenhum lugar
+      // 3. Fallback 2: Tentar no diretório de final uploads
+      const finalEnvPath = process.env.FINAL_UPLOADS_DIR;
+      const finalPath = finalEnvPath
+        ? path.resolve(finalEnvPath)
+        : path.join(process.cwd(), "storage", "final");
+
+      // No storage/final os nomes costumam vir prefixados com ORDER_ID_
+      // Mas o filename passado pode ser o original ou o prefixado.
+      // Vamos tentar direto com o filename primeiro.
+      const finalFilepath = path.join(finalPath, filename);
+      if (fs.existsSync(finalFilepath)) {
+        fs.unlinkSync(finalFilepath);
+        logger.debug(`🗑️ Arquivo final deletado: ${filename}`);
+        return true;
+      }
+
+      // 4. Se chegou aqui, não encontrou em nenhum lugar
       logger.warn(
-        `⚠️ Arquivo não encontrado em temp (${this.basePath}) nem em custom (${customPath}): ${filename}`,
+        `⚠️ Arquivo não encontrado em temp (${this.basePath}), custom (${customPath}) nem final (${finalPath}): ${filename}`,
       );
       return false;
     } catch (error: any) {

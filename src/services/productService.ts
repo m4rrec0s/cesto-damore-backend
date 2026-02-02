@@ -434,14 +434,6 @@ class ProductService {
         prisma.feedSectionItem.deleteMany({
           where: { item_id: id, item_type: "product" },
         }),
-        prisma.itemConstraint.deleteMany({
-          where: {
-            OR: [
-              { target_item_id: id, target_item_type: "PRODUCT" },
-              { related_item_id: id, related_item_type: "PRODUCT" },
-            ],
-          },
-        }),
         prisma.product.delete({ where: { id } }),
       ]);
 

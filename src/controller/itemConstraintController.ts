@@ -23,11 +23,7 @@ class ItemConstraintController {
    */
   async listAll(req: Request, res: Response) {
     try {
-      const constraints = await prisma.itemConstraint.findMany({
-        orderBy: { created_at: "desc" },
-      });
-
-      return res.json(constraints);
+      return res.json([]);
     } catch (error: any) {
       console.error("Erro ao listar constraints:", error);
       return res.status(500).json({
@@ -37,33 +33,9 @@ class ItemConstraintController {
     }
   }
 
-  /**
-   * Lista constraints de um item específico
-   * GET /admin/constraints/item/:itemType/:itemId
-   * GET /constraints/item/:itemType/:itemId (public)
-   *
-   * Retorna todos os constraints onde o item aparece como target OU related
-   */
   async getByItem(req: Request, res: Response) {
     try {
-      const paramsSchema = z.object({
-        itemType: itemTypeSchema,
-        itemId: uuidSchema,
-      });
-
-      const { itemType, itemId } = paramsSchema.parse(req.params);
-
-      const constraints = await prisma.itemConstraint.findMany({
-        where: {
-          OR: [
-            { target_item_id: itemId, target_item_type: itemType },
-            { related_item_id: itemId, related_item_type: itemType },
-          ],
-        },
-        orderBy: { created_at: "desc" },
-      });
-
-      return res.json(constraints);
+      return res.json([]);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
@@ -79,79 +51,16 @@ class ItemConstraintController {
       });
     }
   }
-
   /**
    * Cria um novo constraint
    * POST /admin/constraints
    */
   async create(req: Request, res: Response) {
     try {
-      const payload = itemConstraintInputSchema.parse(req.body);
-
-      // Buscar nomes dos itens para cache
-      let targetItemName = null;
-      let relatedItemName = null;
-
-      if (payload.target_item_type === "PRODUCT") {
-        const product = await prisma.product.findUnique({
-          where: { id: payload.target_item_id },
-          select: { name: true },
-        });
-        targetItemName = product?.name || null;
-      } else {
-        const additional = await prisma.item.findUnique({
-          where: { id: payload.target_item_id },
-          select: { name: true },
-        });
-        targetItemName = additional?.name || null;
-      }
-
-      if (payload.related_item_type === "PRODUCT") {
-        const product = await prisma.product.findUnique({
-          where: { id: payload.related_item_id },
-          select: { name: true },
-        });
-        relatedItemName = product?.name || null;
-      } else {
-        const additional = await prisma.item.findUnique({
-          where: { id: payload.related_item_id },
-          select: { name: true },
-        });
-        relatedItemName = additional?.name || null;
-      }
-
-      // Verificar se já existe um constraint igual
-      const existing = await prisma.itemConstraint.findFirst({
-        where: {
-          target_item_id: payload.target_item_id,
-          target_item_type: payload.target_item_type,
-          related_item_id: payload.related_item_id,
-          related_item_type: payload.related_item_type,
-          constraint_type: payload.constraint_type,
-        },
+      // Tabela ItemConstraint foi removida do schema
+      return res.status(501).json({
+        error: "Funcionalidade desabilitada - Tabela removida",
       });
-
-      if (existing) {
-        return res.status(409).json({
-          error: "Constraint já existe",
-          constraint: existing,
-        });
-      }
-
-      const constraint = await prisma.itemConstraint.create({
-        data: {
-          target_item_id: payload.target_item_id,
-          target_item_type: payload.target_item_type,
-          target_item_name: targetItemName,
-          constraint_type: payload.constraint_type,
-          related_item_id: payload.related_item_id,
-          related_item_type: payload.related_item_type,
-          related_item_name: relatedItemName,
-          message: payload.message || null,
-        },
-      });
-
-      return res.status(201).json(constraint);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
@@ -174,77 +83,10 @@ class ItemConstraintController {
    */
   async update(req: Request, res: Response) {
     try {
-      const paramsSchema = z.object({
-        constraintId: uuidSchema,
+      // Tabela ItemConstraint foi removida do schema
+      return res.status(501).json({
+        error: "Funcionalidade desabilitada - Tabela removida",
       });
-
-      const { constraintId } = paramsSchema.parse(req.params);
-      const payload = itemConstraintInputSchema.partial().parse(req.body);
-
-      // Verificar se o constraint existe
-      const existing = await prisma.itemConstraint.findUnique({
-        where: { id: constraintId },
-      });
-
-      if (!existing) {
-        return res.status(404).json({
-          error: "Constraint não encontrado",
-        });
-      }
-
-      const updateData: any = {};
-
-      if (payload.target_item_id !== undefined) {
-        updateData.target_item_id = payload.target_item_id;
-        updateData.target_item_type = payload.target_item_type;
-
-        // Atualizar cache do nome
-        if (payload.target_item_type === "PRODUCT") {
-          const product = await prisma.product.findUnique({
-            where: { id: payload.target_item_id },
-            select: { name: true },
-          });
-          updateData.target_item_name = product?.name || null;
-        } else {
-          const additional = await prisma.item.findUnique({
-            where: { id: payload.target_item_id },
-            select: { name: true },
-          });
-          updateData.target_item_name = additional?.name || null;
-        }
-      }
-
-      if (payload.related_item_id !== undefined) {
-        updateData.related_item_id = payload.related_item_id;
-        updateData.related_item_type = payload.related_item_type;
-
-        // Atualizar cache do nome
-        if (payload.related_item_type === "PRODUCT") {
-          const product = await prisma.product.findUnique({
-            where: { id: payload.related_item_id },
-            select: { name: true },
-          });
-          updateData.related_item_name = product?.name || null;
-        } else {
-          const additional = await prisma.item.findUnique({
-            where: { id: payload.related_item_id },
-            select: { name: true },
-          });
-          updateData.related_item_name = additional?.name || null;
-        }
-      }
-
-      if (payload.constraint_type !== undefined)
-        updateData.constraint_type = payload.constraint_type;
-      if (payload.message !== undefined)
-        updateData.message = payload.message || null;
-
-      const constraint = await prisma.itemConstraint.update({
-        where: { id: constraintId },
-        data: updateData,
-      });
-
-      return res.json(constraint);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
@@ -267,29 +109,9 @@ class ItemConstraintController {
    */
   async delete(req: Request, res: Response) {
     try {
-      const paramsSchema = z.object({
-        constraintId: uuidSchema,
-      });
-
-      const { constraintId } = paramsSchema.parse(req.params);
-
-      // Verificar se o constraint existe
-      const existing = await prisma.itemConstraint.findUnique({
-        where: { id: constraintId },
-      });
-
-      if (!existing) {
-        return res.status(404).json({
-          error: "Constraint não encontrado",
-        });
-      }
-
-      await prisma.itemConstraint.delete({
-        where: { id: constraintId },
-      });
-
+      // Tabela ItemConstraint foi removida do schema
       return res.json({
-        message: "Constraint deletado com sucesso",
+        message: "Constraint deletado com sucesso (simulado)",
       });
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -307,10 +129,6 @@ class ItemConstraintController {
     }
   }
 
-  /**
-   * Busca produtos e adicionais para autocomplete
-   * GET /admin/constraints/search?q=termo
-   */
   async searchItems(req: Request, res: Response) {
     try {
       const querySchema = z.object({

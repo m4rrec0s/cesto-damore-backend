@@ -81,143 +81,32 @@ const formatLayoutResponse = (layout: any) => {
 
 class LayoutService {
   async listLayouts(itemId: string) {
-    const layouts = await prisma.layout.findMany({
-      where: { item_id: itemId },
-      orderBy: { created_at: "asc" },
-    });
-
-    return layouts.map(formatLayoutResponse);
+    // Tabela Layout foi removida do schema (migrada para DynamicLayout/LayoutBase)
+    return [];
   }
 
   async createLayout(itemId: string, payload: LayoutPayload) {
-    if (!payload.name?.trim()) {
-      throw new Error("Nome do layout é obrigatório");
-    }
-
-    const data = await this.prepareLayoutData(itemId, payload);
-    const layoutName = payload.name.trim();
-
-    const rawMetadataDescription = payload.metadata?.["description"];
-    const metadataDescription =
-      typeof rawMetadataDescription === "string"
-        ? rawMetadataDescription
-        : null;
-    const metadata = {
-      ...(payload.metadata ?? {}),
-      description: payload.description?.trim() ?? metadataDescription,
-    };
-
-    const layoutJson = {
-      modelUrl: data.modelUrl,
-      printAreas: cloneAsJson(data.printAreas) as Prisma.JsonValue,
-      metadata: cloneAsJson(metadata) as Prisma.JsonValue,
-      createdAt: new Date().toISOString(),
-    } as Prisma.JsonObject;
-
-    const created = await prisma.layout.create({
-      data: {
-        item_id: itemId,
-        name: layoutName,
-        image_url: data.previewUrl ?? "",
-        layout_data: layoutJson,
-      },
-    });
-
-    return formatLayoutResponse(created);
+    // Tabela Layout foi removida do schema
+    console.warn("createLayout: funcionalidade desabilitada - Tabela removida");
+    return null;
   }
 
   async updateLayout(itemId: string, layoutId: string, payload: LayoutPayload) {
-    const layout = await prisma.layout.findFirst({
-      where: { id: layoutId, item_id: itemId },
-    });
-
-    if (!layout) {
-      throw new Error("Layout não encontrado");
-    }
-
-    const data = await this.prepareLayoutData(itemId, payload, layout);
-
-    const existingData = (layout.layout_data ?? {}) as Record<string, any>;
-    const existingMetadata = (existingData.metadata ?? {}) as Record<
-      string,
-      unknown
-    >;
-    const rawMetadataDescription = payload.metadata?.["description"];
-    const metadataDescription =
-      typeof rawMetadataDescription === "string"
-        ? rawMetadataDescription
-        : null;
-
-    const metadata = {
-      ...existingMetadata,
-      ...(payload.metadata ?? {}),
-      description:
-        payload.description?.trim() ??
-        metadataDescription ??
-        (typeof existingMetadata["description"] === "string"
-          ? (existingMetadata["description"] as string)
-          : null),
-    };
-
-    const layoutJson: Prisma.JsonObject = {
-      ...existingData,
-      modelUrl:
-        data.modelUrl ??
-        (typeof existingData.modelUrl === "string"
-          ? (existingData.modelUrl as string)
-          : null),
-      printAreas: cloneAsJson(
-        (data.printAreas?.length ? data.printAreas : existingData.printAreas) ??
-          []
-      ) as Prisma.JsonValue,
-      metadata: cloneAsJson(metadata) as Prisma.JsonValue,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const updated = await prisma.layout.update({
-      where: { id: layoutId },
-      data: {
-        name: payload.name?.trim() ?? layout.name,
-        image_url: data.previewUrl ?? layout.image_url ?? "",
-        layout_data: layoutJson,
-      },
-    });
-
-    return formatLayoutResponse(updated);
+    // Tabela Layout foi removida do schema
+    console.warn("updateLayout: funcionalidade desabilitada - Tabela removida");
+    return null;
   }
 
   async deleteLayout(itemId: string, layoutId: string) {
-    const layout = await prisma.layout.findFirst({
-      where: { id: layoutId, item_id: itemId },
-    });
-
-    if (!layout) {
-      throw new Error("Layout não encontrado");
-    }
-
-    const data = (layout.layout_data ?? {}) as Record<string, any>;
-
-    if (layout.image_url) {
-      this.safeDeleteFile(
-        path.join(CUSTOMIZATION_IMAGES_DIR, layout.image_url.split("/").pop()!)
-      );
-    }
-
-    if (data.modelUrl) {
-      this.safeDeleteFile(
-        path.join(MODELS_DIR, data.modelUrl.split("/").pop()!)
-      );
-    }
-
-    await prisma.layout.delete({ where: { id: layoutId } });
-
+    // Tabela Layout foi removida do schema
+    console.warn("deleteLayout: funcionalidade desabilitada - Tabela removida");
     return { success: true };
   }
 
   private async prepareLayoutData(
     itemId: string,
     payload: LayoutPayload,
-    currentLayout?: any
+    currentLayout?: any,
   ) {
     let sourcePrintAreas = payload.printAreas ?? [];
 
@@ -272,7 +161,7 @@ class LayoutService {
     }
 
     const filename = `${Date.now()}-${itemId}-${sanitizeFilename(
-      file.originalname
+      file.originalname,
     )}`;
     const filepath = path.join(MODELS_DIR, filename);
     fs.writeFileSync(filepath, file.buffer);
@@ -285,7 +174,7 @@ class LayoutService {
     ensureDirExists(CUSTOMIZATION_IMAGES_DIR);
 
     const filename = `${Date.now()}-${itemId}-${sanitizeFilename(
-      file.originalname
+      file.originalname,
     )}`;
     const filepath = path.join(CUSTOMIZATION_IMAGES_DIR, filename);
     fs.writeFileSync(filepath, file.buffer);

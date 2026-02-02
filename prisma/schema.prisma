@@ -21,14 +21,14 @@ model User {
   state                 String?
   zip_code              String?
   role                  String          @default("client")
-  two_factor_code       String?
-  two_factor_expires_at DateTime?
   created_at            DateTime        @default(now())
   updated_at            DateTime        @updatedAt
   document              String?
+  two_factor_code       String?
+  two_factor_expires_at DateTime?
+  dynamicLayouts        DynamicLayout[]
   orders                Order[]
-  dynamicLayouts        DynamicLayout[] // Layouts customizados criados pelo usuário
-  tempUploads           TempUpload[] // Arquivos temporários do usuário
+  tempUploads           TempUpload[]
 }
 
 model Product {
@@ -95,32 +95,31 @@ model ProductAdditional {
 }
 
 model Order {
-  id                                String            @id @default(uuid())
+  id                                String      @id @default(uuid())
   user_id                           String
-  status                            OrderStatus       @default(PENDING)
-  discount                          Float             @default(0)
-  total                             Float             @map("total_price")
+  status                            OrderStatus @default(PENDING)
+  discount                          Float       @default(0)
+  total                             Float       @map("total_price")
   delivery_address                  String?
   delivery_date                     DateTime?
   shipping_price                    Float?
   payment_method                    String?
   grand_total                       Float?
   recipient_phone                   String?
-  created_at                        DateTime          @default(now())
-  updated_at                        DateTime          @updatedAt
+  created_at                        DateTime    @default(now())
+  updated_at                        DateTime    @updatedAt
   complement                        String?
-  send_anonymously                  Boolean?          @default(false)
+  send_anonymously                  Boolean?    @default(false)
   delivery_city                     String?
   delivery_state                    String?
-  customizations_drive_processed    Boolean           @default(false)
+  customizations_drive_processed    Boolean     @default(false)
   customizations_drive_processed_at DateTime?
   google_drive_folder_id            String?
   google_drive_folder_url           String?
-  delivery_method                   String?           @default("delivery")
-  user                              User              @relation(fields: [user_id], references: [id])
+  delivery_method                   String?     @default("delivery")
+  user                              User        @relation(fields: [user_id], references: [id])
   items                             OrderItem[]
   payment                           Payment?
-  personalizations                  Personalization[]
 }
 
 model OrderItem {
@@ -210,9 +209,9 @@ model FeedSection {
   section_type      FeedSectionType
   is_visible        Boolean           @default(true)
   display_order     Int               @default(0)
-  max_items         Int               @default(6)
   created_at        DateTime          @default(now())
   updated_at        DateTime          @updatedAt
+  max_items         Int               @default(6)
   feedConfiguration FeedConfiguration @relation(fields: [feed_config_id], references: [id], onDelete: Cascade)
   items             FeedSectionItem[]
 }
@@ -232,37 +231,17 @@ model FeedSectionItem {
 }
 
 model LayoutBase {
-  id               String            @id @default(uuid())
-  name             String
-  item_type        String
-  image_url        String
-  width            Int
-  height           Int
-  slots            Json
-  created_at       DateTime          @default(now())
-  updated_at       DateTime          @updatedAt
-  additional_time  Int               @default(0)
-  items            Item[]
-  personalizations Personalization[]
-}
-
-model Personalization {
-  id                String         @id @default(uuid())
-  order_id          String
-  item_id           String
-  layout_base_id    String?
-  dynamic_layout_id String?
-  config_json       Json
-  images            Json
-  final_image_url   String?
-  created_at        DateTime       @default(now())
-  item              Item           @relation(fields: [item_id], references: [id])
-  layout_base       LayoutBase?    @relation(fields: [layout_base_id], references: [id])
-  dynamic_layout    DynamicLayout? @relation(fields: [dynamic_layout_id], references: [id])
-  order             Order          @relation(fields: [order_id], references: [id], onDelete: Cascade)
-
-  @@index([order_id])
-  @@index([item_id])
+  id              String   @id @default(uuid())
+  name            String
+  item_type       String
+  image_url       String
+  width           Int
+  height          Int
+  slots           Json
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  additional_time Int      @default(0)
+  items           Item[]
 }
 
 model Item {
@@ -276,14 +255,13 @@ model Item {
   image_url            String?
   allows_customization Boolean               @default(false)
   layout_base_id       String?
-  dynamic_layout_id    String?
   created_at           DateTime              @default(now())
   updated_at           DateTime              @updatedAt
+  dynamic_layout_id    String?
   customizations       Customization[]
-  layout_base          LayoutBase?           @relation(fields: [layout_base_id], references: [id])
   dynamic_layout       DynamicLayout?        @relation(fields: [dynamic_layout_id], references: [id])
+  layout_base          LayoutBase?           @relation(fields: [layout_base_id], references: [id])
   orderItems           OrderItemAdditional[]
-  personalizations     Personalization[]
   additionals          ProductAdditional[]
   components           ProductComponent[]
 }
@@ -301,35 +279,6 @@ model Customization {
   updated_at             DateTime                 @updatedAt
   item                   Item                     @relation(fields: [item_id], references: [id], onDelete: Cascade)
   OrderItemCustomization OrderItemCustomization[]
-}
-
-model Layout {
-  id          String   @id @default(uuid())
-  item_id     String
-  name        String
-  image_url   String
-  layout_data Json
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
-
-  @@index([item_id])
-}
-
-model ItemConstraint {
-  id                String   @id @default(uuid())
-  target_item_id    String
-  target_item_type  String
-  target_item_name  String?
-  related_item_id   String
-  related_item_type String
-  related_item_name String?
-  constraint_type   String   @default("REQUIRES")
-  message           String?
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-
-  @@index([target_item_id])
-  @@index([related_item_id])
 }
 
 model ProductComponent {
@@ -366,27 +315,26 @@ model OrderItemCustomization {
 model AIAgentSession {
   id             String           @id @default(uuid())
   user_id        String?
-  customer_phone String?
-  remote_jid_alt String? // 🔐 Encrypted WhatsApp JID for when customerPhone is null
-  is_blocked     Boolean          @default(false)
+  customer_phone String?          @unique
   expires_at     DateTime
   created_at     DateTime         @default(now())
+  is_blocked     Boolean          @default(false)
+  remote_jid_alt String?
   messages       AIAgentMessage[]
 
-  @@unique([customer_phone])
   @@index([remote_jid_alt])
 }
 
 model AIAgentMessage {
   id             String         @id @default(uuid())
   session_id     String
-  role           String // 'user', 'assistant', 'system', 'tool'
+  role           String
   content        String
-  name           String? // For tool names
+  name           String?
   tool_call_id   String?
-  tool_calls     String? // Store JSON array of tool calls for assistant role
-  sent_to_client Boolean        @default(false) // Marca se mensagem foi enviada ao cliente (modo incremental)
   created_at     DateTime       @default(now())
+  tool_calls     String?
+  sent_to_client Boolean        @default(false)
   session        AIAgentSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
 
   @@index([session_id])
@@ -397,7 +345,7 @@ model CustomerMemory {
   customer_phone String   @unique
   summary        String
   updated_at     DateTime @updatedAt
-  expires_at     DateTime // 15 days from update
+  expires_at     DateTime
 }
 
 model n8n_vectors {
@@ -412,8 +360,8 @@ model Holiday {
   name           String
   start_date     DateTime @db.Date
   end_date       DateTime @db.Date
-  closure_type   String   @default("full_day") // 'full_day' ou 'custom'
-  duration_hours Int? // Se closure_type = 'custom'
+  closure_type   String   @default("full_day")
+  duration_hours Int?
   description    String?
   is_active      Boolean  @default(true)
   created_at     DateTime @default(now())
@@ -437,7 +385,7 @@ model AISessionProductHistory {
 
 model AISummary {
   id           String   @id @default(uuid())
-  summary      String   @db.Text
+  summary      String
   period_start DateTime
   period_end   DateTime
   created_at   DateTime @default(now())
@@ -451,7 +399,7 @@ model Customer {
   service_status     String?
   already_a_customer Boolean        @default(false)
   follow_up          Boolean        @default(false)
-  remote_jid_alt     String? // 🔐 Encrypted WhatsApp JID for identifier matching
+  remote_jid_alt     String?
   followUpSent       FollowUpSent[]
 
   @@map("clientes")
@@ -466,6 +414,105 @@ model FollowUpSent {
 
   @@unique([cliente_number, horas_followup])
   @@map("followup_enviados")
+}
+
+model TempUpload {
+  id           String    @id @default(uuid())
+  filename     String    @unique
+  originalName String
+  filePath     String
+  fileSize     Int
+  mimeType     String
+  uploadedAt   DateTime  @default(now())
+  expiresAt    DateTime
+  deletedAt    DateTime?
+  userId       String?
+  orderId      String?
+  clientIp     String?
+  user         User?     @relation(fields: [userId], references: [id])
+
+  @@index([expiresAt])
+  @@index([userId])
+  @@index([orderId])
+  @@index([deletedAt])
+}
+
+model DynamicLayout {
+  id                  String                 @id @default(uuid())
+  userId              String?
+  name                String
+  type                String
+  baseImageUrl        String
+  fabricJsonState     Json
+  previewImageUrl     String?
+  width               Int
+  height              Int
+  version             Int                    @default(1)
+  isPublished         Boolean                @default(false)
+  isShared            Boolean                @default(false)
+  tags                String[]               @default([])
+  relatedLayoutBaseId String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  productionTime      Int                    @default(0)
+  user                User?                  @relation(fields: [userId], references: [id])
+  elements            DynamicLayoutElement[]
+  versions            DynamicLayoutVersion[]
+  items               Item[]
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([isPublished])
+}
+
+model DynamicLayoutVersion {
+  id                String        @id @default(uuid())
+  layoutId          String
+  versionNumber     Int
+  fabricJsonState   Json
+  changedBy         String?
+  changeDescription String?
+  createdAt         DateTime      @default(now())
+  layout            DynamicLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+
+  @@unique([layoutId, versionNumber])
+  @@index([layoutId])
+}
+
+model DynamicLayoutElement {
+  id             String        @id @default(uuid())
+  layoutId       String
+  elementType    String
+  fabricObjectId String
+  data           Json
+  order          Int
+  isLocked       Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  layout         DynamicLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+
+  @@index([layoutId])
+}
+
+model ElementBank {
+  id           String   @id @default(uuid())
+  category     String
+  name         String
+  imageUrl     String
+  thumbnailUrl String?
+  tags         String[] @default([])
+  width        Int?
+  height       Int?
+  source       String   @default("local")
+  externalId   String?
+  isActive     Boolean  @default(true)
+  usageCount   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
 }
 
 enum PaymentStatus {
@@ -503,119 +550,4 @@ enum CustomizationType {
   TEXT
   IMAGES
   MULTIPLE_CHOICE
-}
-
-// ===== UPLOADS TEMPORÁRIOS COM TTL =====
-model TempUpload {
-  id           String    @id @default(uuid())
-  filename     String    @unique // Nome único do arquivo (hash + ext)
-  originalName String // Nome original upload
-  filePath     String // Caminho completo no disco
-  fileSize     Int // Tamanho em bytes
-  mimeType     String // application/octet-stream, image/jpeg, etc
-  uploadedAt   DateTime  @default(now())
-  expiresAt    DateTime // Quando deletar esse arquivo
-  deletedAt    DateTime? // Marcado para deleção
-
-  // Relacionamentos
-  userId   String? // Quem fez upload (opcional para público)
-  orderId  String? // Se convertido a permanente
-  clientIp String? // IP do cliente para rastreio / sessão pública
-
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([expiresAt])
-  @@index([userId])
-  @@index([orderId])
-  @@index([deletedAt])
-}
-
-// ===== NOVOS MODELOS PARA V2: DYNAMIC LAYOUTS =====
-
-model DynamicLayout {
-  id                  String   @id @default(uuid())
-  userId              String? // Criador/Proprietário (opcional para layouts público)
-  name                String
-  type                String // 'mug', 'frame', 'custom'
-  baseImageUrl        String // Imagem base do produto
-  fabricJsonState     Json // Estado serializado Fabric.js (JSONB)
-  previewImageUrl     String? // Thumbnail para galeria
-  width               Int // Dimensões do canvas
-  height              Int
-  productionTime      Int      @default(0) // Tempo adicional de produção em horas
-  version             Int      @default(1)
-  isPublished         Boolean  @default(false)
-  isShared            Boolean  @default(false)
-  tags                String[] @default([])
-  relatedLayoutBaseId String? // Compatibilidade com legado
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user             User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
-  versions         DynamicLayoutVersion[]
-  elements         DynamicLayoutElement[]
-  items            Item[]
-  personalizations Personalization[]
-
-  @@index([userId])
-  @@index([type])
-  @@index([createdAt])
-  @@index([isPublished])
-}
-
-model DynamicLayoutVersion {
-  id                String   @id @default(uuid())
-  layoutId          String
-  versionNumber     Int
-  fabricJsonState   Json // Snapshot histórico
-  changedBy         String? // User ID que fez a mudança
-  changeDescription String?
-  createdAt         DateTime @default(now())
-
-  layout DynamicLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
-
-  @@unique([layoutId, versionNumber])
-  @@index([layoutId])
-}
-
-model DynamicLayoutElement {
-  id             String  @id @default(uuid())
-  layoutId       String
-  elementType    String // 'image', 'text', 'shape', 'icon'
-  fabricObjectId String // ID único no Fabric.js
-  data           Json // Propriedades Fabric.js (left, top, width, height, fill, etc)
-  order          Int // Z-index / ordem de renderização
-  isLocked       Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  layout DynamicLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
-
-  @@index([layoutId])
-}
-
-model ElementBank {
-  id           String   @id @default(uuid())
-  category     String // 'clipart', 'icons', 'templates', 'patterns'
-  name         String
-  imageUrl     String
-  thumbnailUrl String?
-  tags         String[] @default([])
-  width        Int?
-  height       Int?
-
-  // Proveniência
-  source     String  @default("local") // 'local', 'unsplash', 'pexels'
-  externalId String? // ID no serviço externo
-
-  isActive   Boolean @default(true)
-  usageCount Int     @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([category])
-  @@index([isActive])
 }

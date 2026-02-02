@@ -1065,14 +1065,6 @@ class OrderService {
         });
         logger.info(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
 
-        // 4. Deletar personalizações
-        const deletedPersonalizations = await tx.personalization.deleteMany({
-          where: { order_id: id },
-        });
-        logger.info(
-          `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
-        );
-
         // 5. Deletar pagamento associado (usando deleteMany para não falhar se não existir)
         const deletedPayment = await tx.payment.deleteMany({
           where: { order_id: id },
@@ -1718,19 +1710,6 @@ class OrderService {
           `🗑️ ${customizationsDeleted.count} customização(ões) deletada(s)`,
         );
 
-        // ✅ Deletar Personalization (canvas/imagens geradas)
-        const personalizationsDeleted = await prisma.personalization.deleteMany(
-          {
-            where: {
-              order_id: id,
-            },
-          },
-        );
-
-        logger.info(
-          `🗑️ ${personalizationsDeleted.count} personalização(ões) deletada(s)`,
-        );
-
         // ✅ NOVO: Deletar arquivos temporários da VPS
         // Buscar customizações antes de deletar para coletar temp files
         const customizationsBeforeDeletion =
@@ -2050,6 +2029,29 @@ class OrderService {
         `✅ [OrderService] ${cleanedCount} pedido(s) abandonado(s) limpo(s) com sucesso`,
       );
 
+      // 2. Deletar rascunhos sem itens
+      try {
+        const emptyOrders = await prisma.order.findMany({
+          where: {
+            items: { none: {} },
+            status: "PENDING",
+            created_at: { lt: new Date(Date.now() - 2 * 60 * 60 * 1000) }, // Apenas se tiver mais de 2 horas
+          },
+          select: { id: true, google_drive_folder_id: true },
+        });
+
+        if (emptyOrders.length > 0) {
+          logger.info(
+            `🧹 [OrderService] Limpando ${emptyOrders.length} rascunhos vazios...`,
+          );
+          for (const order of emptyOrders) {
+            await this.deleteOrder(order.id).catch(() => {});
+          }
+        }
+      } catch (err) {
+        logger.warn("⚠️ Erro ao limpar rascunhos vazios:", err);
+      }
+
       return { cleaned: cleanedCount };
     } catch (error: any) {
       console.error(
@@ -2127,14 +2129,6 @@ class OrderService {
           where: { order_id: { in: orderIds } },
         });
         console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
-
-        // 4. Deletar personalizações
-        const deletedPersonalizations = await tx.personalization.deleteMany({
-          where: { order_id: { in: orderIds } },
-        });
-        console.log(
-          `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
-        );
 
         // 5. Deletar pagamentos
         const deletedPayments = await tx.payment.deleteMany({

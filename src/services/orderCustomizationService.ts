@@ -1028,10 +1028,16 @@ class OrderCustomizationService {
       if (!layoutId) return undefined;
 
       try {
-        const layout = await prisma.layout.findUnique({
+        // Tabela layout foi removida. Tentar buscar em DynamicLayout ou LayoutBase se necessário.
+        const layout = await prisma.dynamicLayout.findUnique({
           where: { id: layoutId },
         });
-        return (layout?.name as string) || undefined;
+        if (layout) return layout.name;
+
+        const layoutBase = await prisma.layoutBase.findUnique({
+          where: { id: layoutId },
+        });
+        return layoutBase?.name || undefined;
       } catch (error) {
         logger.warn("computeLabelSelected: erro ao buscar layout", error);
         return undefined;

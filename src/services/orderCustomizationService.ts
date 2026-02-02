@@ -86,7 +86,7 @@ class OrderCustomizationService {
             existingData.image?.preview_url &&
             existingData.image.preview_url.includes("/uploads/temp/") &&
             input.customizationData.image?.preview_url !==
-              existingData.image.preview_url
+            existingData.image.preview_url
           ) {
             const oldFilename = existingData.image.preview_url
               .split("/uploads/temp/")
@@ -161,10 +161,10 @@ class OrderCustomizationService {
       order_item_id: input.orderItemId,
       customization_id:
         ruleId &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          ruleId,
-        ) &&
-        !componentId
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            ruleId,
+          ) &&
+          !componentId
           ? ruleId
           : null,
       value: valueStr,
@@ -207,7 +207,7 @@ class OrderCustomizationService {
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
-        } catch (err) {}
+        } catch (err) { }
       }
     }
 
@@ -216,34 +216,21 @@ class OrderCustomizationService {
 
   /**
    * Helper para verificar se a customização está realmente preenchida de forma válida.
-   * Regras simplificadas:
+   * Regras simplificadas (alinhadas com frontend):
    * - TEXT: valor preenchido.
    * - MULTIPLE_CHOICE: opção e nome da mesma.
-   * - IMAGES: quantidade de imagens > 0 e existência na VPS.
+   * - IMAGES: quantidade de imagens > 0 e URLs válidas (não blob/data).
    * - DYNAMIC_LAYOUT: arte final + fabric state.
    */
   private isCustomizationValid(type: string, data: any): boolean {
     if (!data) return false;
 
-    // Função interna para checar se arquivo local ainda existe na VPS
-    const checkVPSFile = (url: string | undefined): boolean => {
+    // ✅ NOVO: Verificar apenas formato de URL (não existência física no disco)
+    // Alinhado com validação do frontend para evitar falsos negativos após reload
+    const checkValidUrl = (url: string | undefined): boolean => {
       if (!url) return false;
-      // Se for URL local do nosso servidor
-      if (url.includes("/uploads/")) {
-        try {
-          const relativePath = url.split("/uploads/").pop();
-          if (relativePath) {
-            const fullPath = path.join(process.cwd(), "uploads", relativePath);
-            return fs.existsSync(fullPath);
-          }
-        } catch (e) {
-          return false;
-        }
-      }
-      // Se for base64
-      if (url.startsWith("data:")) return url.length > 100;
-      // Se for URL externa, assumimos OK
-      return true;
+      // Verificar que não é blob ou data URL (significa que foi salvo no servidor)
+      return !url.startsWith("blob:") && !url.startsWith("data:");
     };
 
     switch (type) {
@@ -267,9 +254,9 @@ class OrderCustomizationService {
       case "IMAGES":
         const photos = data.photos || data.files || [];
         if (!Array.isArray(photos) || photos.length === 0) return false;
-        // Verificar se pelo menos os arquivos locais existem
+        // ✅ MUDANÇA: Verificar apenas formato de URL, não existência física
         return photos.every((p: any) =>
-          checkVPSFile(p.preview_url || p.url || p.preview),
+          checkValidUrl(p.preview_url || p.url || p.preview),
         );
 
       case "DYNAMIC_LAYOUT":
@@ -279,9 +266,8 @@ class OrderCustomizationService {
           data.previewUrl ||
           data.text ||
           data.final_artwork?.preview_url;
-        const hasArtwork =
-          (!!artworkUrl && checkVPSFile(artworkUrl)) ||
-          (!!data.finalArtwork && !!data.finalArtwork.base64);
+        // ✅ MUDANÇA: Verificar apenas formato de URL, não existência física
+        const hasArtwork = !!artworkUrl && checkValidUrl(artworkUrl);
         return !!hasArtwork && !!data.fabricState;
 
       default:
@@ -411,7 +397,7 @@ class OrderCustomizationService {
       input.customizationData?.image?.preview_url &&
       existingData.image?.preview_url &&
       input.customizationData.image.preview_url !==
-        existingData.image.preview_url
+      existingData.image.preview_url
     ) {
       // Se o novo canvas preview é diferente do antigo, deletar o antigo
       if (existingData.image.preview_url.includes("/uploads/temp/")) {
@@ -479,8 +465,7 @@ class OrderCustomizationService {
     try {
       const containsBase64 = /data:[^;]+;base64,/.test(updateData.value);
       logger.debug(
-        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${
-          input.customizationType
+        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${input.customizationType
         }, ruleId=${input.customizationRuleId ?? existing.customization_id}`,
       );
     } catch (err) {
@@ -670,9 +655,8 @@ class OrderCustomizationService {
         .replace(/[^a-zA-Z0-9]/g, "_")
         .substring(0, 40);
 
-      const folderName = `Pedido_${safeCustomerName}_${
-        new Date().toISOString().split("T")[0]
-      }_${orderId.substring(0, 8)}`;
+      const folderName = `Pedido_${safeCustomerName}_${new Date().toISOString().split("T")[0]
+        }_${orderId.substring(0, 8)}`;
 
       mainFolderId = await googleDriveService.createFolder(folderName);
       await googleDriveService.makeFolderPublic(mainFolderId);
@@ -1411,10 +1395,8 @@ class OrderCustomizationService {
 
         if (upload) {
           logger.info(
-            `✅ LAYOUT_BASE image[${idx}] (slot: ${
-              image.slot || "unknown"
-            }) sanitized and uploaded: ${upload.fileName} (driveId=${
-              upload.id
+            `✅ LAYOUT_BASE image[${idx}] (slot: ${image.slot || "unknown"
+            }) sanitized and uploaded: ${upload.fileName} (driveId=${upload.id
             })`,
           );
         } else {

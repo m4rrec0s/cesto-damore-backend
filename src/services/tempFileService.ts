@@ -144,30 +144,44 @@ class TempFileService {
   }
 
   /**
-   * Deleta um arquivo temporário específico
+   * Deleta um arquivo temporário ou de customização específico
    */
   deleteFile(filename: string): boolean {
+    if (!filename) return false;
+
     try {
-      const filepath = path.join(this.basePath, filename);
+      // 1. Tentar no diretório de temp
+      let filepath = path.join(this.basePath, filename);
 
-      // Validação de segurança: garantir que o arquivo está dentro de basePath
-      if (!filepath.startsWith(this.basePath)) {
-        logger.warn(
-          `⚠️ Tentativa de deletar arquivo fora do basePath: ${filename}`,
-        );
-        return false;
+      // Validação de segurança básica para o temp
+      const isInsideTemp = filepath.startsWith(this.basePath);
+
+      if (isInsideTemp && fs.existsSync(filepath)) {
+        fs.unlinkSync(filepath);
+        logger.debug(`🗑️ Arquivo temporário deletado: ${filename}`);
+        return true;
       }
 
-      if (!fs.existsSync(filepath)) {
-        logger.warn(`⚠️ Arquivo não encontrado: ${filename}`);
-        return false;
+      // 2. Fallback: Tentar no diretório de customizations
+      const customPath = process.env.UPLOAD_DIR
+        ? path.resolve(process.env.UPLOAD_DIR, "customizations")
+        : path.join(process.cwd(), "images", "customizations");
+
+      const customFilepath = path.join(customPath, filename);
+
+      if (fs.existsSync(customFilepath)) {
+        fs.unlinkSync(customFilepath);
+        logger.debug(`🗑️ Arquivo de customização deletado: ${filename}`);
+        return true;
       }
 
-      fs.unlinkSync(filepath);
-      logger.debug(`🗑️ Arquivo temporário deletado: ${filename}`);
-      return true;
+      // 3. Se chegou aqui, não encontrou em nenhum lugar
+      logger.warn(
+        `⚠️ Arquivo não encontrado em temp (${this.basePath}) nem em custom (${customPath}): ${filename}`,
+      );
+      return false;
     } catch (error: any) {
-      logger.error(`❌ Erro ao deletar arquivo temporário:`, error);
+      logger.error(`❌ Erro ao deletar arquivo:`, error);
       return false;
     }
   }

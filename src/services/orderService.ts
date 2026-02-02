@@ -969,8 +969,8 @@ class OrderService {
       // ✅ NOVO: Deletar pastas do Google Drive ANTES de deletar do banco
       await this.deleteOrderGoogleDriveFolders(id);
 
-      // ✅ NOVO: Buscar arquivos temporários antes de deletar customizações
-      const tempFilesToDelete: string[] = [];
+      // ✅ NOVO: Buscar arquivos locais antes de deletar customizações do banco
+      const filesToDelete: string[] = [];
       const customizationsToDelete =
         await prisma.orderItemCustomization.findMany({
           where: {
@@ -979,59 +979,55 @@ class OrderService {
           select: { value: true },
         });
 
+      const extractFilename = (url: any) => {
+        if (typeof url !== "string" || url.startsWith("data:")) return;
+
+        if (url.includes("/uploads/temp/")) {
+          const filename = url.split("/uploads/temp/").pop();
+          if (filename) filesToDelete.push(filename);
+        } else if (url.includes("/images/customizations/")) {
+          const filename = url.split("/images/customizations/").pop();
+          if (filename) filesToDelete.push(filename);
+        }
+      };
+
       for (const customization of customizationsToDelete) {
         try {
           const value = JSON.parse(customization.value);
-          // Buscar preview_url em fotos
+
+          // 1. Fotos
           if (value.photos && Array.isArray(value.photos)) {
-            value.photos.forEach((photo: any) => {
-              if (
-                photo.preview_url &&
-                photo.preview_url.includes("/uploads/temp/")
-              ) {
-                const filename = photo.preview_url
-                  .split("/uploads/temp/")
-                  .pop();
-                if (filename) tempFilesToDelete.push(filename);
-              }
-            });
-          }
-          // Buscar preview_url em final_artwork
-          if (value.final_artwork && value.final_artwork.preview_url) {
-            const url = value.final_artwork.preview_url;
-            if (url.includes("/uploads/temp/")) {
-              const filename = url.split("/uploads/temp/").pop();
-              if (filename) tempFilesToDelete.push(filename);
-            }
-          }
-          // Buscar preview_url em final_artworks (array)
-          if (value.final_artworks && Array.isArray(value.final_artworks)) {
-            value.final_artworks.forEach((artwork: any) => {
-              if (
-                artwork.preview_url &&
-                artwork.preview_url.includes("/uploads/temp/")
-              ) {
-                const filename = artwork.preview_url
-                  .split("/uploads/temp/")
-                  .pop();
-                if (filename) tempFilesToDelete.push(filename);
-              }
-            });
+            value.photos.forEach((photo: any) =>
+              extractFilename(photo.preview_url),
+            );
           }
 
-          // ✅ NOVO: Buscar arquivo em text (DYNAMIC_LAYOUT)
+          // 2. Final Artwork (Objeto único)
+          if (value.final_artwork) {
+            extractFilename(value.final_artwork.preview_url);
+          }
+
+          // 3. Final Artworks (Array)
+          if (value.final_artworks && Array.isArray(value.final_artworks)) {
+            value.final_artworks.forEach((artwork: any) =>
+              extractFilename(artwork.preview_url),
+            );
+          }
+
+          // 4. Texto/URL em DYNAMIC_LAYOUT (às vezes a URL da arte final fica aqui)
           if (
             (value.customization_type === "DYNAMIC_LAYOUT" ||
               value.customizationType === "DYNAMIC_LAYOUT") &&
-            value.text &&
-            typeof value.text === "string" &&
-            value.text.includes("/uploads/temp/")
+            typeof value.text === "string"
           ) {
-            const filename = value.text.split("/uploads/temp/").pop();
-            if (filename) tempFilesToDelete.push(filename);
+            extractFilename(value.text);
           }
+
+          // 5. Outros campos genéricos
+          if (value.imageUrl) extractFilename(value.imageUrl);
+          if (value.previewUrl) extractFilename(value.previewUrl);
         } catch (err) {
-          logger.warn(`⚠️ Erro ao parsear customização:`, err);
+          logger.warn(`⚠️ Erro ao parsear customização durante deleção:`, err);
         }
       }
 
@@ -1080,12 +1076,13 @@ class OrderService {
         logger.info("  ✓ Pedido deletado com sucesso do banco");
       });
 
-      // ✅ NOVO: Deletar arquivos temporários após deletar pedido do banco
-      if (tempFilesToDelete.length > 0) {
+      // ✅ NOVO: Deletar arquivos locais após deletar pedido do banco
+      if (filesToDelete.length > 0) {
         const tempFileService = require("../services/tempFileService").default;
-        const result = tempFileService.deleteFiles(tempFilesToDelete);
+        const uniqueFiles = Array.from(new Set(filesToDelete));
+        const result = tempFileService.deleteFiles(uniqueFiles);
         logger.info(
-          `🗑️ Arquivos temporários deletados: ${result.deleted}, falharam: ${result.failed}`,
+          `🗑️ Arquivos de customização processados: ${result.deleted} deletados, ${result.failed} não encontrados ou erro`,
         );
       }
 

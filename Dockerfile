@@ -78,11 +78,8 @@ COPY --chown=node:node docker-entrypoint.sh ./
 
 RUN chmod +x docker-entrypoint.sh
 
-# Muda para usuário não-root
-USER node
-
-EXPOSE 3333
-ENTRYPOINT ["./docker-entrypoint.sh"]
+# Muda para usuário não-root (Desativado para evitar problemas de permissão em volumes montados no Easypanel)
+# USER node
 
 EXPOSE 3333
 ENTRYPOINT ["./docker-entrypoint.sh"]

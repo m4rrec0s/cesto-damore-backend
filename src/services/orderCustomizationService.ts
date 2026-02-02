@@ -55,12 +55,10 @@ class OrderCustomizationService {
     // O schema atual tem apenas: order_item_id, customization_id, value
     // Vamos salvar todos os dados extras no campo "value" como JSON
     const customizationValue: any = {
+      ...input.customizationData,
       customization_type: input.customizationType,
       title: input.title,
       selected_layout_id: input.selectedLayoutId,
-      // ✅ NOVO: Dados chegam com URLs temporárias em vez de base64
-      // O customizationData já contém as URLs do /uploads/temp/
-      ...input.customizationData,
     };
 
     // ✅ NOVO: Se está atualizando, coletar arquivos antigos para deletar

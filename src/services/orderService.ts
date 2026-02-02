@@ -1043,6 +1043,7 @@ class OrderService {
         const itemIds = items.map((item) => item.id);
 
         if (itemIds.length > 0) {
+          // 1. Deletar customizações de itens
           const deletedCustomizations =
             await tx.orderItemCustomization.deleteMany({
               where: { order_item_id: { in: itemIds } },
@@ -1051,49 +1052,40 @@ class OrderService {
             `  ✓ Customizações deletadas: ${deletedCustomizations.count}`,
           );
 
+          // 2. Deletar adicionais de itens
           const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
             where: { order_item_id: { in: itemIds } },
           });
           logger.info(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
         }
 
+        // 3. Deletar itens do pedido
         const deletedItems = await tx.orderItem.deleteMany({
           where: { order_id: id },
         });
         logger.info(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
 
-        try {
-          const deletedPersonalizations = await tx.personalization.deleteMany({
-            where: { order_id: id },
-          });
-          logger.info(
-            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
-          );
-        } catch (err) {
-          logger.info(
-            "  ℹ️ Sem personalizações para deletar (ou erro):",
-            (err as any)?.message || err,
-          );
+        // 4. Deletar personalizações
+        const deletedPersonalizations = await tx.personalization.deleteMany({
+          where: { order_id: id },
+        });
+        logger.info(
+          `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
+        );
+
+        // 5. Deletar pagamento associado (usando deleteMany para não falhar se não existir)
+        const deletedPayment = await tx.payment.deleteMany({
+          where: { order_id: id },
+        });
+        if (deletedPayment.count > 0) {
+          logger.info("  ✓ Pagamento deletado");
+        } else {
+          logger.info("  ℹ️ Sem pagamento para deletar");
         }
 
-        try {
-          const payment = await tx.payment.findUnique({
-            where: { order_id: id },
-          });
-          if (payment) {
-            await tx.payment.delete({ where: { order_id: id } });
-            logger.info("  ✓ Pagamento deletado");
-          } else {
-            logger.info("  ℹ️ Sem pagamento para deletar");
-          }
-        } catch (err) {
-          logger.warn(
-            "  ℹ️ Erro ao deletar pagamento (pode não existir):",
-            (err as any)?.message || err,
-          );
-        }
-
+        // 6. Por fim, deletar o pedido
         await tx.order.delete({ where: { id } });
+        logger.info("  ✓ Pedido deletado com sucesso do banco");
       });
 
       // ✅ NOVO: Deletar arquivos temporários após deletar pedido do banco
@@ -2136,32 +2128,21 @@ class OrderService {
         });
         console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
 
-        try {
-          const deletedPersonalizations = await tx.personalization.deleteMany({
-            where: { order_id: { in: orderIds } },
-          });
-          console.log(
-            `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
-          );
-        } catch (err) {
-          console.log(
-            "  ℹ️ Sem personalizações para deletar (ou erro):",
-            (err as any)?.message || err,
-          );
-        }
+        // 4. Deletar personalizações
+        const deletedPersonalizations = await tx.personalization.deleteMany({
+          where: { order_id: { in: orderIds } },
+        });
+        console.log(
+          `  ✓ Personalizações deletadas: ${deletedPersonalizations.count}`,
+        );
 
-        try {
-          const deletedPayments = await tx.payment.deleteMany({
-            where: { order_id: { in: orderIds } },
-          });
-          console.log(`  ✓ Pagamentos deletados: ${deletedPayments.count}`);
-        } catch (err) {
-          console.log(
-            "  ℹ️ Erro ao deletar pagamentos (podem não existir):",
-            (err as any)?.message || err,
-          );
-        }
+        // 5. Deletar pagamentos
+        const deletedPayments = await tx.payment.deleteMany({
+          where: { order_id: { in: orderIds } },
+        });
+        console.log(`  ✓ Pagamentos deletados: ${deletedPayments.count}`);
 
+        // 6. Deletar pedidos
         const deletedOrders = await tx.order.deleteMany({
           where: { id: { in: orderIds } },
         });

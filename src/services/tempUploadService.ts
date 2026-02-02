@@ -4,13 +4,9 @@ import crypto from "crypto";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
-// Normalização de caminhos para evitar erro EACCES em Docker
+// Normalização de caminhos
 const normalizeStoragePath = (envVar?: string, defaultPath: string = "") => {
   if (!envVar) return path.join(process.cwd(), defaultPath);
-  // Se o caminho for absoluto e começar com /app/ (legado), converter para relativo ao WORKDIR
-  if (path.isAbsolute(envVar) && envVar.startsWith("/app/")) {
-    return path.join(process.cwd(), envVar.replace("/app/", ""));
-  }
   return path.resolve(envVar);
 };
 

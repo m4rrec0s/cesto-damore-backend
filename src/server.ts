@@ -62,9 +62,6 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 const normalizePath = (envVar?: string, defaultPath: string = "") => {
   if (!envVar) return path.join(process.cwd(), defaultPath);
-  if (path.isAbsolute(envVar) && envVar.startsWith("/app/")) {
-    return path.join(process.cwd(), envVar.replace("/app/", ""));
-  }
   return path.resolve(envVar);
 };
 

@@ -34,8 +34,9 @@ interface ArtworkAsset {
 class OrderCustomizationService {
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
     const ruleId = input.customizationRuleId || "default";
-    const componentId = input.customizationData.componentId;
+    const componentId = input.customizationData.componentId || null;
 
+    // 1. Buscar se já existe uma customização para este item + regra (+ componente opcional)
     const allCustomizations = await prisma.orderItemCustomization.findMany({
       where: {
         order_item_id: input.orderItemId,
@@ -45,20 +46,20 @@ class OrderCustomizationService {
     const existing = allCustomizations.find((c) => {
       try {
         const val = this.parseCustomizationData(c.value);
-        // Matching logic: Must match Rule + Component
-        // We use both DB field and JSON content to be robust
+
+        // Matching robusto para evitar duplicidades
         const dbRuleId = c.customization_id;
-        const jsonRuleId = val.customizationRuleId || val.customization_id;
+        const jsonRuleId =
+          val.customizationRuleId || val.customization_id || val.ruleId;
+        const currentComponentId = val.componentId || null;
 
         const matchesRule =
-          (dbRuleId &&
-            (dbRuleId === ruleId || dbRuleId.split(":")[0] === ruleId)) ||
-          (jsonRuleId &&
-            (jsonRuleId === ruleId || jsonRuleId.split(":")[0] === ruleId)) ||
-          (!dbRuleId && !jsonRuleId && ruleId === "default");
+          ruleId === dbRuleId ||
+          ruleId === jsonRuleId ||
+          (dbRuleId && ruleId.startsWith(dbRuleId)) || // Para casos de ID:Componente
+          (jsonRuleId && ruleId.startsWith(jsonRuleId));
 
-        const matchesComponent =
-          val.componentId === componentId || (!val.componentId && !componentId);
+        const matchesComponent = currentComponentId === componentId;
 
         return matchesRule && matchesComponent;
       } catch {
@@ -72,6 +73,7 @@ class OrderCustomizationService {
       customization_type: input.customizationType,
       title: input.title,
       selected_layout_id: input.selectedLayoutId,
+      componentId: componentId, // Garantir que está no JSON
     };
 
     const oldTempFiles: string[] = [];
@@ -90,9 +92,6 @@ class OrderCustomizationService {
               .split("/uploads/temp/")
               .pop();
             if (oldFilename) oldTempFiles.push(oldFilename);
-            logger.debug(
-              `🗑️ [saveOrderItemCustomization] Marcando artwork antigo: ${oldFilename}`,
-            );
           }
 
           if (existingData.images && Array.isArray(existingData.images)) {
@@ -107,9 +106,6 @@ class OrderCustomizationService {
                   );
                   if (!stillExists) {
                     oldTempFiles.push(oldFilename);
-                    logger.debug(
-                      `🗑️ [saveOrderItemCustomization] Marcando imagem antiga: ${oldFilename}`,
-                    );
                   }
                 }
               }
@@ -132,9 +128,6 @@ class OrderCustomizationService {
                 );
                 if (!stillExists) {
                   oldTempFiles.push(oldFilename);
-                  logger.debug(
-                    `🗑️ [saveOrderItemCustomization] Marcando foto antiga: ${oldFilename}`,
-                  );
                 }
               }
             }
@@ -154,7 +147,6 @@ class OrderCustomizationService {
 
     if (computedLabel) {
       customizationValue.label_selected = computedLabel;
-      // Keep backward compatibility for frontend that reads specific label fields
       if (input.customizationType === "MULTIPLE_CHOICE") {
         customizationValue.selected_option_label = computedLabel;
       }
@@ -163,10 +155,10 @@ class OrderCustomizationService {
       }
     }
 
+    const valueStr = JSON.stringify(customizationValue);
+
     const payload: any = {
       order_item_id: input.orderItemId,
-      // Se tiver componentId, não podemos salvar no customization_id (FK UUID)
-      // então deixamos NULL se não for UUID puro. O identificador real está no JSON.
       customization_id:
         ruleId &&
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -175,61 +167,126 @@ class OrderCustomizationService {
         !componentId
           ? ruleId
           : null,
-      value: JSON.stringify(customizationValue),
+      value: valueStr,
     };
-
-    try {
-      // ✅ LOG: Agora deve ter URLs de temp files em vez de base64
-      const hasTempUrls = /\/uploads\/temp\//.test(payload.value);
-      const containsBase64 = /data:[^;]+;base64,/.test(payload.value);
-      logger.debug(
-        `🔍 [saveOrderItemCustomization] hasTempUrls=${hasTempUrls}, containsBase64=${containsBase64}, type=${input.customizationType}, ruleId=${ruleId}, componentId=${componentId}`,
-      );
-    } catch (err) {
-      /* ignore logging errors */
-    }
 
     let record;
     if (existing) {
-      // ✅ UPDATE se já existe (baseado no filtro lógico acima)
+      // ✅ ATUALIZAR BY ID para evitar duplicatas
+      logger.info(
+        `📝 [saveOrderItemCustomization] Atualizando customização existente ID: ${existing.id}`,
+      );
       record = await prisma.orderItemCustomization.update({
         where: { id: existing.id },
         data: {
-          value: payload.value,
+          value: valueStr,
+          customization_id: payload.customization_id, // Atualizar FK se necessário
           updated_at: new Date(),
         },
       });
     } else {
-      // ✅ CREATE se não existe
+      // ✅ CRIAR se não existe
+      logger.info(
+        `🆕 [saveOrderItemCustomization] Criando nova customização para regra: ${ruleId}`,
+      );
       record = await prisma.orderItemCustomization.create({
         data: payload,
       });
     }
 
-    // ✅ DELETAR arquivos antigos após upsert bem-sucedido
+    // ✅ DELETAR arquivos antigos
     if (oldTempFiles.length > 0) {
-      logger.info(
-        `🗑️ Deletando ${oldTempFiles.length} arquivos antigos substituídos`,
-      );
       for (const filename of oldTempFiles) {
         try {
-          const fs = await import("fs/promises");
-          const path = await import("path");
           const filePath = path.join(
             process.cwd(),
             "uploads",
             "temp",
             filename,
           );
-          await fs.unlink(filePath);
-          logger.debug(`✅ Deletado: ${filename}`);
-        } catch (err) {
-          logger.warn(`⚠️ Erro ao deletar ${filename}:`, err);
-        }
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (err) {}
       }
     }
 
     return record;
+  }
+
+  /**
+   * Helper para verificar se a customização está realmente preenchida de forma válida.
+   * Regras simplificadas:
+   * - TEXT: valor preenchido.
+   * - MULTIPLE_CHOICE: opção e nome da mesma.
+   * - IMAGES: quantidade de imagens > 0 e existência na VPS.
+   * - DYNAMIC_LAYOUT: arte final + fabric state.
+   */
+  private isCustomizationValid(type: string, data: any): boolean {
+    if (!data) return false;
+
+    // Função interna para checar se arquivo local ainda existe na VPS
+    const checkVPSFile = (url: string | undefined): boolean => {
+      if (!url) return false;
+      // Se for URL local do nosso servidor
+      if (url.includes("/uploads/")) {
+        try {
+          const relativePath = url.split("/uploads/").pop();
+          if (relativePath) {
+            const fullPath = path.join(process.cwd(), "uploads", relativePath);
+            return fs.existsSync(fullPath);
+          }
+        } catch (e) {
+          return false;
+        }
+      }
+      // Se for base64
+      if (url.startsWith("data:")) return url.length > 100;
+      // Se for URL externa, assumimos OK
+      return true;
+    };
+
+    switch (type) {
+      case "TEXT":
+        return typeof data.text === "string" && data.text.trim().length > 0;
+
+      case "MULTIPLE_CHOICE":
+        // Verificar opção e nome (label)
+        const hasOption = !!(
+          data.selected_option ||
+          data.id ||
+          data.selected_option_id
+        );
+        const hasLabel = !!(
+          data.selected_option_label ||
+          data.label_selected ||
+          data.label
+        );
+        return hasOption && hasLabel;
+
+      case "IMAGES":
+        const photos = data.photos || data.files || [];
+        if (!Array.isArray(photos) || photos.length === 0) return false;
+        // Verificar se pelo menos os arquivos locais existem
+        return photos.every((p: any) =>
+          checkVPSFile(p.preview_url || p.url || p.preview),
+        );
+
+      case "DYNAMIC_LAYOUT":
+        // Arte final + Fabric state
+        const artworkUrl =
+          data.image?.preview_url ||
+          data.previewUrl ||
+          data.text ||
+          data.final_artwork?.preview_url;
+        const hasArtwork =
+          (!!artworkUrl && checkVPSFile(artworkUrl)) ||
+          (!!data.finalArtwork && !!data.finalArtwork.base64);
+        return !!hasArtwork && !!data.fabricState;
+
+      default:
+        return Object.keys(data).length >= 3;
+    }
   }
 
   /**
@@ -257,10 +314,6 @@ class OrderCustomizationService {
       },
     });
 
-    logger.info(
-      `📋 [OrderCustomizationService] Encontrados ${orderItems.length} itens no pedido ${orderId}`,
-    );
-
     const result = orderItems.map((item) => {
       const allAvailable: any[] = [];
 
@@ -280,25 +333,30 @@ class OrderCustomizationService {
         }
       }
 
-      const filledCustomizations = item.customizations.map((c: any) => {
-        const parsedValue = this.parseCustomizationData(c.value);
+      // Filtrar apenas customizações que REALMENTE têm valor preenchido
+      const filledCustomizations = item.customizations
+        .map((c: any) => {
+          const parsedValue = this.parseCustomizationData(c.value);
+          const type = (c.customization_type ||
+            parsedValue.customization_type ||
+            "TEXT") as string;
 
-        return {
-          id: c.id,
-          order_item_id: c.order_item_id,
-          // ✅ Use rule id from JSON if DB field is null (very common for components)
-          customization_id:
-            c.customization_id ||
-            parsedValue.customizationRuleId ||
-            parsedValue.customization_id ||
-            "default",
-          value: parsedValue,
-        };
-      });
+          if (!this.isCustomizationValid(type, parsedValue)) {
+            return null;
+          }
 
-      logger.info(
-        `📦 Item ${item.id}: ${allAvailable.length} regras, ${filledCustomizations.length} preenchidas`,
-      );
+          return {
+            id: c.id,
+            order_item_id: c.order_item_id,
+            customization_id:
+              c.customization_id ||
+              parsedValue.customizationRuleId ||
+              parsedValue.customization_id ||
+              "default",
+            value: parsedValue,
+          };
+        })
+        .filter(Boolean);
 
       return {
         orderItemId: item.id,

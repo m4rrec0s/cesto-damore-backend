@@ -933,6 +933,26 @@ class OrderCustomizationService {
     }
 
     base64Detected = base64AffectedIds.length > 0;
+
+    // ✅ NOVO: Atualizar o status de processamento do pedido para idempotência
+    try {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          google_drive_folder_id: mainFolderId,
+          google_drive_folder_url: folderUrl,
+          customizations_drive_processed: true,
+          customizations_drive_processed_at: new Date(),
+        },
+      });
+      logger.info(`💾 Pedido ${orderId} atualizado com metadados do Drive`);
+    } catch (saveError) {
+      logger.error(
+        `❌ Erro ao salvar metadados do Drive no pedido ${orderId}:`,
+        saveError,
+      );
+    }
+
     const result = {
       folderId: mainFolderId,
       folderUrl,

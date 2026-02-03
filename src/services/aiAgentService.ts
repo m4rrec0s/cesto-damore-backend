@@ -789,6 +789,7 @@ Sempre consulte os prompts do MCP para obter as regras mais atualizadas.
   - NUNCA use emojis numéricos como "1️⃣", "2️⃣", "3️⃣"
   - SEMPRE comece com a URL pura da imagem
   - SEMPRE use "_Opção X_" em itálico (não **negrito**)
+  
   Exemplo CORRETO:
   https://api.cestodamore.com.br/images/produto.webp
   _Opção 1_ - Nome do Produto - R$ 100,00
@@ -797,6 +798,8 @@ Sempre consulte os prompts do MCP para obter as regras mais atualizadas.
   Exemplo ERRADO:
   1️⃣ ![alt](url)
   **Opção 1** - Nome...
+
+**IMPORTANTE** - SEMPRE inclua a URL da imagem em TODA apresentação de produto
 
 #### 🚚 Entregas e Pagamento
   - ⚠️ **VALIDAÇÃO CRÍTICA DE PRODUÇÃO**: Antes de oferecer "entrega hoje", SEMPRE considere o tempo de produção do produto:

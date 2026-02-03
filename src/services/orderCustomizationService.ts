@@ -6,6 +6,7 @@ import logger from "../utils/logger";
 import fs from "fs";
 import path from "path";
 import axios from "axios";
+import tempFileService from "./tempFileService";
 
 interface SaveOrderCustomizationInput {
   orderItemId: string;
@@ -36,7 +37,6 @@ class OrderCustomizationService {
     const ruleId = input.customizationRuleId || "default";
     const componentId = input.customizationData.componentId || null;
 
-    // 1. Buscar se já existe uma customização para este item + regra (+ componente opcional)
     const allCustomizations = await prisma.orderItemCustomization.findMany({
       where: {
         order_item_id: input.orderItemId,
@@ -196,18 +196,13 @@ class OrderCustomizationService {
 
     // ✅ DELETAR arquivos antigos
     if (oldTempFiles.length > 0) {
-      for (const filename of oldTempFiles) {
-        try {
-          const filePath = path.join(
-            process.cwd(),
-            "uploads",
-            "temp",
-            filename,
-          );
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
-        } catch (err) {}
+      try {
+        const result = tempFileService.deleteFiles(oldTempFiles);
+        logger.info(
+          `🗑️ [saveOrderItemCustomization] ${result.deleted} arquivos temporários deletados, ${result.failed} falharam`,
+        );
+      } catch (err) {
+        logger.warn("⚠️ Erro ao deletar arquivos antigos:", err);
       }
     }
 
@@ -254,8 +249,12 @@ class OrderCustomizationService {
       case "IMAGES":
         const photos = data.photos || data.files || [];
         if (!Array.isArray(photos) || photos.length === 0) return false;
-        // ✅ Relaxado: Se tem fotos, consideramos preenchido
-        return true;
+        // ✅ Relaxado: Se tem fotos, verificamos se não são blobs
+        return photos.some((p: any) => {
+          const url =
+            p?.preview_url || p?.url || (typeof p === "string" ? p : null);
+          return url && checkValidUrl(url);
+        });
 
       case "DYNAMIC_LAYOUT":
         // Arte final + Fabric state
@@ -278,7 +277,6 @@ class OrderCustomizationService {
       default:
         // Qualquer objeto com dados é considerado preenchido
         return data && Object.keys(data).length > 0;
-    }
     }
   }
 
@@ -353,7 +351,8 @@ class OrderCustomizationService {
         }
       }
 
-      // Filtrar apenas customizações que REALMENTE têm valor preenchido
+      // Filtrar apenas customizações que REALMENTE têm valor preenchido e evitar duplicatas
+      const seen = new Set();
       const filledCustomizations = item.customizations
         .map((c: any) => {
           const parsedValue = this.parseCustomizationData(c.value);
@@ -365,19 +364,28 @@ class OrderCustomizationService {
             return null;
           }
 
+          const ruleId =
+            c.customization_id ||
+            parsedValue.customizationRuleId ||
+            parsedValue.customization_id ||
+            "default";
+
           return {
             id: c.id,
             order_item_id: c.order_item_id,
-            customization_id:
-              c.customization_id ||
-              parsedValue.customizationRuleId ||
-              parsedValue.customization_id ||
-              "default",
+            customization_id: ruleId,
             value: parsedValue,
             componentId: parsedValue.componentId, // Important to expose componentId
           };
         })
-        .filter(Boolean);
+        .filter((c: any) => {
+          if (!c) return false;
+          // Deduplicar: se já temos esse RuleID para o mesmo ComponentID, ignorar o posterior
+          const key = `${c.customization_id}-${c.componentId || "default"}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
 
       return {
         orderItemId: item.id,
@@ -516,7 +524,6 @@ class OrderCustomizationService {
     // ✅ NOVO: Deletar arquivos temporários antigos (não bloqueia se falhar)
     if (oldTempFiles.length > 0) {
       try {
-        const tempFileService = require("./tempFileService").default;
         const deleteResult = tempFileService.deleteFiles(oldTempFiles);
         logger.debug(
           `🗑️ [updateOrderItemCustomization] ${deleteResult.deleted} arquivos antigos deletados, ${deleteResult.failed} falharam`,
@@ -594,7 +601,6 @@ class OrderCustomizationService {
     assets: Array<{ url: string; filename?: string }>,
   ): Promise<void> {
     try {
-      const tempFileService = require("./tempFileService").default;
       const tempFilesToDelete: string[] = [];
 
       for (const asset of assets) {
@@ -1107,6 +1113,8 @@ class OrderCustomizationService {
         data.highQualityUrl ||
         data.high_quality_url ||
         data.final_artwork?.preview_url ||
+        data.finalArtwork?.preview_url ||
+        data.final_artworks?.[0]?.preview_url ||
         data.image?.preview_url ||
         data.text;
 
@@ -1330,6 +1338,12 @@ class OrderCustomizationService {
     }>,
   ) {
     const sanitized = { ...data };
+
+    // Normalizar finalArtwork (camelCase) para final_artwork (snake_case)
+    if (sanitized.finalArtwork && !sanitized.final_artwork) {
+      sanitized.final_artwork = sanitized.finalArtwork;
+      delete sanitized.finalArtwork;
+    }
 
     if (sanitized.final_artwork) {
       sanitized.final_artwork = {

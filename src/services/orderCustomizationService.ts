@@ -86,7 +86,7 @@ class OrderCustomizationService {
             existingData.image?.preview_url &&
             existingData.image.preview_url.includes("/uploads/temp/") &&
             input.customizationData.image?.preview_url !==
-            existingData.image.preview_url
+              existingData.image.preview_url
           ) {
             const oldFilename = existingData.image.preview_url
               .split("/uploads/temp/")
@@ -161,10 +161,10 @@ class OrderCustomizationService {
       order_item_id: input.orderItemId,
       customization_id:
         ruleId &&
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-            ruleId,
-          ) &&
-          !componentId
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          ruleId,
+        ) &&
+        !componentId
           ? ruleId
           : null,
       value: valueStr,
@@ -207,7 +207,7 @@ class OrderCustomizationService {
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
-        } catch (err) { }
+        } catch (err) {}
       }
     }
 
@@ -265,7 +265,9 @@ class OrderCustomizationService {
           data.image?.preview_url ||
           data.previewUrl ||
           data.text ||
-          data.final_artwork?.preview_url;
+          data.final_artwork?.preview_url ||
+          data.finalArtwork?.preview_url ||
+          data.final_artworks?.[0]?.preview_url;
         // ✅ MUDANÇA: Verificar apenas formato de URL, não existência física
         const hasArtwork = !!artworkUrl && checkValidUrl(artworkUrl);
         return !!hasArtwork && !!data.fabricState;
@@ -425,7 +427,7 @@ class OrderCustomizationService {
       input.customizationData?.image?.preview_url &&
       existingData.image?.preview_url &&
       input.customizationData.image.preview_url !==
-      existingData.image.preview_url
+        existingData.image.preview_url
     ) {
       // Se o novo canvas preview é diferente do antigo, deletar o antigo
       if (existingData.image.preview_url.includes("/uploads/temp/")) {
@@ -493,7 +495,8 @@ class OrderCustomizationService {
     try {
       const containsBase64 = /data:[^;]+;base64,/.test(updateData.value);
       logger.debug(
-        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${input.customizationType
+        `🔍 [updateOrderItemCustomization] containsBase64=${containsBase64}, type=${
+          input.customizationType
         }, ruleId=${input.customizationRuleId ?? existing.customization_id}`,
       );
     } catch (err) {
@@ -683,8 +686,9 @@ class OrderCustomizationService {
         .replace(/[^a-zA-Z0-9]/g, "_")
         .substring(0, 40);
 
-      const folderName = `Pedido_${safeCustomerName}_${new Date().toISOString().split("T")[0]
-        }_${orderId.substring(0, 8)}`;
+      const folderName = `Pedido_${safeCustomerName}_${
+        new Date().toISOString().split("T")[0]
+      }_${orderId.substring(0, 8)}`;
 
       mainFolderId = await googleDriveService.createFolder(folderName);
       await googleDriveService.makeFolderPublic(mainFolderId);
@@ -1423,8 +1427,10 @@ class OrderCustomizationService {
 
         if (upload) {
           logger.info(
-            `✅ LAYOUT_BASE image[${idx}] (slot: ${image.slot || "unknown"
-            }) sanitized and uploaded: ${upload.fileName} (driveId=${upload.id
+            `✅ LAYOUT_BASE image[${idx}] (slot: ${
+              image.slot || "unknown"
+            }) sanitized and uploaded: ${upload.fileName} (driveId=${
+              upload.id
             })`,
           );
         } else {
@@ -1610,7 +1616,7 @@ class OrderCustomizationService {
           process.cwd(),
           "images",
           "customizations",
-          safeRelative
+          safeRelative,
         );
       }
       return null;

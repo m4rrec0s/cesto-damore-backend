@@ -327,6 +327,9 @@ export class PaymentService {
       const order = await this.loadOrderWithDetails(data.orderId);
 
       if (!order) {
+        logger.error(
+          `[ProcessPayment] Pedido ${data.orderId} não encontrado no banco de dados para o usuário ${data.userId}`,
+        );
         throw new Error("Pedido não encontrado");
       }
 
@@ -728,6 +731,9 @@ export class PaymentService {
       const order = await this.loadOrderWithDetails(orderId);
 
       if (!order) {
+        logger.error(
+          `[CreatePayment] Pedido ${orderId} não encontrado no banco de dados para o usuário ${userId}`,
+        );
         throw new Error("Pedido não encontrado");
       }
 

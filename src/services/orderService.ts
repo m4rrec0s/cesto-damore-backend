@@ -1864,6 +1864,7 @@ class OrderService {
     });
 
     if (!order) {
+      console.error(`[CancelOrder] Pedido ${orderId} não encontrado`);
       throw new Error("Pedido não encontrado");
     }
 

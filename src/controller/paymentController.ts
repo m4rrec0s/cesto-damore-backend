@@ -7,20 +7,37 @@ import logger from "../utils/logger";
 export class PaymentController {
   // Map MercadoPago status_detail codes to friendly messages
   private static mercadoPagoErrorMessages: Record<string, string> = {
-    cc_rejected_bad_filled_card_number: "Número do cartão incorreto. Verifique e tente novamente.",
-    cc_rejected_bad_filled_security_code: "Código de segurança (CVV) incorreto. Verifique e tente novamente.",
-    cc_rejected_bad_filled_date: "Data de validade incorreta. Verifique e tente novamente.",
-    cc_rejected_bad_filled_other: "Verifique os dados do cartão e tente novamente.",
-    cc_rejected_insufficient_amount: "Saldo insuficiente. Tente com outro cartão ou forma de pagamento.",
-    cc_rejected_max_attempts: "Você atingiu o limite de tentativas. Aguarde alguns minutos.",
-    cc_rejected_duplicated_payment: "Pagamento duplicado. Verifique se já não foi cobrado anteriormente.",
-    cc_rejected_card_disabled: "Cartão desabilitado. Entre em contato com seu banco.",
-    cc_rejected_call_for_authorize: "Pagamento não autorizado. Entre em contato com seu banco para autorizar.",
+    cc_rejected_bad_filled_card_number:
+      "Número do cartão incorreto. Verifique e tente novamente.",
+    cc_rejected_bad_filled_security_code:
+      "Código de segurança (CVV) incorreto. Verifique e tente novamente.",
+    cc_rejected_bad_filled_date:
+      "Data de validade incorreta. Verifique e tente novamente.",
+    cc_rejected_bad_filled_other:
+      "Verifique os dados do cartão e tente novamente.",
+    cc_rejected_insufficient_amount:
+      "Saldo insuficiente. Tente com outro cartão ou forma de pagamento.",
+    cc_rejected_max_attempts:
+      "Você atingiu o limite de tentativas. Aguarde alguns minutos.",
+    cc_rejected_duplicated_payment:
+      "Pagamento duplicado. Verifique se já não foi cobrado anteriormente.",
+    cc_rejected_card_disabled:
+      "Cartão desabilitado. Entre em contato com seu banco.",
+    cc_rejected_call_for_authorize:
+      "Pagamento não autorizado. Entre em contato com seu banco para autorizar.",
     cc_rejected_blacklist: "Pagamento não autorizado por motivos de segurança.",
     cc_rejected_high_risk: "Pagamento recusado por medidas de segurança.",
-    cc_rejected_other_reason: "Pagamento não autorizado. Tente outro cartão ou forma de pagamento.",
+    cc_rejected_other_reason:
+      "Pagamento não autorizado. Tente outro cartão ou forma de pagamento.",
     pending_contingency: "Pagamento em análise. Aguarde a confirmação.",
-    pending_review_manual: "Pagamento em análise manual. Aguarde a confirmação.",
+    pending_review_manual:
+      "Pagamento em análise manual. Aguarde a confirmação.",
+    "invalid-token":
+      "Token do cartão inválido ou já utilizado. Por favor, preencha os dados do cartão novamente.",
+    "Card Token not found":
+      "Token do cartão não encontrado. Certifique-se de que as chaves do Mercado Pago estão configuradas corretamente no frontend e backend.",
+    invalid_parameter:
+      "Algum dado enviado ao Mercado Pago está incorreto. Verifique os dados do cartão.",
   };
 
   // Extract friendly error message from MercadoPago error
@@ -28,6 +45,12 @@ export class PaymentController {
     if (!error || typeof error !== "object") return null;
 
     const err = error as any;
+
+    // Se a mensagem de erro literal contiver termos conhecidos, retornar direto
+    const message = err.message || "";
+    if (message.includes("Card Token not found")) {
+      return this.mercadoPagoErrorMessages["Card Token not found"];
+    }
 
     // Check for status_detail in cause or response
     let statusDetail: string | null = null;
@@ -192,9 +215,23 @@ export class PaymentController {
 
       const userId = (req as any).user?.id;
 
-      if (!orderId || !payerEmail || !payerName || !userId) {
+      console.log(
+        `[Checkout] Iniciando processamento - Pedido: ${orderId}, Usuário: ${userId}, Método: ${paymentMethodId}`,
+      );
+
+      if (
+        !orderId ||
+        !payerEmail ||
+        !payerName ||
+        !userId ||
+        orderId === "null" ||
+        orderId === "undefined"
+      ) {
+        console.warn(
+          `[Checkout] Dados inválidos recebidos: orderId=${orderId}, userId=${userId}`,
+        );
         return res.status(400).json({
-          error: "Dados obrigatórios não fornecidos",
+          error: "Dados obrigatórios não fornecidos ou inválidos",
           required: ["orderId", "payerEmail", "payerName"],
         });
       }
@@ -261,7 +298,8 @@ export class PaymentController {
       let statusDetail: string | undefined;
       if (error && typeof error === "object") {
         const err = error as any;
-        statusDetail = err.cause?.status_detail ||
+        statusDetail =
+          err.cause?.status_detail ||
           err.response?.status_detail ||
           (Array.isArray(err.cause) ? err.cause[0]?.code : undefined);
       }
@@ -321,7 +359,7 @@ export class PaymentController {
       if (dbPayment.mercado_pago_id) {
         try {
           mercadoPagoData = await PaymentService.getPayment(
-            dbPayment.mercado_pago_id
+            dbPayment.mercado_pago_id,
           );
         } catch (error) {
           console.warn("Não foi possível buscar dados do Mercado Pago:", error);
@@ -374,14 +412,14 @@ export class PaymentController {
         null;
       logger.info(
         "📨 PaymentController.handleWebhook - Iniciando processamento",
-        { type: incomingType || null, resource: incomingResource || null }
+        { type: incomingType || null, resource: incomingResource || null },
       );
 
       if (process.env.NODE_ENV !== "production") {
         try {
           logger.debug(
             "📮 Webhook payload (debug):",
-            JSON.stringify(webhookData, null, 2)
+            JSON.stringify(webhookData, null, 2),
           );
         } catch (err) {
           logger.warn("Falha ao imprimir payload do webhook (debug)");
@@ -391,7 +429,7 @@ export class PaymentController {
       await PaymentService.processWebhookNotification(webhookData, headers);
 
       console.log(
-        "✅ PaymentController.handleWebhook - Processado com sucesso"
+        "✅ PaymentController.handleWebhook - Processado com sucesso",
       );
       res.status(200).json({ received: true });
     } catch (error) {
@@ -444,7 +482,7 @@ export class PaymentController {
 
       const cancelResult = await PaymentService.cancelPayment(
         dbPayment.mercado_pago_id,
-        reason
+        reason,
       );
 
       res.json({
@@ -542,7 +580,9 @@ export class PaymentController {
       if (startDate && endDate) {
         const start = new Date(startDate as string);
         const end = new Date(endDate as string);
-        days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        days = Math.ceil(
+          (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+        );
       }
 
       const status = await statusService.getBusinessStatus(days);
@@ -553,11 +593,11 @@ export class PaymentController {
           period: {
             start: status.period.startDate,
             end: status.period.endDate,
-            days: status.period.days
+            days: status.period.days,
           },
           daily_summary: status.daily_data,
           totals: status.totals,
-          metrics: status.metrics
+          metrics: status.metrics,
         },
       });
     } catch (error) {

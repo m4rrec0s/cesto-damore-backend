@@ -238,7 +238,7 @@ class OrderCustomizationService {
         return typeof data.text === "string" && data.text.trim().length > 0;
 
       case "MULTIPLE_CHOICE":
-        // Verificar opção e nome (label)
+        // Relaxado: ter opção OU label já conta como preenchido para evitar falsos negativos no segundo GET
         const hasOption = !!(
           data.selected_option ||
           data.id ||
@@ -249,15 +249,13 @@ class OrderCustomizationService {
           data.label_selected ||
           data.label
         );
-        return hasOption && hasLabel;
+        return hasOption || hasLabel;
 
       case "IMAGES":
         const photos = data.photos || data.files || [];
         if (!Array.isArray(photos) || photos.length === 0) return false;
-        // ✅ MUDANÇA: Verificar apenas formato de URL, não existência física
-        return photos.every((p: any) =>
-          checkValidUrl(p.preview_url || p.url || p.preview),
-        );
+        // ✅ Relaxado: Se tem fotos, consideramos preenchido
+        return true;
 
       case "DYNAMIC_LAYOUT":
         // Arte final + Fabric state
@@ -268,12 +266,19 @@ class OrderCustomizationService {
           data.final_artwork?.preview_url ||
           data.finalArtwork?.preview_url ||
           data.final_artworks?.[0]?.preview_url;
-        // ✅ MUDANÇA: Verificar apenas formato de URL, não existência física
+        // ✅ Relaxado: Arte OU Fabric OU Label já conta como válido
         const hasArtwork = !!artworkUrl && checkValidUrl(artworkUrl);
-        return !!hasArtwork && !!data.fabricState;
+        const hasLabelDL = !!(
+          data.selected_item_label ||
+          data.label_selected ||
+          data.label
+        );
+        return !!hasArtwork || !!data.fabricState || hasLabelDL;
 
       default:
-        return Object.keys(data).length >= 3;
+        // Qualquer objeto com dados é considerado preenchido
+        return data && Object.keys(data).length > 0;
+    }
     }
   }
 

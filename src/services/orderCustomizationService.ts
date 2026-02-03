@@ -1402,8 +1402,12 @@ class OrderCustomizationService {
     }
 
     if (Array.isArray(sanitized.photos)) {
+      const isImagesType = sanitized.customization_type === "IMAGES";
+
       sanitized.photos = sanitized.photos.map((photo: any, idx: number) => {
-        const upload = uploads[uploadIndex + idx];
+        // Apenas buscar no array de uploads se o tipo for de fato IMAGES
+        const upload = isImagesType ? uploads[uploadIndex + idx] : undefined;
+
         const newPhoto = {
           ...photo,
           base64: undefined,
@@ -1418,7 +1422,8 @@ class OrderCustomizationService {
           logger.info(
             `✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`,
           );
-        } else {
+        } else if (isImagesType) {
+          // Só avisar se for o tipo esperado e falhar
           logger.warn(
             `⚠️ Photo sanitized but no upload info found for index ${idx}`,
           );
@@ -1426,13 +1431,21 @@ class OrderCustomizationService {
 
         return newPhoto;
       });
-      uploadIndex += sanitized.photos.length;
+
+      if (isImagesType) {
+        uploadIndex += sanitized.photos.length;
+      }
     }
 
     // ✅ NOVO: Sanitizar LAYOUT_BASE images array
     if (Array.isArray(sanitized.images)) {
+      const isDynamic = sanitized.customization_type === "DYNAMIC_LAYOUT";
+
       sanitized.images = sanitized.images.map((image: any, idx: number) => {
-        const upload = uploads[uploadIndex + idx];
+        // Para DYNAMIC_LAYOUT, as imagens individuais dos slots não sobem para o Drive
+        // (apenas a arte final sobe), então não buscamos info de upload para elas.
+        const upload = !isDynamic ? uploads[uploadIndex + idx] : undefined;
+
         const newImage = {
           ...image,
           url: undefined, // Remove base64 URL
@@ -1452,7 +1465,8 @@ class OrderCustomizationService {
               upload.id
             })`,
           );
-        } else {
+        } else if (!isDynamic) {
+          // Só logar aviso se não for dinâmico, pois no dinâmico é esperado não ter upload individual
           logger.warn(
             `⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`,
           );
@@ -1460,6 +1474,11 @@ class OrderCustomizationService {
 
         return newImage;
       });
+
+      // Apenas avançar o ponteiro de uploads se as imagens foram de fato carregadas
+      if (!isDynamic) {
+        uploadIndex += sanitized.images.length;
+      }
     }
 
     // ✅ NOVO: Remover base64 do campo text se for uma URL base64

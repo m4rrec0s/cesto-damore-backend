@@ -300,8 +300,7 @@ class OrderCustomizationController {
       logger.debug(`   finalArtwork? ${!!payload.finalArtwork}`);
       logger.debug(`   finalArtworks? ${!!payload.finalArtworks}`);
       logger.debug(
-        `   finalArtwork.base64? ${
-          payload.finalArtwork ? !!payload.finalArtwork.base64 : "N/A"
+        `   finalArtwork.base64? ${payload.finalArtwork ? !!payload.finalArtwork.base64 : "N/A"
         }`,
       );
 
@@ -466,6 +465,32 @@ class OrderCustomizationController {
         error: "Erro ao salvar customização",
         details: error.message,
       });
+    }
+  };
+  validateOrderCustomizationsFiles = async (req: Request, res: Response) => {
+    try {
+      const paramsSchema = z.object({
+        orderId: z.string().uuid({ message: "ID do pedido inválido" }),
+      });
+
+      const { orderId } = paramsSchema.parse(req.params);
+
+      const result =
+        await orderCustomizationService.validateOrderCustomizationsFiles(
+          orderId,
+        );
+
+      return res.json(result);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ error: "Dados inválidos", details: error.issues });
+      }
+      logger.error("Erro ao validar arquivos de customização:", error);
+      return res
+        .status(500)
+        .json({ error: "Erro interno ao validar arquivos" });
     }
   };
 }

@@ -705,6 +705,13 @@ router.post(
   orderCustomizationController.saveOrderItemCustomization,
 );
 
+router.get(
+  "/orders/:orderId/customizations/validate",
+  authenticateToken,
+  orderCustomizationController.validateOrderCustomizationsFiles,
+);
+
+
 // ==========================================
 // 7. PAYMENT & WEBHOOKS
 // ==========================================

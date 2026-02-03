@@ -297,10 +297,20 @@ class OrderCustomizationService {
           },
         },
         customizations: true,
+        additionals: {
+          include: {
+            additional: {
+              include: {
+                customizations: true,
+              },
+            },
+          },
+        },
       },
     });
 
     const result = orderItems.map((item) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const allAvailable: any[] = [];
 
       if (item.product.components) {
@@ -314,6 +324,23 @@ class OrderCustomizationService {
             itemId: component.item_id,
             itemName: component.item.name || "Item",
             componentId: component.id,
+          }));
+          allAvailable.push(...mapped);
+        }
+      }
+
+      if (item.additionals) {
+        for (const add of item.additionals) {
+          const itemCustomizations = add.additional.customizations || [];
+          const mapped = itemCustomizations.map((c) => ({
+            id: c.id,
+            name: c.name,
+            type: c.type,
+            isRequired: c.isRequired,
+            itemId: add.additional_id,
+            itemName: add.additional.name || "Adicional",
+            componentId: add.additional_id,
+            isAdditional: true,
           }));
           allAvailable.push(...mapped);
         }
@@ -340,6 +367,7 @@ class OrderCustomizationService {
               parsedValue.customization_id ||
               "default",
             value: parsedValue,
+            componentId: parsedValue.componentId, // Important to expose componentId
           };
         })
         .filter(Boolean);
@@ -1485,6 +1513,110 @@ class OrderCustomizationService {
       .trim()
       .replace(/[-\s]+/g, "-")
       .toLowerCase();
+  }
+
+  /**
+   * ✅ NOVO: Valida a existência física dos arquivos de customização.
+   * Retorna um mapa { [customizationId]: isValid }.
+   */
+  async validateOrderCustomizationsFiles(
+    orderId: string,
+  ): Promise<{ files: Record<string, boolean> }> {
+    const orderItems = await prisma.orderItem.findMany({
+      where: { order_id: orderId },
+      include: { customizations: true },
+    });
+
+    const fileStatus: Record<string, boolean> = {};
+
+    for (const item of orderItems) {
+      for (const custom of item.customizations) {
+        let isValid = true;
+        const data = this.parseCustomizationData(custom.value);
+
+        const urls: string[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const extractUrls = (obj: any) => {
+          if (!obj) return;
+          if (typeof obj === "object") {
+            if (obj.preview_url) urls.push(obj.preview_url);
+            if (obj.url) urls.push(obj.url); // Legacy
+
+            // Recursively search
+            if (Array.isArray(obj)) {
+              obj.forEach(extractUrls);
+            } else {
+              Object.values(obj).forEach(extractUrls);
+            }
+          }
+        };
+        extractUrls(data);
+
+        for (const url of urls) {
+          if (
+            url &&
+            (url.includes("/uploads/temp/") ||
+              url.includes("/images/customizations/"))
+          ) {
+            const filePath = this.getFilePathFromUrl(url);
+            // Se path foi resolvido mas arquivo não existe
+            if (filePath && !fs.existsSync(filePath)) {
+              isValid = false;
+              break;
+            }
+          }
+        }
+
+        fileStatus[custom.id] = isValid;
+      }
+    }
+    return { files: fileStatus };
+  }
+
+  private getFilePathFromUrl(url: string): string | null {
+    try {
+      // Remover domínio se houver
+      const urlPath = url.replace(/^https?:\/\/[^\/]+/, "");
+
+      // Ajustar caminhos baseados na configuração do projeto
+      // Assumindo estrutura padrão vista em uploadController ou rotas
+      // Rota: /uploads/temp -> process.cwd()/storage/temp (conforme routes.ts getTempUploadsPath)
+      // OU process.cwd()/uploads/temp (conforme lógica de delete no próprio service)
+
+      if (urlPath.includes("/uploads/temp/")) {
+        const filename = urlPath.split("/uploads/temp/").pop();
+        if (!filename) return null;
+
+        // Tentar locations comuns
+        const path1 = path.join(process.cwd(), "uploads", "temp", filename);
+        const path2 = path.join(process.cwd(), "storage", "temp", filename);
+
+        if (fs.existsSync(path1)) return path1;
+        if (fs.existsSync(path2)) return path2;
+
+        // Se não existe em lugar nenhum, retorna path1 como default para falhar a checagem
+        return path1;
+      }
+
+      if (urlPath.includes("/images/customizations/")) {
+        const parts = urlPath.split("/images/customizations/");
+        const relativePath = parts[1];
+        if (!relativePath) return null;
+
+        // Decodificar URI parts (espaços, etc)
+        const safeRelative = decodeURIComponent(relativePath);
+
+        return path.join(
+          process.cwd(),
+          "images",
+          "customizations",
+          safeRelative
+        );
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 }
 

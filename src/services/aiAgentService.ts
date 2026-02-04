@@ -39,6 +39,11 @@ class AIAgentService {
     // Mapa de detecção: contexto → prompt relevante
     const contextMap = [
       {
+        patterns: [/\[interno\].*carrinho/i],
+        prompt: "cart_protocol_guideline",
+        priority: 0, // Prioridade máxima (protocolo obrigatório)
+      },
+      {
         patterns: [
           /entrega|João pessoa|Queimadas|Galante|Puxinanã|São José|cobertura|cidad|faz entrega/i,
         ],
@@ -79,8 +84,8 @@ class AIAgentService {
       .filter((ctx) =>
         ctx.patterns.some((pattern) => pattern.test(messageLower)),
       )
-      .sort((a, b) => a.priority - b.priority) // Prioridade (1 antes de 2)
-      .slice(0, 2) // Máximo 2 prompts dinâmicos
+      .sort((a, b) => a.priority - b.priority) // Prioridade (0 > 1 > 2)
+      .slice(0, 3) // Máximo 3 prompts dinâmicos (para incluir cart_protocol quando necessário)
       .map((ctx) => ctx.prompt);
 
     // Remove duplicatas mantendo ordem
@@ -817,6 +822,28 @@ Sempre consulte os prompts do MCP para obter as regras mais atualizadas.
   4. ❌ **NUNCA** escolha um horário por conta própria se o cliente não especificou. Mostre as opções.
 - ✅ **PAGAMENTO**: Pergunte "PIX ou Cartão?". ❌ NUNCA mencione chave PIX ou dados bancários. O time humano envia isso após confirmação.
 - ✅ **FRETE**: ❌ NÃO calcule frete para o cliente. SEMPRE diga: "O frete será confirmado pelo nosso atendente no final do pedido junto com os dados de pagamento! 💕"
+
+#### 🛒 PRODUTO ADICIONADO AO CARRINHO (PROTOCOLO OBRIGATÓRIO)
+⚠️ **DETECÇÃO AUTOMÁTICA**: Quando a mensagem do usuário contiver "[Interno] O cliente adicionou um produto ao carrinho pessoal", você DEVE EXECUTAR IMEDIATAMENTE:
+
+**SEQUÊNCIA OBRIGATÓRIA:**
+1️⃣ **INFORME AO CLIENTE** (exatamente assim):
+   "Vi que você adicionou um produto no carrinho! Vou te direcionar para o atendimento especializado que vai te ajudar a finalizar. ${storeStatus.includes("FECHADA") ? `Nosso horário de atendimento é de segunda a sexta das 7h30 às 12h e das 14h às 17h, e sábado das 8h às 11h. Assim que abrirmos, nossa equipe entra em contato! 💕` : "Aguarde que já vou passar para nosso time! 💕"}"
+
+2️⃣ **CHAME notify_human_support** com:
+   - reason: "Cliente adicionou produto ao carrinho"
+   - customer_context: "Cliente adicionou produto ao carrinho pessoal e precisa de atendimento especializado para finalização."
+   - customer_name: [nome do cliente ou "Cliente"]
+   - customer_phone: [telefone do cliente ou ""]
+   - should_block_flow: true
+   - session_id: [ID da sessão atual]
+
+3️⃣ **CHAME block_session** imediatamente após:
+   - session_id: [ID da sessão atual]
+
+⚠️ **CRÍTICO**: Esta sequência é OBRIGATÓRIA e NÃO PODE ser pulada ou modificada.
+❌ **NUNCA** continue a conversa após detectar produto no carrinho.
+❌ **NUNCA** pule a etapa de mencionar horário de atendimento se a loja estiver FECHADA.
 
 #### 📦 Interpretação do JSON de consultarCatalogo
 - A ferramenta retorna JSON com \`production_time\` em cada produto

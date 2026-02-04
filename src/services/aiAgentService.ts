@@ -45,6 +45,13 @@ class AIAgentService {
       },
       {
         patterns: [
+          /catálogo|catalogo|cardápio|cardapio|menu|opções e valores|opcoes e valores|lista de preços|lista de precos|quais produtos|o que vocês têm|o que voces tem|todos os produtos|tudo que tem/i,
+        ],
+        prompt: "indecision_guideline",
+        priority: 1, // Alta prioridade para catálogo
+      },
+      {
+        patterns: [
           /entrega|João pessoa|Queimadas|Galante|Puxinanã|São José|cobertura|cidad|faz entrega/i,
         ],
         prompt: "delivery_rules_guideline",
@@ -717,6 +724,7 @@ O cliente só deve ver a resposta final após o processamento da tool.
 - Se o cliente menciona ou pergunta sobre QUALQUER produto/cesta: VOCÊ DEVE usar \`consultarCatalogo\` IMEDIATAMENTE
 - Se o cliente pergunta sobre entrega/horário: VOCÊ DEVE usar \`validate_delivery_availability\`
 - Se o cliente fornece endereço: VOCÊ DEVE usar \`calculate_freight\`
+- **Se o cliente pede "catálogo", "cardápio", "menu", "opções e valores", "lista de preços", "quais produtos", "tudo que tem": VOCÊ DEVE usar \`get_full_catalog\` IMEDIATAMENTE**
 - **JAMAIS** responda "vou buscar" ou "deixa eu ver" sem realmente chamar a ferramenta
 
 Exemplos:
@@ -724,6 +732,8 @@ Exemplos:
 ✅ CORRETO: [chama consultarCatalogo silenciosamente, depois apresenta os 2 produtos]
 ❌ ERRADO: "Temos sim! Deixa eu ver as opções" (sem tool_calls)
 ✅ CORRETO: [chama consultarCatalogo imediatamente]
+❌ ERRADO: "Vou te enviar o catálogo!" (sem tool_calls)
+✅ CORRETO: [chama get_full_catalog imediatamente]
 
 ## ⛔ PROIBIÇÕES ABSOLUTAS - INFORMAÇÕES SENSÍVEIS
 **NUNCA, EM HIPÓTESE ALGUMA, ENVIE OU MENCIONE:**

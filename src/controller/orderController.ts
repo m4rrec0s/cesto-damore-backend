@@ -157,27 +157,33 @@ class OrderController {
     try {
       const { id } = req.params;
       const userId = (req as any).user?.id;
+      const userRole = (req as any).user?.role;
+      const isAdmin = userRole?.toUpperCase() === "ADMIN";
 
       if (!userId) {
         return res.status(401).json({ error: "Autenticação necessária" });
       }
 
-      // Verificar se o usuário autenticado é dono do pedido
+      // Verificar existência do pedido
       const order = await orderService.getOrderById(id);
-      if (order.user_id !== userId) {
-        console.warn(
-          `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`,
-        );
-        return res.status(403).json({
-          error: "Você não tem permissão para deletar este pedido",
-        });
-      }
 
-      // Apenas permitir deletar pedidos PENDING (rascunhos)
-      if (order.status !== "PENDING") {
-        return res.status(400).json({
-          error: `Apenas pedidos pendentes podem ser deletados. Status atual: ${order.status}`,
-        });
+      // Verificar permissões
+      // Se NÃO for admin, deve ser o dono E o pedido deve estar PENDING
+      if (!isAdmin) {
+        if (order.user_id !== userId) {
+          console.warn(
+            `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`,
+          );
+          return res.status(403).json({
+            error: "Você não tem permissão para deletar este pedido",
+          });
+        }
+
+        if (order.status !== "PENDING") {
+          return res.status(400).json({
+            error: `Apenas pedidos pendentes podem ser deletados por usuários. Status atual: ${order.status}`,
+          });
+        }
       }
 
       const result = await orderService.deleteOrder(id);

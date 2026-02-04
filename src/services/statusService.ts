@@ -136,6 +136,27 @@ class StatusService {
             const daysInMonth = differenceInDays(endOfMonth(now), startOfMonth(now)) + 1;
             const monthlyProjection = dailyAverage * daysInMonth;
 
+            // Métricas adicionais
+            const activeSessions = await prisma.aIAgentSession.count({
+                where: {
+                    expires_at: {
+                        gt: now
+                    }
+                }
+            });
+
+            const openFollowUps = await prisma.customer.count({
+                where: {
+                    follow_up: true
+                }
+            });
+
+            const totalClients = await prisma.user.count({
+                where: {
+                    role: 'client'
+                }
+            });
+
             return {
                 period: {
                     days,
@@ -147,6 +168,9 @@ class StatusService {
                     averageTicket: Number(averageTicket.toFixed(2)),
                     conversionRate: Number(conversionRate.toFixed(2)),
                     monthlyProjection: Number(monthlyProjection.toFixed(2)),
+                    activeSessions,
+                    openFollowUps,
+                    totalClients,
                 },
                 daily_data: summaries,
             };

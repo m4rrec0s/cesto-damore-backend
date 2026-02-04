@@ -686,6 +686,12 @@ router.patch(
   requireAdmin,
   orderController.updateStatus,
 );
+router.put(
+  "/orders/:id/status",
+  authenticateToken,
+  requireAdmin,
+  orderController.updateStatus,
+);
 router.delete("/orders/:id", authenticateToken, orderController.remove);
 router.delete(
   "/orders/canceled",

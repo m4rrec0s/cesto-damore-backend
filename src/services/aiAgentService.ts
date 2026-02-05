@@ -128,6 +128,7 @@ REGRAS PARA SUA RESPOSTA:
 6. Apresente as informações como se você já soubesse
 7. Sempre mencione tempo de produção dos produtos
 8. Se produto tiver "caneca" no nome, mencione opções de customização
+9. DESCREVA OS PRODUTOS EXATAMENTE COMO RETORNADOS. NÃO invente itens (comidas, bebidas) que não estão listados no JSON da ferramenta.
 
 Gere APENAS a mensagem final para o cliente.`;
   }
@@ -693,19 +694,6 @@ Gere APENAS a mensagem final para o cliente.`;
 
 ---
 
-## ⛔ DADOS SENSÍVEIS - BLOQUEIO ABSOLUTO
-
-**NUNCA REVELE:**
-- ❌ Chave PIX (telefone/e-mail/CPF)
-- ❌ Endereço físico da loja
-- ❌ Dados bancários
-- ❌ Informações de pagamento além do método
-
-**RESPOSTA PADRÃO (se solicitado):**
-"O pagamento é processado pelo nosso time após confirmação do pedido. Eles enviam os dados de forma segura! 🔒"
-
----
-
 ## 📅 CONTEXTO TEMPORAL E OPERACIONAL
 
 **DATA/HORA ATUAL:**
@@ -728,83 +716,7 @@ Gere APENAS a mensagem final para o cliente.`;
 
 ---
 
-## 📋 PROTOCOLO DE APRESENTAÇÃO DE PRODUTOS
-
-### REGRA 1: EXATAMENTE 2 PRODUTOS POR VEZ
-- ✅ Mostre SEMPRE 2 produtos (nunca 1, 3 ou 4)
-- ✅ Exceção: catálogo completo com \`get_full_catalog\`
-
-### REGRA 2: FORMATO OBRIGATÓRIO
-
-**ESTRUTURA MANDATÓRIA:**
-\`\`\`
-[URL_DA_IMAGEM_PURA]
-_Opção X_ - [Nome] - R$ [Preço]
-[Descrição completa]
-[Tempo de produção]
-\`\`\`
-
-**PROIBIÇÕES DE FORMATO:**
-- ❌ Markdown de imagem: \`![alt](url)\`
-- ❌ Emojis numéricos: 1️⃣ 2️⃣ 3️⃣
-- ❌ Negrito em "Opção": **Opção 1**
-- ❌ Omissão da URL da imagem
-
-**EXEMPLO CORRETO:**
-
-\`\`\`
-https://api.cestodamore.com.br/images/produto.webp
-_Opção 1_ - Cesta Romântica - R$ 150,00
-Cesta com chocolates premium e vinho.
-(Produção em 3 horas)
-\`\`\`
-
-### REGRA 3: TEMPO DE PRODUÇÃO OBRIGATÓRIO
-
-**Formato de exibição:**
-- Se ≤ 1h: \`(Produção imediata ✅)\`
-- Se > 1h: \`(Produção em X horas)\`
-- Canecas: \`(Pronta entrega - 1h)\` OU \`(Customizável - 18h comerciais)\`
-
-### REGRA 4: CANECAS - PERGUNTA OBRIGATÓRIA
-
-**SE o produto contém "caneca" no nome:**
-1. ADICIONE imediatamente após descrição:
-   \`\`\`
-   🎁 Essa cesta tem canecas! Temos:
-   • Pronta entrega (1h de produção)
-   • Customizáveis com fotos/nomes (18h comerciais)
-   
-   Qual você prefere?
-   \`\`\`
-2. AGUARDE a resposta ANTES de validar entrega
-3. NÃO prossiga sem essa definição
-
-**SE \`is_caneca_search\` = TRUE:**
-- INCLUA exatamente o texto de \`caneca_guidance\` retornado pela tool
-
----
-
-## 🚫 REGRA CRÍTICA: NÃO PRESUMA ESCOLHA
-
-**PROIBIÇÕES:**
-- ❌ "Você vai levar essa cesta!"
-- ❌ "Já escolheu?"
-- ❌ "Vou separar essa para você"
-- ❌ Assumir interesse = decisão de compra
-
-**COMPORTAMENTO CORRETO:**
-- ✅ Cliente apenas perguntou → NÃO assuma decisão
-- ✅ SEMPRE confirme: "Essa opção te agradou?", "Qual você prefere?", "Quer levar um desses?"
-- ✅ Cliente quer trocar itens → "Nosso especialista discute essas mudanças no fechamento!"
-
-**VALIDAÇÃO DE CARACTERÍSTICAS:**
-- Cliente pergunta "essa cesta tem X?" → EXECUTE \`get_product_details\` ANTES de responder
-- NÃO confie em memória → VALIDE dados reais
-
----
-
-## 🚚 PROTOCOLO DE ENTREGA E PAGAMENTO
+##  PROTOCOLO DE ENTREGA E PAGAMENTO
 
 ### VALIDAÇÃO DE PRODUÇÃO (CRÍTICO)
 
@@ -971,11 +883,6 @@ ${memory ? `💭 **Histórico:** ${memory.summary}` : ""}
     return this.runTwoPhaseProcessing(sessionId, messages);
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════
-   * PROCESSAMENTO EM DUAS FASES
-   * ═══════════════════════════════════════════════════════════════
-   */
   private async runTwoPhaseProcessing(
     sessionId: string,
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
@@ -994,10 +901,6 @@ ${memory ? `💭 **Histórico:** ${memory.summary}` : ""}
         parameters: t.inputSchema,
       },
     }));
-
-    // ═══════════════════════════════════════════════════════════════
-    // FASE 1: COLETA DE INFORMAÇÕES (LOOP INTERNO)
-    // ═══════════════════════════════════════════════════════════════
 
     logger.info("🔍 FASE 1: Iniciando coleta de informações...");
 

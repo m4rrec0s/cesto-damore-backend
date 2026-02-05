@@ -832,12 +832,11 @@ Cliente escolheu Cesta Romântica por R$150,00. Entrega em 05/02/2026 às 15h em
 2. GUARDE os outros 8 em "memória de contexto"
 3. Se cliente pedir "mais opções" → Mostre os próximos 2 OU faça nova consulta excluindo IDs enviados
 
-**DADOS OBRIGATÓRIOS NA APRESENTAÇÃO:**
-- URL da imagem (pura, não markdown)
-- Nome do produto
-- Preço exato (R$)
-- Descrição completa
-- Tempo de produção formatado
+**FORMATO OBRIGATÓRIO NA APRESENTAÇÃO:**
+  URL da imagem (pura, não markdown)
+  Nome do produto - Preço exato (R$)
+  Descrição completa
+  Tempo de produção formatado
 - \`caneca_guidance\` (se \`is_caneca_search\` = TRUE)
 
 ---

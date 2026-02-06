@@ -47,6 +47,21 @@ const normalizeOrderPaymentMethod = (
   return null;
 };
 
+const SHIPPING_RULES: Record<string, { pix: number; card: number }> = {
+  "campina grande": { pix: 0, card: 10 },
+  queimadas: { pix: 15, card: 25 },
+  galante: { pix: 15, card: 25 },
+  puxinana: { pix: 15, card: 25 },
+  "sao jose da mata": { pix: 15, card: 25 },
+};
+
+const normalizeText = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
 export interface CreatePaymentData {
   orderId: string;
   userId: string;
@@ -91,6 +106,22 @@ export interface ProcessTransparentCheckoutData {
 export class PaymentService {
   // In-memory guard to avoid duplicate confirmation sends within same process
   private static notificationSentOrders: Set<string> = new Set();
+  private static resolveShippingPrice(
+    order: OrderWithPaymentDetails,
+    method: "pix" | "card",
+  ) {
+    if ((order as any).delivery_method === "pickup") {
+      return 0;
+    }
+
+    const city = order.delivery_city ? normalizeText(order.delivery_city) : "";
+    const rule = SHIPPING_RULES[city];
+    if (rule) {
+      return rule[method];
+    }
+
+    return order.shipping_price ?? 0;
+  }
   private static async loadOrderWithDetails(
     orderId: string,
   ): Promise<OrderWithPaymentDetails | null> {
@@ -121,7 +152,7 @@ export class PaymentService {
       return sum + baseTotal + additionalsTotal;
     }, 0);
 
-    const total = order.total ?? roundCurrency(itemsTotal);
+    const total = roundCurrency(itemsTotal);
     const discount = roundCurrency(order.discount ?? 0);
     const shipping = roundCurrency(order.shipping_price ?? 0);
     const computedGrandTotal = roundCurrency(total - discount + shipping);
@@ -348,10 +379,20 @@ export class PaymentService {
         order.payment_method,
       );
 
-      if (!orderPaymentMethod && data.paymentMethodId) {
-        orderPaymentMethod = normalizeOrderPaymentMethod(data.paymentMethodId);
-        if (orderPaymentMethod) {
-          // Atualiza o pedido com o método de pagamento normalizado (card|pix)
+      const desiredMethod = data.paymentMethodId
+        ? normalizeOrderPaymentMethod(data.paymentMethodId)
+        : null;
+
+      if (!orderPaymentMethod && desiredMethod) {
+        orderPaymentMethod = desiredMethod;
+      }
+
+      if (desiredMethod && orderPaymentMethod !== desiredMethod) {
+        orderPaymentMethod = desiredMethod;
+      }
+
+      if (orderPaymentMethod) {
+        if (order.payment_method !== orderPaymentMethod) {
           try {
             await prisma.order.update({
               where: { id: order.id },
@@ -365,14 +406,29 @@ export class PaymentService {
               "⚠️ Não foi possível atualizar payment_method do pedido:",
               upErr,
             );
-            // Continuamos mesmo se não conseguir persistir — o fluxo de pagamento
-            // seguirá considerando orderPaymentMethod definido.
           }
         }
       }
 
       if (!orderPaymentMethod) {
         throw new Error("Método de pagamento do pedido inválido");
+      }
+
+      const resolvedShipping = this.resolveShippingPrice(
+        order,
+        orderPaymentMethod,
+      );
+
+      if (Number(order.shipping_price ?? 0) !== resolvedShipping) {
+        try {
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { shipping_price: resolvedShipping },
+          });
+          order.shipping_price = resolvedShipping;
+        } catch (shippingErr) {
+          logger.warn("⚠️ Não foi possível atualizar frete do pedido:", shippingErr);
+        }
       }
 
       if (order.payment) {

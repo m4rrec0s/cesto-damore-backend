@@ -246,6 +246,9 @@ class OrderController {
         recipient_phone,
         delivery_date,
         shipping_price, // ✅ NOVO
+        payment_method,
+        discount,
+        delivery_method,
       } = req.body;
 
       if (!id) {
@@ -270,6 +273,9 @@ class OrderController {
         recipient_phone,
         delivery_date,
         shipping_price, // ✅ NOVO
+        payment_method,
+        discount,
+        delivery_method,
       });
       res.json(updated);
     } catch (error: any) {

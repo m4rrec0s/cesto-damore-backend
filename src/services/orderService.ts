@@ -668,10 +668,13 @@ class OrderService {
         .filter(Boolean);
 
       const uniqueAdditionalsIds = [...new Set(additionalsIds)];
+      const additionalBasePriceMap = new Map<string, number>();
+      const productAdditionalPriceMap = new Map<string, number>();
 
       if (uniqueAdditionalsIds.length > 0) {
         const additionals = await prisma.item.findMany({
           where: { id: { in: uniqueAdditionalsIds } },
+          select: { id: true, base_price: true },
         });
 
         if (additionals.length !== uniqueAdditionalsIds.length) {
@@ -686,7 +689,46 @@ class OrderService {
           (err as any).missing = missing;
           throw err;
         }
+
+        additionals.forEach((additional) => {
+          additionalBasePriceMap.set(additional.id, additional.base_price);
+        });
+
+        const productAdditionals = await prisma.productAdditional.findMany({
+          where: {
+            product_id: { in: uniqueProductIds },
+            additional_id: { in: uniqueAdditionalsIds },
+            is_active: true,
+          },
+          select: { product_id: true, additional_id: true, custom_price: true },
+        });
+
+        productAdditionals.forEach((entry) => {
+          if (typeof entry.custom_price === "number") {
+            productAdditionalPriceMap.set(
+              `${entry.product_id}:${entry.additional_id}`,
+              entry.custom_price,
+            );
+          }
+        });
       }
+
+      const resolveAdditionalPrice = (
+        productId: string,
+        additionalId: string,
+        payloadPrice?: number,
+      ) => {
+        const key = `${productId}:${additionalId}`;
+        const customPrice = productAdditionalPriceMap.get(key);
+        if (typeof customPrice === "number") {
+          return customPrice;
+        }
+        const basePrice = additionalBasePriceMap.get(additionalId);
+        if (typeof basePrice === "number") {
+          return basePrice;
+        }
+        return typeof payloadPrice === "number" ? payloadPrice : 0;
+      };
 
       // 🔥 NOVO: Validar customizações obrigatórias antes de criar pedido
       if (!data.is_draft) {
@@ -735,8 +777,14 @@ class OrderService {
       const itemsTotal = data.items.reduce((sum, item) => {
         const baseTotal = item.price * item.quantity;
         const additionalsTotal = (item.additionals || []).reduce(
-          (acc, additional) =>
-            acc + (additional.price || 0) * (additional.quantity || 0),
+          (acc, additional) => {
+            const resolvedPrice = resolveAdditionalPrice(
+              item.product_id,
+              additional.additional_id,
+              additional.price,
+            );
+            return acc + resolvedPrice * (additional.quantity || 0);
+          },
           0,
         );
         return sum + baseTotal + additionalsTotal;
@@ -830,11 +878,16 @@ class OrderService {
         // Preparar adicionais
         if (Array.isArray(item.additionals) && item.additionals.length > 0) {
           for (const additional of item.additionals) {
+            const resolvedPrice = resolveAdditionalPrice(
+              item.product_id,
+              additional.additional_id,
+              additional.price,
+            );
             additionalsBatch.push({
               order_item_id: orderItem.id,
               additional_id: additional.additional_id,
               quantity: additional.quantity,
-              price: additional.price,
+              price: resolvedPrice,
             });
           }
         }
@@ -1222,10 +1275,13 @@ class OrderService {
       .filter(Boolean);
 
     const uniqueAdditionalsIds = [...new Set(additionalsIds)];
+    const additionalBasePriceMap = new Map<string, number>();
+    const productAdditionalPriceMap = new Map<string, number>();
 
     if (uniqueAdditionalsIds.length > 0) {
       const additionals = await prisma.item.findMany({
         where: { id: { in: uniqueAdditionalsIds } },
+        select: { id: true, base_price: true },
       });
 
       if (additionals.length !== uniqueAdditionalsIds.length) {
@@ -1240,7 +1296,46 @@ class OrderService {
         (err as any).missing = missing;
         throw err;
       }
+
+      additionals.forEach((additional) => {
+        additionalBasePriceMap.set(additional.id, additional.base_price);
+      });
+
+      const productAdditionals = await prisma.productAdditional.findMany({
+        where: {
+          product_id: { in: uniqueProductIds },
+          additional_id: { in: uniqueAdditionalsIds },
+          is_active: true,
+        },
+        select: { product_id: true, additional_id: true, custom_price: true },
+      });
+
+      productAdditionals.forEach((entry) => {
+        if (typeof entry.custom_price === "number") {
+          productAdditionalPriceMap.set(
+            `${entry.product_id}:${entry.additional_id}`,
+            entry.custom_price,
+          );
+        }
+      });
     }
+
+    const resolveAdditionalPrice = (
+      productId: string,
+      additionalId: string,
+      payloadPrice?: number,
+    ) => {
+      const key = `${productId}:${additionalId}`;
+      const customPrice = productAdditionalPriceMap.get(key);
+      if (typeof customPrice === "number") {
+        return customPrice;
+      }
+      const basePrice = additionalBasePriceMap.get(additionalId);
+      if (typeof basePrice === "number") {
+        return basePrice;
+      }
+      return typeof payloadPrice === "number" ? payloadPrice : 0;
+    };
 
     if (order.payment_method) {
       const stockValidation = await stockService.validateOrderStock(items);
@@ -1253,7 +1348,14 @@ class OrderService {
 
     const itemsTotal = items.reduce((sum, item) => {
       const additionalTotal = (item.additionals || []).reduce(
-        (acc, add) => acc + (add.price || 0) * (add.quantity || 0),
+        (acc, add) => {
+          const resolvedPrice = resolveAdditionalPrice(
+            item.product_id,
+            add.additional_id,
+            add.price,
+          );
+          return acc + resolvedPrice * (add.quantity || 0);
+        },
         0,
       );
       return sum + item.price * item.quantity + additionalTotal;
@@ -1335,11 +1437,16 @@ class OrderService {
               item.additionals.length > 0
             ) {
               for (const additional of item.additionals) {
+                const resolvedPrice = resolveAdditionalPrice(
+                  item.product_id,
+                  additional.additional_id,
+                  additional.price,
+                );
                 additionalsBatch.push({
                   order_item_id: createdItem.id,
                   additional_id: additional.additional_id,
                   quantity: additional.quantity,
-                  price: additional.price,
+                  price: resolvedPrice,
                 });
               }
             }
@@ -1433,6 +1540,9 @@ class OrderService {
       recipient_phone?: string | null;
       delivery_date?: Date | string | null;
       shipping_price?: number; // ✅ NOVO: permitir atualizar frete
+      payment_method?: "pix" | "card";
+      discount?: number;
+      delivery_method?: "delivery" | "pickup";
     },
   ) {
     if (!orderId) {
@@ -1455,6 +1565,9 @@ class OrderService {
     }
     if (typeof data.complement === "string") {
       updateData.complement = data.complement;
+    }
+    if (typeof data.delivery_method === "string") {
+      updateData.delivery_method = data.delivery_method;
     }
 
     // Permitir atualização de endereço/telefone no pedido quando for rascunho (PENDING)
@@ -1518,18 +1631,70 @@ class OrderService {
       }
     }
 
+    if (typeof data.payment_method === "string") {
+      const normalizedPayment = normalizeText(data.payment_method || "");
+      if (normalizedPayment !== "pix" && normalizedPayment !== "card") {
+        throw new Error("Forma de pagamento inválida. Utilize pix ou card");
+      }
+      updateData.payment_method = normalizedPayment;
+    }
+
+    if (typeof data.discount === "number") {
+      if (data.discount < 0) {
+        throw new Error("Desconto não pode ser negativo");
+      }
+      updateData.discount = data.discount;
+    }
+
     // ✅ NOVO: Atualizar frete e recalcular total
     if (typeof data.shipping_price === "number") {
       if (data.shipping_price < 0) {
         throw new Error("O valor do frete não pode ser negativo");
       }
       updateData.shipping_price = data.shipping_price;
+    }
 
-      // Recalcular grand_total
+    if (
+      typeof data.payment_method === "string" &&
+      typeof data.shipping_price !== "number"
+    ) {
+      const normalizedMethod = normalizeText(data.payment_method || "");
+      const deliveryMethod =
+        (updateData.delivery_method as string) || order.delivery_method;
+      if (deliveryMethod === "pickup") {
+        updateData.shipping_price = 0;
+      } else {
+        const city =
+          (updateData.delivery_city as string) || order.delivery_city || "";
+        const normalizedCity = normalizeText(city);
+        const rule = ACCEPTED_CITIES[normalizedCity as string];
+        if (rule && (normalizedMethod === "pix" || normalizedMethod === "card")) {
+          updateData.shipping_price = rule[normalizedMethod as "pix" | "card"];
+        }
+      }
+    }
+
+    if (
+      typeof updateData.shipping_price === "number" ||
+      typeof updateData.discount === "number" ||
+      typeof updateData.payment_method === "string"
+    ) {
       const currentTotal = order.total;
-      const currentDiscount = order.discount || 0;
+      const nextDiscount =
+        typeof updateData.discount === "number"
+          ? updateData.discount
+          : order.discount || 0;
+      const nextShipping =
+        typeof updateData.shipping_price === "number"
+          ? updateData.shipping_price
+          : order.shipping_price || 0;
+
+      if (nextDiscount > currentTotal) {
+        throw new Error("Desconto não pode ser maior que o total dos itens");
+      }
+
       const newGrandTotal = parseFloat(
-        (currentTotal - currentDiscount + data.shipping_price).toFixed(2),
+        (currentTotal - nextDiscount + nextShipping).toFixed(2),
       );
 
       if (newGrandTotal <= 0) {

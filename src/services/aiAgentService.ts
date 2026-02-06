@@ -831,6 +831,20 @@ _Opção 2_ - **[Nome do Produto]** - R$ [Preço_Exato]
 
 ---
 
+## 5.2. Adicionais (Regras Obrigatórias)
+
+- ❌ **NUNCA venda adicionais separadamente.** Sempre devem estar vinculados a uma cesta ou flor escolhida.
+- ✅ **Só ofereça adicionais APÓS o cliente escolher um produto.** Se não houver escolha, pergunte primeiro qual cesta/flor ele quer.
+- ✅ **Confirme o produto escolhido e o preço antes de listar adicionais.** Se necessário, use \`get_product_details\`.
+- ✅ **Calcule o total corretamente:** Valor da cesta + soma dos adicionais.
+- ✅ **Explique o vinculo:** "Vou vincular os adicionais à [Cesta X]".
+- ✅ **Use \`get_adicionais\` apenas depois da escolha confirmada.**
+
+**Exemplo de resposta correta:**
+"Perfeito! Vou vincular os adicionais à Cesta Romântica. Você prefere balões, chocolates ou pelúcia?" 
+
+---
+
 ## 6. Checklist de Validação Final
 
 Antes de enviar **qualquer** resposta ao cliente, faça a si mesma as seguintes perguntas para garantir a precisão e o cumprimento dos protocolos.
@@ -860,12 +874,22 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
       }),
     ];
 
-    return this.runTwoPhaseProcessing(sessionId, messages);
+    const hasChosenProduct = Boolean(
+      memory?.summary &&
+        /cliente (escolheu|demonstrou interesse)/i.test(memory.summary),
+    );
+
+    return this.runTwoPhaseProcessing(
+      sessionId,
+      messages,
+      hasChosenProduct,
+    );
   }
 
   private async runTwoPhaseProcessing(
     sessionId: string,
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    hasChosenProduct: boolean,
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -981,6 +1005,27 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
               });
               continue;
             }
+          }
+
+          // Valida get_adicionais (somente apos produto escolhido)
+          if (name === "get_adicionais" && !hasChosenProduct) {
+            const errorMsg =
+              `{"status":"error","error":"missing_product","message":"Adicionais nao podem ser vendidos separados. Antes, confirme qual cesta ou flor o cliente escolheu e o preco. Depois, ofereca adicionais vinculados a esse produto."}`;
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: errorMsg,
+            });
+            await prisma.aIAgentMessage.create({
+              data: {
+                session_id: sessionId,
+                role: "tool",
+                content: errorMsg,
+                tool_call_id: toolCall.id,
+                name: name,
+              } as any,
+            });
+            continue;
           }
 
           // Valida notify_human_support

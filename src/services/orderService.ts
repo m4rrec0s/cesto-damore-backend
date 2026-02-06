@@ -1789,26 +1789,29 @@ class OrderService {
 
     if (options.notifyCustomer !== false) {
       try {
-        // Buscar customizações com google_drive_url se existir
-        let driveLink: string | undefined;
-        try {
-          const customizationWithDrive =
-            await prisma.orderItemCustomization.findFirst({
-              where: {
-                order_item_id: {
-                  in: updated.items.map((item) => item.id),
+        // Preferir pasta do pedido (fonte correta) e usar customizacao apenas como fallback
+        let driveLink: string | undefined =
+          updated.google_drive_folder_url || undefined;
+        if (!driveLink) {
+          try {
+            const customizationWithDrive =
+              await prisma.orderItemCustomization.findFirst({
+                where: {
+                  order_item_id: {
+                    in: updated.items.map((item) => item.id),
+                  },
+                  google_drive_url: {
+                    not: null,
+                  },
                 },
-                google_drive_url: {
-                  not: null,
+                select: {
+                  google_drive_url: true,
                 },
-              },
-              select: {
-                google_drive_url: true,
-              },
-            });
-          driveLink = customizationWithDrive?.google_drive_url || undefined;
-        } catch (error) {
-          // Ignorar se a coluna ainda não existir
+              });
+            driveLink = customizationWithDrive?.google_drive_url || undefined;
+          } catch (error) {
+            // Ignorar se a coluna ainda não existir
+          }
         }
 
         const totalAmount =

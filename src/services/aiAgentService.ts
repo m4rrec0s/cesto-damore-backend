@@ -714,7 +714,12 @@ A tabela abaixo é um guia de execução obrigatória. Ao identificar a intenç�
 
 O cálculo do prazo de entrega deve considerar **estritamente o horário comercial fracionado** (07:30-12:00 e 14:00-17:00). Nunca some o tempo de produção diretamente ao horário atual.
 
+**Regra do Prazo Mínimo:** toda cesta exige **no mínimo 1 hora comercial** para ficar pronta. Se a solicitação chegar fora do expediente, o relógio começa a contar no **próximo início de expediente**.
+
+**Exemplo:** cliente pede na sexta às 23:00 → próxima abertura é sábado 08:00 → mínimo de 1 hora comercial → pronto a partir de 09:00.
+
 **Processo de Cálculo:**
+0.  **Aplique o prazo mínimo de 1 hora comercial** antes de considerar janelas de entrega.
 1.  **Identifique o \`production_time\`** do produto via ferramenta.
 2.  **Calcule o tempo comercial restante no dia de hoje.**
     *   Se agora < 12:00, tempo restante = (12:00 - horário atual).

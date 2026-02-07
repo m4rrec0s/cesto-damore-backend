@@ -632,7 +632,10 @@ export class PaymentService {
 
           if (willNotify) {
             if (!PaymentService.notificationSentOrders.has(data.orderId)) {
-              await this.sendOrderConfirmationNotification(data.orderId);
+              await this.sendOrderConfirmationNotification(
+                data.orderId,
+                finalizeRes.folderUrl,
+              );
               PaymentService.notificationSentOrders.add(data.orderId);
               setTimeout(
                 () =>
@@ -1923,34 +1926,9 @@ export class PaymentService {
       const items: Array<{ name: string; quantity: number; price: number }> =
         [];
 
-      // If googleDriveUrl not provided, try to fetch from customizations
-      let finalGoogleDriveUrl = googleDriveUrl;
-      if (!finalGoogleDriveUrl) {
-        try {
-          const customizations = await prisma.orderItemCustomization.findFirst({
-            where: {
-              order_item_id: {
-                in: order.items.map((item) => item.id),
-              },
-              google_drive_url: {
-                not: null,
-              },
-            },
-            select: {
-              google_drive_url: true,
-            },
-          });
-
-          if (customizations?.google_drive_url) {
-            finalGoogleDriveUrl = customizations.google_drive_url;
-          }
-        } catch (error) {
-          console.error(
-            "Erro ao buscar URL do Google Drive para customizações:",
-            error,
-          );
-        }
-      }
+      // Prefer explicit folder URL or order's folder URL; do not fall back to per-customization links
+      const finalGoogleDriveUrl =
+        googleDriveUrl || order.google_drive_folder_url || undefined;
 
       order.items.forEach((item) => {
         items.push({
@@ -2087,23 +2065,7 @@ export class PaymentService {
         return order.google_drive_folder_url;
       }
 
-      // Fallback: buscar primeira customização com URL
-      const customization = await prisma.orderItemCustomization.findFirst({
-        where: {
-          order_item_id: {
-            in: (
-              await prisma.orderItem.findMany({
-                where: { order_id: orderId },
-                select: { id: true },
-              })
-            ).map((i) => i.id),
-          },
-          google_drive_url: { not: null },
-        },
-        select: { google_drive_url: true },
-      });
-
-      return customization?.google_drive_url || undefined;
+      return undefined;
     } catch (err) {
       logger.warn(
         `⚠️ Erro ao buscar URL do Google Drive para ${orderId}:`,

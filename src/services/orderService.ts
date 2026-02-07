@@ -1787,75 +1787,6 @@ class OrderService {
       }
     }
 
-    if (options.notifyCustomer !== false) {
-      try {
-        // Preferir pasta do pedido (fonte correta) e usar customizacao apenas como fallback
-        let driveLink: string | undefined =
-          updated.google_drive_folder_url || undefined;
-        if (!driveLink) {
-          try {
-            const customizationWithDrive =
-              await prisma.orderItemCustomization.findFirst({
-                where: {
-                  order_item_id: {
-                    in: updated.items.map((item) => item.id),
-                  },
-                  google_drive_url: {
-                    not: null,
-                  },
-                },
-                select: {
-                  google_drive_url: true,
-                },
-              });
-            driveLink = customizationWithDrive?.google_drive_url || undefined;
-          } catch (error) {
-            // Ignorar se a coluna ainda não existir
-          }
-        }
-
-        const totalAmount =
-          typeof updated.grand_total === "number"
-            ? updated.grand_total
-            : updated.total;
-
-        await whatsappService.sendOrderStatusUpdateNotification(
-          {
-            orderId: updated.id,
-            orderNumber: updated.id.substring(0, 8).toUpperCase(),
-            totalAmount,
-            paymentMethod:
-              updated.payment_method ||
-              updated.payment?.payment_method ||
-              "Não informado",
-            items: updated.items.map((item) => ({
-              name: item.product.name,
-              quantity: item.quantity,
-              price: item.price,
-            })),
-            customer: {
-              name: updated.user.name,
-              email: updated.user.email,
-              phone: updated.user.phone || undefined,
-            },
-            delivery: updated.delivery_address
-              ? {
-                  address: updated.delivery_address,
-                  date: updated.delivery_date || undefined,
-                }
-              : undefined,
-            googleDriveUrl: driveLink || undefined,
-          },
-          normalizedStatus,
-        );
-      } catch (error) {
-        console.error(
-          "⚠️ Erro ao enviar notificação de atualização de pedido:",
-          (error as Error).message,
-        );
-      }
-    }
-
     // ✅ NOVO: Limpar recursos quando pedido é ENTREGUE
     if (normalizedStatus === "DELIVERED") {
       try {
@@ -1973,6 +1904,75 @@ class OrderService {
           err,
         );
         // Não bloquear - pedido continua sendo retornado
+      }
+    }
+
+    if (options.notifyCustomer !== false) {
+      try {
+        // Preferir pasta do pedido (fonte correta) e usar customizacao apenas como fallback
+        let driveLink: string | undefined =
+          updated.google_drive_folder_url || undefined;
+        if (!driveLink) {
+          try {
+            const customizationWithDrive =
+              await prisma.orderItemCustomization.findFirst({
+                where: {
+                  order_item_id: {
+                    in: updated.items.map((item) => item.id),
+                  },
+                  google_drive_url: {
+                    not: null,
+                  },
+                },
+                select: {
+                  google_drive_url: true,
+                },
+              });
+            driveLink = customizationWithDrive?.google_drive_url || undefined;
+          } catch (error) {
+            // Ignorar se a coluna ainda não existir
+          }
+        }
+
+        const totalAmount =
+          typeof updated.grand_total === "number"
+            ? updated.grand_total
+            : updated.total;
+
+        await whatsappService.sendOrderStatusUpdateNotification(
+          {
+            orderId: updated.id,
+            orderNumber: updated.id.substring(0, 8).toUpperCase(),
+            totalAmount,
+            paymentMethod:
+              updated.payment_method ||
+              updated.payment?.payment_method ||
+              "Não informado",
+            items: updated.items.map((item) => ({
+              name: item.product.name,
+              quantity: item.quantity,
+              price: item.price,
+            })),
+            customer: {
+              name: updated.user.name,
+              email: updated.user.email,
+              phone: updated.user.phone || undefined,
+            },
+            delivery: updated.delivery_address
+              ? {
+                  address: updated.delivery_address,
+                  date: updated.delivery_date || undefined,
+                }
+              : undefined,
+            googleDriveUrl: driveLink || undefined,
+          },
+          normalizedStatus,
+        );
+      } catch (error) {
+        console.error(
+          "⚠️ Erro ao enviar notificação de atualização de pedido:",
+          (error as Error).message,
+        );
       }
     }
 

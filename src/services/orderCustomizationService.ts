@@ -673,8 +673,21 @@ class OrderCustomizationService {
         user: true,
         items: {
           include: {
-            product: true,
+            product: {
+              include: {
+                components: {
+                  include: {
+                    item: true,
+                  },
+                },
+              },
+            },
             customizations: true,
+            additionals: {
+              include: {
+                additional: true,
+              },
+            },
           },
         },
       },
@@ -688,7 +701,28 @@ class OrderCustomizationService {
     let uploadedFiles = 0;
     let base64Detected = false;
     const base64AffectedIds: string[] = [];
-    const subfolderMap: Record<string, string> = {}; // Map customization type -> subfolder ID
+    const subfolderMap: Record<string, string> = {}; // Map folder name -> subfolder ID
+
+    const componentNameMap = new Map<string, string>();
+    const additionalNameMap = new Map<string, string>();
+
+    for (const item of order.items) {
+      if (item.product?.components) {
+        item.product.components.forEach((component) => {
+          if (component?.id && component?.item?.name) {
+            componentNameMap.set(component.id, component.item.name);
+          }
+        });
+      }
+
+      if (item.additionals) {
+        item.additionals.forEach((add) => {
+          if (add.additional_id && add.additional?.name) {
+            additionalNameMap.set(add.additional_id, add.additional.name);
+          }
+        });
+      }
+    }
 
     const ensureMainFolder = async () => {
       if (mainFolderId) return mainFolderId;
@@ -707,33 +741,20 @@ class OrderCustomizationService {
       return mainFolderId;
     };
 
-    const ensureSubfolder = async (customizationType: string) => {
-      // Return existing subfolder for this type
-      if (subfolderMap[customizationType]) {
-        return subfolderMap[customizationType];
+    const ensureSubfolder = async (folderName: string) => {
+      if (subfolderMap[folderName]) {
+        return subfolderMap[folderName];
       }
 
       const mainFolder = await ensureMainFolder();
-
-      // Map type to folder name
-      const folderNameMap: Record<string, string> = {
-        IMAGES: "IMAGES",
-        DYNAMIC_LAYOUT: "DYNAMIC_LAYOUT",
-        MULTIPLE_CHOICE: "MULTIPLE_CHOICE",
-        TEXT: "TEXT",
-        ADDITIONALS: "ADDITIONALS",
-      };
-
-      const subfolderName =
-        folderNameMap[customizationType] || customizationType;
       const subfolderId = await googleDriveService.createFolder(
-        subfolderName,
+        folderName,
         mainFolder,
       );
       await googleDriveService.makeFolderPublic(subfolderId);
-      subfolderMap[customizationType] = subfolderId;
+      subfolderMap[folderName] = subfolderId;
       logger.info(
-        `📁 Subpasta criada para ${customizationType}: ${subfolderId}`,
+        `📁 Subpasta criada para ${folderName}: ${subfolderId}`,
       );
       return subfolderId;
     };
@@ -745,6 +766,17 @@ class OrderCustomizationService {
         );
         const data = this.parseCustomizationData(customization.value);
         const customizationType = data.customization_type || "DEFAULT";
+        const componentId = data.componentId as string | undefined;
+
+        const folderName = (() => {
+          if (componentId && additionalNameMap.has(componentId)) {
+            return `${additionalNameMap.get(componentId)} (adicional)`;
+          }
+          if (componentId && componentNameMap.has(componentId)) {
+            return componentNameMap.get(componentId) as string;
+          }
+          return item.product?.name || customizationType || "Customizacoes";
+        })();
 
         // ✅ NOVO: extractArtworkAssets agora retorna Promise<{ url, filename, mimeType }[]>
         const artworkUrls = await this.extractArtworkAssets(data);
@@ -753,7 +785,7 @@ class OrderCustomizationService {
           continue;
         }
 
-        const targetFolder = await ensureSubfolder(customizationType);
+        const targetFolder = await ensureSubfolder(folderName);
 
         // ✅ NOVO: uploadArtworkFromUrl em vez de uploadArtwork
         const uploads = await Promise.all(

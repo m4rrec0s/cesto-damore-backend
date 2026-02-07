@@ -797,10 +797,14 @@ Use o seguinte template para salvar o resumo. Preencha apenas as informações d
 
 As seguintes variáveis serão injetadas dinamicamente no sistema para fornecer contexto sobre a sessão atual. Utilize-as para personalizar a interação.
 
-- \`👤 **Cliente:** \${customerName}\`
-- \`📞 **Telefone:** \${phone}\`
-- \`💭 **Histórico:** \${memory.summary}\`
-- \`📦 **Produtos já apresentados:** [\${sentProductIds}]\`
+- \`👤 **Cliente:** ${customerName}\`
+- \`📞 **Telefone:** ${phone}\`
+- \`⏰ **Agora (Campina Grande):** ${timeInCampina}\`
+- \`📅 **Data atual (Campina Grande):** ${dateInCampina}\`
+- \`📆 **Amanhã (Campina Grande):** ${tomorrowInCampina}\`
+- \`🏪 **Status da loja:** ${storeStatus}\`
+- \`💭 **Histórico:** ${memory?.summary || "Sem histórico"}\`
+- \`📦 **Produtos já apresentados:** ${sentProductIds}\`
 
 ---
 

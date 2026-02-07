@@ -1128,7 +1128,6 @@ class OrderCustomizationService {
       [];
 
     // ✅ DYNAMIC_LAYOUT: Prioridade máxima para design final
-    let hasDynamicFinal = false;
     if (data?.customization_type === "DYNAMIC_LAYOUT") {
       const bestUrl =
         data.highQualityUrl ||
@@ -1149,29 +1148,6 @@ class OrderCustomizationService {
           url: bestUrl,
           filename: `design-final-${Date.now()}.png`,
           mimeType: "image/png",
-        });
-        hasDynamicFinal = true;
-      }
-    }
-
-    // ✅ DYNAMIC_LAYOUT: fallback para images[] quando nao houver final_artwork/image
-    if (!hasDynamicFinal && data?.customization_type === "DYNAMIC_LAYOUT") {
-      const images = Array.isArray(data?.images) ? data.images : [];
-      const firstValid = images.find(
-        (image: any) =>
-          image &&
-          typeof image === "object" &&
-          typeof (image.preview_url || image.url) === "string" &&
-          !(image.preview_url || image.url).startsWith("data:") &&
-          !(image.preview_url || image.url).startsWith("blob:"),
-      );
-
-      if (firstValid) {
-        const imageUrl = firstValid.preview_url || firstValid.url;
-        assets.push({
-          url: imageUrl,
-          filename: `design-final-${Date.now()}.png`,
-          mimeType: firstValid.mime_type || firstValid.mimeType || "image/png",
         });
       }
     }

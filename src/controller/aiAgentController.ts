@@ -14,7 +14,6 @@ class AIAgentController {
       chatId,
       sessionKey,
       pushName,
-      productName,
     } = req.body;
 
     const resolvedSessionId = sessionId || sessionKey;
@@ -23,9 +22,8 @@ class AIAgentController {
     let resolvedMessage = message;
 
     if (!resolvedMessage && event === "CART_ADDED") {
-      const productLine = productName ? ` Produto: ${productName}.` : "";
       resolvedMessage =
-        `[Interno] O cliente adicionou um produto ao carrinho pessoal.${productLine}`;
+        "[Interno] O cliente adicionou um produto ao carrinho pessoal.";
     }
 
     if (!resolvedSessionId || !resolvedMessage) {

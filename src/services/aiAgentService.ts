@@ -133,7 +133,7 @@ REGRAS PARA SUA RESPOSTA:
 4. Seja natural e conversacional
 5. NUNCA mencione que "consultou" ou "verificou" algo
 6. Apresente as informações como se você já soubesse
-7. Sempre mencione tempo de produção dos produtos
+7. Mencione tempo de produção somente quando o produto e o tempo forem conhecidos
 8. Se produto tiver "caneca" no nome, mencione opções de customização
 9. DESCREVA OS PRODUTOS EXATAMENTE COMO RETORNADOS. NÃO invente itens (comidas, bebidas) que não estão listados no JSON da ferramenta.
 
@@ -1095,6 +1095,10 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
                 continue;
               }
             }
+            args.session_id = sessionId;
+          }
+
+          if (name === "block_session") {
             args.session_id = sessionId;
           }
 

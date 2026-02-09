@@ -19,6 +19,8 @@ class AIAgentController {
     const resolvedSessionId = sessionId || sessionKey;
     const resolvedCustomerName = customerName || pushName;
     const resolvedRemoteJidAlt = remoteJidAlt || chatId;
+    const resolvedCustomerPhone =
+      customerPhone || (chatId ? chatId.replace(/\D/g, "") : undefined);
     let resolvedMessage = message;
 
     if (!resolvedMessage && event === "CART_ADDED") {
@@ -44,7 +46,7 @@ class AIAgentController {
       const stream = await aiAgentService.chat(
         resolvedSessionId,
         resolvedMessage,
-        customerPhone,
+        resolvedCustomerPhone,
         resolvedCustomerName,
         resolvedRemoteJidAlt,
       );

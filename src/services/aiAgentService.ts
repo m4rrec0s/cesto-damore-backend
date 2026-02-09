@@ -524,6 +524,69 @@ Gere APENAS a mensagem final para o cliente.`;
       return mockStream;
     }
 
+    if (isCartEvent) {
+      if (session.is_blocked) {
+        const mockStream = {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              choices: [
+                {
+                  delta: {
+                    content:
+                      "Este atendimento foi transferido para um atendente humano. Por favor, aguarde o retorno. ❤️",
+                  },
+                },
+              ],
+            };
+          },
+        };
+        return mockStream;
+      }
+
+      const extractedPhone = sessionId.match(/^session-(\d+)$/)?.[1] || "";
+      const phoneFromRemote = remoteJidAlt ? remoteJidAlt.replace(/\D/g, "") : "";
+      const resolvedPhone =
+        customerPhone || session.customer_phone || extractedPhone || phoneFromRemote;
+      const resolvedName = customerName || "Cliente";
+
+      try {
+        await mcpClientService.callTool("notify_human_support", {
+          reason: "cart_added",
+          customer_context:
+            "Cliente adicionou produto ao carrinho. Encaminhar para atendimento especializado.",
+          customer_name: resolvedName,
+          customer_phone: resolvedPhone,
+          should_block_flow: true,
+          session_id: sessionId,
+        });
+        await mcpClientService.callTool("block_session", {
+          session_id: sessionId,
+        });
+      } catch (error: any) {
+        logger.error(
+          `❌ Falha ao notificar/bloquear para cart event: ${error.message}`,
+        );
+      }
+
+      await this.blockSession(sessionId);
+
+      const mockStream = {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            choices: [
+              {
+                delta: {
+                  content:
+                    "Vi que você adicionou um produto no carrinho. Vou te direcionar para o atendimento especializado.",
+                },
+              },
+            ],
+          };
+        },
+      };
+      return mockStream;
+    }
+
     // Update customer's last_message_sent when they send a message via IA
     if (customerPhone) {
       await prisma.customer.upsert({

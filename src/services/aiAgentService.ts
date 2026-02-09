@@ -1285,9 +1285,9 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
         try {
           const session = await prisma.aIAgentSession.findUnique({
             where: { id: sessionId },
-            select: { customer_phone: true, customer_name: true },
+            select: { customer_phone: true },
           });
-          const customerName = session?.customer_name || "Cliente";
+          const customerName = "Cliente";
           const customerPhone = session?.customer_phone || "";
           const customerContext =
             "Cliente adicionou produto ao carrinho. Encaminhar para atendimento especializado.";

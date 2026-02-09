@@ -4,10 +4,31 @@ import logger from "../utils/logger";
 
 class AIAgentController {
   async chat(req: Request, res: Response) {
-    const { sessionId, message, customerPhone, customerName, remoteJidAlt } =
-      req.body;
+    const {
+      sessionId,
+      message,
+      customerPhone,
+      customerName,
+      remoteJidAlt,
+      event,
+      chatId,
+      sessionKey,
+      pushName,
+      productName,
+    } = req.body;
 
-    if (!sessionId || !message) {
+    const resolvedSessionId = sessionId || sessionKey;
+    const resolvedCustomerName = customerName || pushName;
+    const resolvedRemoteJidAlt = remoteJidAlt || chatId;
+    let resolvedMessage = message;
+
+    if (!resolvedMessage && event === "CART_ADDED") {
+      const productLine = productName ? ` Produto: ${productName}.` : "";
+      resolvedMessage =
+        `[Interno] O cliente adicionou um produto ao carrinho pessoal.${productLine}`;
+    }
+
+    if (!resolvedSessionId || !resolvedMessage) {
       return res
         .status(400)
         .json({ error: "sessionId and message are required" });
@@ -15,11 +36,11 @@ class AIAgentController {
 
     try {
       const stream = await aiAgentService.chat(
-        sessionId,
-        message,
+        resolvedSessionId,
+        resolvedMessage,
         customerPhone,
-        customerName,
-        remoteJidAlt,
+        resolvedCustomerName,
+        resolvedRemoteJidAlt,
       );
 
       let fullContent = "";
@@ -32,7 +53,7 @@ class AIAgentController {
       }
 
       // Save the final response to database for memory
-      await aiAgentService.saveResponse(sessionId, fullContent);
+      await aiAgentService.saveResponse(resolvedSessionId, fullContent);
 
       // Return response in structured JSON format
       res.setHeader("Content-Type", "application/json");

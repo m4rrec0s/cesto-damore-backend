@@ -39,7 +39,12 @@ class AIAgentService {
     // Mapa de detecção: contexto → prompt relevante
     const contextMap = [
       {
-        patterns: [/\[interno\].*carrinho/i],
+        patterns: [
+          /\[interno\].*carrinho/i,
+          /evento\s*=\s*cart_added/i,
+          /cart_added/i,
+          /adicionou.*carrinho/i,
+        ],
         prompt: "cart_protocol_guideline",
         priority: 0, // Prioridade máxima (protocolo obrigatório)
       },
@@ -469,6 +474,11 @@ Gere APENAS a mensagem final para o cliente.`;
 
     // ⛔ PROTEÇÃO CRÍTICA: Bloquear perguntas sobre informações sensíveis
     const msgLower = userMessage.toLowerCase();
+    const isCartEvent =
+      /\[interno\].*carrinho/i.test(userMessage) ||
+      /evento\s*=\s*cart_added/i.test(userMessage) ||
+      /cart_added/i.test(userMessage) ||
+      /adicionou.*carrinho/i.test(userMessage);
     const sensitiveKeywords = [
       "chave pix",
       "chave do pix",
@@ -883,6 +893,7 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
       sessionId,
       messages,
       hasChosenProduct,
+      isCartEvent,
     );
   }
 
@@ -890,6 +901,7 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
     sessionId: string,
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     hasChosenProduct: boolean,
+    isCartEvent: boolean,
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -927,7 +939,19 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
       const forbiddenInterruption =
         /(vou buscar|vou procurar|um momento|aguarde|aguarda|deixa eu ver|só um instante|ja volto|já volto|espera|espera ai|espera aí)/i;
 
-      if (!hasToolCalls && (responseText === "" || forbiddenInterruption.test(responseText))) {
+      if (isCartEvent && !hasToolCalls) {
+        messages.push({
+          role: "system",
+          content:
+            "Evento de carrinho detectado. Responda APENAS com tool calls para notify_human_support e block_session, com content vazio.",
+        });
+        continue;
+      }
+
+      if (
+        !hasToolCalls &&
+        (responseText === "" || forbiddenInterruption.test(responseText))
+      ) {
         logger.warn(
           "⚠️ Resposta intermediária detectada sem tool_calls. Reforçando silêncio/uso de ferramentas.",
         );
@@ -1247,6 +1271,61 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
 
     if (currentState !== ProcessingState.READY_TO_RESPOND) {
       logger.warn("⚠️ Limite de iterações atingido, forçando resposta");
+    }
+
+    if (isCartEvent) {
+      const hasNotify = toolExecutionResults.some(
+        (result) => result.toolName === "notify_human_support",
+      );
+      const hasBlock = toolExecutionResults.some(
+        (result) => result.toolName === "block_session",
+      );
+
+      if (!hasNotify || !hasBlock) {
+        try {
+          const session = await prisma.aIAgentSession.findUnique({
+            where: { id: sessionId },
+            select: { customer_phone: true, customer_name: true },
+          });
+          const customerName = session?.customer_name || "Cliente";
+          const customerPhone = session?.customer_phone || "";
+          const customerContext =
+            "Cliente adicionou produto ao carrinho. Encaminhar para atendimento especializado.";
+
+          if (!hasNotify) {
+            await mcpClientService.callTool("notify_human_support", {
+              reason: "cart_added",
+              customer_context: customerContext,
+              customer_name: customerName,
+              customer_phone: customerPhone,
+              should_block_flow: true,
+              session_id: sessionId,
+            });
+            toolExecutionResults.push({
+              toolName: "notify_human_support",
+              input: { reason: "cart_added" },
+              output: "forced_cart_notify",
+              success: true,
+            });
+          }
+
+          if (!hasBlock) {
+            await mcpClientService.callTool("block_session", {
+              session_id: sessionId,
+            });
+            toolExecutionResults.push({
+              toolName: "block_session",
+              input: { session_id: sessionId },
+              output: "forced_cart_block",
+              success: true,
+            });
+          }
+        } catch (error: any) {
+          logger.error(
+            `❌ Falha ao forcar notify/block para cart event: ${error.message}`,
+          );
+        }
+      }
     }
 
     logger.info("📝 FASE 2: Gerando resposta organizada para o cliente...");

@@ -26,6 +26,14 @@ class AIAgentController {
         "[Interno] O cliente adicionou um produto ao carrinho pessoal.";
     }
 
+    if (
+      resolvedMessage &&
+      /evento\s*=\s*cart_added/i.test(resolvedMessage)
+    ) {
+      resolvedMessage =
+        "[Interno] O cliente adicionou um produto ao carrinho pessoal.";
+    }
+
     if (!resolvedSessionId || !resolvedMessage) {
       return res
         .status(400)

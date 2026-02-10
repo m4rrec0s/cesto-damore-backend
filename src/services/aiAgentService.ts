@@ -890,12 +890,12 @@ Esta seção define como os dados retornados pelas ferramentas devem ser process
 [URL_DA_IMAGEM_AQUI]
 _Opção 1_ - **[Nome do Produto]** - R$ [Preço_Exato]
 [Descrição exata retornada pela ferramenta]
-(Produção: [X horas])
+(Produção: [X horas] (horário comercial))
 
 [URL_DA_IMAGEM_AQUI]
 _Opção 2_ - **[Nome do Produto]** - R$ [Preço_Exato]
 [Descrição exata retornada pela ferramenta]
-(Produção: [X horas])
+(Produção: [X horas] (horário comercial))
 \`\`\`
 
 **Regras de Formatação:**

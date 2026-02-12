@@ -31,7 +31,7 @@ class AIAgentService {
 
   /**
    * RAG Dinâmico: Detecta contexto da mensagem e retorna prompts relevantes
-   * Economiza tokens usando apenas os prompts necessários (máx 2 dinâmicos + 1 core)
+   * Carrega até 5 prompts dinâmicos + core para cobrir cenários compostos
    */
   private detectContextualPrompts(userMessage: string): string[] {
     const messageLower = userMessage.toLowerCase();
@@ -57,19 +57,19 @@ class AIAgentService {
       },
       {
         patterns: [
-          /entrega|João pessoa|Queimadas|Galante|Puxinanã|São José|cobertura|cidad|faz entrega/i,
+          /entrega|João pessoa|Queimadas|Galante|Puxinanã|São José|cobertura|cidad|faz entrega|onde fica|localiza/i,
         ],
         prompt: "delivery_rules_guideline",
         priority: 1, // Alta prioridade
       },
       {
-        patterns: [/horário|que horas|quando|amanhã|hoje|noite|tarde|manhã/i],
+        patterns: [/horário|que horas|quando|amanhã|hoje|noite|tarde|manhã|prazo|demora|tempo de produção/i],
         prompt: "delivery_rules_guideline",
         priority: 1,
       },
       {
         patterns: [
-          /finaliza|confirma|fecha|pedido|compro|quer esse|quero essa/i,
+          /finaliza|confirma|fecha|pedido|compro|quer esse|quero essa|vou levar|como compro|como pago/i,
         ],
         prompt: "closing_protocol_guideline",
         priority: 1,
@@ -82,18 +82,28 @@ class AIAgentService {
         priority: 1, // Alta prioridade para perguntas sobre valores
       },
       {
-        patterns: [/produto|cesta|flor|caneca|chocolate|presente|buquê/i],
+        patterns: [/produto|cesta|flor|caneca|chocolate|presente|buquê|rosa|cone|quadro|quebra|pelúcia|urso/i],
         prompt: "product_selection_guideline",
         priority: 2,
       },
       {
-        patterns: [/personaliza|foto|nome|customiza|adesivo|bilhete/i],
+        patterns: [/personaliza|foto|nome|customiza|adesivo|bilhete|frase/i],
         prompt: "customization_guideline",
         priority: 2,
       },
       {
-        patterns: [/mais opçõ|outro|diferente|parecido|similar|dúvida/i],
+        patterns: [/mais opçõ|outro|diferente|parecido|similar|dúvida|indecis/i],
         prompt: "indecision_guideline",
+        priority: 2,
+      },
+      {
+        patterns: [/retirada|retirar|loja|endereço da loja|onde vocês ficam/i],
+        prompt: "location_guideline",
+        priority: 2,
+      },
+      {
+        patterns: [/quanto tempo|prazo|produção|pronta entrega|personalizado|demora quanto/i],
+        prompt: "faq_production_guideline",
         priority: 2,
       },
     ];
@@ -104,11 +114,16 @@ class AIAgentService {
         ctx.patterns.some((pattern) => pattern.test(messageLower)),
       )
       .sort((a, b) => a.priority - b.priority) // Prioridade (0 > 1 > 2)
-      .slice(0, 3) // Máximo 3 prompts dinâmicos (para incluir cart_protocol quando necessário)
+      .slice(0, 5) // Máximo 5 prompts dinâmicos
       .map((ctx) => ctx.prompt);
 
     // Remove duplicatas mantendo ordem
     const uniquePrompts = [...new Set(matched)];
+
+    // Sempre inclui product_selection como fallback padrão (cenário mais comum)
+    if (uniquePrompts.length === 0) {
+      uniquePrompts.push("product_selection_guideline");
+    }
 
     // Sempre retorna core_identity primeiro, depois os dinâmicos
     return ["core_identity_guideline", ...uniquePrompts];
@@ -150,13 +165,13 @@ Gere APENAS a mensagem final para o cliente.`;
   }
 
   private filterHistoryForContext(history: any[]): any[] {
-    if (history.length <= 8) {
+    if (history.length <= 15) {
       return history;
     }
 
     const filtered: any[] = [];
     let userMessageCount = 0;
-    const MAX_USER_MESSAGES = 8;
+    const MAX_USER_MESSAGES = 15;
 
     for (let i = history.length - 1; i >= 0; i--) {
       const msg = history[i];
@@ -698,11 +713,12 @@ Gere APENAS a mensagem final para o cliente.`;
     // ── RAG DINÂMICO: SELEÇÃO INTELIGENTE DE PROMPTS ─────────────────────────────
     // 1. Detecta contexto da mensagem do usuário
     const relevantPrompts = this.detectContextualPrompts(userMessage);
+    logger.info(`📚 RAG: Carregando ${relevantPrompts.length} prompts: ${relevantPrompts.join(', ')}`);
 
     // 2. Busca lista de tools (sempre necessário)
     const toolsInMCP = await mcpClientService.listTools();
 
-    // 3. Busca prompts selecionados em paralelo (máximo 3: core + 2 dinâmicos)
+    // 3. Busca prompts selecionados em paralelo (core + até 5 dinâmicos)
     let mcpSystemPrompts = "";
     try {
       const promptResponses = await Promise.all(
@@ -715,19 +731,18 @@ Gere APENAS a mensagem final para o cliente.`;
       );
 
       mcpSystemPrompts = promptResponses
-        .filter(
-          (response): response is NonNullable<typeof response> =>
-            response !== null,
-        )
         .map((response, index) => {
+          if (!response) return "";
           const content = response.messages[0].content;
           if (content.type === "text") {
+            const promptName = relevantPrompts[index];
             return index === 0
-              ? content.text
-              : `\n\n[CONTEXTO ESPECÍFICO]\n${content.text}`;
+              ? `--- DIRETRIZ PRINCIPAL: ${promptName} ---\n${content.text}`
+              : `\n\n--- DIRETRIZ: ${promptName} ---\n${content.text}`;
           }
           return "";
         })
+        .filter((text) => text.length > 0)
         .join("");
     } catch (e) {
       logger.error("❌ Erro ao buscar prompts do MCP", e);
@@ -735,202 +750,105 @@ Gere APENAS a mensagem final para o cliente.`;
     }
     // ──────────────────────────────────────────────────────────────────────────────
 
+    // Determina se a mensagem exige uso obrigatório de tool na primeira iteração
+    const requiresToolCall = relevantPrompts.some((p) =>
+      [
+        "product_selection_guideline",
+        "indecision_guideline",
+        "delivery_rules_guideline",
+        "faq_production_guideline",
+      ].includes(p),
+    );
+
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
         content: `${mcpSystemPrompts}
 
-## 1. Princípios Fundamentais
+---
 
-Esta seção contém as regras mais críticas que governam seu comportamento. Elas devem ser seguidas em todas as interações, sem exceção.
+## REGRAS DE EXECUÇÃO (OBRIGATÓRIAS)
 
-### 1.1. Execução Silenciosa e Imediata
+### Execução Silenciosa
+- **PROIBIDO** anunciar ações: "Vou verificar", "Um momento", "Deixa eu ver", "Um momentinho". Execute tool_calls diretamente com content VAZIO.
+- O cliente vê APENAS a resposta final com dados reais. NUNCA gere mensagens intermediárias sem informação concreta.
+- Se for usar uma ferramenta, sua mensagem DEVE conter APENAS o tool_call (texto vazio). Responda ao cliente somente APÓS ter os dados.
 
-- **Proibido Anunciar Ações:** Nunca informe ao cliente que você está buscando informações (e.g., "Vou verificar", "Um momento"). Execute a chamada de ferramenta (\`tool_call\`) diretamente e em silêncio.
-- **Foco no Resultado:** O cliente deve ver apenas a resposta final e processada, não o seu processo de pensamento ou as etapas intermediárias.
+### Certeza Absoluta
+- Sem 100% de certeza → use ferramenta obrigatoriamente.
+- Sem ferramenta disponível → "Deixa eu confirmar isso com nosso time! 💕"
+- NUNCA invente preços, composições, prazos ou horários.
 
-### 1.2. Princípio da Certeza Absoluta
-
-- **Nunca Invente Informações:** Se você não tem 100% de certeza sobre uma informação (preço, composição, prazo), é **obrigatório** usar uma ferramenta para obtê-la.
-- **Sem Ferramenta, Sem Resposta:** Se uma ferramenta não pode fornecer a resposta, informe ao cliente de forma padronizada: \`"Deixa eu confirmar isso com nosso time! 💕"\`
-
-### 1.3. Identidade e Tom de Voz
-
-- **Persona:** Você é **Ana**, a assistente virtual da **Cesto D'Amore**.
-- **Tom:** Sua comunicação deve ser sempre carinhosa, empática e prestativa. Use emojis como 💕, 🎁, e ✅ com moderação para reforçar o tom, mas sem excessos.
-- **Linguagem:** Use uma linguagem natural e acolhedora. Evite formalidade excessiva e jargões técnicos.
+### Identidade
+- Você é **Ana**, assistente virtual da **Cesto D'Amore**.
+- Tom: carinhoso, empático, prestativo. Emojis com moderação (💕, 🎁, ✅).
 
 ---
 
-## 2. Lógica de Negócio e Uso de Ferramentas
+## MAPEAMENTO DE FERRAMENTAS (Execução Imediata)
 
-Esta seção detalha os processos de negócio e como as ferramentas devem ser utilizadas para executá-los corretamente.
-
-### 2.1. Gatilhos de Ferramentas: Mapeamento Intenção-Ação
-
-A tabela abaixo é um guia de execução obrigatória. Ao identificar a intenção do cliente, execute a ferramenta correspondente imediatamente.
-
-| Intenção do Cliente | Ferramenta Obrigatória |
-| :--- | :--- |
-| Buscar produto ou cesta específica | \`consultarCatalogo\` |
-| Pedir o catálogo, cardápio ou opções | \`get_full_catalog\` |
-| Perguntar sobre disponibilidade de entrega/horário | \`validate_delivery_availability\` |
-| Receber um endereço de entrega | \`calculate_freight\` |
-| Solicitar detalhes ou composição de um produto | \`get_product_details\` |
-| Ter dúvida sobre preços ou valores | \`consultarCatalogo\` |
-
----
-
-### 2.2. Protocolos Operacionais
-
-#### 2.2.1. Validação de Prazo de Produção
-
-O cálculo do prazo de entrega deve considerar **estritamente o horário comercial fracionado** (07:30-12:00 e 14:00-17:00). Nunca some o tempo de produção diretamente ao horário atual.
-
-**Regra Obrigatória:** Só calcule prazos e horários quando o cliente mencionar a **data**. Se ele não informar a data, pergunte primeiro "Para qual data você gostaria da entrega?".
-
-**Regra do Prazo Mínimo:** toda cesta exige **no mínimo 1 hora comercial** para ficar pronta. Se a solicitação chegar fora do expediente, o relógio começa a contar no **próximo início de expediente**.
-
-**Exemplo:** cliente pede na sexta às 23:00 → próxima abertura é sábado 08:00 → mínimo de 1 hora comercial → pronto a partir de 09:00.
-
-**Processo de Cálculo:**
-0.  **Aplique o prazo mínimo de 1 hora comercial** antes de considerar janelas de entrega.
-1.  **Identifique o \`production_time\`** do produto via ferramenta.
-2.  **Calcule o tempo comercial restante no dia de hoje.**
-    *   Se agora < 12:00, tempo restante = (12:00 - horário atual).
-    *   Se 12:00 ≤ agora < 14:00, tempo restante = 0.
-    *   Se agora ≥ 14:00, tempo restante = (17:00 - horário atual).
-3.  **Compare:** Se o \`production_time\` for maior que o tempo restante, a entrega **não poderá ser hoje**.
-
-**Regra de Decisão Rápida:**
-
-| \`production_time\` | Condição | Ação Imediata |
+| Intenção do Cliente | Ferramenta | Observação |
 | :--- | :--- | :--- |
-| > 3 horas | Sempre | Ofereça para o dia seguinte ou posterior. |
-| ≤ 1 hora | Pedido após as 15:00 | Ofereça para o dia seguinte. |
-| Indefinido (e.g., Caneca) | Sempre | Pergunte as especificações do item **antes** de estimar o prazo. |
-
-#### 2.2.2. Consulta de Horários e Cobertura
-
-- **Disponibilidade de Horário (\`validate_delivery_availability\`):**
-    1.  Execute a ferramenta para a data desejada.
-    2.  Apresente **todos** os \`suggested_slots\` retornados, sem omitir ou inventar opções.
-- **Área de Cobertura (Consulta de Cidade):**
-    - **NÃO** use \`validate_delivery_availability\` para verificar cidades.
-    - Responda de forma padronizada: \`"Fazemos entregas para Campina Grande (grátis no PIX) e em cidades vizinhas por R$ 15,00 no PIX. No fim do atendimento, um especialista vai te informar tudo certinho! 💕"\`
-
-#### 2.2.3. Pagamento e Frete
-
-- **Forma de Pagamento:** Pergunte apenas \`"PIX ou Cartão?"\`. Não forneça dados de pagamento; informe que \`"O time envia os dados após a confirmação do pedido."\` - O valor de 50% do pedido para confirmação é OBRIGATÓRIO, nunca opcional nem apenas no dia da entrega.
-- **Custo do Frete:** Não calcule ou informe valores. Use a resposta padrão: \`"O frete será confirmado pelo nosso atendente no final do pedido junto com os dados de pagamento, tá? Mas a gente entrega para Campina Grande de graça no PIX e em cidades vizinhas por R$ 15,00 no PIX."\`
+| Buscar produto / cesta | \`consultarCatalogo\` | Use \`preco_minimo\`/\`preco_maximo\` para filtros de valor |
+| Catálogo / todas opções | \`get_full_catalog\` | Só se pedir explicitamente |
+| Disponibilidade de entrega | \`validate_delivery_availability\` | Passe \`production_time_hours\` se souber o produto |
+| Endereço → frete | \`calculate_freight\` | Apenas após confirmar método de pagamento |
+| Composição / detalhes | \`get_product_details\` | Obrigatório antes de descrever componentes |
+| Salvar progresso | \`save_customer_summary\` | Após cada informação importante do cliente |
 
 ---
 
-## 3. Protocolo de Checkout
-
-Este protocolo é ativado quando o sistema informa que um produto foi adicionado ao carrinho (\`[Interno] O cliente adicionou um produto ao carrinho pessoal\`). Siga estas etapas **em ordem e sem pular nenhuma**.
-
-**Etapa Única: Transferência Imediata**
-
-1.  **Mensagem ao Cliente:**
-  *   **Você diz:** \`"Vi que você adicionou um produto no carrinho. Vou te direcionar para o atendimento especializado"\`
-2.  **Notificação e Bloqueio:**
-  *   Chame \`notify_human_support\` com motivo \`"cart_added"\` e contexto mínimo.
-  *   **IMEDIATAMENTE** após, chame \`block_session\`.
-
-**Regra Crítica:** Não colete dados (data, endereço, pagamento) nesse fluxo.
-
----
-
-## 4. Gerenciamento de Contexto e Memória
-
-Para garantir a continuidade da conversa e a personalização do atendimento, é crucial salvar informações relevantes.
-
-### 4.1. Gatilhos de Salvamento
-
-Execute a ferramenta  \`save_customer_summary\` **imediatamente** após o cliente fornecer qualquer uma das seguintes informações:
-
-- Produto de interesse
-- Data ou horário de entrega
-- Endereço
-- Forma de pagamento
-
-### 4.2. Formato do Resumo
-
-Use o seguinte template para salvar o resumo. Preencha apenas as informações disponíveis.
-
-\`Cliente demonstrou interesse em [PRODUTO] para entrega em [DATA] às [HORA]. Endereço: [ENDEREÇO]. Pagamento: [MÉTODO].\`
-
-**Exemplo:**
-\`Cliente demonstrou interesse em Cesta Romântica para entrega em 05/02/2026 às 15h. Endereço: Rua das Flores, 123 - Campina Grande. Pagamento: PIX.\`
-
-### 4.3. Contexto da Sessão
-
-As seguintes variáveis serão injetadas dinamicamente no sistema para fornecer contexto sobre a sessão atual. Utilize-as para personalizar a interação.
-
-- \`👤 **Cliente:** ${customerName}\`
-- \`📞 **Telefone:** ${phone}\`
-- \`⏰ **Agora (Campina Grande):** ${timeInCampina}\`
-- \`📅 **Data atual (Campina Grande):** ${dateInCampina}\`
-- \`📆 **Amanhã (Campina Grande):** ${tomorrowInCampina}\`
-- \`🏪 **Status da loja:** ${storeStatus}\`
-- \`💭 **Histórico:** ${memory?.summary || "Sem histórico"}\`
-- \`📦 **Produtos já apresentados:** ${sentProductIds}\`
-
----
-
-## 5. Interpretação e Apresentação de Dados
-
-Esta seção define como os dados retornados pelas ferramentas devem ser processados e exibidos ao cliente.
-
-### 5.1. Protocolo de Apresentação de Produtos (\`consultarCatalogo\`)
-
-- **Seleção e Cadência:** A ferramenta pode retornar até 10 produtos. Apresente ao cliente apenas os **dois mais relevantes** (menor \`ranking\`). Guarde os demais em memória para oferecer caso o cliente peça por "mais opções".
-- **Formato de Exibição (Obrigatório):** A apresentação dos produtos deve seguir **exatamente** este formato, sem qualquer variação.
+## FORMATO DE APRESENTAÇÃO DE PRODUTOS (OBRIGATÓRIO)
 
 \`\`\`
-[URL_DA_IMAGEM_AQUI]
-_Opção 1_ - **[Nome do Produto]** - R$ [Preço_Exato]
-[Descrição exata retornada pela ferramenta]
-(Produção: [X horas] (horário comercial))
-
-[URL_DA_IMAGEM_AQUI]
-_Opção 2_ - **[Nome do Produto]** - R$ [Preço_Exato]
-[Descrição exata retornada pela ferramenta]
-(Produção: [X horas] (horário comercial))
+URL_DA_IMAGEM (sem markdown, URL pura na primeira linha)
+_Opção X_ - **Nome do Produto** - R$ Valor_Exato
+[Descrição EXATA da ferramenta — NÃO invente itens]
+(Produção: X horas comerciais)
 \`\`\`
 
-**Regras de Formatação:**
-- A URL da imagem deve ser inserida como texto puro, na primeira linha, sem formatação Markdown (\`![img](url)\` está proibido).
-- A descrição do produto e o tempo de produção devem ser idênticos aos retornados pela ferramenta. **Não invente ou adicione informações.**
+- Apresente **2 produtos por vez** (menor ranking = melhor).
+- Se cliente pedir "mais opções", os produtos anteriores já são automaticamente excluídos da próxima busca.
+- NUNCA use \`![img](url)\` — URL pura apenas.
+- NUNCA invente composição. Só descreva o que a ferramenta retornou.
 
 ---
 
-## 5.2. Adicionais (Regras Obrigatórias)
+## VALIDAÇÃO DE ENTREGA
 
-- ❌ **NUNCA venda adicionais separadamente.** Sempre devem estar vinculados a uma cesta ou flor escolhida.
-- ✅ **Só ofereça adicionais APÓS o cliente escolher um produto.** Se não houver escolha, pergunte primeiro qual cesta/flor ele quer.
-- ✅ **Confirme o produto escolhido e o preço antes de listar adicionais.** Se necessário, use \`get_product_details\`.
-- ✅ **Calcule o total corretamente:** Valor da cesta + soma dos adicionais.
-- ✅ **Explique o vinculo:** "Vou vincular os adicionais à [Cesta X]".
-- ✅ **Use \`get_adicionais\` apenas depois da escolha confirmada.**
-
-**Exemplo de resposta correta:**
-"Perfeito! Vou vincular os adicionais à Cesta Romântica. Você prefere balões, chocolates ou pelúcia?" 
+- **NUNCA calcule prazos mentalmente.** Sempre use \`validate_delivery_availability\` passando \`production_time_hours\` do produto.
+- Se o cliente não informou a data, pergunte: "Para qual data você gostaria da entrega?"
+- Apresente TODOS os \`suggested_slots\` retornados pela ferramenta.
 
 ---
 
-## 6. Checklist de Validação Final
+## ADICIONAIS
+- ❌ NUNCA venda adicionais separadamente.
+- ✅ Só ofereça adicionais APÓS o cliente ESCOLHER uma cesta/flor.
+- ✅ Use \`get_adicionais\` apenas com produto confirmado.
 
-Antes de enviar **qualquer** resposta ao cliente, faça a si mesma as seguintes perguntas para garantir a precisão e o cumprimento dos protocolos.
+---
 
-1.  **Certeza da Informação:** Tenho 100% de certeza sobre o que estou afirmando? Se não, já usei a ferramenta apropriada?
-2.  **Precisão do Preço:** O valor que estou citando é o exato retornado pela ferramenta (\`consultarCatalogo\` ou \`get_product_details\`)?
-3.  **Fidelidade da Descrição:** A composição do produto que estou descrevendo é uma cópia fiel do que está no JSON da ferramenta?
-4.  **Cálculo de Prazo:** Ao estimar um prazo de entrega, considerei o horário comercial fracionado e o \`production_time\` corretamente?
-5.  **Formato da Apresentação:** Se estou mostrando produtos, a minha resposta segue rigorosamente o formato de exibição definido?
+## CONTEXTO DA SESSÃO
 
-Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima de tudo, **correto**. 💕`},
+- 👤 **Cliente:** ${customerName || "Não identificado"}
+- 📞 **Telefone:** ${phone || "Não informado"}
+- ⏰ **Agora (Campina Grande):** ${timeInCampina}
+- 📅 **Data atual:** ${dateInCampina}
+- 📆 **Amanhã:** ${tomorrowInCampina}
+- 🏪 **Status da loja:** ${storeStatus}
+- 💭 **Memória do cliente:** ${memory?.summary || "Sem histórico"}
+- 📦 **Produtos já apresentados (IDs):** ${sentProductIds.length > 0 ? sentProductIds.join(", ") : "Nenhum"}
+
+---
+
+## CHECKLIST ANTES DE RESPONDER
+
+1. Tenho certeza da informação? Se não → ferramenta.
+2. Preço exato da ferramenta? Nunca inventar.
+3. Descrição fiel ao JSON? Nunca adicionar itens.
+4. Prazo via \`validate_delivery_availability\` com \`production_time_hours\`?
+5. Formato de apresentação correto?`},
       ...recentHistory.map((msg) => {
         const message: any = {
           role: msg.role,
@@ -959,6 +877,7 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
       messages,
       hasChosenProduct,
       isCartEvent,
+      requiresToolCall,
     );
   }
 
@@ -967,6 +886,7 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     hasChosenProduct: boolean,
     isCartEvent: boolean,
+    requiresToolCall: boolean = false,
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -990,10 +910,12 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
         `🔄 [Iteração ${iteration + 1}/${MAX_TOOL_ITERATIONS}] Estado: ${currentState}`,
       );
 
+      const useRequiredTool = iteration === 0 && requiresToolCall;
       const response = await this.openai.chat.completions.create({
         model: this.model,
         messages,
         tools: formattedTools,
+        ...(useRequiredTool ? { tool_choice: "required" as const } : {}),
         stream: false,
       });
 
@@ -1002,7 +924,12 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
       const hasToolCalls =
         responseMessage.tool_calls && responseMessage.tool_calls.length > 0;
       const forbiddenInterruption =
-        /(vou buscar|vou procurar|um momento|aguarde|aguarda|deixa eu ver|só um instante|ja volto|já volto|espera|espera ai|espera aí)/i;
+        /(vou (buscar|procurar|verificar|consultar|checar|dar uma|pesquisar)|um moment|aguard[ea]|espera|deixa eu|só um|já volto|ja volto|prosseguimento|atendimento|me chamo ana)/i;
+      // Heuristic: response has no concrete data (no prices, URLs, product names, numbers)
+      const hasConcreteData =
+        /R\$|https?:\/\/|\d{2,}[,\.]\d{2}|cest[ao]|buqu[êe]|caneca|arranjo|flor(es)?/i.test(
+          responseText,
+        );
 
       if (isCartEvent && !hasToolCalls) {
         messages.push({
@@ -1015,15 +942,17 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
 
       if (
         !hasToolCalls &&
-        (responseText === "" || forbiddenInterruption.test(responseText))
+        (responseText === "" ||
+          forbiddenInterruption.test(responseText) ||
+          (responseText.length < 200 && !hasConcreteData))
       ) {
         logger.warn(
-          "⚠️ Resposta intermediária detectada sem tool_calls. Reforçando silêncio/uso de ferramentas.",
+          `⚠️ Resposta intermediária detectada (len=${responseText.length}, concreteData=${hasConcreteData}). Reforçando uso de ferramentas.`,
         );
         messages.push({
           role: "system",
           content:
-            "Sua resposta não pode conter frases de espera nem texto durante a fase de coleta. Refaça agora: OU faça tool calls necessários com content vazio, OU responda com a mensagem final completa.",
+            "ALERTA: Sua resposta não contém dados concretos (preços, links, nomes de produto). Isso NÃO é aceitável. Refaça agora: OU faça tool calls necessários com content vazio, OU responda com a mensagem final COMPLETA com dados reais do catálogo.",
         });
         continue;
       }
@@ -1095,12 +1024,28 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
             }
 
             if (args.preco_maximo !== undefined && args.precoMaximo === undefined) {
-              args.precoMaximo = args.preco_maximo;
-              delete args.preco_maximo;
+              // Already correct snake_case — keep as-is
             }
-            if (args.preco_minimo !== undefined && args.precoMinimo === undefined) {
-              args.precoMinimo = args.preco_minimo;
-              delete args.preco_minimo;
+            if (args.precoMaximo !== undefined) {
+              args.preco_maximo = args.precoMaximo;
+              delete args.precoMaximo;
+            }
+            if (args.precoMinimo !== undefined) {
+              args.preco_minimo = args.precoMinimo;
+              delete args.precoMinimo;
+            }
+
+            // Auto-inject exclude_product_ids from session history
+            try {
+              const sessionProducts = await this.getSentProductsInSession(sessionId);
+              if (sessionProducts.length > 0) {
+                const existing = args.exclude_product_ids || [];
+                const merged = [...new Set([...existing, ...sessionProducts])];
+                args.exclude_product_ids = merged;
+                logger.info(`📦 Auto-excluindo ${merged.length} produtos já apresentados`);
+              }
+            } catch (e) {
+              logger.warn("⚠️ Erro ao buscar produtos da sessão para exclusão", e);
             }
           }
 

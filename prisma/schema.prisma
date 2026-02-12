@@ -515,6 +515,22 @@ model ElementBank {
   @@index([isActive])
 }
 
+model TrendStat {
+  id          String           @id @default(uuid())
+  stat_type   TrendStatType
+  entity_type TrendEntityType
+  entity_key  String
+  period_type TrendPeriodType
+  period_start DateTime        @db.Date
+  period_end   DateTime        @db.Date
+  count       Int              @default(0)
+  scope_key   String           @unique
+  created_at  DateTime         @default(now())
+  updated_at  DateTime         @updatedAt
+
+  @@index([stat_type, entity_type, period_type, period_start])
+}
+
 enum PaymentStatus {
   PENDING
   APPROVED
@@ -550,4 +566,23 @@ enum CustomizationType {
   TEXT
   IMAGES
   MULTIPLE_CHOICE
+}
+
+enum TrendStatType {
+  PRODUCT_VIEW
+  PRODUCT_SALE
+  LAYOUT_VIEW
+  ACCESS
+}
+
+enum TrendEntityType {
+  PRODUCT
+  LAYOUT
+  REGION
+  IP
+}
+
+enum TrendPeriodType {
+  DAILY
+  ROLLING_30D
 }

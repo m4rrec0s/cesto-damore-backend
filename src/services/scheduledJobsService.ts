@@ -1,6 +1,7 @@
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 import PaymentService from "./paymentService";
+import trendStatsService from "./trendStatsService";
 
 /**
  * 🔥 NOVO: Serviço para gerenciar jobs agendados (cron jobs)
@@ -11,6 +12,7 @@ class ScheduledJobsService {
   private webhookReplayInterval: NodeJS.Timeout | null = null;
   private driveRetryInterval: NodeJS.Timeout | null = null;
   private backupCleanupInterval: NodeJS.Timeout | null = null; // 🔥 NOVO
+  private trendStatsInterval: NodeJS.Timeout | null = null;
 
   /**
    * Inicia todos os jobs agendados
@@ -26,6 +28,9 @@ class ScheduledJobsService {
 
     // 🔥 NOVO: Job 3: Limpar backups antigos a cada 24 horas
     this.startBackupCleanupJob();
+
+    // 🔥 NOVO: Job 4: Atualizar estatisticas de tendencias a cada 24 horas
+    this.startTrendStatsJob();
 
     logger.info("✅ Scheduled jobs iniciados");
   }
@@ -50,6 +55,11 @@ class ScheduledJobsService {
     if (this.backupCleanupInterval) {
       clearInterval(this.backupCleanupInterval);
       this.backupCleanupInterval = null;
+    }
+
+    if (this.trendStatsInterval) {
+      clearInterval(this.trendStatsInterval);
+      this.trendStatsInterval = null;
     }
 
     logger.info("✅ Scheduled jobs parados");
@@ -251,6 +261,25 @@ class ScheduledJobsService {
     } catch (error) {
       logger.error("❌ Erro ao reprocessar links do Drive:", error);
     }
+  }
+
+  /**
+   * 🔥 Job 4: Atualizar estatisticas de tendencias
+   * Executa a cada 24 horas
+   */
+  private startTrendStatsJob() {
+    const INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+    logger.info(
+      `📊 Agendando atualizacao de tendencias (intervalo: ${INTERVAL_MS / 1000}s)`,
+    );
+
+    // Executar imediatamente na inicializacao
+    trendStatsService.refreshRollingTrends();
+
+    this.trendStatsInterval = setInterval(() => {
+      trendStatsService.refreshRollingTrends();
+    }, INTERVAL_MS);
   }
 
   /**

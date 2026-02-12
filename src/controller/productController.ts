@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import sharp from "sharp";
 import productService from "../services/productService";
 import { saveImageLocally } from "../config/localStorage";
+import trendStatsService from "../services/trendStatsService";
 
 class ProductController {
   async index(req: Request, res: Response) {
@@ -34,6 +35,7 @@ class ProductController {
     try {
       const { id } = req.params;
       const product = await productService.getProductById(id);
+      void trendStatsService.recordProductView(id, req);
       res.json(product);
     } catch (error: any) {
       console.error("Erro ao buscar produto:", error);

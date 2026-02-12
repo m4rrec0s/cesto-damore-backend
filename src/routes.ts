@@ -39,6 +39,7 @@ import aiProductController from "./controller/aiProductController";
 import aiAgentController from "./controller/aiAgentController";
 import holidayController from "./controller/holidayController";
 import followUpController from "./controller/followUpController";
+import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import tempFileController from "./controller/tempFileController";
 
@@ -294,7 +295,7 @@ router.delete(
 // ==========================================
 
 router.get("/products", productController.index);
-router.get("/products/:id", productController.show);
+router.get("/products/:id", optionalAuthenticateToken, productController.show);
 router.post(
   "/products",
   authenticateToken,
@@ -961,7 +962,7 @@ router.post(
 // 10. AI & FEED & REPORTS
 // ==========================================
 
-router.get("/feed", feedController.getPublicFeed);
+router.get("/feed", optionalAuthenticateToken, feedController.getPublicFeed);
 router.get("/feed/section-types", feedController.getSectionTypes);
 router.get(
   "/admin/feed/configurations",
@@ -980,6 +981,12 @@ router.get(
   authenticateToken,
   requireAdmin,
   feedController.getAllSections,
+);
+router.get(
+  "/admin/trends/summary",
+  authenticateToken,
+  requireAdmin,
+  trendStatsController.getSummary,
 );
 router.post(
   "/admin/feed/banners",

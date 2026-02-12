@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import feedService from "../services/feedService";
 import { saveImageLocally } from "../config/localStorage";
+import trendStatsService from "../services/trendStatsService";
 
 class FeedController {
   async getAllConfigurations(req: Request, res: Response) {
@@ -346,6 +347,7 @@ class FeedController {
       const page = req.query.page ? Number(req.query.page) : undefined;
       const perPage = req.query.perPage ? Number(req.query.perPage) : undefined;
       const feed = await feedService.getPublicFeed(configId, page, perPage);
+      void trendStatsService.recordAccess(req);
       res.json(feed);
     } catch (error: any) {
       console.error("Erro ao buscar feed público:", error);

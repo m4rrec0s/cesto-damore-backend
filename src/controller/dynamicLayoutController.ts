@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import dynamicLayoutService from "../services/dynamicLayoutService";
 import logger from "../utils/logger";
+import trendStatsService from "../services/trendStatsService";
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -151,6 +152,7 @@ class DynamicLayoutController {
         });
       }
 
+      void trendStatsService.recordLayoutView(id, req);
       return res.json(layout);
     } catch (error: any) {
       logger.error("❌ Erro ao obter layout:", error);

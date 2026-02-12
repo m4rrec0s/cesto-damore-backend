@@ -14,6 +14,7 @@ import {
   FeedSectionResponse,
 } from "../models/Feed";
 import { deleteProductImage } from "../config/localStorage";
+import trendStatsService from "./trendStatsService";
 
 class FeedService {
   // ============== FEED CONFIGURATION METHODS ==============
@@ -576,19 +577,27 @@ class FeedService {
       }
 
       const sections = feedConfig.sections || [];
+      const topSellersSection = await this.buildTopSellersSection();
 
       if (page === undefined || perPage === undefined) {
-        const enrichedSections = await Promise.all(
+        const enrichedSections: FeedSectionResponse[] = await Promise.all(
           feedConfig.sections.map(async (section) => {
             const enrichedItems = await this.enrichSectionItems(section);
             return {
-              ...section,
+              id: section.id,
+              title: section.title,
               section_type: section.section_type as FeedSectionType,
+              is_visible: section.is_visible,
+              display_order: section.display_order,
               max_items: (section as any).max_items ?? 6,
               items: enrichedItems,
             };
           }),
         );
+
+        if (topSellersSection) {
+          enrichedSections.unshift(topSellersSection);
+        }
 
         return {
           id: feedConfig.id,
@@ -610,19 +619,26 @@ class FeedService {
           paginatedSections.map(async (section) => {
             const enrichedItems = await this.enrichSectionItems(section);
             return {
-              ...section,
+              id: section.id,
+              title: section.title,
               section_type: section.section_type as FeedSectionType,
+              is_visible: section.is_visible,
+              display_order: section.display_order,
               max_items: (section as any).max_items ?? 6,
               items: enrichedItems,
             };
           }),
         );
 
+      if (pageNum === 1 && topSellersSection) {
+        enrichedSectionsPaginated.unshift(topSellersSection);
+      }
+
       const response = this.formatFeedConfigurationResponse(feedConfig);
       response.banners = pageNum === 1 ? response.banners : [];
       response.sections = enrichedSectionsPaginated;
       (response as any).pagination = {
-        totalSections: sections.length,
+        totalSections: sections.length + (topSellersSection ? 1 : 0),
         page: pageNum,
         perPage: perPageNum,
       };
@@ -845,9 +861,85 @@ class FeedService {
           item_data: product,
         }));
 
+      case FeedSectionType.BEST_SELLERS:
+        const topSelling = await trendStatsService.getTopSellingProducts(
+          Math.max(1, maxItems),
+        );
+        if (!topSelling.length) return [];
+
+        const productIds = topSelling.map((entry) => entry.product_id);
+        const products = await withRetry(() =>
+          prisma.product.findMany({
+            where: { id: { in: productIds }, is_active: true },
+            include: {
+              type: true,
+              categories: { include: { category: true } },
+            },
+          }),
+        );
+        const productMap = new Map(products.map((p) => [p.id, p]));
+        return topSelling
+          .map((entry, index) => {
+            const product = productMap.get(entry.product_id);
+            if (!product) return null;
+            return {
+              id: `auto_${product.id}`,
+              item_type: "product",
+              item_id: product.id,
+              display_order: index,
+              is_featured: true,
+              item_data: product,
+            };
+          })
+          .filter(Boolean);
+
       default:
         return [];
     }
+  }
+
+  private async buildTopSellersSection(): Promise<FeedSectionResponse | null> {
+    const topSelling = await trendStatsService.getTopSellingProducts(4);
+    if (!topSelling.length) return null;
+
+    const productIds = topSelling.map((entry) => entry.product_id);
+    const products = await withRetry(() =>
+      prisma.product.findMany({
+        where: { id: { in: productIds }, is_active: true },
+        include: {
+          type: true,
+          categories: { include: { category: true } },
+        },
+      }),
+    );
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    const items = topSelling
+      .map((entry, index) => {
+        const product = productMap.get(entry.product_id);
+        if (!product) return null;
+        return {
+          id: `top_${product.id}`,
+          item_type: "product",
+          item_id: product.id,
+          display_order: index,
+          is_featured: true,
+          item_data: product,
+        };
+      })
+      .filter(Boolean) as FeedSectionResponse["items"];
+
+    if (!items.length) return null;
+
+    return {
+      id: "best_sellers",
+      title: "Mais vendidos da semana",
+      section_type: FeedSectionType.BEST_SELLERS,
+      is_visible: true,
+      display_order: 0,
+      max_items: 4,
+      items,
+    };
   }
 }
 

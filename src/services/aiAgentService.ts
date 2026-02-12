@@ -169,6 +169,77 @@ Gere APENAS a mensagem final para o cliente.`;
     return termo.trim().toLowerCase();
   }
 
+  private hasCatalogKeyword(term: string): boolean {
+    return /cest[ao]|buqu[eê]|caneca|chocolate|pelu[cç]ia|quadro|quebra|bar|cafe|café|anivers[aá]rio|namorad|rom[aâ]ntic|flores|rosa|urso|presente/i.test(
+      term,
+    );
+  }
+
+  private extractSearchTerm(rawTerm: string, contextMessage: string): string {
+    const source = `${rawTerm} ${contextMessage}`.toLowerCase();
+    const mappings = [
+      { pattern: /cest[ao]/, term: "cesto" },
+      { pattern: /buqu[eê]|flores|rosas?/, term: "buquê" },
+      { pattern: /caneca/, term: "caneca" },
+      { pattern: /pelu[cç]ia|urso/, term: "pelúcia" },
+      { pattern: /quebra[-\s]?cabe[cç]a/, term: "quebra-cabeça" },
+      { pattern: /quadro/, term: "quadro" },
+      { pattern: /bar|bebida/, term: "bar" },
+      { pattern: /chocolate/, term: "chocolate" },
+      { pattern: /cafe|caf[eé]/, term: "café" },
+      { pattern: /anivers[aá]rio/, term: "aniversário" },
+      { pattern: /namorad[oa]s?/, term: "namorados" },
+      { pattern: /rom[aâ]ntic[ao]/, term: "romântica" },
+    ];
+
+    for (const mapping of mappings) {
+      if (mapping.pattern.test(source)) {
+        return mapping.term;
+      }
+    }
+
+    const stopwords = new Set([
+      "o",
+      "a",
+      "de",
+      "da",
+      "do",
+      "em",
+      "um",
+      "uma",
+      "e",
+      "ou",
+      "para",
+      "por",
+      "com",
+      "pra",
+      "pro",
+      "minha",
+      "meu",
+      "minhas",
+      "meus",
+      "quero",
+      "queria",
+      "gostaria",
+      "preciso",
+    ]);
+
+    const words = rawTerm
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, " ")
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length > 1 && !stopwords.has(w));
+
+    return words[0] || rawTerm.trim();
+  }
+
+  private shouldExcludeProducts(userMessage: string): boolean {
+    return /mais opç|mais opc|mais opcoes|mais opções|outra|outro|diferente|parecido|similar|mostra mais|ver mais/i.test(
+      userMessage,
+    );
+  }
+
   private filterHistoryForContext(history: any[]): any[] {
     if (history.length <= 15) {
       return history;
@@ -884,6 +955,7 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
       hasChosenProduct,
       isCartEvent,
       requiresToolCall,
+      userMessage,
     );
   }
 
@@ -893,10 +965,13 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
     hasChosenProduct: boolean,
     isCartEvent: boolean,
     requiresToolCall: boolean = false,
+    currentUserMessage: string = "",
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
     let toolExecutionResults: ToolExecutionResult[] = [];
+
+    const shouldExcludeProducts = this.shouldExcludeProducts(currentUserMessage);
 
     // Fetch fresh tools from MCP
     const tools = await mcpClientService.listTools();
@@ -1015,8 +1090,27 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
 
           // Normaliza termos de busca
           if (name === "consultarCatalogo" && args.termo) {
-            const termoOriginal = args.termo;
-            const termoNormalizado = this.normalizarTermoBusca(termoOriginal);
+            const termoOriginal = args.termo.toString();
+            let termoNormalizado = this.normalizarTermoBusca(termoOriginal);
+            const wordCount = termoNormalizado.split(/\s+/).filter(Boolean).length;
+            const needsReduction =
+              termoNormalizado.length > 40 ||
+              wordCount > 6 ||
+              !this.hasCatalogKeyword(termoNormalizado);
+
+            if (needsReduction) {
+              const reduced = this.extractSearchTerm(
+                termoNormalizado,
+                currentUserMessage,
+              );
+              if (reduced && reduced !== termoNormalizado) {
+                logger.info(
+                  `🧭 Termo reduzido: "${termoNormalizado}" → "${reduced}"`,
+                );
+                termoNormalizado = reduced;
+              }
+            }
+
             if (termoOriginal !== termoNormalizado) {
               logger.info(
                 `📝 Normalizado: "${termoOriginal}" → "${termoNormalizado}"`,
@@ -1058,17 +1152,26 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
               delete args.precoMinimo;
             }
 
-            // Auto-inject exclude_product_ids from session history
-            try {
-              const sessionProducts = await this.getSentProductsInSession(sessionId);
-              if (sessionProducts.length > 0) {
-                const existing = args.exclude_product_ids || [];
-                const merged = [...new Set([...existing, ...sessionProducts])];
-                args.exclude_product_ids = merged;
-                logger.info(`📦 Auto-excluindo ${merged.length} produtos já apresentados`);
+            // Auto-inject exclude_product_ids apenas quando o cliente pede mais opcoes
+            if (shouldExcludeProducts) {
+              try {
+                const sessionProducts = await this.getSentProductsInSession(
+                  sessionId,
+                );
+                if (sessionProducts.length > 0) {
+                  const existing = args.exclude_product_ids || [];
+                  const merged = [...new Set([...existing, ...sessionProducts])];
+                  args.exclude_product_ids = merged;
+                  logger.info(
+                    `📦 Auto-excluindo ${merged.length} produtos ja apresentados`,
+                  );
+                }
+              } catch (e) {
+                logger.warn(
+                  "⚠️ Erro ao buscar produtos da sessao para exclusao",
+                  e,
+                );
               }
-            } catch (e) {
-              logger.warn("⚠️ Erro ao buscar produtos da sessão para exclusão", e);
             }
           }
 

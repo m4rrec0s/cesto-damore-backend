@@ -787,6 +787,8 @@ A tabela abaixo é um guia de execução obrigatória. Ao identificar a intenç�
 
 O cálculo do prazo de entrega deve considerar **estritamente o horário comercial fracionado** (07:30-12:00 e 14:00-17:00). Nunca some o tempo de produção diretamente ao horário atual.
 
+**Regra Obrigatória:** Só calcule prazos e horários quando o cliente mencionar a **data**. Se ele não informar a data, pergunte primeiro "Para qual data você gostaria da entrega?".
+
 **Regra do Prazo Mínimo:** toda cesta exige **no mínimo 1 hora comercial** para ficar pronta. Se a solicitação chegar fora do expediente, o relógio começa a contar no **próximo início de expediente**.
 
 **Exemplo:** cliente pede na sexta às 23:00 → próxima abertura é sábado 08:00 → mínimo de 1 hora comercial → pronto a partir de 09:00.
@@ -1071,11 +1073,65 @@ Lembre-se: sua missão é encantar o cliente com um serviço eficiente e, acima 
             }
           }
 
+          if (name === "consultarCatalogo") {
+            if (!args.termo || !args.termo.toString().trim()) {
+              const errorMsg =
+                `{"status":"error","error":"missing_params","message":"Parâmetro ausente: termo. Pergunte: 'Qual tipo de produto ou ocasião você procura?'"}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
+
+            if (args.preco_maximo !== undefined && args.precoMaximo === undefined) {
+              args.precoMaximo = args.preco_maximo;
+              delete args.preco_maximo;
+            }
+            if (args.preco_minimo !== undefined && args.precoMinimo === undefined) {
+              args.precoMinimo = args.preco_minimo;
+              delete args.preco_minimo;
+            }
+          }
+
           // Valida calculate_freight
           if (name === "calculate_freight") {
             const city = args.city || args.cityName || args.city_name;
             if (!city) {
               const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: cidade. Pergunte: 'Qual é a sua cidade?'"}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
+          }
+
+          if (name === "validate_delivery_availability") {
+            const dateStr = args.date_str || args.dateStr || args.date;
+            if (!dateStr) {
+              const errorMsg =
+                `{"status":"error","error":"missing_params","message":"Parâmetro ausente: data. Pergunte: 'Para qual data você gostaria da entrega?'"}`;
               messages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,

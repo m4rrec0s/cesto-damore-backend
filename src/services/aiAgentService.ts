@@ -32,8 +32,9 @@ class AIAgentService {
   /**
    * RAG Dinâmico: Detecta contexto da mensagem e retorna prompts relevantes
    * Carrega até 5 prompts dinâmicos + core para cobrir cenários compostos
+   * Returns { prompts, wasExplicitMatch } — wasExplicitMatch=false means fallback only
    */
-  private detectContextualPrompts(userMessage: string): string[] {
+  private detectContextualPrompts(userMessage: string): { prompts: string[]; wasExplicitMatch: boolean } {
     const messageLower = userMessage.toLowerCase();
 
     // Mapa de detecção: contexto → prompt relevante
@@ -119,6 +120,7 @@ class AIAgentService {
 
     // Remove duplicatas mantendo ordem
     const uniquePrompts = [...new Set(matched)];
+    const wasExplicitMatch = uniquePrompts.length > 0;
 
     // Sempre inclui product_selection como fallback padrão (cenário mais comum)
     if (uniquePrompts.length === 0) {
@@ -126,7 +128,10 @@ class AIAgentService {
     }
 
     // Sempre retorna core_identity primeiro, depois os dinâmicos
-    return ["core_identity_guideline", ...uniquePrompts];
+    return {
+      prompts: ["core_identity_guideline", ...uniquePrompts],
+      wasExplicitMatch,
+    };
   }
 
   /**
@@ -712,8 +717,8 @@ Gere APENAS a mensagem final para o cliente.`;
 
     // ── RAG DINÂMICO: SELEÇÃO INTELIGENTE DE PROMPTS ─────────────────────────────
     // 1. Detecta contexto da mensagem do usuário
-    const relevantPrompts = this.detectContextualPrompts(userMessage);
-    logger.info(`📚 RAG: Carregando ${relevantPrompts.length} prompts: ${relevantPrompts.join(', ')}`);
+    const { prompts: relevantPrompts, wasExplicitMatch } = this.detectContextualPrompts(userMessage);
+    logger.info(`📚 RAG: Carregando ${relevantPrompts.length} prompts (match=${wasExplicitMatch}): ${relevantPrompts.join(', ')}`);
 
     // 2. Busca lista de tools (sempre necessário)
     const toolsInMCP = await mcpClientService.listTools();
@@ -751,7 +756,8 @@ Gere APENAS a mensagem final para o cliente.`;
     // ──────────────────────────────────────────────────────────────────────────────
 
     // Determina se a mensagem exige uso obrigatório de tool na primeira iteração
-    const requiresToolCall = relevantPrompts.some((p) =>
+    // SOMENTE quando houve match explícito — fallback NÃO força tool_choice
+    const requiresToolCall = wasExplicitMatch && relevantPrompts.some((p) =>
       [
         "product_selection_guideline",
         "indecision_guideline",
@@ -940,19 +946,36 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
         continue;
       }
 
+      // Bloqueia respostas vazias ou com frases de espera ("vou buscar", etc.)
       if (
         !hasToolCalls &&
-        (responseText === "" ||
-          forbiddenInterruption.test(responseText) ||
-          (responseText.length < 200 && !hasConcreteData))
+        (responseText === "" || forbiddenInterruption.test(responseText))
       ) {
         logger.warn(
-          `⚠️ Resposta intermediária detectada (len=${responseText.length}, concreteData=${hasConcreteData}). Reforçando uso de ferramentas.`,
+          `⚠️ Resposta intermediária detectada: forbidden pattern. Reforçando uso de ferramentas.`,
         );
         messages.push({
           role: "system",
           content:
-            "ALERTA: Sua resposta não contém dados concretos (preços, links, nomes de produto). Isso NÃO é aceitável. Refaça agora: OU faça tool calls necessários com content vazio, OU responda com a mensagem final COMPLETA com dados reais do catálogo.",
+            "PROIBIDO responder com frases de espera. Refaça: OU faça tool calls com content vazio, OU responda com a mensagem final completa.",
+        });
+        continue;
+      }
+
+      // Heurística extra: se o contexto EXIGE dados (requiresToolCall) mas a resposta é curta e sem dados reais
+      if (
+        !hasToolCalls &&
+        requiresToolCall &&
+        responseText.length < 200 &&
+        !hasConcreteData
+      ) {
+        logger.warn(
+          `⚠️ Contexto exige dados mas resposta sem conteúdo concreto (len=${responseText.length}). Forçando tool call.`,
+        );
+        messages.push({
+          role: "system",
+          content:
+            "O cliente fez uma pergunta que EXIGE consulta ao catálogo ou às ferramentas. Sua resposta não contém dados reais. Faça o tool call adequado agora.",
         });
         continue;
       }

@@ -240,6 +240,34 @@ Gere APENAS a mensagem final para o cliente.`;
     );
   }
 
+  private buildCheckoutContext(sourceText: string): {
+    context: string;
+    hasAll: boolean;
+  } {
+    const text = sourceText.toLowerCase();
+    const productMatch = text.match(
+      /cesta|cesto|buqu[eê]|produto|caneca|bar|quadro|pelu[cç]ia|rosa|flores/, 
+    );
+    const dateMatch = text.match(
+      /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\b|amanh[aã]|hoje|dia\s+\d{1,2}/,
+    );
+    const addressMatch = text.match(
+      /endere[cç]o\s+[^,\n]+|rua\s+[^,\n]+|avenida\s+[^,\n]+|bairro\s+[^,\n]+|cidade\s+[^,\n]+/,
+    );
+    const paymentMatch = text.match(/\bpix\b|cart[aã]o|cr[eé]dito|d[eé]bito/);
+
+    const contextParts = [];
+    if (productMatch) contextParts.push(`cesta: ${productMatch[0]}`);
+    if (dateMatch) contextParts.push(`entrega: ${dateMatch[0]}`);
+    if (addressMatch) contextParts.push(`endereco: ${addressMatch[0]}`);
+    if (paymentMatch) contextParts.push(`pagamento: ${paymentMatch[0]}`);
+
+    return {
+      context: contextParts.join(" | "),
+      hasAll: Boolean(productMatch && dateMatch && addressMatch && paymentMatch),
+    };
+  }
+
   private filterHistoryForContext(history: any[]): any[] {
     if (history.length <= 15) {
       return history;
@@ -956,6 +984,9 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
       isCartEvent,
       requiresToolCall,
       userMessage,
+      memory?.summary || null,
+      customerName || "Cliente",
+      phone || "",
     );
   }
 
@@ -966,6 +997,9 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
     isCartEvent: boolean,
     requiresToolCall: boolean = false,
     currentUserMessage: string = "",
+    memorySummary: string | null = null,
+    customerName: string = "Cliente",
+    customerPhone: string = "",
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -1461,6 +1495,70 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
 
     if (currentState !== ProcessingState.READY_TO_RESPOND) {
       logger.warn("⚠️ Limite de iterações atingido, forçando resposta");
+    }
+
+    if (!isCartEvent) {
+      const recentUserText = messages
+        .filter((msg) => msg.role === "user")
+        .map((msg) => (typeof msg.content === "string" ? msg.content : ""))
+        .join(" ");
+      const finalizationIntent = /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento/i.test(
+        currentUserMessage.toLowerCase(),
+      );
+      const sourceText = `${memorySummary || ""} ${recentUserText}`.trim();
+      const { context: checkoutContext, hasAll } = this.buildCheckoutContext(
+        sourceText,
+      );
+
+      if (finalizationIntent && hasAll) {
+        const hasNotify = toolExecutionResults.some(
+          (result) => result.toolName === "notify_human_support",
+        );
+        const hasBlock = toolExecutionResults.some(
+          (result) => result.toolName === "block_session",
+        );
+
+        if (!hasNotify) {
+          try {
+            await mcpClientService.callTool("notify_human_support", {
+              reason: "end_of_checkout",
+              customer_context: checkoutContext,
+              customer_name: customerName,
+              customer_phone: customerPhone,
+              should_block_flow: true,
+              session_id: sessionId,
+            });
+            toolExecutionResults.push({
+              toolName: "notify_human_support",
+              input: { reason: "end_of_checkout" },
+              output: "forced_checkout_notify",
+              success: true,
+            });
+          } catch (error: any) {
+            logger.error(
+              `❌ Falha ao notificar checkout: ${error.message || error}`,
+            );
+          }
+        }
+
+        if (!hasBlock) {
+          try {
+            await mcpClientService.callTool("block_session", {
+              session_id: sessionId,
+            });
+            toolExecutionResults.push({
+              toolName: "block_session",
+              input: { session_id: sessionId },
+              output: "forced_checkout_block",
+              success: true,
+            });
+          } catch (error: any) {
+            logger.error(
+              `❌ Falha ao bloquear checkout: ${error.message || error}`,
+            );
+          }
+        }
+      }
     }
 
     if (isCartEvent) {

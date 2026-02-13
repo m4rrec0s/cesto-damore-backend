@@ -39,6 +39,7 @@
     "express": "^5.1.0",
     "file-type": "^16.5.4",
     "firebase-admin": "^12.7.0",
+    "geoip-lite": "^1.4.10",
     "googleapis": "^159.0.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
@@ -55,6 +56,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/geoip-lite": "^1.4.4",
     "@types/node": "^24.10.9",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",

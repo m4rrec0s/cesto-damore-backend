@@ -86,6 +86,9 @@ app.get("/", async (req, res) => {
 
 app.use(routes);
 
+// Iniciar jobs agendados (inclui atualizacao de tendencias)
+scheduledJobsService.start();
+
 cron.schedule("0 */6 * * *", async () => {
   try {
     const twentyFourHoursAgo = new Date();

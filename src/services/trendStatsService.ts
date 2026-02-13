@@ -1,6 +1,7 @@
 import { Request } from "express";
 import { startOfDay, subDays } from "date-fns";
 import { OrderStatus } from "@prisma/client";
+import geoip from "geoip-lite";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
@@ -59,6 +60,7 @@ const buildScopeKey = (payload: {
 };
 
 class TrendStatsService {
+  private locationCache = new Map<string, string>();
   private async upsertIncrement(params: {
     statType: "PRODUCT_VIEW" | "PRODUCT_SALE" | "LAYOUT_VIEW" | "ACCESS";
     entityType: "PRODUCT" | "LAYOUT" | "REGION" | "IP";
@@ -464,39 +466,49 @@ class TrendStatsService {
   async getTrendSummary() {
     const { periodStart, periodEnd } = this.getRollingPeriod();
 
-    const [
-      topSales,
-      topViews,
-      topLayouts,
-      topRegions,
-      topIps,
-    ] = await Promise.all([
-      this.getRollingStats({
-        statType: "PRODUCT_SALE",
-        entityType: "PRODUCT",
-        limit: 10,
-      }),
-      this.getRollingStats({
-        statType: "PRODUCT_VIEW",
-        entityType: "PRODUCT",
-        limit: 10,
-      }),
-      this.getRollingStats({
-        statType: "LAYOUT_VIEW",
-        entityType: "LAYOUT",
-        limit: 10,
-      }),
-      this.getRollingStats({
-        statType: "ACCESS",
-        entityType: "REGION",
-        limit: 10,
-      }),
-      this.getRollingStats({
-        statType: "ACCESS",
-        entityType: "IP",
-        limit: 10,
-      }),
-    ]);
+    const fetchRolling = () =>
+      Promise.all([
+        this.getRollingStats({
+          statType: "PRODUCT_SALE",
+          entityType: "PRODUCT",
+          limit: 10,
+        }),
+        this.getRollingStats({
+          statType: "PRODUCT_VIEW",
+          entityType: "PRODUCT",
+          limit: 10,
+        }),
+        this.getRollingStats({
+          statType: "LAYOUT_VIEW",
+          entityType: "LAYOUT",
+          limit: 10,
+        }),
+        this.getRollingStats({
+          statType: "ACCESS",
+          entityType: "REGION",
+          limit: 10,
+        }),
+        this.getRollingStats({
+          statType: "ACCESS",
+          entityType: "IP",
+          limit: 10,
+        }),
+      ]);
+
+    let [topSales, topViews, topLayouts, topRegions, topIps] =
+      await fetchRolling();
+
+    if (
+      !topSales.length &&
+      !topViews.length &&
+      !topLayouts.length &&
+      !topRegions.length &&
+      !topIps.length
+    ) {
+      await this.refreshRollingTrends();
+      [topSales, topViews, topLayouts, topRegions, topIps] =
+        await fetchRolling();
+    }
 
     const productIds = Array.from(
       new Set([...topSales, ...topViews].map((entry) => entry.entity_key)),
@@ -516,6 +528,21 @@ class TrendStatsService {
 
     const productMap = new Map(products.map((p) => [p.id, p]));
     const layoutMap = new Map(layouts.map((l) => [l.id, l]));
+
+    const resolveLocation = (ip: string) => {
+      if (this.locationCache.has(ip)) {
+        return this.locationCache.get(ip) as string;
+      }
+      const geo = geoip.lookup(ip);
+      if (!geo) {
+        this.locationCache.set(ip, "Localizacao indisponivel");
+        return "Localizacao indisponivel";
+      }
+      const parts = [geo.city, geo.region, geo.country].filter(Boolean);
+      const location = parts.length ? parts.join(", ") : "Localizacao indisponivel";
+      this.locationCache.set(ip, location);
+      return location;
+    };
 
     return {
       period: {
@@ -548,6 +575,7 @@ class TrendStatsService {
       })),
       top_ips: topIps.map((entry) => ({
         ip: entry.entity_key,
+        location: resolveLocation(entry.entity_key),
         total_access: entry.count,
       })),
       updated_at: new Date(),

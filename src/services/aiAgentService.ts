@@ -12,6 +12,27 @@ enum ProcessingState {
   READY_TO_RESPOND = "READY_TO_RESPOND",
 }
 
+// Estados do fluxo de fechamento de compra
+enum CheckoutState {
+  PRODUCT_SELECTED = "PRODUCT_SELECTED", // Produto confirmado com preço
+  WAITING_DATE = "WAITING_DATE", // Aguardando data/horário
+  WAITING_ADDRESS = "WAITING_ADDRESS", // Aguardando endereço
+  WAITING_PAYMENT = "WAITING_PAYMENT", // Aguardando forma de pagamento
+  READY_TO_FINALIZE = "READY_TO_FINALIZE", // Todos os dados coletados, aguardando confirmação final
+}
+
+interface CheckoutData {
+  productName: string;
+  productPrice: number;
+  deliveryDate: string;
+  deliveryTime: string;
+  deliveryType: "delivery" | "retirada"; // tipo de entrega
+  address: string;
+  paymentMethod: "PIX" | "CARTAO";
+  freight: number | null;
+  totalValue: number;
+}
+
 interface ToolExecutionResult {
   toolName: string;
   input: any;
@@ -22,11 +43,174 @@ interface ToolExecutionResult {
 class AIAgentService {
   private openai: OpenAI;
   private model: string = "gpt-4o-mini";
+  private advancedModel: string = "gpt-4-turbo"; // Para raciocínio aprimorado
 
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+  }
+
+  /**
+   * Determina a estratégia de uso de tools e modelo adaptativo
+   * Retorna: { requiresToolCall, shouldOptimizeModel, model }
+   */
+  private determineToolStrategy(
+    userMessage: string,
+    wasExplicitMatch: boolean,
+    relevantPrompts: string[],
+  ): {
+    requiresToolCall: boolean;
+    shouldOptimizeModel: boolean;
+    model: string;
+  } {
+    const messageLower = userMessage.toLowerCase();
+    const messageLength = userMessage.trim().length;
+
+    // ═══════════════════════════════════════════════════════════════
+    // HARD REQUIREMENTS: Forçar tool_choice em casos críticos
+    // ═══════════════════════════════════════════════════════════════
+    const hardRequirements = {
+      cartEvent: /\[interno\].*carrinho|evento\s*=\s*cart_added|cart_added|adicionou.*carrinho/i.test(
+        userMessage,
+      ),
+      finalCheckout: /finaliza|confirma|fecha pedido|vou levar|como compro|como pago/i.test(
+        messageLower,
+      ),
+    };
+
+    // Se é um evento crítico, SEMPRE força tool
+    if (hardRequirements.cartEvent || hardRequirements.finalCheckout) {
+      return {
+        requiresToolCall: true,
+        shouldOptimizeModel: false,
+        model: this.model,
+      };
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SOFT REQUIREMENTS: Apenas sugira tool se necessário
+    // ═══════════════════════════════════════════════════════════════
+
+    // Mensagens muito curtas/simples → conversação humanizada
+    if (messageLength <= 30 && !wasExplicitMatch) {
+      return {
+        requiresToolCall: false,
+        shouldOptimizeModel: false,
+        model: this.model,
+      };
+    }
+
+    // Se não houve match explícito → deixa LLM decidir
+    if (!wasExplicitMatch) {
+      return {
+        requiresToolCall: false,
+        shouldOptimizeModel: false,
+        model: this.model,
+      };
+    }
+
+    // Scoring para determinar necessidade de tool
+    let toolNecessityScore = 0;
+
+    // Contextos que realmente exigem busca de dados
+    const criticalPrompts = [
+      "product_selection_guideline", // Busca de produtos
+      "faq_production_guideline", // Prazos de produção
+    ];
+
+    const optionalPrompts = [
+      "indecision_guideline", // Pode ser respondido sem dados
+      "delivery_rules_guideline", // Pode ser respondido com conhecimento geral
+      "location_guideline", // Info geral da loja
+    ];
+
+    const hasCriticalPrompt = relevantPrompts.some((p) =>
+      criticalPrompts.includes(p),
+    );
+    const hasOptionalPrompt = relevantPrompts.some((p) =>
+      optionalPrompts.includes(p),
+    );
+
+    if (hasCriticalPrompt) {
+      toolNecessityScore += 100; // Crítico
+    }
+    if (hasOptionalPrompt) {
+      toolNecessityScore += 30; // Opcional
+    }
+
+    // Padrões que indicam busca real de produto
+    const specificProductPatterns = [
+      /cesta|cesto|buqu|caneca|flor|rosa|presente/i,
+      /quanto cust|qual.*preço|valor/i,
+      /tem de.*\$/i,
+    ];
+
+    const hasSpecificSearch = specificProductPatterns.some((p) =>
+      p.test(messageLower),
+    );
+    if (hasSpecificSearch) {
+      toolNecessityScore += 50;
+    }
+
+    // Contexto genérico → pode ser respondido sem tool
+    const genericPatterns = [
+      /mais opçõ|outro|diferente|parecido|similar/i, // "Quero algo parecido"
+      /como é|me explica|qual é|o que é/i, // Perguntas gerais
+    ];
+
+    const isGenericQuestion = genericPatterns.some((p) =>
+      p.test(messageLower),
+    );
+    if (isGenericQuestion) {
+      toolNecessityScore -= 20;
+    }
+
+    // Decision logic
+    const requiresToolCall = toolNecessityScore > 60;
+
+    // ═══════════════════════════════════════════════════════════════
+    // ADAPTIVE MODEL SELECTION
+    // ═══════════════════════════════════════════════════════════════
+
+    // Use advanced model se:
+    // 1. Mensagem é complexa (composição, lógica, raciocínio)
+    // 2. Requer multiple tools em sequência
+    // 3. Cliente faz pergunta com condições múltiplas
+    const complexityIndicators = [
+      {
+        pattern: /se.*então|mas|porém|however|comparar|differença|melhor|pior/i,
+        weight: 40,
+      },
+      {
+        pattern: /dois|três|vários|múltiplo|mais de|menos de/i,
+        weight: 30,
+      },
+      { pattern: messageLength > 200, weight: 20 },
+      { pattern: /\?.*\?.*\?/i, weight: 25 }, // Múltiplas perguntas
+    ];
+
+    let complexityScore = 0;
+    for (const indicator of complexityIndicators) {
+      if (typeof indicator.pattern === "object") {
+        if (indicator.pattern.test(messageLower)) {
+          complexityScore += indicator.weight;
+        }
+      } else {
+        if (indicator.pattern) {
+          complexityScore += indicator.weight;
+        }
+      }
+    }
+
+    const shouldOptimizeModel =
+      complexityScore > 40 && relevantPrompts.length > 1;
+
+    return {
+      requiresToolCall,
+      shouldOptimizeModel,
+      model: shouldOptimizeModel ? this.advancedModel : this.model,
+    };
   }
 
   /**
@@ -298,7 +482,240 @@ Gere APENAS a mensagem final para o cliente.`;
     };
   }
 
+  /**
+   * Gera um prompt específico para forçar coleta iterativa de dados do checkout
+   */
+  private getCheckoutIterativePrompt(checkoutState: CheckoutState, checkoutData: Partial<CheckoutData>): string {
+    switch (checkoutState) {
+      case CheckoutState.PRODUCT_SELECTED:
+        return `ETAPA: Produto confirmado ✅
+Próxima etapa: COLETE A DATA E HORÁRIO DE ENTREGA
+
+O cliente:
+- Produto: ${checkoutData.productName} (R$ ${checkoutData.productPrice})
+
+Agora você DEVE:
+1. Pergunte: "Para qual data você gostaria da entrega?"
+2. Após o cliente responder, valide a disponibilidade com validate_delivery_availability (com tool_call silencioso)
+3. Apresente os horários disponíveis
+4. Aguarde a confirmação do horário
+
+⚠️ REGRA: NÃO avance para a próxima etapa até coletar data E horário.`;
+
+      case CheckoutState.WAITING_DATE:
+        return `ETAPA: Data e horário coletados ✅
+${checkoutData.deliveryDate} às ${checkoutData.deliveryTime}
+
+Próxima etapa: COLETE O ENDEREÇO COMPLETO
+
+Agora você DEVE:
+1. Pergunte: "Qual o endereço completo para a entrega? (Rua, número, bairro, cidade, complemento)"
+2. Valide que o cliente forneceu TODOS os dados
+3. Confirme o endereço antes de prosseguir
+
+⚠️ REGRA: Endereço COMPLETO com rua, número, bairro, cidade e complemento.`;
+
+      case CheckoutState.WAITING_ADDRESS:
+        return `ETAPA: Endereço coletado ✅
+${checkoutData.address}
+
+Próxima etapa: COLETE A FORMA DE PAGAMENTO
+
+Agora você DEVE:
+1. Pergunte: "Você prefere pagar por PIX ou Cartão?"
+2. Aguarde resposta clara
+3. ❌ NÃO mencione chave PIX ou dados bancários
+4. ❌ NÃO calcule frete - diga que o atendente confirmará
+
+⚠️ REGRA: Coleta apenas "PIX" ou "Cartão".`;
+
+      case CheckoutState.WAITING_PAYMENT:
+        return `ETAPA: Forma de pagamento coletada ✅
+Método: ${checkoutData.paymentMethod}
+
+Próxima etapa: APRESENTE O RESUMO FINAL
+
+Agora você DEVE:
+1. Apresente o resumo completo com:
+   - Produto: ${checkoutData.productName} - R$ ${checkoutData.productPrice}
+   - Entrega: ${checkoutData.deliveryDate} às ${checkoutData.deliveryTime}
+   - Endereço: ${checkoutData.address}
+   - Pagamento: ${checkoutData.paymentMethod}
+   - Frete: Será confirmado pelo atendente
+   - TOTAL: R$ ${checkoutData.totalValue}
+
+2. Pergunte: "Está tudo certo? Posso finalizar seu pedido?"
+3. Aguarde confirmação explícita (tipo "sim", "pode finalizar", "perfeito")
+
+⚠️ REGRA: Não finalize sem confirmação explícita do cliente.`;
+
+      case CheckoutState.READY_TO_FINALIZE:
+        return `ETAPA: Cliente confirmou pedido ✅
+
+Agora você DEVE executar EXATAMENTE estas 2 ferramentas em sequência:
+1. notify_human_support (com ESTRUTURA COMPLETA)
+2. block_session
+
+Estrutura OBRIGATÓRIA para notify_human_support:
+{
+  reason: "end_of_checkout",
+  customer_context: "Pedido: ${checkoutData.productName} - R$ ${checkoutData.productPrice}
+Entrega: ${checkoutData.deliveryDate} às ${checkoutData.deliveryTime}
+Endereço: ${checkoutData.address}
+Pagamento: ${checkoutData.paymentMethod}
+Frete: A ser confirmado
+TOTAL: R$ ${checkoutData.totalValue}",
+  should_block_flow: true
+}
+
+Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. Como agora eles vão cuidar do seu pagamento e personalização, eu vou me retirar para não atrapalhar, tá ok? Logo eles te respondem! Obrigadaaa ❤️🥰"`;
+
+      default:
+        return "";
+    }
+  }
+
+  /**
+   * Extrai e valida dados do checkout a partir do histórico de mensagens
+   */
+  private async extractCheckoutData(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[], sessionId: string): Promise<Partial<CheckoutData>> {
+    const data: Partial<CheckoutData> = {};
+
+    // Procura por produto confirmado nas últimas messages
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== "tool") continue;
+
+      const content = typeof msg.content === "string" ? msg.content : "";
+
+      // Busca dados de consultarCatalogo (produto + preço)
+      if (content.includes("cesta") || content.includes("produto")) {
+        try {
+          const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[1]);
+            const firstProduct = parsed.exatos?.[0] || parsed.produtos?.[0];
+            if (firstProduct) {
+              data.productName = firstProduct.name || firstProduct.nome;
+              data.productPrice = Number(firstProduct.price || firstProduct.preco) || 0;
+            }
+          }
+        } catch (e) {
+          logger.debug("Erro ao extrair dados de produto", e);
+        }
+      }
+
+      // Busca dados de validate_delivery_availability (data + horário)
+      if (content.includes("disponível") || content.includes("horário")) {
+        try {
+          const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[1]);
+            if (parsed.suggested_slots && parsed.suggested_slots[0]) {
+              data.deliveryDate = parsed.suggested_slots[0].date;
+              data.deliveryTime = parsed.suggested_slots[0].slot;
+            }
+          }
+        } catch (e) {
+          logger.debug("Erro ao extrair dados de horário", e);
+        }
+      }
+    }
+
+    // Busca no histórico de mensagens do usuário
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== "user") continue;
+
+      const content = typeof msg.content === "string" ? msg.content : "";
+      const contentLower = content.toLowerCase();
+
+      // Busca endereço
+      if (!data.address) {
+        const addressMatch = content.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+,?\s*\d+[^,\n]*,?\s*[^,\n]+,?\s*[^,\n]+/i);
+        if (addressMatch) {
+          data.address = addressMatch[0];
+        }
+      }
+
+      // Busca pagamento
+      if (!data.paymentMethod) {
+        if (contentLower.includes("pix")) {
+          data.paymentMethod = "PIX";
+        } else if (contentLower.includes("cartão") || contentLower.includes("cartao") || contentLower.includes("crédito")) {
+          data.paymentMethod = "CARTAO";
+        }
+      }
+    }
+
+    return data;
+  }
+
+  /**
+   * Determina o próximo estado do checkout baseado nos dados coletados
+   */
+  private determineCheckoutState(checkoutData: Partial<CheckoutData>): CheckoutState {
+    if (!checkoutData.productName || checkoutData.productPrice === undefined) {
+      return CheckoutState.PRODUCT_SELECTED;
+    }
+    if (!checkoutData.deliveryDate || !checkoutData.deliveryTime) {
+      return CheckoutState.WAITING_DATE;
+    }
+    if (!checkoutData.address) {
+      return CheckoutState.WAITING_ADDRESS;
+    }
+    if (!checkoutData.paymentMethod) {
+      return CheckoutState.WAITING_PAYMENT;
+    }
+    return CheckoutState.READY_TO_FINALIZE;
+  }
+
+  /**
+   * Formata contexto de checkout de forma bem estruturada para a equipe humana
+   */
+  private buildStructuredCheckoutContext(
+    checkoutData: Partial<CheckoutData>,
+    customerName: string,
+    customerPhone: string
+  ): string {
+    const lines = [
+      "═══════════════════════════════════════════",
+      "📋 NOVO PEDIDO - EQUIPE DE ATENDIMENTO",
+      "═══════════════════════════════════════════",
+      "",
+      `👤 Cliente: ${customerName || "Desconhecido"}`,
+      `📱 Telefone: ${customerPhone || "Não fornecido"}`,
+      "",
+      "📦 DETALHES DO PEDIDO:",
+      `   Produto: ${checkoutData.productName || "[NÃO ESPECIFICADO]"} - R$ ${checkoutData.productPrice || "0,00"}`,
+      "",
+      "🚚 ENTREGA:",
+      `   Data: ${checkoutData.deliveryDate || "[NÃO ESPECIFICADA]"}`,
+      `   Horário: ${checkoutData.deliveryTime || "[NÃO ESPECIFICADO]"}`,
+      `   Tipo: ${checkoutData.deliveryType === "retirada" ? "RETIRADA" : "ENTREGA"}`,
+      "",
+      "📍 ENDEREÇO:",
+      `   ${checkoutData.address || "[ENDEREÇO NÃO FORNECIDO]"}`,
+      "",
+      "💳 PAGAMENTO:",
+      `   Método: ${checkoutData.paymentMethod || "[NÃO ESPECIFICADO]"}`,
+      `   Frete: A ser confirmado`,
+      `   Total: R$ ${checkoutData.totalValue || "0,00"}`,
+      "",
+      "═══════════════════════════════════════════",
+      "⏭️ Próximos passos:",
+      "1. Confirmar frete com o cliente",
+      "2. Processar pagamento",
+      "3. Solicitar fotos/personalizações se aplicável",
+      "4. Enviar confirmação do pedido",
+      "═══════════════════════════════════════════",
+    ];
+
+    return lines.join("\n");
+  }
+
   private filterHistoryForContext(history: any[]): any[] {
+
     if (history.length <= 15) {
       return history;
     }
@@ -882,18 +1299,86 @@ Gere APENAS a mensagem final para o cliente.`;
       logger.error("❌ Erro ao buscar prompts do MCP", e);
       mcpSystemPrompts = "";
     }
+
+    // ⚡ INJETA PROTOCOLO DE FECHAMENTO OBRIGATÓRIO se cliente quer finalizar
+    const finalizationIntent = /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento|vou confirmar/i.test(
+      userMessage.toLowerCase(),
+    );
+
+    if (finalizationIntent) {
+      const closingProtocolPrompt = `
+
+--- 🚀 PROTOCOLO OBRIGATÓRIO: FECHAMENTO DE COMPRA ---
+
+⚠️ CLIENTE QUER FINALIZAR! Você DEVE seguir EXATAMENTE estas 5 etapas:
+
+**ETAPA 1: Confirme o Produto**
+- Nome exato da cesta/flor
+- Preço EXATO (ex: R$ 150,00)
+- Se cliente não mencionou, use consultarCatalogo
+
+**ETAPA 2: Colete Data e Horário (OBRIGATÓRIO)**
+- Pergunte: "Para qual data você gostaria da entrega?"
+- Cliente responde
+- Use validate_delivery_availability(date_str, time_str)
+- Apresente TODOS os horários disponíveis
+- Cliente escolhe
+- ✅ CONFIRME ambos
+
+**ETAPA 3: Colete Endereço Completo (OBRIGATÓRIO)**
+- Pergunte: "Qual o endereço completo? (Rua, número, bairro, cidade, complemento)"
+- Valide que tem TODOS os dados
+- Confirme antes de prosseguir
+
+**ETAPA 4: Colete Forma de Pagamento (OBRIGATÓRIO)**
+- Pergunte: "PIX ou Cartão?"
+- Resposta clara: PIX ou CARTÃO
+- ❌ NÃO mencione chave PIX
+- ❌ NÃO calcule frete
+
+**ETAPA 5: Resumo e Confirmação**
+Apresente:
+\`\`\`
+Pedido: [Nome do Produto] - R$ [Valor]
+Entrega: [Data] às [Horário]
+Endereço: [Endereço completo]
+Pagamento: [PIX/Cartão]
+Frete: Será confirmado pelo atendente
+TOTAL: R$ [Valor]
+\`\`\`
+
+Pergunte: "Está tudo certo? Posso finalizar?"
+Aguarde: "Sim", "pode finalizar", "perfeito", etc.
+
+**SOMENTE APÓS confirmação explícita:**
+- Chame: notify_human_support(reason="end_of_checkout", customer_context="[resumo completo]")
+- Chame: block_session()
+- Diga: "Perfeito! Já passei para o time humano. Logo eles te respondem! Obrigadaaa ❤️🥰"
+
+⚠️ CRÍTICO:
+- ❌ NUNCA pule etapas
+- ❌ NUNCA finalize sem os 5 dados (produto, data, horário, endereço, pagamento)
+- ❌ NÃO notifique equipe se faltar algo
+- ✅ Valide TODAS as informações antes de notificar
+
+Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
+`;
+      mcpSystemPrompts += closingProtocolPrompt;
+      logger.info("🚀 PROTOCOLO DE FECHAMENTO INJETADO - Coleta iterativa obrigatória");
+    }
     // ──────────────────────────────────────────────────────────────────────────────
 
-    // Determina se a mensagem exige uso obrigatório de tool na primeira iteração
-    // SOMENTE quando houve match explícito — fallback NÃO força tool_choice
-    const requiresToolCall = wasExplicitMatch && relevantPrompts.some((p) =>
-      [
-        "product_selection_guideline",
-        "indecision_guideline",
-        "delivery_rules_guideline",
-        "faq_production_guideline",
-      ].includes(p),
+    // 🧠 NOVA LÓGICA: Estratégia adaptativa de tools + modelo
+    const { requiresToolCall, shouldOptimizeModel, model: selectedModel } =
+      this.determineToolStrategy(userMessage, wasExplicitMatch, relevantPrompts);
+
+    logger.info(
+      `🎯 Estratégia: toolRequired=${requiresToolCall}, optimizeModel=${shouldOptimizeModel}, model=${selectedModel}`,
     );
+
+    // Atualiza modelo temporário para esta requisição
+    const originalModel = this.model;
+    this.model = selectedModel;
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
@@ -902,88 +1387,96 @@ Gere APENAS a mensagem final para o cliente.`;
 
 ---
 
-## REGRAS DE EXECUÇÃO (OBRIGATÓRIAS)
+## 🤝 FILOSOFIA: Tools Como Aliadas, Não Leis
 
-### Execução Silenciosa
-- **PROIBIDO** anunciar ações: "Vou verificar", "Um momento", "Deixa eu ver", "Um momentinho". Execute tool_calls diretamente com content VAZIO.
-- O cliente vê APENAS a resposta final com dados reais. NUNCA gere mensagens intermediárias sem informação concreta.
-- Se for usar uma ferramenta, sua mensagem DEVE conter APENAS o tool_call (texto vazio). Responda ao cliente somente APÓS ter os dados.
+As ferramentas (tools) disponíveis são RECURSOS para garantir precisão, NÃO obrigações.
 
-### Certeza Absoluta
-- Sem 100% de certeza → use ferramenta obrigatoriamente.
-- Sem ferramenta disponível → "Deixa eu confirmar isso com nosso time! 💕"
-- NUNCA invente preços, composições, prazos ou horários.
+### QUANDO USAR TOOLS (Use com sabedoria):
+✅ **Buscar produtos específicos** - cliente quer ver opções reais
+✅ **Validar prazos de entrega** - informação crítica e temporal
+✅ **Confirmar preços exatos** - cliente pergunta "quanto custa?"
+✅ **Finalizar pedido** - necessário para checkout
+✅ **Dados dinâmicos** - algo que pode ter mudado
+
+### QUANDO RESPONDER SEM TOOLS (Mostre humanidade):
+💬 **Saudações e pequeno-talk** - "Boa noite!", "E aí, tudo bem?"
+💬 **Perguntas gerais** - horários, localização, conceitos
+💬 **Conversas humanizadas** - cliente quer conversar, não buscar
+💬 **Contexto já fornecido** - cliente já descreveu bem o que quer
+
+### REGRA DE OURO:
+**Não sacrifique naturalidade por precisão mecanicista.**
+Se o cliente diz "boa noite", responda naturalmente! Você NÃO precisa validar horários.
+
+---
+
+## REGRAS DE EXECUÇÃO
+
+### Execução Silenciosa (Quando Usar Tools)
+- **PROIBIDO** anunciar ações: "Vou verificar", "Um momento", "Deixa eu ver"
+- Execute tool_calls com content VAZIO
+- Cliente vê APENAS a resposta final com dados reais
+- Responda APÓS ter os dados
+
+### Certeza Absoluta (Prevenção de Alucinações)
+- Dúvida sobre preços/prazos → use ferramenta
+- Ferramenta falhar → "Deixa eu confirmar isso com nosso time! 💕"
+- NUNCA invente preços, composições, prazos
 
 ### Identidade
-- Você é **Ana**, assistente virtual da **Cesto D'Amore**.
-- Tom: carinhoso, empático, prestativo. Emojis com moderação (💕, 🎁, ✅).
+- Você é **Ana**, assistente virtual da **Cesto D'Amore**
+- Carinhosa, empática, prestativa
+- Emojis com moderação (💕, 🎁, ✅)
+- Conversacional e natural
 
 ---
 
-## MAPEAMENTO DE FERRAMENTAS (Execução Imediata)
+## QUANDO USAR CADA FERRAMENTA
 
-| Intenção do Cliente | Ferramenta | Observação |
+| Situação | Ferramenta | Quando? |
 | :--- | :--- | :--- |
-| Buscar produto / cesta | \`consultarCatalogo\` | Use \`preco_minimo\`/\`preco_maximo\` e passe \`contexto\` para ranking semântico |
-| Catálogo / todas opções | \`get_full_catalog\` | Só se pedir explicitamente |
-| Disponibilidade de entrega | \`validate_delivery_availability\` | Passe \`production_time_hours\` se souber o produto |
-| Endereço → frete | \`calculate_freight\` | Apenas após confirmar método de pagamento |
-| Composição / detalhes | \`get_product_details\` | Obrigatório antes de descrever componentes |
-| Salvar progresso | \`save_customer_summary\` | Após cada informação importante do cliente |
+| "Quero um cesto" | consultarCatalogo | ✅ Sempre |
+| "Quanto é?" | consultarCatalogo | ✅ Sempre (preço real) |
+| "Para qual data?" | validate_delivery_availability | ✅ Se produto definido |
+| "Boa noite!" | — | ❌ Responda direto |
+| "Qual horário?" | — | ❌ Responda direto |
+| "Quero comprar!" | notify_human_support | ✅ Checkout completo |
 
 ---
 
-## FORMATO DE APRESENTAÇÃO DE PRODUTOS (OBRIGATÓRIO)
+## APRESENTAÇÃO DE PRODUTOS
 
 \`\`\`
-URL_DA_IMAGEM (sem markdown, URL pura na primeira linha)
-_Opção X_ - **Nome do Produto** - R$ Valor_Exato
-[Descrição EXATA da ferramenta — NÃO invente itens]
-(Produção: X horas comerciais)
+[URL pura - primeira linha]
+_Opção X_ - **Nome** - R$ Valor
+Descrição exata (NUNCA inventar itens)
+(Produção: X horas)
 \`\`\`
 
-- Apresente **2 produtos por vez** (menor ranking = melhor).
-- Se cliente pedir "mais opções", os produtos anteriores já são automaticamente excluídos da próxima busca.
-- NUNCA use \`![img](url)\` — URL pura apenas.
-- NUNCA invente composição. Só descreva o que a ferramenta retornou.
+Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
 ---
 
-## VALIDAÇÃO DE ENTREGA
+## CONTEXTO
 
-- **NUNCA calcule prazos mentalmente.** Sempre use \`validate_delivery_availability\` passando \`production_time_hours\` do produto.
-- Se o cliente não informou a data, pergunte: "Para qual data você gostaria da entrega?"
-- Apresente TODOS os \`suggested_slots\` retornados pela ferramenta.
+- 👤 **Cliente:** ${customerName || "?"}
+- 📞 **Telefone:** ${phone || "?"}
+- 🏪 **Loja:** ${storeStatus}
+- 💭 **Memória:** ${memory?.summary || "—"}
 
----
-
-## ADICIONAIS
-- ❌ NUNCA venda adicionais separadamente.
-- ✅ Só ofereça adicionais APÓS o cliente ESCOLHER uma cesta/flor.
-- ✅ Use \`get_adicionais\` apenas com produto confirmado.
-
----
-
-## CONTEXTO DA SESSÃO
-
-- 👤 **Cliente:** ${customerName || "Não identificado"}
-- 📞 **Telefone:** ${phone || "Não informado"}
-- ⏰ **Agora (Campina Grande):** ${timeInCampina}
-- 📅 **Data atual:** ${dateInCampina}
-- 📆 **Amanhã:** ${tomorrowInCampina}
-- 🏪 **Status da loja:** ${storeStatus}
-- 💭 **Memória do cliente:** ${memory?.summary || "Sem histórico"}
-- 📦 **Produtos já apresentados (IDs):** ${sentProductIds.length > 0 ? sentProductIds.join(", ") : "Nenhum"}
+- ⏰ **Hora:** ${timeInCampina} (${dateInCampina})
+- 📅 **Amanhã:** ${tomorrowInCampina}
+- 🛠️ **Tools disponíveis:** ${toolsInMCP.map((t) => t.name).join(", ")}
+- 🛒 **Produtos já mostrados:** ${sentProductIds.join(", ") || "Nenhum"}
 
 ---
 
-## CHECKLIST ANTES DE RESPONDER
+## ANTES DE RESPONDER
 
-1. Tenho certeza da informação? Se não → ferramenta.
-2. Preço exato da ferramenta? Nunca inventar.
-3. Descrição fiel ao JSON? Nunca adicionar itens.
-4. Prazo via \`validate_delivery_availability\` com \`production_time_hours\`?
-5. Formato de apresentação correto?`},
+1. Cliente quer dados reais ou conversa?
+2. Tenho informação confiável?
+3. Minha resposta será natural?
+4. Preço/prazo = sempre ferramenta?`},
       ...recentHistory.map((msg) => {
         const message: any = {
           role: msg.role,
@@ -1007,17 +1500,22 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
         /cliente (escolheu|demonstrou interesse)/i.test(memory.summary),
     );
 
-    return this.runTwoPhaseProcessing(
-      sessionId,
-      messages,
-      hasChosenProduct,
-      isCartEvent,
-      requiresToolCall,
-      userMessage,
-      memory?.summary || null,
-      customerName || "Cliente",
-      phone || "",
-    );
+    try {
+      return this.runTwoPhaseProcessing(
+        sessionId,
+        messages,
+        hasChosenProduct,
+        isCartEvent,
+        requiresToolCall,
+        userMessage,
+        memory?.summary || null,
+        customerName || "Cliente",
+        phone || "",
+      );
+    } finally {
+      // Restaura modelo original após processamento
+      this.model = originalModel;
+    }
   }
 
   private async runTwoPhaseProcessing(
@@ -1322,9 +1820,9 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
             continue;
           }
 
-          // Valida notify_human_support
+          // Valida notify_human_support - VALIDAÇÃO RIGOROSA
           if (name === "notify_human_support") {
-            const reason = (args.reason || "").toString();
+            const reason = (args.reason || "").toString().toLowerCase();
             const isFinalization =
               /finaliza|finaliza[cç][aã]o|pedido|finalizar|end_of_checkout|carrinho/i.test(
                 reason,
@@ -1334,44 +1832,34 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
               args.customerContext ||
               ""
             )
-              .toString()
-              .toLowerCase();
+              .toString();
 
             if (isFinalization) {
-              const isRetirada =
-                context.includes("retirada") || context.includes("retirar");
+              // VALIDAÇÃO OBRIGATÓRIA para checkout - precisa de TODOS os dados estruturados
+              const contextLower = context.toLowerCase();
+              const isRetirada = contextLower.includes("retirada") || contextLower.includes("retirar");
+              
+              // Checklist rigoroso: TODOS devem estar presentes
               const checks = {
-                produto: [
-                  "cesta",
-                  "produto",
-                  "r$",
-                  "rosa",
-                  "buquê",
-                  "bar",
-                  "chocolate",
-                ],
-                data: [
-                  "entrega",
-                  "data",
-                  "horário",
-                  "hora",
-                  "retirada",
-                  "retirar",
-                ],
-                endereco: isRetirada
-                  ? ["retirada", "retirar", "loja"]
-                  : ["endereço", "rua", "bairro", "cidade"],
-                pagamento: ["pix", "cartão", "pagamento", "crédito", "débito"],
+                "produto (nome e valor R$)": /(?:cesta|produto|buquê|rosa|chocolate|bar|caneca).+?(?:r\$\s*\d+[\.,]\d{2}|\d+[\.,]\d{2})/i,
+                "data de entrega": /entrega:|data:|hoje|amanh[aã]|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/i,
+                "horário da entrega": /(?:às|as|horário:|hora:)\s*\d{1,2}:\d{2}|(?:manhã|tarde|noite)/i,
+                "endereço completo": isRetirada 
+                  ? /(?:retirada|loja)/i 
+                  : /(?:rua|avenida|av\.|r\.|endereço|endereco).+?(?:bairro|cidade|cep|complemento)/i,
+                "forma de pagamento": /(?:pix|cartão|cartao|crédito|credito|débito|debito)/i,
               };
 
               const missing = [];
-              for (const [category, keywords] of Object.entries(checks)) {
-                if (!keywords.some((kw) => context.includes(kw)))
-                  missing.push(category);
+              for (const [fieldName, pattern] of Object.entries(checks)) {
+                if (!pattern.test(context)) {
+                  missing.push(fieldName);
+                }
               }
 
+              // Se faltar algum dado, REJEITA a tentativa
               if (missing.length > 0) {
-                const errorMsg = `{"status":"error","error":"incomplete_context","message":"⚠️ Faltam: ${missing.join(", ")}. Colete tudo ANTES de finalizar."}`;
+                const errorMsg = `{"status":"error","error":"incomplete_checkout","message":"❌ CHECKOUT INCOMPLETO! Faltam dados obrigatórios: ${missing.join(", ")}. \\n\\nVocê DEVE coletar na sequência:\\n1. Produto (nome + preço)\\n2. Data E Horário (valide com validate_delivery_availability)\\n3. Endereço COMPLETO (rua, número, bairro, cidade)\\n4. Forma de pagamento (PIX ou Cartão)\\n5. RESUMO FINAL e confirmação do cliente\\n\\nSomente APÓS todos os 5 passos você chama notify_human_support."}`;
                 messages.push({
                   role: "tool",
                   tool_call_id: toolCall.id,
@@ -1386,8 +1874,20 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
                     name: name,
                   } as any,
                 });
+                logger.warn(`⚠️ Checkout incompleto rejeitado. Faltam: ${missing.join(", ")}`);
                 continue;
               }
+
+              // Se passou na validação, estrutura melhor a mensagem
+              logger.info(`✅ Checkout validado com todos os dados`);
+              
+              // Formata a mensagem de contexto com estrutura clara
+              const structuredContext = `
+=== RESUMO DO PEDIDO ===
+${context}
+=====================
+`.trim();
+              args.customer_context = structuredContext;
             }
             args.session_id = sessionId;
           }

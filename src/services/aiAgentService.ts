@@ -37,6 +37,29 @@ class AIAgentService {
   private detectContextualPrompts(userMessage: string): { prompts: string[]; wasExplicitMatch: boolean } {
     const messageLower = userMessage.toLowerCase();
 
+    const isGreetingOnly = (() => {
+      const cleaned = messageLower
+        .replace(/[^a-z\sáàâãéèêíìîóòôõúùûç]/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!cleaned) return false;
+      const greetings = [
+        "oi",
+        "ola",
+        "olá",
+        "bom dia",
+        "boa tarde",
+        "boa noite",
+        "eai",
+        "e aí",
+      ];
+      if (greetings.some((g) => cleaned === g)) return true;
+      if (cleaned.length <= 12 && greetings.some((g) => cleaned.startsWith(g))) {
+        return true;
+      }
+      return false;
+    })();
+
     // Mapa de detecção: contexto → prompt relevante
     const contextMap = [
       {
@@ -110,6 +133,13 @@ class AIAgentService {
     ];
 
     // Encontra prompts relevantes
+    if (isGreetingOnly) {
+      return {
+        prompts: ["core_identity_guideline"],
+        wasExplicitMatch: false,
+      };
+    }
+
     const matched = contextMap
       .filter((ctx) =>
         ctx.patterns.some((pattern) => pattern.test(messageLower)),
@@ -894,7 +924,7 @@ Gere APENAS a mensagem final para o cliente.`;
 
 | Intenção do Cliente | Ferramenta | Observação |
 | :--- | :--- | :--- |
-| Buscar produto / cesta | \`consultarCatalogo\` | Use \`preco_minimo\`/\`preco_maximo\` para filtros de valor |
+| Buscar produto / cesta | \`consultarCatalogo\` | Use \`preco_minimo\`/\`preco_maximo\` e passe \`contexto\` para ranking semântico |
 | Catálogo / todas opções | \`get_full_catalog\` | Só se pedir explicitamente |
 | Disponibilidade de entrega | \`validate_delivery_availability\` | Passe \`production_time_hours\` se souber o produto |
 | Endereço → frete | \`calculate_freight\` | Apenas após confirmar método de pagamento |
@@ -1206,6 +1236,22 @@ _Opção X_ - **Nome do Produto** - R$ Valor_Exato
                   e,
                 );
               }
+            }
+
+            const ragContext = [memorySummary, currentUserMessage]
+              .filter((text) => {
+                if (!text) return false;
+                const lower = text.toString().toLowerCase();
+                if (lower.includes("[interno]")) return false;
+                if (lower.includes("carrinho")) return false;
+                if (lower.includes("adicionou produto")) return false;
+                if (lower.includes("cart_added")) return false;
+                return true;
+              })
+              .join(" ")
+              .trim();
+            if (ragContext && !args.contexto) {
+              args.contexto = ragContext.slice(0, 600);
             }
           }
 

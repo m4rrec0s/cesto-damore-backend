@@ -16,14 +16,12 @@ class LayoutBaseController {
       const { name, item_type, width, height, slots, additional_time } =
         req.body;
 
-      // Validar campos obrigatórios
       if (!name || !item_type || !width || !height) {
         return res.status(400).json({
           error: "Campos obrigatórios: name, item_type, width, height",
         });
       }
 
-      // Validar tipo de item
       if (!["CANECA", "QUADRO", "QUEBRA_CABECA"].includes(item_type)) {
         return res.status(400).json({
           error:
@@ -31,17 +29,14 @@ class LayoutBaseController {
         });
       }
 
-      // Validar se tem arquivo
       if (!req.file) {
         return res.status(400).json({
           error: "Imagem do layout é obrigatória",
         });
       }
 
-      // Selecionar pasta do Google Drive baseada no tipo
       const folderId = DRIVE_FOLDERS[item_type as keyof typeof DRIVE_FOLDERS];
 
-      // Gerar nome único mantendo a extensão original
       const timestamp = Date.now();
       const randomSuffix = Math.round(Math.random() * 1e9);
       const originalExt = req.file.originalname.split(".").pop();

@@ -14,17 +14,14 @@ interface OrderItemData {
 }
 
 class StockService {
-  /**
-   * Decrementa o estoque dos produtos e adicionais de um pedido
-   * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
-   */
+  
+
   async decrementOrderStock(orderItems: OrderItemData[]): Promise<void> {
     try {
       for (const item of orderItems) {
-        // 1. Decrementar estoque dos componentes do produto (NOVA LÓGICA)
+
         await this.decrementProductStock(item.product_id, item.quantity);
 
-        // 2. Decrementar estoque dos adicionais
         if (item.additionals && item.additionals.length > 0) {
           for (const additional of item.additionals) {
             await this.decrementAdditionalStock(
@@ -41,9 +38,8 @@ class StockService {
     }
   }
 
-  /**
-   * Decrementa estoque de um produto através dos seus componentes
-   */
+  
+
   private async decrementProductStock(
     productId: string,
     quantity: number
@@ -68,7 +64,6 @@ class StockService {
       throw new Error(`Produto ${productId} não encontrado`);
     }
 
-    // NOVA LÓGICA: Se o produto tem componentes, decrementar estoque dos items
     if (product.components.length > 0) {
       await productComponentService.decrementComponentsStock(
         productId,
@@ -77,20 +72,17 @@ class StockService {
       return;
     }
 
-    // LÓGICA LEGADA: Se não tem componentes, decrementar estoque direto do produto
     if (product.stock_quantity === null) {
       logger.warn(`Produto ${product.name} não possui controle de estoque`);
       return;
     }
 
-    // Verifica se tem estoque suficiente
     if (product.stock_quantity < quantity) {
       throw new Error(
         `Estoque insuficiente para ${product.name}. Disponível: ${product.stock_quantity}, Solicitado: ${quantity}`
       );
     }
 
-    // Decrementa estoque direto
     await withRetry(() =>
       prisma.product.update({
         where: { id: productId },
@@ -102,7 +94,6 @@ class StockService {
       })
     );
 
-    // Verificar e enviar alerta se estoque ficou baixo
     const newStock = (product.stock_quantity || 0) - quantity;
     await this.checkAndNotifyLowStock(
       productId,
@@ -112,17 +103,13 @@ class StockService {
     );
   }
 
-  /**
-   * Decrementa estoque de um adicional (com ou sem cor específica)
-   */
+  
+
   private async decrementAdditionalStock(
     additionalId: string,
     quantity: number
   ): Promise<void> {
-    // O schema atual unificou "additional" no modelo Item.
-    // Aqui tentamos ler como Item e, caso não exista uma tabela de cores
-    // (additionalColor) no schema atual, fazemos fallback para decrementar
-    // o estoque total do Item.
+
     const item = await withRetry(() =>
       prisma.item.findUnique({
         where: { id: additionalId },
@@ -138,9 +125,6 @@ class StockService {
       throw new Error(`Adicional/Item ${additionalId} não encontrado`);
     }
 
-    // Cores legadas removidas: decrementa sempre do estoque unificado do Item
-
-    // Valida estoque total do item
     if (item.stock_quantity === null || item.stock_quantity === undefined) {
       logger.warn(`Item ${item.name} não possui controle de estoque`);
       return;
@@ -168,9 +152,8 @@ class StockService {
     );
   }
 
-  /**
-   * Verifica se o estoque ficou baixo e envia notificação WhatsApp
-   */
+  
+
   private async checkAndNotifyLowStock(
     itemId: string,
     itemName: string,
@@ -182,7 +165,7 @@ class StockService {
     const LOW_THRESHOLD = 5;
 
     try {
-      // Estoque crítico (zerado)
+
       if (currentStock === CRITICAL_THRESHOLD) {
         await whatsappService.sendCriticalStockAlert(
           itemId,
@@ -191,7 +174,7 @@ class StockService {
           colorInfo
         );
       }
-      // Estoque baixo (entre 1 e 5)
+
       else if (currentStock > 0 && currentStock <= LOW_THRESHOLD) {
         await whatsappService.sendLowStockAlert(
           itemId,
@@ -203,16 +186,13 @@ class StockService {
         );
       }
     } catch (error) {
-      // Não interrompe o fluxo se a notificação falhar
+
       logger.error("Erro ao enviar notificação de estoque baixo:", error);
     }
   }
 
-  /**
-   * Verifica se há estoque disponível antes de criar o pedido
-   * ✅ CRÍTICO: Busca dados frescos do banco sem cache
-   * ✅ NOVO: Pula validação de produto se ele usa sistema de components
-   */
+  
+
   async validateOrderStock(orderItems: OrderItemData[]): Promise<{
     valid: boolean;
     errors: string[];
@@ -220,7 +200,7 @@ class StockService {
     const errors: string[] = [];
 
     for (const item of orderItems) {
-      // ✅ NOVO: Verificar se produto tem componentes
+
       try {
         const componentCount = await prisma.$queryRaw<Array<{ count: bigint }>>`
           SELECT COUNT(*)::bigint as count
@@ -230,15 +210,13 @@ class StockService {
 
         const hasComponents = Number(componentCount[0]?.count || 0) > 0;
 
-        // ✅ Se produto usa components, não validar estoque direto do produto
         if (hasComponents) {
           logger.info(
             `⚠️ Produto ${item.product_id} usa sistema de components - validação de estoque via components (já feita anteriormente)`
           );
-          // A validação de components já foi feita em validateComponentsStock()
-          // então pulamos a validação do produto direto
+
         } else {
-          // Produto SEM components: validar estoque direto - ✅ Força refresh com $queryRaw
+
           const productResult = await prisma.$queryRaw<
             Array<{
               name: string;
@@ -268,7 +246,6 @@ class StockService {
         errors.push(`Erro ao validar produto ${item.product_id}`);
       }
 
-      // Validar adicionais - ✅ Força refresh com $queryRaw
       if (item.additionals) {
         for (const additional of item.additionals) {
           try {
@@ -287,7 +264,6 @@ class StockService {
 
             if (!additionalData) continue;
 
-            // Validar estoque total do item
             if (
               additionalData.stock_quantity !== null &&
               additionalData.stock_quantity < additional.quantity

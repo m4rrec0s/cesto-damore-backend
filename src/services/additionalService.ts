@@ -3,7 +3,6 @@ import prisma from "../database/prisma";
 import { withRetry } from "../database/prismaRetry";
 import { Additional as AdditionalModel } from "../models/Addtional";
 
-// DB shape for Additional as stored by Prisma
 interface DBAdditional {
   id: string;
   name: string;
@@ -39,7 +38,7 @@ type CreateAdditionalInput = {
         product_id: string;
         custom_price?: number | null;
       }>
-    | string[]; // Permite array de strings também
+    | string[];
 };
 
 type UpdateAdditionalInput = Partial<CreateAdditionalInput>;
@@ -166,7 +165,6 @@ class AdditionalService {
         await this.linkToProducts(r.id, normalizedProducts);
       }
 
-      // cores legadas ignoradas até que o schema suporte
       return await this.getAdditionalById(r.id, true);
     } catch (error: any) {
       if (
@@ -266,10 +264,9 @@ class AdditionalService {
     }
 
     try {
-      // Verifica se o item existe
+
       await this.getAdditionalById(additionalId);
 
-      // Verifica se o produto existe
       const product = await prisma.product.findUnique({
         where: { id: productId },
         select: { id: true },
@@ -279,7 +276,6 @@ class AdditionalService {
         throw new Error("Produto não encontrado");
       }
 
-      // Usar upsert para criar ou atualizar o vínculo
       return await prisma.productAdditional.upsert({
         where: {
           product_id_additional_id: {
@@ -400,7 +396,7 @@ class AdditionalService {
       );
     }
   }
-  // Método para buscar o preço correto do adicional
+
   async getAdditionalPrice(
     additionalId: string,
     productId?: string
@@ -410,7 +406,7 @@ class AdditionalService {
     }
 
     try {
-      // Busca o item unificado
+
       const item = await withRetry(() =>
         prisma.item.findUnique({
           where: { id: additionalId },
@@ -420,7 +416,6 @@ class AdditionalService {
 
       if (!item) throw new Error("Adicional não encontrado");
 
-      // Se tem produto específico, busca o preço customizado no vínculo
       if (productId) {
         const productAdditional = await withRetry(() =>
           prisma.productAdditional.findUnique({
@@ -448,7 +443,6 @@ class AdditionalService {
     }
   }
 
-  // Busca todos os adicionais vinculados a um produto
   async getAdditionalsByProduct(
     productId: string
   ): Promise<ServiceAdditional[]> {
@@ -461,7 +455,7 @@ class AdditionalService {
           include: {
             additional: {
               include: {
-                customizations: true, // Incluir customizações dos adicionais
+                customizations: true,
               },
             },
             product: { select: { id: true, name: true } },
@@ -498,13 +492,11 @@ class AdditionalService {
     }
   }
 
-  // Normaliza entrada de produtos compatíveis para o formato esperado
   private normalizeCompatibleProducts(
     products: CreateAdditionalInput["compatible_products"]
   ): Array<{ product_id: string; custom_price?: number | null }> {
     if (!products) return [];
 
-    // Se for array de strings
     if (
       Array.isArray(products) &&
       products.length > 0 &&
@@ -516,14 +508,12 @@ class AdditionalService {
       }));
     }
 
-    // Caso já seja array de objetos
     return (products as Array<any>).map((p) => ({
       product_id: p.product_id,
       custom_price: p.custom_price ?? null,
     }));
   }
 
-  // cores legadas removidas — não há suporte a cores no novo modelo
   private normalizePrice(price: any): number {
     if (typeof price === "string") {
       let cleanPrice = price;
@@ -551,22 +541,20 @@ class AdditionalService {
   }
 
   private normalizeDiscount(discount: any): number | null {
-    // Se for null ou undefined, retorna null
+
     if (discount === null || discount === undefined || discount === "") {
       return null;
     }
 
-    // Se for string, converte para número
     if (typeof discount === "string") {
       const parsed = parseFloat(discount);
       if (isNaN(parsed)) {
         return null;
       }
-      // Garante que está entre 0 e 100
+
       return Math.max(0, Math.min(100, parsed));
     }
 
-    // Se for número, garante que está entre 0 e 100
     if (typeof discount === "number") {
       return Math.max(0, Math.min(100, discount));
     }

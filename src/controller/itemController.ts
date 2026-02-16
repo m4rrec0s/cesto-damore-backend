@@ -5,7 +5,7 @@ import { saveImageLocally } from "../config/localStorage";
 class ItemController {
   async index(req: Request, res: Response) {
     try {
-      // Suporte a filtro por productId via query string: /items?productId=...
+
       const productId = (req.query.productId as string) || undefined;
 
       if (productId) {
@@ -13,7 +13,6 @@ class ItemController {
         return res.json(items);
       }
 
-      // Paginação
       const page = parseInt(req.query.page as string) || 1;
       const perPage = parseInt(req.query.per_page as string) || 15;
       const search = req.query.search as string;
@@ -36,7 +35,7 @@ class ItemController {
   async show(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      // productId é passado como query param: /items?productId=...
+
       const productId = (req.query.productId as string) || undefined;
 
       if (productId) {
@@ -49,7 +48,6 @@ class ItemController {
         return res.json(item);
       }
 
-      // Se não recebeu nem id nem productId, retorna erro de cliente
       return res
         .status(400)
         .json({ error: "Parâmetro 'id' ou 'productId' é obrigatório" });
@@ -68,7 +66,7 @@ class ItemController {
 
   async create(req: Request, res: Response) {
     try {
-      // Processar imagem se enviada
+
       let imageUrl: string | undefined;
       if (req.file) {
         imageUrl = await saveImageLocally(
@@ -78,7 +76,6 @@ class ItemController {
         );
       }
 
-      // Processar dados do FormData
       const data = {
         name: req.body.name,
         description: req.body.description || undefined,
@@ -114,7 +111,6 @@ class ItemController {
     try {
       const { id } = req.params;
 
-      // Processar imagem se enviada
       let imageUrl: string | undefined;
       if (req.file) {
         imageUrl = await saveImageLocally(
@@ -124,7 +120,6 @@ class ItemController {
         );
       }
 
-      // Processar dados do FormData
       const data: any = {};
 
       if (req.body.name !== undefined) data.name = req.body.name;

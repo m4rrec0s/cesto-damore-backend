@@ -23,12 +23,11 @@ interface PreviewResponse {
 }
 
 class PreviewService {
-  /**
-   * Gera preview dinâmico da customização
-   */
+  
+
   async generatePreview(data: PreviewRequest): Promise<PreviewResponse> {
     try {
-      // Buscar produto e seu tipo
+
       const product = await prisma.product.findUnique({
         where: { id: data.productId },
         include: {
@@ -42,7 +41,6 @@ class PreviewService {
         };
       }
 
-      // Verificar se o tipo de produto suporta preview 3D
       const productType = await prisma.productType.findUnique({
         where: { id: product.type_id },
       });
@@ -72,15 +70,12 @@ class PreviewService {
     }
   }
 
-  /**
-   * Retorna URL do modelo 3D baseado no tipo de produto
-   */
+  
+
   private get3DModelUrl(productTypeId: string): string {
-    // Mapeamento estático - pode ser migrado para banco futuramente
+
     const modelsMap: Record<string, string> = {
-      // Exemplos de mapeamento
-      // 'caneca-id': '/models/caneca.glb',
-      // 'quadro-id': '/models/quadro.glb',
+
     };
 
     return (
@@ -88,9 +83,8 @@ class PreviewService {
     );
   }
 
-  /**
-   * Valida se os dados de customização estão completos para preview
-   */
+  
+
   validatePreviewData(data: PreviewRequest): {
     valid: boolean;
     errors: string[];

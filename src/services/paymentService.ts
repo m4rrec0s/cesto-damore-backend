@@ -9,7 +9,7 @@ import whatsappService from "./whatsappService";
 import orderCustomizationService from "./orderCustomizationService";
 import { webhookNotificationService } from "./webhookNotificationService";
 import orderService from "./orderService";
-import alertService from "./alertService"; // 🔥 NOVO
+import alertService from "./alertService";
 import logger from "../utils/logger";
 
 type OrderWithPaymentDetails = Prisma.OrderGetPayload<{
@@ -104,7 +104,7 @@ export interface ProcessTransparentCheckoutData {
 }
 
 export class PaymentService {
-  // In-memory guard to avoid duplicate confirmation sends within same process
+
   private static notificationSentOrders: Set<string> = new Set();
   private static resolveShippingPrice(
     order: OrderWithPaymentDetails,
@@ -372,9 +372,6 @@ export class PaymentService {
         throw new Error("Pedido não possui itens");
       }
 
-      // Tenta obter o método de pagamento do pedido, caso não exista, usar o método
-      // informado pelo payload (data.paymentMethodId). Se encontrarmos um método
-      // válido no payload, persistimos no pedido para manter a consistência.
       let orderPaymentMethod = normalizeOrderPaymentMethod(
         order.payment_method,
       );
@@ -436,14 +433,13 @@ export class PaymentService {
           throw new Error("Pedido já possui pagamento aprovado");
         }
 
-        // ✅ MUDANÇA: Permitir nova tentativa se o pagamento ainda está pendente, em processamento OU foi rejeitado
         if (
           order.payment.status === "PENDING" ||
           order.payment.status === "IN_PROCESS" ||
           order.payment.status === "REJECTED" ||
           order.payment.status === "CANCELLED"
         ) {
-          // Cancelar o pagamento anterior no Mercado Pago (se existir e não estiver rejeitado/cancelado)
+
           if (
             order.payment.mercado_pago_id &&
             order.payment.status !== "REJECTED" &&
@@ -459,11 +455,10 @@ export class PaymentService {
                 "⚠️ Não foi possível cancelar pagamento anterior:",
                 cancelError,
               );
-              // Continua mesmo se falhar, pois vamos criar um novo
+
             }
           }
 
-          // Deletar o registro de pagamento anterior
           await prisma.payment.delete({
             where: { id: order.payment.id },
           });
@@ -603,7 +598,6 @@ export class PaymentService {
       if (paymentResponse.status === "approved") {
         await orderService.updateOrderStatus(data.orderId, "PAID");
 
-        // Finalize customizations first (upload to Drive), then notify
         try {
           const finalizeRes =
             await orderCustomizationService.finalizeOrderCustomizations(
@@ -615,11 +609,10 @@ export class PaymentService {
             )}`,
           );
 
-          // Only send WhatsApp if we have a folder URL (or no files to upload but no error)
           const willNotify =
             !!finalizeRes.folderUrl ||
             (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
-          // Always send SSE update so frontend knows the order is PAID
+
           webhookNotificationService.notifyPaymentUpdate(data.orderId, {
             status: "approved",
             paymentId: paymentRecord.id,
@@ -668,8 +661,7 @@ export class PaymentService {
           });
         }
       } else {
-        // ✅ NOVO: Notificar outros status (pending, in_process, rejected, etc)
-        // Isso permite ao frontend mostrar feedbacks imediatos durante o checkout
+
         webhookNotificationService.notifyPaymentUpdate(data.orderId, {
           status: this.mapPaymentStatus(paymentResponse.status || "pending"),
           paymentId: paymentRecord.id,
@@ -754,7 +746,6 @@ export class PaymentService {
         }
       }
 
-      // Create error with cause preserved for controller to extract friendly message
       const paymentError = new Error(
         `Falha ao processar pagamento: ${errorMessage}`,
       ) as any;
@@ -911,9 +902,8 @@ export class PaymentService {
         },
       });
 
-      // If payment is approved, finalize any order customizations (upload/sanitize artwork)
       if (mercadoPagoResult.status === "approved") {
-        // Run finalize in background (non-blocking) so the API call that creates the payment is not blocked
+
         orderCustomizationService
           .finalizeOrderCustomizations(order.id)
           .then(async (customizationResult) => {
@@ -922,10 +912,9 @@ export class PaymentService {
               customizationResult,
             );
 
-            // ✅ NOVO: Salvar Drive folder info no banco e enviar WhatsApp
             if (customizationResult.folderId) {
               try {
-                // Recarregar ordem com usuário para enviar WhatsApp
+
                 const orderWithUser = await prisma.order.findUnique({
                   where: { id: order.id },
                   include: {
@@ -954,7 +943,6 @@ export class PaymentService {
                   `📁 Ordem ${order.id} atualizada com Drive folder: ${customizationResult.folderId}`,
                 );
 
-                // ✅ NOVO: Enviar WhatsApp com link do Drive
                 if (orderWithUser.user?.phone) {
                   try {
                     const items = orderWithUser.items.map((item) => ({
@@ -1125,19 +1113,15 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Busca opções de parcelamento disponíveis para um determinado valor e método de pagamento
-   * @param amount - Valor total da compra
-   * @param paymentMethodId - ID do método de pagamento (ex: 'visa', 'master', 'elo')
-   * @param bin - Primeiros 6 dígitos do cartão (opcional, melhora precisão)
-   */
+  
+
   static async getInstallmentOptions(
     amount: number,
     paymentMethodId: string,
     bin?: string,
   ) {
     try {
-      // Construir URL com parâmetros
+
       const params = new URLSearchParams({
         amount: amount.toString(),
         payment_method_id: paymentMethodId,
@@ -1164,8 +1148,6 @@ export class PaymentService {
 
       const data = await response.json();
 
-      // A API retorna um array com as opções de parcelamento
-      // Cada item contém payer_costs com as parcelas disponíveis
       if (data && data.length > 0 && data[0].payer_costs) {
         return {
           payment_method_id: data[0].payment_method_id,
@@ -1186,22 +1168,19 @@ export class PaymentService {
         };
       }
 
-      // Fallback: se não conseguir buscar da API, retornar parcelas padrão
       return this.getDefaultInstallmentOptions(amount);
     } catch (error) {
       console.error("Erro ao buscar opções de parcelamento:", error);
-      // Em caso de erro, retornar opções padrão
+
       return this.getDefaultInstallmentOptions(amount);
     }
   }
 
-  /**
-   * Retorna opções de parcelamento padrão quando a API não está disponível
-   */
+  
+
   private static getDefaultInstallmentOptions(amount: number) {
     const installments = [];
 
-    // Até 12 parcelas
     for (let i = 1; i <= 12; i++) {
       const installmentAmount = amount / i;
       const totalAmount = amount;
@@ -1244,11 +1223,8 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Retry finalization for webhook logs where finalization failed or wasn't attempted
-   * This is intended to be called on startup or via scheduled cron to ensure
-   * we eventually finalize pending customizations without relying solely on provider retries.
-   */
+  
+
   static async reprocessFailedFinalizations(maxAttempts = 5) {
     try {
       const logs = await prisma.webhookLog.findMany({
@@ -1277,7 +1253,6 @@ export class PaymentService {
             continue;
           }
 
-          // ✅ NOVO: Só reprocessar se o pagamento foi APPROVED
           if (dbPayment.status !== "APPROVED") {
             console.warn(
               `Reprocess: pagamento ${paymentId} não aprovado (status: ${dbPayment.status}), pulando.`,
@@ -1326,15 +1301,13 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Reprocess finalization for a specific order, for admin manual retry.
-   */
+  
+
   static async reprocessFinalizationForOrder(orderId: string) {
     try {
       const finalizeRes =
         await orderCustomizationService.finalizeOrderCustomizations(orderId);
 
-      // Update webhook logs for the payment related to this order (if exists)
       const payment = await prisma.payment.findUnique({
         where: { order_id: orderId },
       });
@@ -1376,7 +1349,6 @@ export class PaymentService {
         };
       }
 
-      // ⚠️ IGNORAR webhooks de criação - só processar atualizações de pagamento
       if (data.action === "payment.created") {
         logger.info(
           "Webhook de criação ignorado - aguardando confirmação de pagamento",
@@ -1391,13 +1363,11 @@ export class PaymentService {
         };
       }
 
-      // Extrair tipo do webhook - suporte para 'type', 'topic' e 'action'
       let webhookType = data.type || data.topic;
       if (!webhookType && data.action) {
-        webhookType = data.action.split(".")[0]; // 'payment.updated' -> 'payment'
+        webhookType = data.action.split(".")[0];
       }
 
-      // Extrair resourceId - suporte para formato NOVO (data.id) e LEGADO (resource)
       const resourceId =
         (data.data && data.data.id && data.data.id.toString()) ||
         (data.resource && data.resource.toString()) ||
@@ -1418,10 +1388,8 @@ export class PaymentService {
         };
       }
 
-      // Identificar formato (legacy ou novo) para logging e processamento
       const webhookFormat = data.topic && data.resource ? "legacy" : "new";
 
-      // Log minimalista padronizado para facilitar leitura dos eventos
       logger.info("🔔 Webhook recebido", {
         format: webhookFormat,
         type: webhookType,
@@ -1430,7 +1398,6 @@ export class PaymentService {
         timestamp: data.date_created || data.date || new Date().toISOString(),
       });
 
-      // Verificar se já processamos este webhook (idempotência)
       const existingLog = await prisma.webhookLog.findFirst({
         where: {
           resource_id: resourceId,
@@ -1443,8 +1410,7 @@ export class PaymentService {
       });
 
       if (existingLog) {
-        // If we've processed this webhook previously, verify that our DB is consistent with
-        // the Mercado Pago status. If the DB hasn't been updated but MP reports 'approved', re-run processing.
+
         try {
           const paymentInfo = await this.getPayment(resourceId);
           const dbPayment = await prisma.payment.findFirst({
@@ -1457,9 +1423,9 @@ export class PaymentService {
               "⚠️ Webhook marked processed but DB out-of-sync (MP approved, DB not) - reprocessing",
               { resourceId },
             );
-            // Reprocess to ensure order/payment state is updated
+
             await this.processPaymentNotification(resourceId);
-            // Update log with attempted reprocess
+
             await prisma.webhookLog.updateMany({
               where: { resource_id: resourceId, topic: webhookType },
               data: { processed: true },
@@ -1510,8 +1476,7 @@ export class PaymentService {
       switch (webhookType) {
         case "payment":
           processedPayment = await this.processPaymentNotification(resourceId);
-          // ✅ REMOVIDO: Webhook monitor foi removido para evitar duplicação
-          // finalizeOrderCustomizations agora é chamada UMA VEZ em processPaymentNotification
+
           break;
         case "merchant_order":
           await this.processMerchantOrderNotification(resourceId);
@@ -1531,7 +1496,7 @@ export class PaymentService {
           },
         });
       } else {
-        // If payment was not processed (e.g., not found in DB), do not mark as processed
+
         console.warn(
           "⚠️ Webhook processing completed but payment was NOT processed (not updating webhookLog.processed)",
           { resourceId, topic: webhookType },
@@ -1545,7 +1510,6 @@ export class PaymentService {
     } catch (error: any) {
       console.error("Erro ao processar webhook:", error);
 
-      // If DB is unreachable (Prisma P1001), store the webhook locally for later retry
       const isPrismaDBUnreachable =
         (error && (error.code === "P1001" || error?.meta?.code === "P1001")) ||
         false;
@@ -1569,7 +1533,6 @@ export class PaymentService {
           console.error("Falha ao salvar webhook offline:", fileErr);
         }
 
-        // Respond as accepted (202) to avoid provider retries; we will reprocess later
         return {
           success: true,
           message:
@@ -1577,7 +1540,6 @@ export class PaymentService {
         };
       }
 
-      // Extrair resourceId - formato NOVO do MP: { data: { id } }
       const resourceId = data?.data?.id?.toString();
       const webhookType = data?.type || data?.action?.split(".")[0];
 
@@ -1598,10 +1560,8 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Reprocess stored webhooks that were stored locally due to DB unavailability
-   * Useful to run during startup or as a cron task.
-   */
+  
+
   static async replayStoredWebhooks() {
     const filePath =
       process.env.WEBHOOK_OFFLINE_LOG_FILE || "./webhook_offline_log.ndjson";
@@ -1620,11 +1580,10 @@ export class PaymentService {
         }
       }
 
-      // Rewrite file with failed entries only
       if (failed.length > 0) {
         await fs.writeFile(filePath, failed.join("\n") + "\n", "utf-8");
       } else {
-        // Remove file when all processed
+
         await fs.unlink(filePath);
       }
     } catch (error: any) {
@@ -1660,7 +1619,6 @@ export class PaymentService {
 
       const newStatus = this.mapPaymentStatus(paymentInfo.status as string);
 
-      // Use conditional update to avoid duplicate processing across concurrent webhook handlers
       const updateResult = await prisma.payment.updateMany({
         where: { id: dbPayment.id, status: { not: newStatus } },
         data: {
@@ -1686,7 +1644,7 @@ export class PaymentService {
       });
 
       if (updateResult.count === 0) {
-        // Another process has already updated this payment to the target status -> skip send/finalize
+
         console.log(
           `⚠️ Pagamento ${dbPayment.id} já atualizado para ${newStatus} por outro processo - pulando notificações e finalização`,
         );
@@ -1699,10 +1657,9 @@ export class PaymentService {
       console.log(`💾 DB updated payment ${dbPayment.id} -> ${newStatus}`);
 
       if (paymentInfo.status === "approved") {
-        // Update order status via OrderService to trigger stock decrement
+
         await orderService.updateOrderStatus(dbPayment.order_id, "PAID");
 
-        // ✅ VERIFICAÇÃO DE IDEMPOTÊNCIA: Verificar se já foi finalizado com sucesso
         const existingFinalized = await prisma.webhookLog.findFirst({
           where: {
             resource_id: paymentId,
@@ -1715,7 +1672,7 @@ export class PaymentService {
           logger.info(
             `🟢 Customizações já finalizadas para ${dbPayment.order_id} (via webhookLog), pulando finalização.`,
           );
-          // Still send notifications if not already sent
+
           if (!PaymentService.notificationSentOrders.has(dbPayment.order_id)) {
             try {
               const finalGoogleDriveUrl = await this.getOrderGoogleDriveUrl(
@@ -1740,7 +1697,7 @@ export class PaymentService {
             }
           }
         } else {
-          // ✅ MUST: finalize customizations BEFORE sending notifications (apenas se não foi feito antes)
+
           let googleDriveUrl: string | undefined;
           try {
             const finalizeRes =
@@ -1753,10 +1710,8 @@ export class PaymentService {
               )}`,
             );
 
-            // Store the folder URL for notifications
             googleDriveUrl = finalizeRes.folderUrl;
 
-            // Update webhook log(s) with finalization result for traceability
             await prisma.webhookLog.updateMany({
               where: { resource_id: paymentId, topic: "payment" },
               data: {
@@ -1772,7 +1727,6 @@ export class PaymentService {
               },
             });
 
-            // 🔥 NOVO: Enviar alerta se base64 residual detectado
             if (finalizeRes.base64Detected && finalizeRes.base64AffectedIds) {
               await alertService.alertBase64Residual(
                 dbPayment.order_id,
@@ -1781,13 +1735,12 @@ export class PaymentService {
               );
             }
 
-            // Only notify if finalization produced a drive link (or no artifacts but no errors). Prefer: only notify if googleDrive link found.
             const willNotify =
               !!finalizeRes.folderUrl ||
               (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
 
             if (willNotify) {
-              // 🔔 Notificar frontend via SSE sobre pagamento aprovado
+
               webhookNotificationService.notifyPaymentUpdate(
                 dbPayment.order_id,
                 {
@@ -1805,7 +1758,6 @@ export class PaymentService {
                 `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`,
               );
 
-              // Send group + buyer notifications only AFTER Drive link is ready
               if (
                 !PaymentService.notificationSentOrders.has(dbPayment.order_id)
               ) {
@@ -1831,7 +1783,6 @@ export class PaymentService {
                 `⚠️ Finalização não retornou link do Drive; pulando envio de notificações para order ${dbPayment.order_id}`,
               );
 
-              // Still notify frontend via SSE that it was approved
               webhookNotificationService.notifyPaymentUpdate(
                 dbPayment.order_id,
                 {
@@ -1850,7 +1801,7 @@ export class PaymentService {
               "⚠️ Erro na finalização das customizações antes do envio de notificações:",
               err,
             );
-            // Still try to notify to frontend that payment was approved (without whatsapp)
+
             webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
               status: "approved",
               paymentId: dbPayment.id,
@@ -1866,8 +1817,7 @@ export class PaymentService {
           }
         }
       } else {
-        // ✅ NOVO: Notificar outros status vindo do Webhook (pending, rejected, cancelled, etc)
-        // Isso é fundamental para atualizar o checkout em tempo real se o pagamento falhar ou ficar pendente
+
         webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
           status: newStatus,
           paymentId: dbPayment.id,
@@ -1926,7 +1876,6 @@ export class PaymentService {
       const items: Array<{ name: string; quantity: number; price: number }> =
         [];
 
-      // Prefer explicit folder URL or order's folder URL; do not fall back to per-customization links
       const finalGoogleDriveUrl =
         googleDriveUrl || order.google_drive_folder_url || undefined;
 
@@ -1969,7 +1918,7 @@ export class PaymentService {
             }
           : undefined,
       };
-      // Include flags and complement for notification's business logic
+
       (orderData as any).send_anonymously = order.send_anonymously || false;
       (orderData as any).complement = order.complement || undefined;
       await whatsappService.sendOrderConfirmationNotification(orderData, {
@@ -1977,7 +1926,6 @@ export class PaymentService {
         notifyCustomer: false,
       });
 
-      // Enviar confirmação APENAS para o COMPRADOR
       if (order.user.phone) {
         await whatsappService.sendOrderConfirmation({
           phone: order.user.phone,
@@ -2048,14 +1996,13 @@ export class PaymentService {
     }
   }
 
-  /**
-   * ✅ NOVO: Busca URL do Google Drive da ordem (pasta raiz ou primeira customização)
-   */
+  
+
   private static async getOrderGoogleDriveUrl(
     orderId: string,
   ): Promise<string | undefined> {
     try {
-      // Tentar buscar pasta raiz primeiro
+
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         select: { google_drive_folder_url: true },

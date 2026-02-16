@@ -7,21 +7,15 @@ interface WebhookClient {
   pingInterval?: NodeJS.Timeout | null;
 }
 
-/**
- * Serviço para gerenciar notificações via Server-Sent Events (SSE)
- * Permite que o frontend receba atualizações em tempo real sobre pagamentos
- */
 class WebhookNotificationService {
   private clients: Map<string, WebhookClient[]> = new Map();
-  private readonly CLIENT_TIMEOUT = 5 * 60 * 1000; // 5 minutos de timeout
+  private readonly CLIENT_TIMEOUT = 5 * 60 * 1000;
 
-  /**
-   * Registra um cliente SSE para receber notificações de um pedido específico
-   */
+  
+
   registerClient(orderId: string, res: Response): void {
     logger.info(`📡 Cliente SSE registrado para pedido: ${orderId}`);
 
-    // Configurar headers SSE
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader(
       "Cache-Control",
@@ -31,44 +25,38 @@ class WebhookNotificationService {
     res.setHeader("Expires", "0");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("X-Accel-Buffering", "no"); // Para nginx
+    res.setHeader("X-Accel-Buffering", "no");
 
-    // Flush headers when possible to ensure client starts receiving data immediately
     try {
       (res as any).flushHeaders?.();
     } catch {
-      /* ignore */
+      
     }
 
-    // Enviar mensagem inicial de conexão
     res.write(`data: ${JSON.stringify({ type: "connected", orderId })}\n\n`);
 
-    // Iniciar heartbeat para manter conexão viva (20s)
     const pingInterval = setInterval(() => {
       try {
-        // comments are valid SSE to keep NAT/proxy alive
+
         res.write(`: ping\n\n`);
       } catch (err) {
         logger.warn("🔔 Erro ao enviar ping SSE:", err);
       }
     }, 20000);
 
-    // Configurar timeout para desconectar automaticamente após período de inatividade
     const timeoutHandle = setTimeout(() => {
       logger.info(`⏱️ Timeout SSE para pedido ${orderId} - fechando conexão`);
       try {
         res.end();
       } catch {
-        /* ignore */
+        
       }
     }, this.CLIENT_TIMEOUT);
 
-    // Adicionar cliente à lista
     const clients = this.clients.get(orderId) || [];
     clients.push({ orderId, response: res, pingInterval });
     this.clients.set(orderId, clients);
 
-    // Remover cliente quando a conexão for fechada
     res.on("close", () => {
       logger.info(`❌ Cliente SSE desconectado para pedido: ${orderId}`);
       clearTimeout(timeoutHandle);
@@ -76,9 +64,8 @@ class WebhookNotificationService {
     });
   }
 
-  /**
-   * Remove um cliente específico da lista de notificações
-   */
+  
+
   private removeClient(orderId: string, res: Response): void {
     const clients = this.clients.get(orderId) || [];
     const filtered = clients.filter((client) => {
@@ -87,7 +74,7 @@ class WebhookNotificationService {
           clearInterval(client.pingInterval);
           client.pingInterval = null;
         }
-        return false; // remove this client
+        return false;
       }
       return true;
     });
@@ -99,9 +86,8 @@ class WebhookNotificationService {
     }
   }
 
-  /**
-   * Notifica todos os clientes conectados sobre uma atualização de pagamento
-   */
+  
+
   notifyPaymentUpdate(
     orderId: string,
     data: {
@@ -132,7 +118,6 @@ class WebhookNotificationService {
       ...data,
     };
 
-    // Enviar para todos os clientes conectados
     clients.forEach((client, index) => {
       try {
         client.response.write(`data: ${JSON.stringify(message)}\n\n`);
@@ -147,9 +132,8 @@ class WebhookNotificationService {
     });
   }
 
-  /**
-   * Notifica sobre erro no processamento do pagamento
-   */
+  
+
   notifyPaymentError(
     orderId: string,
     error: {
@@ -182,9 +166,8 @@ class WebhookNotificationService {
     });
   }
 
-  /**
-   * Retorna estatísticas sobre clientes conectados
-   */
+  
+
   getStats() {
     return {
       totalOrders: this.clients.size,
@@ -199,9 +182,8 @@ class WebhookNotificationService {
     };
   }
 
-  /**
-   * Limpa conexões mortas (para manutenção periódica)
-   */
+  
+
   cleanupDeadConnections(): void {
     let totalCleaned = 0;
 
@@ -209,11 +191,11 @@ class WebhookNotificationService {
       const activePreviously = clients.length;
       const filtered = clients.filter((client) => {
         try {
-          // Tentar escrever um comentário para verificar se a conexão está viva
+
           client.response.write(`: health-check\n\n`);
           return true;
         } catch {
-          // Conexão está morta, remover
+
           if (client.pingInterval) {
             clearInterval(client.pingInterval);
             client.pingInterval = null;

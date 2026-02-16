@@ -4,7 +4,6 @@ import mcpClientService from "./mcpClientService";
 import logger from "../utils/logger";
 import { addDays, isPast } from "date-fns";
 
-// Fases do atendimento estruturado
 enum AttendancePhase {
   CONNECT = "CONNECT",
   UNDERSTAND = "UNDERSTAND",
@@ -12,12 +11,11 @@ enum AttendancePhase {
   FOLLOWUP = "FOLLOWUP",
 }
 
-// Estados internos do processamento
 enum ProcessingState {
-  ANALYZING = "ANALYZING", // Analisando a mensagem do usuário
-  GATHERING_DATA = "GATHERING_DATA", // Coletando dados via tools
-  SYNTHESIZING = "SYNTHESIZING", // Sintetizando informações coletadas
-  READY_TO_RESPOND = "READY_TO_RESPOND", // Pronto para responder
+  ANALYZING = "ANALYZING",
+  GATHERING_DATA = "GATHERING_DATA",
+  SYNTHESIZING = "SYNTHESIZING",
+  READY_TO_RESPOND = "READY_TO_RESPOND",
 }
 
 interface QueuedMessage {
@@ -39,7 +37,6 @@ class AIAgentServiceImproved {
   private openai: OpenAI;
   private model: string = "gpt-4o-mini";
 
-  // Sistema de fila por sessão
   private messageQueues: Map<string, QueuedMessage[]> = new Map();
   private processingFlags: Map<string, boolean> = new Map();
 
@@ -49,15 +46,10 @@ class AIAgentServiceImproved {
     });
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════
-   * SISTEMA DE PROMPTS MELHORADO
-   * ═══════════════════════════════════════════════════════════════
-   */
+  
 
-  /**
-   * RAG Dinâmico: Detecta contexto da mensagem e retorna prompts relevantes
-   */
+  
+
   private detectContextualPrompts(userMessage: string): string[] {
     const messageLower = userMessage.toLowerCase();
 
@@ -110,9 +102,8 @@ class AIAgentServiceImproved {
     return ["core_identity_guideline", ...uniquePrompts];
   }
 
-  /**
-   * Busca as principais guidelines do MCP usando RAG dinâmico
-   */
+  
+
   private async getGuidelinesFromMCP(userMessage: string): Promise<string> {
     try {
       const relevantPrompts = this.detectContextualPrompts(userMessage);
@@ -171,7 +162,6 @@ class AIAgentServiceImproved {
       day: "2-digit",
     }).format(now);
 
-    // Calcula "amanhã" corretamente
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowInCampina = new Intl.DateTimeFormat("pt-BR", {
@@ -255,7 +245,7 @@ class AIAgentServiceImproved {
 
 ✅ **SEMPRE 2 PRODUTOS** por vez (nunca 1, 3 ou 4)
 ✅ **FORMATO OBRIGATÓRIO**:
-https://api.cestodamore.com.br/images/produto.webp
+https:
 _Opção 1_ - Nome - R$ 100
 (Produção: 1h ✅)
 
@@ -400,9 +390,8 @@ Você tem acesso às seguintes ferramentas MCP (use livremente na FASE 1):
 Lembre-se: Seja eficiente, organizada e sempre coloque a experiência do cliente em primeiro lugar! 💕`;
   }
 
-  /**
-   * Prompt específico para a fase de síntese
-   */
+  
+
   private getSynthesisPrompt(toolResults: ToolExecutionResult[]): string {
     const resultsText = toolResults
       .map(
@@ -429,29 +418,22 @@ REGRAS PARA SUA RESPOSTA:
 Gere APENAS a mensagem final para o cliente.`;
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════
-   * VALIDAÇÃO E LIMPEZA DE MENSAGENS
-   * ═══════════════════════════════════════════════════════════════
-   */
+  
 
   private validateAndCleanMessage(message: string): string | null {
     if (!message || message.trim().length === 0) return null;
 
     let cleaned = message.trim();
 
-    // Remove marcadores que não devem aparecer
     cleaned = cleaned.replace(/\[INTERNO\].*?(?=\n[^\[]|$)/gs, "");
     cleaned = cleaned.replace(/\[THINK\]/gi, "");
     cleaned = cleaned.replace(/\[DEBUG\].*?$/gm, "");
     cleaned = cleaned.replace(/\[SEND\]/gi, "");
     cleaned = cleaned.replace(/\[DONE\]/gi, "");
 
-    // Remove múltiplas quebras de linha
     cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
     cleaned = cleaned.replace(/ {2,}/g, " ");
 
-    // Validações
     if (cleaned.length < 3) return null;
     if (cleaned.length > 2000) {
       cleaned = cleaned.substring(0, 1997) + "...";
@@ -460,11 +442,7 @@ Gere APENAS a mensagem final para o cliente.`;
     return cleaned.trim();
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════
-   * SISTEMA DE FILA DE MENSAGENS
-   * ═══════════════════════════════════════════════════════════════
-   */
+  
 
   async chatIncremental(
     sessionId: string,
@@ -541,11 +519,7 @@ Gere APENAS a mensagem final para o cliente.`;
     }
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════
-   * PROCESSAMENTO PRINCIPAL DA MENSAGEM
-   * ═══════════════════════════════════════════════════════════════
-   */
+  
 
   private async processMessage(
     sessionId: string,
@@ -559,7 +533,6 @@ Gere APENAS a mensagem final para o cliente.`;
       throw new Error("Session not found");
     }
 
-    // Verifica se sessão está bloqueada
     if (session.is_blocked) {
       const blockedMessage =
         "Sua solicitação foi encaminhada para nossa equipe especializada! Em breve você será atendido por um humano. 💕";
@@ -567,7 +540,6 @@ Gere APENAS a mensagem final para o cliente.`;
       return { output: blockedMessage };
     }
 
-    // Salva mensagem do usuário
     await prisma.aIAgentMessage.create({
       data: {
         session_id: session.id,
@@ -576,13 +548,10 @@ Gere APENAS a mensagem final para o cliente.`;
       },
     });
 
-    // Obtém histórico limpo
     const history = await this.getCleanedHistory(session.id);
 
-    // Obtém ferramentas MCP
     const tools = await mcpClientService.listTools();
 
-    // Obtém o system prompt com guidelines do MCP e RAG dinâmico
     const systemPrompt = await this.getSystemPrompt(
       userMessage,
       sessionId,
@@ -590,7 +559,6 @@ Gere APENAS a mensagem final para o cliente.`;
       customerName,
     );
 
-    // Monta mensagens para OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
@@ -603,7 +571,6 @@ Gere APENAS a mensagem final para o cliente.`;
       },
     ];
 
-    // EXECUTA O LOOP DE PROCESSAMENTO EM DUAS FASES
     const aiMessage = await this.runTwoPhaseProcessing(
       sessionId,
       messages,
@@ -614,11 +581,7 @@ Gere APENAS a mensagem final para o cliente.`;
     return { output: aiMessage };
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════
-   * PROCESSAMENTO EM DUAS FASES (核心改进)
-   * ═══════════════════════════════════════════════════════════════
-   */
+  
 
   private async runTwoPhaseProcessing(
     sessionId: string,
@@ -626,7 +589,7 @@ Gere APENAS a mensagem final para o cliente.`;
     customerPhone: string,
     tools: any[],
   ): Promise<string> {
-    const MAX_TOOL_ITERATIONS = 10; // Limite de iterações para coleta
+    const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
     let toolExecutionResults: ToolExecutionResult[] = [];
 
@@ -638,10 +601,6 @@ Gere APENAS a mensagem final para o cliente.`;
         parameters: t.inputSchema,
       },
     }));
-
-    // ═══════════════════════════════════════════════════════════════
-    // FASE 1: COLETA DE INFORMAÇÕES (LOOP INTERNO)
-    // ═══════════════════════════════════════════════════════════════
 
     logger.info("🔍 FASE 1: Iniciando coleta de informações...");
 
@@ -659,7 +618,6 @@ Gere APENAS a mensagem final para o cliente.`;
 
       const responseMessage = response.choices[0].message;
 
-      // Se há tool_calls, executa e continua coletando
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
         currentState = ProcessingState.GATHERING_DATA;
 
@@ -667,14 +625,12 @@ Gere APENAS a mensagem final para o cliente.`;
           `🛠️ Executando ${responseMessage.tool_calls.length} ferramenta(s)...`,
         );
 
-        // Adiciona mensagem assistant ao contexto
         messages.push({
           role: "assistant",
           content: responseMessage.content || "",
           tool_calls: responseMessage.tool_calls as any,
         });
 
-        // Salva no banco
         await prisma.aIAgentMessage.create({
           data: {
             session_id: sessionId,
@@ -684,7 +640,6 @@ Gere APENAS a mensagem final para o cliente.`;
           },
         });
 
-        // Executa cada tool
         for (const toolCall of responseMessage.tool_calls) {
           if (toolCall.type !== "function") continue;
 
@@ -704,7 +659,6 @@ Gere APENAS a mensagem final para o cliente.`;
             success = false;
           }
 
-          // Normaliza resultado
           let toolOutputText: string;
           if (typeof result === "string") {
             toolOutputText = result;
@@ -724,7 +678,6 @@ Gere APENAS a mensagem final para o cliente.`;
             `✅ Resultado: ${toolOutputText.substring(0, 100)}${toolOutputText.length > 100 ? "..." : ""}`,
           );
 
-          // Registra execução
           toolExecutionResults.push({
             toolName,
             input: toolArgs,
@@ -732,14 +685,12 @@ Gere APENAS a mensagem final para o cliente.`;
             success,
           });
 
-          // Adiciona resultado ao contexto
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,
             content: toolOutputText,
           });
 
-          // Salva no banco
           await prisma.aIAgentMessage.create({
             data: {
               session_id: sessionId,
@@ -751,22 +702,15 @@ Gere APENAS a mensagem final para o cliente.`;
           });
         }
 
-        // Continua o loop para processar os resultados
         continue;
       }
 
-      // Se NÃO há tool_calls, significa que a LLM decidiu que tem informações suficientes
-      // Passamos para FASE 2
       logger.info(
         "✅ FASE 1 Concluída: Todas as informações necessárias foram coletadas",
       );
       currentState = ProcessingState.READY_TO_RESPOND;
       break;
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // FASE 2: SÍNTESE E RESPOSTA AO CLIENTE
-    // ═══════════════════════════════════════════════════════════════
 
     if (currentState !== ProcessingState.READY_TO_RESPOND) {
       logger.warn(
@@ -776,8 +720,6 @@ Gere APENAS a mensagem final para o cliente.`;
 
     logger.info("📝 FASE 2: Gerando resposta organizada para o cliente...");
 
-    // Remove tools da próxima chamada para forçar apenas texto
-    // Adiciona prompt de síntese se houveram tools executadas
     if (toolExecutionResults.length > 0) {
       messages.push({
         role: "system",
@@ -788,7 +730,7 @@ Gere APENAS a mensagem final para o cliente.`;
     const finalResponse = await this.openai.chat.completions.create({
       model: this.model,
       messages,
-      // NÃO envia tools nesta chamada - força apenas resposta textual
+
       stream: false,
     });
 
@@ -811,7 +753,6 @@ Gere APENAS a mensagem final para o cliente.`;
       return errorMessage;
     }
 
-    // Valida e limpa a mensagem
     const cleanedMessage = this.validateAndCleanMessage(finalMessage);
 
     if (!cleanedMessage) {
@@ -835,7 +776,6 @@ Gere APENAS a mensagem final para o cliente.`;
       `✅ Resposta final gerada: ${cleanedMessage.substring(0, 150)}...`,
     );
 
-    // Salva no banco
     await prisma.aIAgentMessage.create({
       data: {
         session_id: sessionId,
@@ -845,7 +785,6 @@ Gere APENAS a mensagem final para o cliente.`;
       },
     });
 
-    // Adiciona ao contexto para futuras interações
     messages.push({
       role: "assistant",
       content: cleanedMessage,
@@ -857,11 +796,7 @@ Gere APENAS a mensagem final para o cliente.`;
     return cleanedMessage;
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════
-   * GERENCIAMENTO DE SESSÃO E HISTÓRICO
-   * ═══════════════════════════════════════════════════════════════
-   */
+  
 
   private async getSession(sessionId: string, customerPhone: string) {
     let session = await prisma.aIAgentSession.findUnique({
@@ -873,7 +808,7 @@ Gere APENAS a mensagem final para o cliente.`;
         data: {
           id: sessionId,
           customer_phone: customerPhone,
-          expires_at: addDays(new Date(), 1), // Expira em 24 horas
+          expires_at: addDays(new Date(), 1),
         },
       });
     }
@@ -889,7 +824,6 @@ Gere APENAS a mensagem final para o cliente.`;
       orderBy: { created_at: "asc" },
     });
 
-    // Identifica tool_calls órfãos
     const assistantToolCallIds = new Set<string>();
     const toolResponseIds = new Set<string>();
 
@@ -899,7 +833,7 @@ Gere APENAS a mensagem final para o cliente.`;
           const toolCalls = JSON.parse(msg.tool_calls);
           toolCalls.forEach((tc: any) => assistantToolCallIds.add(tc.id));
         } catch (e) {
-          // Ignora tool_calls inválidos
+
         }
       }
 
@@ -912,11 +846,10 @@ Gere APENAS a mensagem final para o cliente.`;
       [...assistantToolCallIds].filter((id) => !toolResponseIds.has(id)),
     );
 
-    // Remove mensagens órfãs
     const cleanHistory: any[] = [];
 
     for (const msg of dbHistory) {
-      // Remove assistant com tool_calls órfãos
+
       if (msg.role === "assistant" && msg.tool_calls) {
         try {
           const toolCalls = JSON.parse(msg.tool_calls);
@@ -934,7 +867,6 @@ Gere APENAS a mensagem final para o cliente.`;
         }
       }
 
-      // Remove tool órfão
       if (
         msg.role === "tool" &&
         msg.tool_call_id &&
@@ -947,7 +879,6 @@ Gere APENAS a mensagem final para o cliente.`;
       cleanHistory.push(msg);
     }
 
-    // Limita a 10 mensagens de usuário
     if (cleanHistory.length <= 10) {
       return this.convertToOpenAIFormat(cleanHistory);
     }

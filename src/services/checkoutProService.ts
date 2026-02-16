@@ -34,7 +34,7 @@ class CheckoutProService {
     try {
       const body = {
         items: request.items.map((item, index) => ({
-          id: `item-${index + 1}`, // ID obrigatório
+          id: `item-${index + 1}`,
           title: item.title,
           unit_price: item.unit_price,
           quantity: item.quantity,

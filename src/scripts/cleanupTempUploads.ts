@@ -25,7 +25,6 @@ async function runCleanup() {
       result.errors.forEach((err) => logger.warn(`  - ${err}`));
     }
 
-    // Retornar estatísticas para logging
     return {
       success: true,
       timestamp: new Date().toISOString(),
@@ -40,7 +39,6 @@ async function runCleanup() {
   }
 }
 
-// Executar se for chamado diretamente
 if (require.main === module) {
   runCleanup()
     .then((result) => {

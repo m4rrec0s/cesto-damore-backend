@@ -25,7 +25,7 @@ type MercadoPagoResponse = {
 
 export interface MercadoPagoPaymentRequest {
   transaction_amount: number;
-  token?: string; // Opcional para PIX
+  token?: string;
   description: string;
   installments: number;
   payment_method_id: string;

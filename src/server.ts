@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { validateEnv } from "./utils/envValidator";
-// Validar ambiente antes de carregar outras dependências que usem process.env
+
 validateEnv();
 
 import express from "express";
@@ -13,7 +13,7 @@ import cron from "node-cron";
 import orderService from "./services/orderService";
 import { PaymentService } from "./services/paymentService";
 import { webhookNotificationService } from "./services/webhookNotificationService";
-import scheduledJobsService from "./services/scheduledJobsService"; // 🔥 NOVO
+import scheduledJobsService from "./services/scheduledJobsService";
 import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
@@ -23,14 +23,12 @@ import path from "path";
 
 const app = express();
 
-// ✅ SEGURANÇA: Confiar no proxy (Railway, Cloudflare, Nginx)
-// Necessário para que o rate limit identifique o IP real do cliente
 app.set("trust proxy", 1);
 
 app.use(
   helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" }, // Permite imagens do backend no frontend
-    contentSecurityPolicy: false, // Desabilitado no backend pois o Next.js gerencia o CSP do frontend
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
   }),
 );
 
@@ -39,16 +37,15 @@ const allowedOrigins = [
   "http://185.205.246.213",
   "http://localhost:3000",
   "http://localhost:3333",
-  "http://localhost:5173", // Vite (Manager)
+  "http://localhost:5173",
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Permitir requisições sem origin (como ferramentas de teste ou apps mobile)
+
       if (!origin) return callback(null, true);
 
-      // Verificar se a origem pertence ao domínio cestodamore.com.br
       const isMainDomain = origin === "https://cestodamore.com.br";
       const isSubdomain = origin.endsWith(".cestodamore.com.br");
 
@@ -86,7 +83,6 @@ app.get("/", async (req, res) => {
 
 app.use(routes);
 
-// Iniciar jobs agendados (inclui atualizacao de tendencias)
 scheduledJobsService.start();
 
 cron.schedule("0 */6 * * *", async () => {
@@ -146,22 +142,18 @@ cron.schedule("*/10 * * * *", async () => {
     if (expiredSessionIds.length > 0) {
       const ids = expiredSessionIds.map((s) => s.id);
 
-      // 🔧 FIXED: Delete in correct order to avoid foreign key violation
-      // 1. Delete messages (depends on session)
       await prisma.aIAgentMessage.deleteMany({
         where: {
           session_id: { in: ids },
         },
       });
 
-      // 2. Delete product history (depends on session)
       await prisma.aISessionProductHistory.deleteMany({
         where: {
           session_id: { in: ids },
         },
       });
 
-      // 3. Delete sessions
       const expiredCount = await prisma.aIAgentSession.deleteMany({
         where: {
           id: { in: ids },
@@ -247,7 +239,6 @@ cron.schedule("*/10 * * * *", () => {
   }
 });
 
-// FollowUp Automation - runs every 10 minutes
 cron.schedule("*/10 * * * *", async () => {
   try {
     await followUpService.triggerFollowUpFunction();
@@ -329,7 +320,6 @@ cron.schedule("*/20 * * * *", async () => {
           });
         }
 
-        // ✅ NOVO: Buscar arquivo em text (DYNAMIC_LAYOUT)
         if (
           (value.customization_type === "DYNAMIC_LAYOUT" ||
             value.customizationType === "DYNAMIC_LAYOUT") &&
@@ -373,22 +363,19 @@ cron.schedule("*/20 * * * *", async () => {
   }
 });
 
-// 🔥 NOVO: Iniciar scheduled jobs (webhooks offline + Drive retry)
 scheduledJobsService.start();
 
-// ✅ SEGURANÇA: Handlers globais para evitar vazamento de memória e crash silencioso
 process.on("unhandledRejection", (reason, promise) => {
   logger.error("🛑 Unhandled Rejection at:", promise, "reason:", reason);
-  // Em produção, você pode querer reportar isso a um serviço como Sentry
+
 });
 
 process.on("uncaughtException", (error) => {
   logger.error("🛑 Uncaught Exception:", error);
-  // Recomendado: shutdown gracioso pois o estado do processo pode estar sujo
+
   process.exit(1);
 });
 
-// 🔥 NOVO: Graceful shutdown
 process.on("SIGTERM", () => {
   logger.info("🛑 SIGTERM recebido, parando scheduled jobs...");
   scheduledJobsService.stop();

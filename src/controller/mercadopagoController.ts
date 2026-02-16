@@ -18,7 +18,6 @@ export async function getCardIssuers(req: Request, res: Response) {
       throw new Error("MERCADO_PAGO_ACCESS_TOKEN não configurado");
     }
 
-    // Detectar automaticamente o payment method baseado no BIN
     let detectedPaymentMethodId = paymentMethodId || "master";
     const firstDigit = bin.charAt(0);
 
@@ -176,7 +175,6 @@ export async function getInstallments(req: Request, res: Response) {
       throw new Error("MERCADO_PAGO_ACCESS_TOKEN não configurado");
     }
 
-    // Construir URL com parâmetros
     const params = new URLSearchParams({
       amount: amount.toString(),
       locale: "pt-BR",
@@ -202,7 +200,7 @@ export async function getInstallments(req: Request, res: Response) {
     const data = response.data;
 
     if (data && Array.isArray(data) && data.length > 0) {
-      // Retorna a primeira opção encontrada (geralmente a mais relevante)
+
       return res.status(200).json({
         success: true,
         payer_costs: data[0].payer_costs,

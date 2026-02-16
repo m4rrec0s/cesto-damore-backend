@@ -2,15 +2,12 @@ import { Request, Response } from "express";
 import googleDriveService from "../services/googleDriveService";
 
 class OAuthController {
-  /**
-   * GET /oauth/authorize
-   * Gera URL de autenticação e redireciona o usuário
-   */
+  
+
   async authorize(req: Request, res: Response) {
     try {
       const authUrl = googleDriveService.getAuthUrl();
 
-      // verify if force OAuth requested (kept for backward compatibility)
       const forceOAuth = req.query.force === "oauth";
 
       res.send(`
@@ -87,10 +84,8 @@ class OAuthController {
     }
   }
 
-  /**
-   * GET /oauth/callback
-   * Recebe código de autorização e troca por tokens
-   */
+  
+
   async callback(req: Request, res: Response) {
     try {
       const { code } = req.query;
@@ -131,7 +126,6 @@ class OAuthController {
         `);
       }
 
-      // Trocar código por tokens
       const tokens = await googleDriveService.getTokensFromCode(code);
 
       res.send(`
@@ -253,10 +247,8 @@ class OAuthController {
     }
   }
 
-  /**
-   * GET /oauth/status
-   * Verifica status da autenticação
-   */
+  
+
   async status(req: Request, res: Response) {
     try {
       const status = googleDriveService.getStatus();
@@ -303,15 +295,12 @@ class OAuthController {
     }
   }
 
-  /**
-   * GET /oauth/debug
-   * Retorna informações de debug sobre a autenticação
-   */
+  
+
   async debug(req: Request, res: Response) {
     try {
       const debugInfo = await googleDriveService.debugServiceAccount();
 
-      // Adicionar informações sobre OAuth
       const oauthDebug = {
         GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
           ? "definido"

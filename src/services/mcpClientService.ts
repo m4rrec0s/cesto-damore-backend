@@ -8,7 +8,7 @@ class MCPClientService {
   private mcpUrl: string;
 
   constructor() {
-    // Current MCP server runs on port 5000 (SSE endpoint at /mcp/sse)
+
     this.mcpUrl = process.env.MCP_SERVER_URL || "http://localhost:5000/mcp/sse";
   }
 
@@ -32,9 +32,8 @@ class MCPClientService {
         },
         {
           capabilities: {},
-          // Aumentar timeout para 45 segundos (padrão é curto)
-          // Isso evita o erro -32001 Request timed out em ferramentas pesadas
-          /* @ts-ignore */
+
+          
           timeout: 45000,
         },
       );
@@ -133,21 +132,18 @@ class MCPClientService {
         arguments: args,
       });
 
-      // Extract content from result
       if (response.isError) {
         throw new Error(
           `Tool execution error: ${JSON.stringify(response.content)}`,
         );
       }
 
-      // MCP tools usually return content as an array
       const content = response.content as any[];
       const textContent = content
         .filter((c: any) => c.type === "text")
         .map((c: any) => c.text)
         .join("\n");
 
-      // Try to parse if it's a structured response (```json ... ``` \n humanized)
       const jsonMatch = textContent.match(
         /```json\n([\s\S]*?)\n```\n\n([\s\S]*)/,
       );
@@ -168,7 +164,7 @@ class MCPClientService {
       if (this.shouldRetry(error)) {
         logger.warn(`🔄 MCP Session stale while calling ${name}, retrying...`);
         await this.ensureConnected(true);
-        // Recursive call (limited by the fact that second call will have fresh client)
+
         return this.callTool(name, args);
       }
 

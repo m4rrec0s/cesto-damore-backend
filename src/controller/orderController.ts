@@ -87,7 +87,7 @@ class OrderController {
 
   async create(req: Request, res: Response) {
     try {
-      // Log sucinto: evitar imprimir payloads grandes (base64, imagens)
+
       console.log("📝 Criando pedido - resumo:", {
         user_id: req.body?.user_id,
         itemsCount: Array.isArray(req.body?.items) ? req.body.items.length : 0,
@@ -95,14 +95,13 @@ class OrderController {
         delivery_city: req.body?.delivery_city ?? null,
       });
       const order = await orderService.createOrder(req.body);
-      // Log curto para indicar sucesso (apenas ID)
+
       console.log("✅ Pedido criado com sucesso:", order.id);
       res.status(201).json(order);
     } catch (error: any) {
       console.error("❌ Erro ao criar pedido:", error);
       console.error("Stack trace:", error.stack);
 
-      // Erros de validação (400)
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("não encontrado") ||
@@ -121,7 +120,6 @@ class OrderController {
         });
       }
 
-      // Erro específico: produtos faltando (informar ids)
       if ((error as any).code === "MISSING_PRODUCTS") {
         return res.status(404).json({
           error: error.message,
@@ -144,7 +142,6 @@ class OrderController {
         });
       }
 
-      // Erro genérico (500)
       res.status(500).json({
         error: "Erro interno do servidor",
         details:
@@ -164,11 +161,8 @@ class OrderController {
         return res.status(401).json({ error: "Autenticação necessária" });
       }
 
-      // Verificar existência do pedido
       const order = await orderService.getOrderById(id);
 
-      // Verificar permissões
-      // Se NÃO for admin, deve ser o dono E o pedido deve estar PENDING
       if (!isAdmin) {
         if (order.user_id !== userId) {
           console.warn(
@@ -245,7 +239,7 @@ class OrderController {
         delivery_state,
         recipient_phone,
         delivery_date,
-        shipping_price, // ✅ NOVO
+        shipping_price,
         payment_method,
         discount,
         delivery_method,
@@ -255,7 +249,6 @@ class OrderController {
         return res.status(400).json({ error: "ID do pedido é obrigatório" });
       }
 
-      // Ownership: only order owner can update metadata
       const userId = (req as any).user?.id;
       const existingOrder = await orderService.getOrderById(id);
       if (userId && existingOrder.user_id !== userId) {
@@ -272,7 +265,7 @@ class OrderController {
         delivery_state,
         recipient_phone,
         delivery_date,
-        shipping_price, // ✅ NOVO
+        shipping_price,
         payment_method,
         discount,
         delivery_method,
@@ -309,11 +302,9 @@ class OrderController {
         return res.status(400).json({ error: "ID do pedido é obrigatório" });
       }
 
-      // Verificar se o usuário autenticado é dono do pedido
       const userId = (req as any).user?.id;
       const existingOrder = await orderService.getOrderById(id);
 
-      // Debug logging para identificar problemas de autenticação
       console.log("🔍 [updateItems] Verificação de permissão:", {
         userId,
         orderUserId: existingOrder.user_id,
@@ -345,7 +336,6 @@ class OrderController {
         return res.status(403).json({ error: error.message });
       }
 
-      // Erro específico: produtos ou adicionais faltando
       if ((error as any).code === "MISSING_PRODUCTS") {
         return res.status(404).json({
           error: error.message,
@@ -394,7 +384,7 @@ class OrderController {
   async cancelOrder(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const userId = (req as any).user?.id; // Do middleware de autenticação
+      const userId = (req as any).user?.id;
 
       if (!id) {
         return res.status(400).json({ error: "ID do pedido é obrigatório" });

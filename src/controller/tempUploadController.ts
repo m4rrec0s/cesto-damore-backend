@@ -11,17 +11,15 @@ declare global {
 }
 
 class TempUploadController {
-  /**
-   * POST /api/uploads/temp
-   * Fazer upload de arquivo temporário com TTL
-   */
+  
+
   async uploadTemp(req: Request, res: Response) {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "Nenhum arquivo fornecido" });
       }
 
-      const userId = (req.user as any)?.id; // ID do usuário autenticado (opcional)
+      const userId = (req.user as any)?.id;
       const clientIp =
         (req.headers["x-forwarded-for"] as string) ||
         req.ip ||
@@ -52,10 +50,8 @@ class TempUploadController {
     }
   }
 
-  /**
-   * POST /api/uploads/temp/:uploadId/make-permanent
-   * Converter arquivo temporário para permanente (após compra)
-   */
+  
+
   async makePermanent(req: Request, res: Response) {
     try {
       const { uploadId } = req.params;
@@ -65,7 +61,6 @@ class TempUploadController {
         return res.status(400).json({ error: "orderId é obrigatório" });
       }
 
-      // Verificação: apenas admin ou o dono do upload pode converter
       const upload = await (
         await import("../database/prisma").then((m) => m.default)
       ).tempUpload.findUnique({
@@ -78,7 +73,7 @@ class TempUploadController {
 
       const userId = (req.user as any)?.id;
       if (upload.userId && upload.userId !== userId) {
-        // Permitir admin passthrough (validado em middleware anterior)
+
       }
 
       const result = await tempUploadService.makePermanent(uploadId, orderId);
@@ -97,15 +92,12 @@ class TempUploadController {
     }
   }
 
-  /**
-   * DELETE /api/uploads/temp/:uploadId
-   * Deletar arquivo temporário
-   */
+  
+
   async deleteTemp(req: Request, res: Response) {
     try {
       const { uploadId } = req.params;
 
-      // Validação: apenas o dono ou admin podem deletar
       const upload = await (
         await import("../database/prisma").then((m) => m.default)
       ).tempUpload.findUnique({
@@ -136,10 +128,8 @@ class TempUploadController {
     }
   }
 
-  /**
-   * GET /api/uploads/stats
-   * Obter estatísticas de uso (admin only)
-   */
+  
+
   async getStats(req: Request, res: Response) {
     try {
       const stats = await tempUploadService.getStorageStats();
@@ -157,10 +147,8 @@ class TempUploadController {
     }
   }
 
-  /**
-   * POST /api/uploads/cleanup
-   * Executar limpeza manual (admin only)
-   */
+  
+
   async cleanup(req: Request, res: Response) {
     try {
       const result = await tempUploadService.cleanupExpiredUploads();

@@ -27,11 +27,10 @@ interface StockReport {
 }
 
 class ReportService {
-  // Gera relatório completo de estoque
+
   async getStockReport(threshold: number = 5): Promise<StockReport> {
     const lowStockItems: LowStockItem[] = [];
 
-    // 1) Produtos com estoque baixo
     const products = await withRetry(() =>
       prisma.product.findMany({
         where: { stock_quantity: { lte: threshold } },
@@ -49,7 +48,6 @@ class ReportService {
       })
     );
 
-    // 2) Adicionais (items) com estoque baixo
     const additionals = await withRetry(() =>
       prisma.item.findMany({
         where: { stock_quantity: { lte: threshold } },
@@ -67,7 +65,6 @@ class ReportService {
       });
     }
 
-    // Totais
     const totalProducts = await prisma.product.count();
     const totalAdditionals = await prisma.item.count();
     const totalColors = 0;
@@ -76,7 +73,6 @@ class ReportService {
       where: { stock_quantity: 0 },
     });
 
-    // Additionals out of stock
     const additionalsOutOfStock = await prisma.item.count({
       where: { stock_quantity: 0 },
     });
@@ -94,7 +90,6 @@ class ReportService {
     };
   }
 
-  // Retorna lista de itens críticos (estoque = 0)
   async getCriticalStock(): Promise<LowStockItem[]> {
     const criticalItems: LowStockItem[] = [];
 

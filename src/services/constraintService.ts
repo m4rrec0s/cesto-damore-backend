@@ -23,57 +23,51 @@ interface ValidationResult {
 }
 
 class ConstraintService {
-  /**
-   * Cria uma nova restrição entre itens
-   */
+  
+
   async createConstraint(data: ItemConstraintData) {
-    // Tabela ItemConstraint foi removida do schema
+
     console.warn("createConstraint: funcionalidade desabilitada");
     return null;
   }
 
-  /**
-   * Busca restrições de um item específico
-   */
+  
+
   async getItemConstraints(itemId: string, itemType: "PRODUCT" | "ADDITIONAL") {
-    // Tabela ItemConstraint foi removida do schema
+
     return [];
   }
 
-  /**
-   * Atualiza uma restrição existente
-   */
+  
+
   async updateConstraint(id: string, data: Partial<ItemConstraintData>) {
-    // Tabela ItemConstraint foi removida do schema
+
     console.warn("updateConstraint: funcionalidade desabilitada");
     return null;
   }
 
-  /**
-   * Deleta uma restrição
-   */
+  
+
   async deleteConstraint(id: string) {
-    // Tabela ItemConstraint foi removida do schema
+
     console.warn("deleteConstraint: funcionalidade desabilitada");
     return { success: true };
   }
 
-  /**
-   * Valida restrições de itens no carrinho
-   */
+  
+
   async validateItemConstraints(
     cartItems: CartItem[],
   ): Promise<ValidationResult> {
-    // Tabela ItemConstraint foi removida do schema
+
     return {
       valid: true,
       errors: [],
     };
   }
 
-  /**
-   * Verifica se um item está presente nas listas fornecidas
-   */
+  
+
   private isItemPresent(
     itemId: string,
     itemType: string,
@@ -83,11 +77,10 @@ class ConstraintService {
     return false;
   }
 
-  /**
-   * Lista todas as restrições cadastradas
-   */
+  
+
   async listAllConstraints() {
-    // Tabela ItemConstraint foi removida do schema
+
     return [];
   }
 }

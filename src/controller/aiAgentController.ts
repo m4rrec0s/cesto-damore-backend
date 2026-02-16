@@ -60,10 +60,8 @@ class AIAgentController {
         }
       }
 
-      // Save the final response to database for memory
       await aiAgentService.saveResponse(resolvedSessionId, fullContent);
 
-      // Return response in structured JSON format
       res.setHeader("Content-Type", "application/json");
       res.status(200).json({
         output: fullContent,

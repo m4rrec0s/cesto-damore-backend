@@ -13,9 +13,8 @@ const customizationInputSchema: z.ZodType<CustomizationInput> = z.object({
 });
 
 class CustomizationController {
-  /**
-   * Busca customizações disponíveis para um item
-   */
+  
+
   async getItemCustomizations(req: Request, res: Response) {
     try {
       const paramsSchema = z.object({
@@ -42,9 +41,8 @@ class CustomizationController {
     }
   }
 
-  /**
-   * Valida customizações de um item
-   */
+  
+
   async validateCustomizations(req: Request, res: Response) {
     try {
       const bodySchema = z.object({
@@ -74,9 +72,8 @@ class CustomizationController {
     }
   }
 
-  /**
-   * Gera preview de customizações
-   */
+  
+
   async buildPreview(req: Request, res: Response) {
     try {
       const bodySchema = z.object({
@@ -106,9 +103,8 @@ class CustomizationController {
     }
   }
 
-  /**
-   * Lista todas as customizações (com filtro opcional por item)
-   */
+  
+
   async index(req: Request, res: Response) {
     try {
       const querySchema = z.object({
@@ -135,9 +131,8 @@ class CustomizationController {
     }
   }
 
-  /**
-   * Busca uma customização por ID
-   */
+  
+
   async show(req: Request, res: Response) {
     try {
       const paramsSchema = z.object({
@@ -168,13 +163,11 @@ class CustomizationController {
     }
   }
 
-  /**
-   * Cria uma nova customização
-   */
+  
+
   async create(req: Request, res: Response) {
     try {
-      // Ao aceitar multipart/form-data, multer coloca arquivos em req.files e os campos em req.body como strings.
-      // Suportamos ainda envio JSON normal.
+
       const bodySchema = z.object({
         item_id: z.string().uuid({ message: "item_id inválido" }),
         type: z.nativeEnum(CustomizationType),
@@ -185,7 +178,6 @@ class CustomizationController {
         price: z.number().min(0).default(0),
       });
 
-      // Se o cliente enviou multipart, o campo customization_data pode ser string JSON
       const rawBody: any = req.body || {};
       if (
         rawBody.customization_data &&
@@ -194,17 +186,14 @@ class CustomizationController {
         try {
           rawBody.customization_data = JSON.parse(rawBody.customization_data);
         } catch (err) {
-          // manter como string — validacao abaixo irá falhar
+
         }
       }
 
       const payload = bodySchema.parse(rawBody);
 
-      // Se houver arquivos enviados (uploadAny.any()), eles estarão em req.files.
-      // Convenção: nome do campo para cada imagem de opção -> option_<optionId>
       const files: any = (req as any).files || [];
 
-      // Se customization_data tiver opções e existirem arquivos, associe as imagens
       if (
         payload.customization_data &&
         payload.customization_data.options &&
@@ -222,7 +211,7 @@ class CustomizationController {
             (f: any) => f.fieldname === expectedField
           );
           if (matched && matched.buffer) {
-            // Salvar localmente via helper e atribuir image_url
+
             const url = await saveImageLocally(
               matched.buffer,
               matched.originalname,
@@ -252,9 +241,8 @@ class CustomizationController {
     }
   }
 
-  /**
-   * Atualiza uma customização existente
-   */
+  
+
   async update(req: Request, res: Response) {
     try {
       const paramsSchema = z.object({
@@ -271,7 +259,6 @@ class CustomizationController {
 
       const { id } = paramsSchema.parse(req.params);
 
-      // Se multipart, req.body.customization_data pode ser string
       const rawBody: any = req.body || {};
       if (
         rawBody.customization_data &&
@@ -280,13 +267,12 @@ class CustomizationController {
         try {
           rawBody.customization_data = JSON.parse(rawBody.customization_data);
         } catch (err) {
-          // manter como string — validação a seguir tratará
+
         }
       }
 
       const payload = bodySchema.parse(rawBody);
 
-      // Associar imagens enviadas (convenção option_<optionId>) antes do update
       const files: any = (req as any).files || [];
       if (
         payload.customization_data &&
@@ -340,9 +326,8 @@ class CustomizationController {
     }
   }
 
-  /**
-   * Remove uma customização
-   */
+  
+
   async remove(req: Request, res: Response) {
     try {
       const paramsSchema = z.object({

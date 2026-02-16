@@ -81,24 +81,24 @@ const formatLayoutResponse = (layout: any) => {
 
 class LayoutService {
   async listLayouts(itemId: string) {
-    // Tabela Layout foi removida do schema (migrada para DynamicLayout/LayoutBase)
+
     return [];
   }
 
   async createLayout(itemId: string, payload: LayoutPayload) {
-    // Tabela Layout foi removida do schema
+
     console.warn("createLayout: funcionalidade desabilitada - Tabela removida");
     return null;
   }
 
   async updateLayout(itemId: string, layoutId: string, payload: LayoutPayload) {
-    // Tabela Layout foi removida do schema
+
     console.warn("updateLayout: funcionalidade desabilitada - Tabela removida");
     return null;
   }
 
   async deleteLayout(itemId: string, layoutId: string) {
-    // Tabela Layout foi removida do schema
+
     console.warn("deleteLayout: funcionalidade desabilitada - Tabela removida");
     return { success: true };
   }

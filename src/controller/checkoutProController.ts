@@ -13,7 +13,6 @@ export class CheckoutProController {
         });
       }
 
-      // Validar estrutura dos items
       for (const item of items) {
         if (!item.title || !item.unit_price || !item.quantity) {
           return res.status(400).json({
@@ -50,13 +49,9 @@ export class CheckoutProController {
 
   async handlePaymentWebhook(req: Request, res: Response) {
     try {
-      // Aqui você pode implementar a lógica para processar o webhook
-      // Por exemplo, atualizar o status do pedido no banco de dados
 
       if (req.body.type === "payment" && req.body.data?.id) {
-        // TODO: Buscar detalhes do pagamento e atualizar pedido
-        // const paymentId = req.body.data.id;
-        // await this.updateOrderStatus(paymentId);
+
       }
 
       res.status(200).json({ received: true });

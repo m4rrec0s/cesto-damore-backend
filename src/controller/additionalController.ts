@@ -42,7 +42,6 @@ class AdditionalController {
     try {
       const data = { ...req.body };
 
-      // Processar imagem se existir
       let fileToProcess = null;
 
       if (req.file) {
@@ -78,9 +77,6 @@ class AdditionalController {
         }
       }
 
-      // Notas: suporte a cores removido — campos relacionados serão ignorados
-
-      // Converter campos numéricos de string para número se necessário
       if (data.price && typeof data.price === "string") {
         data.price = parseFloat(data.price);
       }
@@ -131,9 +127,6 @@ class AdditionalController {
         }
       }
 
-      // Notas: suporte a cores removido — campos relacionados serão ignorados
-
-      // Converter campos numéricos de string para número se necessário
       if (data.price && typeof data.price === "string") {
         data.price = parseFloat(data.price);
       }
@@ -182,7 +175,7 @@ class AdditionalController {
 
   async link(req: Request, res: Response) {
     try {
-      const { id } = req.params; // additional id
+      const { id } = req.params;
       const { productId, customPrice } = req.body;
 
       if (!productId) {
@@ -209,7 +202,7 @@ class AdditionalController {
 
   async updateLink(req: Request, res: Response) {
     try {
-      const { id } = req.params; // additional id
+      const { id } = req.params;
       const { productId, customPrice } = req.body;
 
       if (!productId) {
@@ -234,7 +227,7 @@ class AdditionalController {
 
   async getPrice(req: Request, res: Response) {
     try {
-      const { id } = req.params; // additional id
+      const { id } = req.params;
       const { productId } = req.query;
 
       const price = await additionalService.getAdditionalPrice(
@@ -273,7 +266,7 @@ class AdditionalController {
 
   async unlink(req: Request, res: Response) {
     try {
-      const { id } = req.params; // additional id
+      const { id } = req.params;
       const { productId } = req.body;
 
       if (!productId) {

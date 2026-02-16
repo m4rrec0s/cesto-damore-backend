@@ -17,7 +17,6 @@ import { deleteProductImage } from "../config/localStorage";
 import trendStatsService from "./trendStatsService";
 
 class FeedService {
-  // ============== FEED CONFIGURATION METHODS ==============
 
   async getAllFeedConfigurations() {
     try {
@@ -117,7 +116,6 @@ class FeedService {
       throw new Error("ID da configuração é obrigatório");
     }
 
-    // Verifica se existe
     await this.getFeedConfigurationById(id);
 
     try {
@@ -147,7 +145,7 @@ class FeedService {
     const configuration = await this.getFeedConfigurationById(id);
 
     try {
-      // Deletar imagens dos banners
+
       for (const banner of configuration.banners) {
         if (banner.image_url) {
           await deleteProductImage(banner.image_url);
@@ -164,8 +162,6 @@ class FeedService {
     }
   }
 
-  // ============== FEED BANNER METHODS ==============
-
   async createFeedBanner(data: CreateFeedBannerInput) {
     if (!data.feed_config_id) {
       throw new Error("ID da configuração de feed é obrigatório");
@@ -178,7 +174,7 @@ class FeedService {
     }
 
     try {
-      // Verifica se a configuração existe
+
       await this.getFeedConfigurationById(data.feed_config_id);
 
       const banner = await prisma.feedBanner.create({
@@ -220,7 +216,7 @@ class FeedService {
       if (data.subtitle !== undefined)
         updateData.subtitle = data.subtitle?.trim();
       if (data.image_url !== undefined) {
-        // Deletar imagem anterior se for diferente
+
         if (
           currentBanner.image_url &&
           data.image_url !== currentBanner.image_url
@@ -262,7 +258,6 @@ class FeedService {
         throw new Error("Banner não encontrado");
       }
 
-      // Deletar imagem
       if (banner.image_url) {
         await deleteProductImage(banner.image_url);
       }
@@ -289,8 +284,6 @@ class FeedService {
       throw new Error(`Erro ao buscar banners: ${error.message}`);
     }
   }
-
-  // ============== FEED SECTION METHODS ==============
 
   async getAllSections() {
     try {
@@ -322,7 +315,7 @@ class FeedService {
     }
 
     try {
-      // Verifica se a configuração existe
+
       await this.getFeedConfigurationById(data.feed_config_id);
 
       const section = await prisma.feedSection.create({
@@ -404,8 +397,6 @@ class FeedService {
     }
   }
 
-  // ============== FEED SECTION ITEM METHODS ==============
-
   async createFeedSectionItem(data: CreateFeedSectionItemInput) {
     if (!data.feed_section_id) {
       throw new Error("ID da seção é obrigatório");
@@ -418,7 +409,7 @@ class FeedService {
     }
 
     try {
-      // Verifica se a seção existe
+
       const section = await prisma.feedSection.findUnique({
         where: { id: data.feed_section_id },
       });
@@ -427,7 +418,6 @@ class FeedService {
         throw new Error("Seção não encontrada");
       }
 
-      // Verifica se o item existe
       await this.validateItemExists(data.item_type, data.item_id);
 
       const item = await prisma.feedSectionItem.create({
@@ -516,8 +506,6 @@ class FeedService {
     }
   }
 
-  // ============== PUBLIC FEED METHOD ==============
-
   async getPublicFeed(configId?: string, page?: number, perPage?: number) {
     try {
       let feedConfig;
@@ -546,7 +534,7 @@ class FeedService {
           }),
         );
       } else {
-        // Pegar a primeira configuração ativa
+
         feedConfig = await withRetry(() =>
           prisma.feedConfiguration.findFirst({
             where: { is_active: true },
@@ -649,8 +637,6 @@ class FeedService {
     }
   }
 
-  // ============== PRIVATE HELPER METHODS ==============
-
   private formatFeedConfigurationResponse(config: any): FeedResponse {
     return {
       id: config.id,
@@ -704,7 +690,7 @@ class FeedService {
   }
 
   private async enrichSectionItems(section: any) {
-    // Se tem itens manuais, usar eles
+
     if (section.items && section.items.length > 0) {
       const enrichedItems = await Promise.all(
         section.items.map(async (item: any) => {
@@ -716,7 +702,6 @@ class FeedService {
         }),
       );
 
-      // Filtrar produtos inativos nas seções públicas
       return enrichedItems.filter((item) => {
         if (item.item_type === "product") {
           return item.item_data && (item.item_data as any).is_active === true;
@@ -725,7 +710,6 @@ class FeedService {
       });
     }
 
-    // Senão, preencher automaticamente baseado no tipo da seção
     return await this.getAutomaticSectionItems(section);
   }
 

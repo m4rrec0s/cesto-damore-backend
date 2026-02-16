@@ -1,9 +1,8 @@
 import prisma from "../database/prisma";
 import whatsappService from "./whatsappService";
 
-// Types baseados no schema do Prisma
 interface N8NCustomer {
-  number: string; // telefone (PK)
+  number: string;
   name?: string | null;
   last_message_sent?: Date | null;
   service_status?: string | null;
@@ -39,9 +38,8 @@ interface CombinedCustomerInfo {
 }
 
 class CustomerManagementService {
-  /**
-   * Cria ou atualiza um cliente via Prisma (migrado de Supabase)
-   */
+  
+
   async upsertN8NCustomer(customerData: {
     number: string;
     name?: string;
@@ -85,9 +83,8 @@ class CustomerManagementService {
     }
   }
 
-  /**
-   * Busca cliente por telefone via Prisma
-   */
+  
+
   async getN8NCustomerByPhone(phone: string): Promise<N8NCustomer | null> {
     try {
       const customer = await prisma.customer.findUnique({
@@ -100,9 +97,8 @@ class CustomerManagementService {
     }
   }
 
-  /**
-   * Lista todos os clientes filtrando por existência de sessão AI (para limpar a lista)
-   */
+  
+
   async listN8NCustomers(filters?: {
     follow_up?: boolean;
     service_status?: string;
@@ -153,9 +149,8 @@ class CustomerManagementService {
     }
   }
 
-  /**
-   * Atualiza o follow-up de um cliente
-   */
+  
+
   async updateFollowUp(phone: string, followUp: boolean): Promise<boolean> {
     try {
       await prisma.customer.update({
@@ -169,9 +164,8 @@ class CustomerManagementService {
     }
   }
 
-  /**
-   * Atualiza o status de cliente existente
-   */
+  
+
   async updateCustomerStatus(
     phone: string,
     alreadyCustomer: boolean,
@@ -191,9 +185,8 @@ class CustomerManagementService {
     }
   }
 
-  /**
-   * Envia mensagem ao cliente via WhatsApp e atualiza registro
-   */
+  
+
   async sendMessageToCustomer(
     phone: string,
     message: string,

@@ -16,9 +16,8 @@ class TempFileService {
     this.ensureDirectory();
   }
 
-  /**
-   * Garante que o diretório de temp existe com permissões corretas
-   */
+  
+
   private ensureDirectory(): void {
     if (!fs.existsSync(this.basePath)) {
       try {
@@ -30,7 +29,6 @@ class TempFileService {
           error.message,
         );
 
-        // Fallback: tentar com caminho relativo
         const fallbackPath = path.join(process.cwd(), "storage", "temp");
         if (fallbackPath !== this.basePath) {
           try {
@@ -47,10 +45,8 @@ class TempFileService {
     }
   }
 
-  /**
-   * Salva um arquivo temporário
-   * Retorna: { filename, filepath, url }
-   */
+  
+
   async saveFile(
     buffer: Buffer,
     originalName: string,
@@ -60,26 +56,22 @@ class TempFileService {
     url: string;
   }> {
     try {
-      // Garantir que o diretório existe
+
       this.ensureDirectory();
 
-      // Sanitizar nome do arquivo
       const sanitized = originalName
         .replace(/[^a-zA-Z0-9._-]/g, "_")
         .toLowerCase();
 
-      // Gerar nome único
       const timestamp = Date.now();
       const filename = `${timestamp}-${sanitized}`;
       const filepath = path.join(this.basePath, filename);
 
-      // Salvar arquivo com tratamento de erro
       try {
         fs.writeFileSync(filepath, buffer);
       } catch (writeError: any) {
         logger.error(`⚠️ Erro ao escrever em ${filepath}:`, writeError.message);
 
-        // Fallback: tentar com caminho relativo
         const fallbackPath = path.join(
           process.cwd(),
           "storage",
@@ -95,7 +87,6 @@ class TempFileService {
         logger.info(`✅ Arquivo salvo em fallback: ${fallbackPath}`);
       }
 
-      // Construir URL para acesso
       const baseUrl = process.env.BASE_URL || "http://localhost:3333";
       const url = `${baseUrl}/uploads/temp/${filename}`;
 
@@ -143,17 +134,15 @@ class TempFileService {
     }
   }
 
-  /**
-   * Deleta um arquivo temporário ou de customização específico
-   */
+  
+
   deleteFile(filename: string): boolean {
     if (!filename) return false;
 
     try {
-      // 1. Tentar no diretório de temp
+
       let filepath = path.join(this.basePath, filename);
 
-      // Validação de segurança básica para o temp
       const isInsideTemp = filepath.startsWith(this.basePath);
 
       if (isInsideTemp && fs.existsSync(filepath)) {
@@ -162,7 +151,6 @@ class TempFileService {
         return true;
       }
 
-      // 2. Fallback: Tentar no diretório de customizations
       const customPath = process.env.UPLOAD_DIR
         ? path.resolve(process.env.UPLOAD_DIR, "customizations")
         : path.join(process.cwd(), "images", "customizations");
@@ -175,15 +163,11 @@ class TempFileService {
         return true;
       }
 
-      // 3. Fallback 2: Tentar no diretório de final uploads
       const finalEnvPath = process.env.FINAL_UPLOADS_DIR;
       const finalPath = finalEnvPath
         ? path.resolve(finalEnvPath)
         : path.join(process.cwd(), "storage", "final");
 
-      // No storage/final os nomes costumam vir prefixados com ORDER_ID_
-      // Mas o filename passado pode ser o original ou o prefixado.
-      // Vamos tentar direto com o filename primeiro.
       const finalFilepath = path.join(finalPath, filename);
       if (fs.existsSync(finalFilepath)) {
         fs.unlinkSync(finalFilepath);
@@ -191,7 +175,6 @@ class TempFileService {
         return true;
       }
 
-      // 4. Se chegou aqui, não encontrou em nenhum lugar
       logger.warn(
         `⚠️ Arquivo não encontrado em temp (${this.basePath}), custom (${customPath}) nem final (${finalPath}): ${filename}`,
       );
@@ -202,9 +185,8 @@ class TempFileService {
     }
   }
 
-  /**
-   * Deleta múltiplos arquivos
-   */
+  
+
   deleteFiles(filenames: string[]): { deleted: number; failed: number } {
     let deleted = 0;
     let failed = 0;
@@ -223,10 +205,8 @@ class TempFileService {
     return { deleted, failed };
   }
 
-  /**
-   * Limpeza automática: deleta arquivos com mais de X horas
-   * Útil para rodar como cron job
-   */
+  
+
   cleanupOldFiles(hoursThreshold: number = 48): {
     deleted: number;
     failed: number;
@@ -277,24 +257,21 @@ class TempFileService {
     }
   }
 
-  /**
-   * Obtém caminho completo de um arquivo
-   */
+  
+
   getFilePath(filename: string): string {
     return path.join(this.basePath, filename);
   }
 
-  /**
-   * Verifica se um arquivo existe
-   */
+  
+
   fileExists(filename: string): boolean {
     const filepath = path.join(this.basePath, filename);
     return fs.existsSync(filepath);
   }
 
-  /**
-   * Obtém informações de um arquivo
-   */
+  
+
   getFileInfo(filename: string): { size: number; createdAt: Date } | null {
     try {
       const filepath = path.join(this.basePath, filename);

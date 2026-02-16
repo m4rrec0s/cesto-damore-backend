@@ -51,7 +51,6 @@ export const mercadoPagoConfig = {
   },
 };
 
-// Configurações de ambiente
 export const environmentConfig = {
   isProduction: process.env.NODE_ENV === "production",
   isTestAccount: accessToken.startsWith("TEST"),

@@ -5,11 +5,8 @@ import tempFileService from "../services/tempFileService";
 import logger from "../utils/logger";
 
 class CustomizationUploadController {
-  /**
-   * POST /api/customization/upload-image
-   * Upload de imagem para customização (salva em /app/storage/temp)
-   * NÃO converte para WebP - mantém formato original
-   */
+  
+
   async uploadImage(req: Request, res: Response) {
     try {
       if (!req.file) {
@@ -21,8 +18,6 @@ class CustomizationUploadController {
 
       const file = req.file;
 
-      // ✅ NOVO: Usar tempFileService em vez de salvar em /app/images
-      // Mantém o buffer original (sem conversão para WebP)
       const result = await tempFileService.saveFile(
         file.buffer,
         file.originalname
@@ -52,10 +47,8 @@ class CustomizationUploadController {
     }
   }
 
-  /**
-   * DELETE /api/customization/image/:filename
-   * Remove uma imagem de customização do temp storage
-   */
+  
+
   async deleteImage(req: Request, res: Response) {
     try {
       const { filename } = req.params;
@@ -66,7 +59,6 @@ class CustomizationUploadController {
         });
       }
 
-      // ✅ NOVO: Usar tempFileService para deletar
       const deleted = tempFileService.deleteFile(filename);
 
       if (!deleted) {

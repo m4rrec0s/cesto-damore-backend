@@ -29,29 +29,24 @@ export interface ViaCepResponse {
 class CepService {
   private readonly baseUrl = "https://viacep.com.br/ws";
 
-  /**
-   * Valida se o CEP tem formato válido (00000-000 ou 00000000)
-   */
+  
+
   validateCepFormat(cep: string): boolean {
     if (!cep) return false;
 
-    // Remove qualquer formatação
     const cleanCep = cep.replace(/\D/g, "");
 
-    // Verifica se tem exatamente 8 dígitos
     return cleanCep.length === 8;
   }
 
-  /**
-   * Remove formatação do CEP, deixando apenas números
-   */
+  
+
   cleanCep(cep: string): string {
     return cep.replace(/\D/g, "");
   }
 
-  /**
-   * Formata CEP no padrão 00000-000
-   */
+  
+
   formatCep(cep: string): string {
     const cleanCep = this.cleanCep(cep);
     if (cleanCep.length !== 8) return cep;
@@ -59,9 +54,8 @@ class CepService {
     return `${cleanCep.slice(0, 5)}-${cleanCep.slice(5)}`;
   }
 
-  /**
-   * Consulta informações de endereço por CEP na API ViaCEP
-   */
+  
+
   async getAddressByCep(cep: string): Promise<AddressInfo> {
     if (!this.validateCepFormat(cep)) {
       throw new Error("CEP deve ter 8 dígitos");
@@ -73,7 +67,7 @@ class CepService {
       const response = await axios.get<ViaCepResponse>(
         `${this.baseUrl}/${cleanCep}/json/`,
         {
-          timeout: 5000, // 5 segundos de timeout
+          timeout: 5000,
           headers: {
             "User-Agent": "Cesto-dAmore-Backend/1.0",
           },
@@ -84,7 +78,6 @@ class CepService {
         throw new Error("CEP não encontrado");
       }
 
-      // Mapeia a resposta da ViaCEP para nosso formato
       return {
         zip_code: this.formatCep(response.data.cep),
         address: response.data.logradouro || "",
@@ -120,9 +113,8 @@ class CepService {
     }
   }
 
-  /**
-   * Verifica se um CEP é válido consultando a API
-   */
+  
+
   async validateCep(cep: string): Promise<boolean> {
     try {
       await this.getAddressByCep(cep);

@@ -5,7 +5,6 @@ const isDebugEnabled =
 
 const showInfoLogs = process.env.INFO_LOGS === "true";
 
-// Timezone: Brasil está em UTC-3 (Brasília)
 const BRAZIL_TIMEZONE = "America/Sao_Paulo";
 
 type ColorFunction = (text: string) => string;
@@ -64,7 +63,6 @@ const formatLogMessage = (
   return `${chalk.dim(timestamp)}  ${levelStr}  ${contextStr}  ${typeStr}`;
 };
 
-// Helper para detectar se o argumento é LoggerContext ou uma cor simples
 const isLoggerContext = (arg: any): arg is LoggerContext => {
   return (
     arg &&
@@ -73,7 +71,6 @@ const isLoggerContext = (arg: any): arg is LoggerContext => {
   );
 };
 
-// Helper para converter string de cor ou LoggerContext
 const parseColorArg = (
   arg: any,
 ): { ctx?: LoggerContext; color?: string; isColorArg: boolean } => {
@@ -98,7 +95,6 @@ const parseColorArg = (
   return { isColorArg: false };
 };
 
-// Helper para aplicar cor à mensagem
 const applyMessageColor = (
   message: any,
   colorOption?: ColorFunction | string,

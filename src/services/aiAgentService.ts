@@ -4,7 +4,6 @@ import mcpClientService from "./mcpClientService";
 import logger from "../utils/logger";
 import { addDays, isPast, format } from "date-fns";
 
-// Estados internos do processamento em duas fases
 enum ProcessingState {
   ANALYZING = "ANALYZING",
   GATHERING_DATA = "GATHERING_DATA",
@@ -12,13 +11,12 @@ enum ProcessingState {
   READY_TO_RESPOND = "READY_TO_RESPOND",
 }
 
-// Estados do fluxo de fechamento de compra
 enum CheckoutState {
-  PRODUCT_SELECTED = "PRODUCT_SELECTED", // Produto confirmado com preço
-  WAITING_DATE = "WAITING_DATE", // Aguardando data/horário
-  WAITING_ADDRESS = "WAITING_ADDRESS", // Aguardando endereço
-  WAITING_PAYMENT = "WAITING_PAYMENT", // Aguardando forma de pagamento
-  READY_TO_FINALIZE = "READY_TO_FINALIZE", // Todos os dados coletados, aguardando confirmação final
+  PRODUCT_SELECTED = "PRODUCT_SELECTED",
+  WAITING_DATE = "WAITING_DATE",
+  WAITING_ADDRESS = "WAITING_ADDRESS",
+  WAITING_PAYMENT = "WAITING_PAYMENT",
+  READY_TO_FINALIZE = "READY_TO_FINALIZE",
 }
 
 interface CheckoutData {
@@ -26,7 +24,7 @@ interface CheckoutData {
   productPrice: number;
   deliveryDate: string;
   deliveryTime: string;
-  deliveryType: "delivery" | "retirada"; // tipo de entrega
+  deliveryType: "delivery" | "retirada";
   address: string;
   paymentMethod: "PIX" | "CARTAO";
   freight: number | null;
@@ -43,7 +41,7 @@ interface ToolExecutionResult {
 class AIAgentService {
   private openai: OpenAI;
   private model: string = "gpt-4o-mini";
-  private advancedModel: string = "gpt-4-turbo"; // Para raciocínio aprimorado
+  private advancedModel: string = "gpt-4-turbo";
 
   constructor() {
     this.openai = new OpenAI({
@@ -51,10 +49,8 @@ class AIAgentService {
     });
   }
 
-  /**
-   * Determina a estratégia de uso de tools e modelo adaptativo
-   * Retorna: { requiresToolCall, shouldOptimizeModel, model }
-   */
+  
+
   private determineToolStrategy(
     userMessage: string,
     wasExplicitMatch: boolean,
@@ -67,9 +63,6 @@ class AIAgentService {
     const messageLower = userMessage.toLowerCase();
     const messageLength = userMessage.trim().length;
 
-    // ═══════════════════════════════════════════════════════════════
-    // HARD REQUIREMENTS: Forçar tool_choice em casos críticos
-    // ═══════════════════════════════════════════════════════════════
     const hardRequirements = {
       cartEvent: /\[interno\].*carrinho|evento\s*=\s*cart_added|cart_added|adicionou.*carrinho/i.test(
         userMessage,
@@ -79,7 +72,6 @@ class AIAgentService {
       ),
     };
 
-    // Se é um evento crítico, SEMPRE força tool
     if (hardRequirements.cartEvent || hardRequirements.finalCheckout) {
       return {
         requiresToolCall: true,
@@ -88,11 +80,6 @@ class AIAgentService {
       };
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // SOFT REQUIREMENTS: Apenas sugira tool se necessário
-    // ═══════════════════════════════════════════════════════════════
-
-    // Mensagens muito curtas/simples → conversação humanizada
     if (messageLength <= 30 && !wasExplicitMatch) {
       return {
         requiresToolCall: false,
@@ -101,7 +88,6 @@ class AIAgentService {
       };
     }
 
-    // Se não houve match explícito → deixa LLM decidir
     if (!wasExplicitMatch) {
       return {
         requiresToolCall: false,
@@ -110,19 +96,17 @@ class AIAgentService {
       };
     }
 
-    // Scoring para determinar necessidade de tool
     let toolNecessityScore = 0;
 
-    // Contextos que realmente exigem busca de dados
     const criticalPrompts = [
-      "product_selection_guideline", // Busca de produtos
-      "faq_production_guideline", // Prazos de produção
+      "product_selection_guideline",
+      "faq_production_guideline",
     ];
 
     const optionalPrompts = [
-      "indecision_guideline", // Pode ser respondido sem dados
-      "delivery_rules_guideline", // Pode ser respondido com conhecimento geral
-      "location_guideline", // Info geral da loja
+      "indecision_guideline",
+      "delivery_rules_guideline",
+      "location_guideline",
     ];
 
     const hasCriticalPrompt = relevantPrompts.some((p) =>
@@ -133,13 +117,12 @@ class AIAgentService {
     );
 
     if (hasCriticalPrompt) {
-      toolNecessityScore += 100; // Crítico
+      toolNecessityScore += 100;
     }
     if (hasOptionalPrompt) {
-      toolNecessityScore += 30; // Opcional
+      toolNecessityScore += 30;
     }
 
-    // Padrões que indicam busca real de produto
     const specificProductPatterns = [
       /cesta|cesto|buqu|caneca|flor|rosa|presente/i,
       /quanto cust|qual.*preço|valor/i,
@@ -153,10 +136,9 @@ class AIAgentService {
       toolNecessityScore += 50;
     }
 
-    // Contexto genérico → pode ser respondido sem tool
     const genericPatterns = [
-      /mais opçõ|outro|diferente|parecido|similar/i, // "Quero algo parecido"
-      /como é|me explica|qual é|o que é/i, // Perguntas gerais
+      /mais opçõ|outro|diferente|parecido|similar/i,
+      /como é|me explica|qual é|o que é/i,
     ];
 
     const isGenericQuestion = genericPatterns.some((p) =>
@@ -166,17 +148,8 @@ class AIAgentService {
       toolNecessityScore -= 20;
     }
 
-    // Decision logic
     const requiresToolCall = toolNecessityScore > 60;
 
-    // ═══════════════════════════════════════════════════════════════
-    // ADAPTIVE MODEL SELECTION
-    // ═══════════════════════════════════════════════════════════════
-
-    // Use advanced model se:
-    // 1. Mensagem é complexa (composição, lógica, raciocínio)
-    // 2. Requer multiple tools em sequência
-    // 3. Cliente faz pergunta com condições múltiplas
     const complexityIndicators = [
       {
         pattern: /se.*então|mas|porém|however|comparar|differença|melhor|pior/i,
@@ -187,7 +160,7 @@ class AIAgentService {
         weight: 30,
       },
       { pattern: messageLength > 200, weight: 20 },
-      { pattern: /\?.*\?.*\?/i, weight: 25 }, // Múltiplas perguntas
+      { pattern: /\?.*\?.*\?/i, weight: 25 },
     ];
 
     let complexityScore = 0;
@@ -213,11 +186,8 @@ class AIAgentService {
     };
   }
 
-  /**
-   * RAG Dinâmico: Detecta contexto da mensagem e retorna prompts relevantes
-   * Carrega até 5 prompts dinâmicos + core para cobrir cenários compostos
-   * Returns { prompts, wasExplicitMatch } — wasExplicitMatch=false means fallback only
-   */
+  
+
   private detectContextualPrompts(userMessage: string): { prompts: string[]; wasExplicitMatch: boolean } {
     const messageLower = userMessage.toLowerCase();
 
@@ -244,7 +214,6 @@ class AIAgentService {
       return false;
     })();
 
-    // Mapa de detecção: contexto → prompt relevante
     const contextMap = [
       {
         patterns: [
@@ -254,21 +223,21 @@ class AIAgentService {
           /adicionou.*carrinho/i,
         ],
         prompt: "cart_protocol_guideline",
-        priority: 0, // Prioridade máxima (protocolo obrigatório)
+        priority: 0,
       },
       {
         patterns: [
           /catálogo|catalogo|cardápio|cardapio|menu|opções e valores|opcoes e valores|lista de preços|lista de precos|quais produtos|o que vocês têm|o que voces tem|todos os produtos|tudo que tem/i,
         ],
         prompt: "indecision_guideline",
-        priority: 1, // Alta prioridade para catálogo
+        priority: 1,
       },
       {
         patterns: [
           /entrega|João pessoa|Queimadas|Galante|Puxinanã|São José|cobertura|cidad|faz entrega|onde fica|localiza/i,
         ],
         prompt: "delivery_rules_guideline",
-        priority: 1, // Alta prioridade
+        priority: 1,
       },
       {
         patterns: [/horário|que horas|quando|amanhã|hoje|noite|tarde|manhã|prazo|demora|tempo de produção/i],
@@ -287,7 +256,7 @@ class AIAgentService {
           /quanto cust|qual o preço|preço mínimo|preço minimo|valor mínimo|valor minimo|preço|valor|barato|caro|mais em conta|a partir de quanto|tem de quanto|custa quanto|valores|preços|quanto é|quanto fica/i,
         ],
         prompt: "product_selection_guideline",
-        priority: 1, // Alta prioridade para perguntas sobre valores
+        priority: 1,
       },
       {
         patterns: [/produto|cesta|flor|caneca|chocolate|presente|buquê|rosa|cone|quadro|quebra|pelúcia|urso/i],
@@ -316,7 +285,6 @@ class AIAgentService {
       },
     ];
 
-    // Encontra prompts relevantes
     if (isGreetingOnly) {
       return {
         prompts: ["core_identity_guideline"],
@@ -328,29 +296,25 @@ class AIAgentService {
       .filter((ctx) =>
         ctx.patterns.some((pattern) => pattern.test(messageLower)),
       )
-      .sort((a, b) => a.priority - b.priority) // Prioridade (0 > 1 > 2)
-      .slice(0, 5) // Máximo 5 prompts dinâmicos
+      .sort((a, b) => a.priority - b.priority)
+      .slice(0, 5)
       .map((ctx) => ctx.prompt);
 
-    // Remove duplicatas mantendo ordem
     const uniquePrompts = [...new Set(matched)];
     const wasExplicitMatch = uniquePrompts.length > 0;
 
-    // Sempre inclui product_selection como fallback padrão (cenário mais comum)
     if (uniquePrompts.length === 0) {
       uniquePrompts.push("product_selection_guideline");
     }
 
-    // Sempre retorna core_identity primeiro, depois os dinâmicos
     return {
       prompts: ["core_identity_guideline", ...uniquePrompts],
       wasExplicitMatch,
     };
   }
 
-  /**
-   * Prompt específico para a fase de síntese
-   */
+  
+
   private getSynthesisPrompt(toolResults: ToolExecutionResult[]): string {
     const resultsText = toolResults
       .map(
@@ -482,9 +446,8 @@ Gere APENAS a mensagem final para o cliente.`;
     };
   }
 
-  /**
-   * Gera um prompt específico para forçar coleta iterativa de dados do checkout
-   */
+  
+
   private getCheckoutIterativePrompt(checkoutState: CheckoutState, checkoutData: Partial<CheckoutData>): string {
     switch (checkoutState) {
       case CheckoutState.PRODUCT_SELECTED:
@@ -575,20 +538,17 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
     }
   }
 
-  /**
-   * Extrai e valida dados do checkout a partir do histórico de mensagens
-   */
+  
+
   private async extractCheckoutData(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[], sessionId: string): Promise<Partial<CheckoutData>> {
     const data: Partial<CheckoutData> = {};
 
-    // Procura por produto confirmado nas últimas messages
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role !== "tool") continue;
 
       const content = typeof msg.content === "string" ? msg.content : "";
 
-      // Busca dados de consultarCatalogo (produto + preço)
       if (content.includes("cesta") || content.includes("produto")) {
         try {
           const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
@@ -605,7 +565,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
         }
       }
 
-      // Busca dados de validate_delivery_availability (data + horário)
       if (content.includes("disponível") || content.includes("horário")) {
         try {
           const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
@@ -622,7 +581,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       }
     }
 
-    // Busca no histórico de mensagens do usuário
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role !== "user") continue;
@@ -630,7 +588,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       const content = typeof msg.content === "string" ? msg.content : "";
       const contentLower = content.toLowerCase();
 
-      // Busca endereço
       if (!data.address) {
         const addressMatch = content.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+,?\s*\d+[^,\n]*,?\s*[^,\n]+,?\s*[^,\n]+/i);
         if (addressMatch) {
@@ -638,7 +595,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
         }
       }
 
-      // Busca pagamento
       if (!data.paymentMethod) {
         if (contentLower.includes("pix")) {
           data.paymentMethod = "PIX";
@@ -651,9 +607,8 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
     return data;
   }
 
-  /**
-   * Determina o próximo estado do checkout baseado nos dados coletados
-   */
+  
+
   private determineCheckoutState(checkoutData: Partial<CheckoutData>): CheckoutState {
     if (!checkoutData.productName || checkoutData.productPrice === undefined) {
       return CheckoutState.PRODUCT_SELECTED;
@@ -670,9 +625,8 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
     return CheckoutState.READY_TO_FINALIZE;
   }
 
-  /**
-   * Formata contexto de checkout de forma bem estruturada para a equipe humana
-   */
+  
+
   private buildStructuredCheckoutContext(
     checkoutData: Partial<CheckoutData>,
     customerName: string,
@@ -728,7 +682,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       const msg = history[i];
       filtered.unshift(msg);
 
-      // Count user messages (not tool or system)
       if (msg.role === "user") {
         userMessageCount++;
         if (userMessageCount >= MAX_USER_MESSAGES) {
@@ -737,13 +690,12 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       }
     }
 
-    // Now validate that tool messages have their preceding assistant message with tool_calls
     const validated: any[] = [];
     for (let i = 0; i < filtered.length; i++) {
       const msg = filtered[i];
 
       if (msg.role === "tool") {
-        // Look backwards for the assistant message with matching tool_call_id
+
         const toolCallId = msg.tool_call_id;
         let foundAssistant = false;
 
@@ -756,12 +708,11 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
                 break;
               }
             } catch (e) {
-              // Continue if parsing fails
+
             }
           }
         }
 
-        // Only include tool message if its assistant message is also in the filtered list
         if (foundAssistant) {
           validated.push(msg);
         }
@@ -787,7 +738,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       },
     });
 
-    // Handle expired sessions
     if (session && isPast(session.expires_at)) {
       logger.info(
         `🧹 [AIAgent] Deletando sessão expirada e mensagens: ${sessionId}`,
@@ -804,15 +754,8 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       session = null;
     }
 
-    // If session doesn't exist, create or find one
     if (!session) {
-      // 🔐 Strategy for phone matching:
-      // 1. Extract phone from sessionId format: session-{{ numero_do_cliente }}
-      // 2. If customerPhone is provided → validate against extracted phone or use it
-      // 3. If remoteJidAlt is provided → try to find a session with this remote_jid_alt
-      // 4. Use extracted phone as fallback
 
-      // Extract phone from sessionId (format: session-<phone>)
       const extractedPhoneMatch = sessionId.match(/^session-(\d+)$/);
       const extractedPhone = extractedPhoneMatch
         ? extractedPhoneMatch[1]
@@ -822,7 +765,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
         customerPhone || extractedPhone || null;
       let identifyingRemoteJid: string | null = remoteJidAlt || null;
 
-      // Log the resolution strategy
       if (extractedPhone) {
         logger.debug(
           `🔍 [AIAgent] Phone extraído do sessionId: ${extractedPhone}`,
@@ -834,7 +776,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
         }
       }
 
-      // If we have remoteJidAlt but no customerPhone, try to find an existing session
       if (!customerPhone && identifyingRemoteJid) {
         logger.info(
           `🔍 [AIAgent] Procurando sessão por remoteJidAlt: ${identifyingRemoteJid}`,
@@ -856,13 +797,12 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
         }
       }
 
-      // 🔧 Create new session - use identified phone
       session = await prisma.aIAgentSession.create({
         data: {
           id: sessionId,
           customer_phone: identifyingPhone,
           remote_jid_alt: identifyingRemoteJid,
-          expires_at: addDays(new Date(), 5), // Default 5 days expiration
+          expires_at: addDays(new Date(), 5),
         },
         include: {
           messages: true,
@@ -873,8 +813,7 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
         `✨ [AIAgent] Nova sessão criada: ${sessionId} (phone: ${identifyingPhone || "null"}, remoteJid: ${identifyingRemoteJid || "null"})`,
       );
     } else if (customerPhone || remoteJidAlt) {
-      // Update existing session with new phone/remoteJid info
-      // This handles the case where remoteJidAlt unlocks the actual customerPhone
+
       if (customerPhone && !session.customer_phone) {
         logger.info(
           `📱 [AIAgent] Atualizando sessão com phone real: ${sessionId} (${customerPhone})`,
@@ -942,7 +881,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       },
     });
 
-    // Buscar dados do customer para cada sessão (query manual sem foreign key)
     const sessionsWithCustomer = await Promise.all(
       sessions.map(async (session) => {
         if (session.customer_phone) {
@@ -959,7 +897,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       }),
     );
 
-    // Ordenar pela última mensagem (ou created_at se não houver mensagens)
     return sessionsWithCustomer.sort((a, b) => {
       const dateA =
         a._count.messages > 0
@@ -1038,7 +975,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       remoteJidAlt,
     );
 
-    // ⛔ PROTEÇÃO CRÍTICA: Bloquear perguntas sobre informações sensíveis
     const msgLower = userMessage.toLowerCase();
     const isCartEvent =
       /\[interno\].*carrinho/i.test(userMessage) ||
@@ -1064,7 +1000,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
           ? "O pagamento é processado pelo nosso time especializado após a confirmação do pedido. Eles enviam todos os dados necessários de forma segura! 🔒"
           : "Para retirada, nosso atendente especializado passa todos os detalhes certinhos no horário comercial! 🏪";
 
-      // Salvar resposta segura
       await prisma.aIAgentMessage.create({
         data: {
           session_id: sessionId,
@@ -1081,7 +1016,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
         },
       });
 
-      // Retornar stream simulado
       const mockStream = {
         async *[Symbol.asyncIterator]() {
           yield { choices: [{ delta: { content: safeResponse } }] };
@@ -1153,7 +1087,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       return mockStream;
     }
 
-    // Update customer's last_message_sent when they send a message via IA
     if (customerPhone) {
       await prisma.customer.upsert({
         where: { number: customerPhone },
@@ -1171,10 +1104,8 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       });
     }
 
-    // Check if session is blocked (transfered to human)
     if (session.is_blocked) {
-      // If blocked, we return a fake stream that says nothing or a specific message
-      // But usually we just want to stop the AI from responding.
+
       const mockStream = {
         async *[Symbol.asyncIterator]() {
           yield {
@@ -1225,7 +1156,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       day: "2-digit",
     }).format(new Date(now.getTime() + 86400000));
 
-    // Cálculo auxiliar de status para evitar alucinação da IA
     const dayOfWeek = now
       .toLocaleDateString("en-US", {
         timeZone: "America/Fortaleza",
@@ -1261,15 +1191,11 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
 
     const recentHistory = this.filterHistoryForContext(history);
 
-    // ── RAG DINÂMICO: SELEÇÃO INTELIGENTE DE PROMPTS ─────────────────────────────
-    // 1. Detecta contexto da mensagem do usuário
     const { prompts: relevantPrompts, wasExplicitMatch } = this.detectContextualPrompts(userMessage);
     logger.info(`📚 RAG: Carregando ${relevantPrompts.length} prompts (match=${wasExplicitMatch}): ${relevantPrompts.join(', ')}`);
 
-    // 2. Busca lista de tools (sempre necessário)
     const toolsInMCP = await mcpClientService.listTools();
 
-    // 3. Busca prompts selecionados em paralelo (core + até 5 dinâmicos)
     let mcpSystemPrompts = "";
     try {
       const promptResponses = await Promise.all(
@@ -1300,7 +1226,6 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       mcpSystemPrompts = "";
     }
 
-    // ⚡ INJETA PROTOCOLO DE FECHAMENTO OBRIGATÓRIO se cliente quer finalizar
     const finalizationIntent = /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento|vou confirmar/i.test(
       userMessage.toLowerCase(),
     );
@@ -1366,9 +1291,7 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
       mcpSystemPrompts += closingProtocolPrompt;
       logger.info("🚀 PROTOCOLO DE FECHAMENTO INJETADO - Coleta iterativa obrigatória");
     }
-    // ──────────────────────────────────────────────────────────────────────────────
 
-    // 🧠 NOVA LÓGICA: Estratégia adaptativa de tools + modelo
     const { requiresToolCall, shouldOptimizeModel, model: selectedModel } =
       this.determineToolStrategy(userMessage, wasExplicitMatch, relevantPrompts);
 
@@ -1376,7 +1299,6 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
       `🎯 Estratégia: toolRequired=${requiresToolCall}, optimizeModel=${shouldOptimizeModel}, model=${selectedModel}`,
     );
 
-    // Atualiza modelo temporário para esta requisição
     const originalModel = this.model;
     this.model = selectedModel;
 
@@ -1513,7 +1435,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         phone || "",
       );
     } finally {
-      // Restaura modelo original após processamento
+
       this.model = originalModel;
     }
   }
@@ -1535,7 +1457,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
     const shouldExcludeProducts = this.shouldExcludeProducts(currentUserMessage);
 
-    // Fetch fresh tools from MCP
     const tools = await mcpClientService.listTools();
     const formattedTools = tools.map((t) => ({
       type: "function" as const,
@@ -1568,7 +1489,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         responseMessage.tool_calls && responseMessage.tool_calls.length > 0;
       const forbiddenInterruption =
         /(vou (buscar|procurar|verificar|consultar|checar|dar uma|pesquisar)|um moment|aguard[ea]|espera|deixa eu|só um|já volto|ja volto|prosseguimento|atendimento|me chamo ana)/i;
-      // Heuristic: response has no concrete data (no prices, URLs, product names, numbers)
+
       const hasConcreteData =
         /R\$|https?:\/\/|\d{2,}[,\.]\d{2}|cest[ao]|buqu[êe]|caneca|arranjo|flor(es)?/i.test(
           responseText,
@@ -1583,7 +1504,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         continue;
       }
 
-      // Bloqueia respostas vazias ou com frases de espera ("vou buscar", etc.)
       if (
         !hasToolCalls &&
         (responseText === "" || forbiddenInterruption.test(responseText))
@@ -1599,7 +1519,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         continue;
       }
 
-      // Heurística extra: se o contexto EXIGE dados (requiresToolCall) mas a resposta é curta e sem dados reais
       if (
         !hasToolCalls &&
         requiresToolCall &&
@@ -1617,7 +1536,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         continue;
       }
 
-      // Se há tool_calls, executa e continua coletando
       if (hasToolCalls && responseMessage.tool_calls) {
         currentState = ProcessingState.GATHERING_DATA;
 
@@ -1631,7 +1549,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           tool_calls: responseMessage.tool_calls as any,
         });
 
-        // Salva no banco
         await prisma.aIAgentMessage.create({
           data: {
             session_id: sessionId,
@@ -1641,7 +1558,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           },
         });
 
-        // Executa cada tool
         for (const toolCall of responseMessage.tool_calls) {
           if (toolCall.type !== "function") continue;
 
@@ -1650,7 +1566,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
           logger.info(`🔧 Chamando: ${name}(${JSON.stringify(args)})`);
 
-          // Normaliza termos de busca
           if (name === "consultarCatalogo" && args.termo) {
             const termoOriginal = args.termo.toString();
             let termoNormalizado = this.normalizarTermoBusca(termoOriginal);
@@ -1703,7 +1618,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             }
 
             if (args.preco_maximo !== undefined && args.precoMaximo === undefined) {
-              // Already correct snake_case — keep as-is
+
             }
             if (args.precoMaximo !== undefined) {
               args.preco_maximo = args.precoMaximo;
@@ -1714,7 +1629,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               delete args.precoMinimo;
             }
 
-            // Auto-inject exclude_product_ids apenas quando o cliente pede mais opcoes
             if (shouldExcludeProducts) {
               try {
                 const sessionProducts = await this.getSentProductsInSession(
@@ -1753,7 +1667,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             }
           }
 
-          // Valida calculate_freight
           if (name === "calculate_freight") {
             const city = args.city || args.cityName || args.city_name;
             if (!city) {
@@ -1799,7 +1712,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             }
           }
 
-          // Valida get_adicionais (somente apos produto escolhido)
           if (name === "get_adicionais" && !hasChosenProduct) {
             const errorMsg =
               `{"status":"error","error":"missing_product","message":"Adicionais nao podem ser vendidos separados. Antes, confirme qual cesta ou flor o cliente escolheu e o preco. Depois, ofereca adicionais vinculados a esse produto."}`;
@@ -1820,7 +1732,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             continue;
           }
 
-          // Valida notify_human_support - VALIDAÇÃO RIGOROSA
           if (name === "notify_human_support") {
             const reason = (args.reason || "").toString().toLowerCase();
             const isFinalization =
@@ -1835,11 +1746,11 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               .toString();
 
             if (isFinalization) {
-              // VALIDAÇÃO OBRIGATÓRIA para checkout - precisa de TODOS os dados estruturados
+
               const contextLower = context.toLowerCase();
               const isRetirada = contextLower.includes("retirada") || contextLower.includes("retirar");
               
-              // Checklist rigoroso: TODOS devem estar presentes
+
               const checks = {
                 "produto (nome e valor R$)": /(?:cesta|produto|buquê|rosa|chocolate|bar|caneca).+?(?:r\$\s*\d+[\.,]\d{2}|\d+[\.,]\d{2})/i,
                 "data de entrega": /entrega:|data:|hoje|amanh[aã]|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/i,
@@ -1857,7 +1768,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 }
               }
 
-              // Se faltar algum dado, REJEITA a tentativa
               if (missing.length > 0) {
                 const errorMsg = `{"status":"error","error":"incomplete_checkout","message":"❌ CHECKOUT INCOMPLETO! Faltam dados obrigatórios: ${missing.join(", ")}. \\n\\nVocê DEVE coletar na sequência:\\n1. Produto (nome + preço)\\n2. Data E Horário (valide com validate_delivery_availability)\\n3. Endereço COMPLETO (rua, número, bairro, cidade)\\n4. Forma de pagamento (PIX ou Cartão)\\n5. RESUMO FINAL e confirmação do cliente\\n\\nSomente APÓS todos os 5 passos você chama notify_human_support."}`;
                 messages.push({
@@ -1878,10 +1788,9 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 continue;
               }
 
-              // Se passou na validação, estrutura melhor a mensagem
               logger.info(`✅ Checkout validado com todos os dados`);
               
-              // Formata a mensagem de contexto com estrutura clara
+
               const structuredContext = `
 === RESUMO DO PEDIDO ===
 ${context}
@@ -1896,7 +1805,6 @@ ${context}
             args.session_id = sessionId;
           }
 
-          // Executa a tool
           let result: any;
           let success = true;
           try {
@@ -1907,7 +1815,6 @@ ${context}
             success = false;
           }
 
-          // Normaliza resultado
           let toolOutputText: string;
           if (typeof result === "string") {
             toolOutputText = result;
@@ -1927,7 +1834,6 @@ ${context}
             `✅ Resultado: ${toolOutputText.substring(0, 100)}${toolOutputText.length > 100 ? "..." : ""}`,
           );
 
-          // Registra execução
           toolExecutionResults.push({
             toolName: name,
             input: args,
@@ -1935,21 +1841,19 @@ ${context}
             success,
           });
 
-          // Rastreia produtos enviados para exclusão em buscas futuras (paginação)
           if (name === "consultarCatalogo") {
             try {
-              // Extract the structured data correctly from MCP result
+
               let parsedData =
                 typeof result === "object" && result.data
                   ? result.data
                   : result;
 
-              // If it's still a string (common for non-markdown tool responses), parse it
               if (typeof parsedData === "string") {
                 try {
                   parsedData = JSON.parse(parsedData);
                 } catch (e) {
-                  // Fallback: try to find JSON block in markdown
+
                   const jsonMatch = parsedData.match(
                     /```json\n([\s\S]*?)\n```/,
                   );
@@ -1963,9 +1867,6 @@ ${context}
                   ...(parsedData.fallback || []),
                 ];
 
-                // ✅ TRACK ALL returned products to enable proper pagination (exclusion flow)
-                // The AI is told in system prompt to show only 2, but we track all 10 so the next tool call
-                // will return the NEXT batch of products if the user continues asking.
                 for (const product of allProducts) {
                   if (product.id) {
                     await this.recordProductSent(sessionId, product.id);
@@ -1978,14 +1879,12 @@ ${context}
             }
           }
 
-          // Adiciona resultado ao contexto
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,
             content: toolOutputText,
           });
 
-          // Salva no banco
           await prisma.aIAgentMessage.create({
             data: {
               session_id: sessionId,
@@ -1996,7 +1895,6 @@ ${context}
             } as any,
           });
 
-          // Salva memória após notify_human_support
           if (name === "notify_human_support") {
             try {
               let customerPhone = (
@@ -2023,21 +1921,15 @@ ${context}
           }
         }
 
-        // Continua o loop para processar os resultados
         continue;
       }
 
-      // Se NÃO há tool_calls, significa que a LLM decidiu que tem informações suficientes
       logger.info(
         "✅ FASE 1 Concluída: Todas as informações necessárias foram coletadas",
       );
       currentState = ProcessingState.READY_TO_RESPOND;
       break;
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // FASE 2: SÍNTESE E RESPOSTA AO CLIENTE (COM STREAM)
-    // ═══════════════════════════════════════════════════════════════
 
     if (currentState !== ProcessingState.READY_TO_RESPOND) {
       logger.warn("⚠️ Limite de iterações atingido, forçando resposta");
@@ -2164,7 +2056,6 @@ ${context}
 
     logger.info("📝 FASE 2: Gerando resposta organizada para o cliente...");
 
-    // Adiciona prompt de síntese se houveram tools executadas
     if (toolExecutionResults.length > 0) {
       messages.push({
         role: "system",
@@ -2172,7 +2063,6 @@ ${context}
       });
     }
 
-    // Retorna stream da resposta final
     return this.openai.chat.completions.create({
       model: this.model,
       messages,
@@ -2180,22 +2070,20 @@ ${context}
     });
   }
 
-  // Helper to collect final response and save it to DB
   async saveResponse(sessionId: string, content: string) {
-    // Get session to check if we have phone info to sync
+
     const session = await prisma.aIAgentSession.findUnique({
       where: { id: sessionId },
       select: { customer_phone: true, remote_jid_alt: true },
     });
 
-    // 🔄 Auto-sync customer record if phone is now available
     if (session?.customer_phone) {
       const existingCustomer = await prisma.customer.findUnique({
         where: { number: session.customer_phone },
       });
 
       if (!existingCustomer) {
-        // Create new customer record
+
         await prisma.customer.create({
           data: {
             number: session.customer_phone,
@@ -2206,7 +2094,7 @@ ${context}
           `✨ [Customer] Novo cliente criado: ${session.customer_phone}`,
         );
       } else if (session.remote_jid_alt && !existingCustomer.remote_jid_alt) {
-        // Update customer with remote_jid_alt if we have it
+
         await prisma.customer.update({
           where: { number: session.customer_phone },
           data: { remote_jid_alt: session.remote_jid_alt },

@@ -5,7 +5,7 @@ import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
 export class PaymentController {
-  // Map MercadoPago status_detail codes to friendly messages
+
   private static mercadoPagoErrorMessages: Record<string, string> = {
     cc_rejected_bad_filled_card_number:
       "Número do cartão incorreto. Verifique e tente novamente.",
@@ -40,19 +40,16 @@ export class PaymentController {
       "Algum dado enviado ao Mercado Pago está incorreto. Verifique os dados do cartão.",
   };
 
-  // Extract friendly error message from MercadoPago error
   private static extractMercadoPagoError(error: unknown): string | null {
     if (!error || typeof error !== "object") return null;
 
     const err = error as any;
 
-    // Se a mensagem de erro literal contiver termos conhecidos, retornar direto
     const message = err.message || "";
     if (message.includes("Card Token not found")) {
       return this.mercadoPagoErrorMessages["Card Token not found"];
     }
 
-    // Check for status_detail in cause or response
     let statusDetail: string | null = null;
 
     if (err.cause?.status_detail) {
@@ -60,7 +57,7 @@ export class PaymentController {
     } else if (err.response?.status_detail) {
       statusDetail = err.response.status_detail;
     } else if (Array.isArray(err.cause)) {
-      // MercadoPago sometimes returns cause as an array
+
       const firstCause = err.cause[0];
       if (firstCause?.code) {
         statusDetail = firstCause.code;
@@ -71,7 +68,6 @@ export class PaymentController {
       return this.mercadoPagoErrorMessages[statusDetail];
     }
 
-    // Check for description in cause array
     if (Array.isArray(err.cause) && err.cause[0]?.description) {
       return err.cause[0].description;
     }
@@ -79,7 +75,6 @@ export class PaymentController {
     return null;
   }
 
-  // Map service errors (messages) to HTTP status codes
   private static mapErrorToStatus(err: unknown) {
     if (!(err instanceof Error)) return 500;
     const message = err.message.toLowerCase();
@@ -99,13 +94,12 @@ export class PaymentController {
     }
     return 500;
   }
-  /**
-   * Cria uma preferência de pagamento para Checkout Pro
-   */
+  
+
   static async createPreference(req: Request, res: Response) {
     try {
       const { orderId, payerEmail, payerName, payerPhone } = req.body;
-      const userId = (req as any).user?.id; // Assumindo middleware de autenticação
+      const userId = (req as any).user?.id;
 
       if (!orderId || !payerEmail || !userId) {
         return res.status(400).json({
@@ -136,9 +130,8 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Cria um pagamento direto (Checkout API)
-   */
+  
+
   static async createPayment(req: Request, res: Response) {
     try {
       const {
@@ -193,10 +186,8 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Processa pagamento via Checkout Transparente
-   * Endpoint para processar pagamentos diretamente na aplicação
-   */
+  
+
   static async processTransparentCheckout(req: Request, res: Response) {
     try {
       const {
@@ -253,7 +244,6 @@ export class PaymentController {
         });
       }
 
-      // Se for cartão, exigir token
       if (
         (paymentMethodId === "credit_card" ||
           paymentMethodId === "debit_card") &&
@@ -291,10 +281,8 @@ export class PaymentController {
     } catch (error) {
       console.error("Erro ao processar checkout transparente:", error);
 
-      // Try to extract a friendly MercadoPago error message
       const friendlyMessage = PaymentController.extractMercadoPagoError(error);
 
-      // Extract status_detail for debugging
       let statusDetail: string | undefined;
       if (error && typeof error === "object") {
         const err = error as any;
@@ -313,9 +301,8 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Consulta status de um pagamento
-   */
+  
+
   static async getPaymentStatus(req: Request, res: Response) {
     try {
       const { paymentId } = req.params;
@@ -327,7 +314,6 @@ export class PaymentController {
         });
       }
 
-      // Buscar pagamento no banco local
       const dbPayment = await prisma.payment.findFirst({
         where: {
           OR: [{ id: paymentId }, { mercado_pago_id: paymentId }],
@@ -347,14 +333,12 @@ export class PaymentController {
         });
       }
 
-      // Verificar se o usuário tem permissão para ver este pagamento
       if (dbPayment.order.user_id !== userId) {
         return res.status(403).json({
           error: "Acesso negado",
         });
       }
 
-      // Buscar dados atualizados no Mercado Pago se necessário
       let mercadoPagoData = null;
       if (dbPayment.mercado_pago_id) {
         try {
@@ -561,14 +545,12 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Busca resumo financeiro (admin apenas)
-   */
+  
+
   static async getFinancialSummary(req: Request, res: Response) {
     try {
       const { startDate, endDate } = req.query;
 
-      // Verificar se é admin
       const isAdmin = (req as any).user?.role === "admin";
       if (!isAdmin) {
         return res.status(403).json({
@@ -609,9 +591,8 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Páginas de retorno do checkout
-   */
+  
+
   static async paymentSuccess(req: Request, res: Response) {
     try {
       const { payment_id, status, external_reference } = req.query;
@@ -696,9 +677,8 @@ export class PaymentController {
     }
   }
 
-  /**
-   * Health check da integração com Mercado Pago
-   */
+  
+
   static async healthCheck(req: Request, res: Response) {
     try {
       const healthResult = await PaymentService.healthCheck();

@@ -2,11 +2,6 @@ import { CustomizationType } from "@prisma/client";
 import prisma from "../database/prisma";
 import logger from "./logger";
 
-/**
- * 🔥 NOVO: Validador de customizações com regras de negócio robustas
- * Garante que customizações obrigatórias estejam preenchidas corretamente
- */
-
 interface CustomizationData {
   customization_id: string;
   customization_type: CustomizationType;
@@ -28,9 +23,6 @@ interface CustomizationRule {
   customization_data: any;
 }
 
-/**
- * Valida se dados de customização TEXT estão corretos
- */
 function validateTextCustomization(
   data: Record<string, any>,
   rule: CustomizationRule,
@@ -41,7 +33,6 @@ function validateTextCustomization(
   const text = data.text || "";
   const cleanText = String(text).trim();
 
-  // 🔥 NOVO: Validação de comprimento
   const minLength = rule.customization_data?.min_length || 1;
   const maxLength = rule.customization_data?.max_length || 500;
 
@@ -62,7 +53,6 @@ function validateTextCustomization(
     );
   }
 
-  // 🔥 NOVO: Validação de caracteres especiais excessivos
   const specialCharsRatio =
     (cleanText.match(/[^a-zA-Z0-9\s]/g) || []).length / cleanText.length;
   if (specialCharsRatio > 0.5) {
@@ -71,7 +61,6 @@ function validateTextCustomization(
     );
   }
 
-  // 🔥 NOVO: Detectar apenas emojis ou símbolos
   const onlySymbols = /^[\p{Emoji}\p{Symbol}\s]+$/u.test(cleanText);
   if (onlySymbols && cleanText.length < 10) {
     warnings.push(
@@ -86,9 +75,6 @@ function validateTextCustomization(
   };
 }
 
-/**
- * Valida se dados de customização MULTIPLE_CHOICE estão corretos
- */
 function validateMultipleChoiceCustomization(
   data: Record<string, any>,
   rule: CustomizationRule,
@@ -103,7 +89,6 @@ function validateMultipleChoiceCustomization(
     return { isValid: false, errors, warnings };
   }
 
-  // 🔥 NOVO: Validar se a opção existe nas opções disponíveis
   const availableOptions = rule.customization_data?.options || [];
   if (Array.isArray(availableOptions) && availableOptions.length > 0) {
     const optionExists = availableOptions.some(
@@ -125,9 +110,6 @@ function validateMultipleChoiceCustomization(
   };
 }
 
-/**
- * Valida se dados de customização IMAGES estão corretos
- */
 function validateImagesCustomization(
   data: Record<string, any>,
   rule: CustomizationRule,
@@ -142,7 +124,6 @@ function validateImagesCustomization(
     return { isValid: false, errors, warnings };
   }
 
-  // 🔥 NOVO: Validar mínimo e máximo de fotos
   const minPhotos = rule.customization_data?.min_photos || 1;
   const maxPhotos = rule.customization_data?.max_photos || 10;
 
@@ -158,7 +139,6 @@ function validateImagesCustomization(
     );
   }
 
-  // 🔥 NOVO: Validar se todas as fotos têm preview_url válido
   const invalidPhotos = photos.filter(
     (photo: any) =>
       !photo.preview_url ||
@@ -172,7 +152,6 @@ function validateImagesCustomization(
     );
   }
 
-  // 🔥 NOVO: Warning se faltar informação de mime_type
   const photosWithoutMime = photos.filter((p: any) => !p.mime_type);
   if (photosWithoutMime.length > 0) {
     warnings.push(
@@ -187,9 +166,6 @@ function validateImagesCustomization(
   };
 }
 
-/**
- * Valida se dados de customização DYNAMIC_LAYOUT estão corretos
- */
 function validateDynamicLayoutCustomization(
   data: Record<string, any>,
   rule: CustomizationRule,
@@ -218,7 +194,6 @@ function validateDynamicLayoutCustomization(
     );
   }
 
-  // 🔥 NOVO: Verificar se há fabricJsonState (prova de edição no canvas)
   const hasFabricState = Boolean(
     data.fabricJsonState || data.fabricState || data.fabric_json_state,
   );
@@ -229,13 +204,12 @@ function validateDynamicLayoutCustomization(
     );
   }
 
-  // 🔥 NOVO: Validar preview_url não é blob ou base64
   if (hasPreview) {
-    // ✅ CORREÇÃO: Verificar todos os campos possíveis
+
     const previewUrl =
       data.final_artwork?.preview_url ||
       data.image?.preview_url ||
-      data.previewUrl || // ✅ NOVO: Campo direto
+      data.previewUrl ||
       data.final_artworks?.[0]?.preview_url;
 
     if (
@@ -255,14 +229,11 @@ function validateDynamicLayoutCustomization(
   };
 }
 
-/**
- * Valida uma única customização
- */
 export function validateCustomization(
   customization: CustomizationData,
   rule: CustomizationRule,
 ): ValidationResult {
-  // Parsear value se for string
+
   let data: Record<string, any>;
   try {
     data =
@@ -277,7 +248,6 @@ export function validateCustomization(
     };
   }
 
-  // Aplicar validação específica por tipo
   switch (rule.type) {
     case "TEXT":
       return validateTextCustomization(data, rule);
@@ -296,9 +266,6 @@ export function validateCustomization(
   }
 }
 
-/**
- * Valida todas as customizações de um item de pedido
- */
 export async function validateItemCustomizations(
   productId: string,
   customizations: CustomizationData[],
@@ -307,7 +274,7 @@ export async function validateItemCustomizations(
   const allWarnings: string[] = [];
 
   try {
-    // Buscar regras de customização do produto
+
     const rules = await prisma.customization.findMany({
       where: { item_id: productId },
       select: {
@@ -320,11 +287,10 @@ export async function validateItemCustomizations(
     });
 
     if (rules.length === 0) {
-      // Produto sem customizações - OK
+
       return { isValid: true, errors: [], warnings: [] };
     }
 
-    // Verificar customizações obrigatórias
     for (const rule of rules) {
       if (!rule.isRequired) continue;
 
@@ -339,7 +305,6 @@ export async function validateItemCustomizations(
         continue;
       }
 
-      // Validar conteúdo da customização
       const validation = validateCustomization(customization, rule);
       allErrors.push(...validation.errors);
       allWarnings.push(...validation.warnings);
@@ -360,9 +325,6 @@ export async function validateItemCustomizations(
   }
 }
 
-/**
- * Valida todas as customizações de todos os itens de um pedido
- */
 export async function validateOrderCustomizations(
   items: Array<{
     product_id: string;
@@ -381,7 +343,6 @@ export async function validateOrderCustomizations(
       customizations,
     );
 
-    // Adicionar prefixo com número do item para facilitar identificação
     validation.errors.forEach((err) => {
       allErrors.push(`Item ${i + 1}: ${err}`);
     });
@@ -391,7 +352,6 @@ export async function validateOrderCustomizations(
     });
   }
 
-  // Log warnings (não bloqueiam pedido, mas ajudam a identificar problemas)
   if (allWarnings.length > 0) {
     logger.warn("⚠️ Avisos de validação de customizações:", allWarnings);
   }

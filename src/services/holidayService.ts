@@ -1,20 +1,9 @@
 import prisma from "../database/prisma";
 
-/**
- * Converte string de data (YYYY-MM-DD) para Date respeitando timezone Brasil (America/Fortaleza)
- *
- * ⚠️ CRÍTICO: new Date("2026-02-11") interpreta como UTC, causando desajuste de 1+ dia
- * Esta função garante que a data seja tratada como local (Brasil) e não UTC
- *
- * @param dateString - String no formato YYYY-MM-DD
- * @returns Date representando o dia às 12:00 (meio-dia) em UTC puro
- */
 function parseBrazilDate(dateString: string): Date {
-  // Extrai ano, mês, dia de "2026-02-11"
+
   const [year, month, day] = dateString.split("-").map(Number);
 
-  // Cria Date em UTC na data especificada (sem offset de timezone)
-  // Isso garante que DATE type no PostgreSQL armazene o dia correto
   return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
 }
 

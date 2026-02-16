@@ -13,16 +13,13 @@ export interface AuthenticatedRequest extends Request {
 }
 
 class ElementBankController {
-  /**
-   * POST /api/elements/bank
-   * Criar novo elemento no banco (com upload de imagem)
-   */
+  
+
   async create(req: AuthenticatedRequest, res: Response) {
     try {
       const { category, name, tags, width, height, source, externalId } =
         req.body;
 
-      // Validar campos obrigatórios
       if (!category || !name) {
         return res.status(400).json({
           error: "Campos obrigatórios: category, name",
@@ -32,7 +29,6 @@ class ElementBankController {
       let imageUrl = "";
       let thumbnailUrl = "";
 
-      // Se houver upload de arquivo
       if (req.file) {
         try {
           imageUrl = await saveImageLocally(
@@ -49,7 +45,7 @@ class ElementBankController {
           });
         }
       } else if (req.body.imageUrl) {
-        // Ou usar URL fornecida diretamente
+
         imageUrl = req.body.imageUrl;
       } else {
         return res.status(400).json({
@@ -78,10 +74,8 @@ class ElementBankController {
     }
   }
 
-  /**
-   * GET /api/elements/bank
-   * Listar elementos do banco
-   */
+  
+
   async list(req: AuthenticatedRequest, res: Response) {
     try {
       const { category, search, source, tags, limit, offset } = req.query;
@@ -110,10 +104,8 @@ class ElementBankController {
     }
   }
 
-  /**
-   * GET /api/elements/bank/categories
-   * Listar categorias disponíveis
-   */
+  
+
   async listCategories(req: AuthenticatedRequest, res: Response) {
     try {
       const categories = await elementBankService.listCategories();
@@ -130,10 +122,8 @@ class ElementBankController {
     }
   }
 
-  /**
-   * GET /api/elements/bank/:id
-   * Obter elemento por ID
-   */
+  
+
   async show(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
@@ -149,13 +139,11 @@ class ElementBankController {
     }
   }
 
-  /**
-   * PUT /api/elements/bank/:id
-   * Atualizar elemento (admin only)
-   */
+  
+
   async update(req: AuthenticatedRequest, res: Response) {
     try {
-      // Verificar se é admin
+
       if (req.user?.role !== "admin") {
         return res.status(403).json({
           error: "Acesso negado - permissão de administrador necessária",
@@ -183,13 +171,11 @@ class ElementBankController {
     }
   }
 
-  /**
-   * DELETE /api/elements/bank/:id
-   * Deletar elemento (admin only)
-   */
+  
+
   async delete(req: AuthenticatedRequest, res: Response) {
     try {
-      // Verificar se é admin
+
       if (req.user?.role !== "admin") {
         return res.status(403).json({
           error: "Acesso negado - permissão de administrador necessária",
@@ -209,13 +195,11 @@ class ElementBankController {
     }
   }
 
-  /**
-   * POST /api/elements/bank/bulk
-   * Importar múltiplos elementos (admin only)
-   */
+  
+
   async bulkCreate(req: AuthenticatedRequest, res: Response) {
     try {
-      // Verificar se é admin
+
       if (req.user?.role !== "admin") {
         return res.status(403).json({
           error: "Acesso negado - permissão de administrador necessária",
@@ -230,7 +214,6 @@ class ElementBankController {
         });
       }
 
-      // Validar cada elemento
       for (const el of elements) {
         if (!el.category || !el.name || !el.imageUrl) {
           return res.status(400).json({

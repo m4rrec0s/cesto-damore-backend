@@ -2,13 +2,9 @@ import prisma from "../database/prisma";
 import logger from "../utils/logger";
 import { saveImageLocally, deleteImageLocally } from "../config/localStorage";
 
-/**
- * Serviço para gerenciar banco de elementos (clipart, ícones, etc)
- */
 class ElementBankService {
-  /**
-   * Criar novo elemento no banco
-   */
+  
+
   async createElement(data: {
     category: string;
     name: string;
@@ -92,9 +88,8 @@ class ElementBankService {
     }
   }
 
-  /**
-   * Listar categorias disponíveis
-   */
+  
+
   async listCategories() {
     try {
       const categories = await prisma.elementBank.findMany({
@@ -126,9 +121,8 @@ class ElementBankService {
     }
   }
 
-  /**
-   * Obter elemento por ID
-   */
+  
+
   async getElementById(elementId: string) {
     try {
       const element = await prisma.elementBank.findUnique({
@@ -139,7 +133,6 @@ class ElementBankService {
         throw new Error("Elemento não encontrado");
       }
 
-      // Incrementar contador de uso
       await prisma.elementBank.update({
         where: { id: elementId },
         data: {
@@ -155,9 +148,8 @@ class ElementBankService {
     }
   }
 
-  /**
-   * Atualizar elemento
-   */
+  
+
   async updateElement(
     elementId: string,
     data: {
@@ -180,9 +172,8 @@ class ElementBankService {
     }
   }
 
-  /**
-   * Deletar elemento
-   */
+  
+
   async deleteElement(elementId: string) {
     try {
       const element = await prisma.elementBank.findUnique({
@@ -193,7 +184,6 @@ class ElementBankService {
         throw new Error("Elemento não encontrado");
       }
 
-      // Deletar imagem se for local
       if (element.source === "local") {
         try {
           await deleteImageLocally(element.imageUrl);
@@ -215,9 +205,8 @@ class ElementBankService {
     }
   }
 
-  /**
-   * Registrar múltiplos elementos (importação em lote)
-   */
+  
+
   async bulkCreateElements(
     elements: Array<{
       category: string;

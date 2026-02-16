@@ -7,7 +7,7 @@ import logger from "../utils/logger";
 class UploadController {
   async uploadImage(req: Request, res: Response) {
     try {
-      // Processar o arquivo enviado
+
       const file = ((): any => {
         if (req.file) return req.file;
         if (Array.isArray(req.files) && req.files.length) return req.files[0];
@@ -23,14 +23,13 @@ class UploadController {
       }
 
       try {
-        // Multer em memoryStorage usa file.buffer, não file.data
+
         const imageUrl = await saveImageLocally(
           file.buffer,
           file.originalname,
           file.mimetype
         );
 
-        // Persistir no ElementBank como categoria "Uploads"
         await elementBankService.createElement({
           category: "Uploads",
           name: file.originalname,

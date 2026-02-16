@@ -76,10 +76,6 @@ export const saveImageLocally = async (
   }
 };
 
-/**
- * Salva uma imagem em base64 localmente e retorna a URL
- * Implementa deduplicação por hash para evitar excesso de arquivos iguais
- */
 export const saveBase64Image = async (
   base64String: string,
   prefix: string = "layout",
@@ -103,7 +99,6 @@ export const saveBase64Image = async (
     const base64Data = matches[2];
     const buffer = Buffer.from(base64Data, "base64");
 
-    // Gerar hash do conteúdo para evitar duplicatas
     const hash = crypto
       .createHash("sha256")
       .update(buffer)
@@ -114,12 +109,10 @@ export const saveBase64Image = async (
     const fileName = `${prefix}-${hash}${extension}`;
     const filePath = path.join(IMAGES_DIR, fileName);
 
-    // Se o arquivo já existe com esse hash, apenas retorna a URL existente
     if (fs.existsSync(filePath)) {
       return `${BASE_URL}/images/${fileName}`;
     }
 
-    // Caso contrário, grava o novo arquivo
     fs.writeFileSync(filePath, buffer);
     logger.info(`✅ [STORAGE] Nova imagem base64 salva: ${fileName}`);
 

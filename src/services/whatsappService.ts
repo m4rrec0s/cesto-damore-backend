@@ -19,7 +19,7 @@ class WhatsAppService {
   private client: AxiosInstance;
   private config: WhatsAppConfig;
   private lastAlertTime: Map<string, number> = new Map();
-  private readonly ALERT_COOLDOWN = 3600000; // 1 hora em ms (evita spam)
+  private readonly ALERT_COOLDOWN = 3600000;
 
   constructor() {
     if (
@@ -201,7 +201,7 @@ class WhatsAppService {
           let sent = false;
 
           if (item.current_stock === 0) {
-            // Estoque crítico (zerado)
+
             sent = await this.sendCriticalStockAlert(
               item.id,
               item.name,
@@ -215,7 +215,7 @@ class WhatsAppService {
                 : undefined,
             );
           } else {
-            // Estoque baixo
+
             sent = await this.sendLowStockAlert(
               item.id,
               item.name,
@@ -361,7 +361,7 @@ class WhatsAppService {
       }
 
       if (notifyCustomer) {
-        // Send direct message to the customer or the provided recipient phone
+
         const targetPhone =
           orderData.recipientPhone ?? orderData.customer.phone;
         if (targetPhone) {
@@ -413,7 +413,6 @@ class WhatsAppService {
       orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase();
     const totalFormatted = orderData.totalAmount.toFixed(2).replace(".", ",");
 
-    // Team message
     let teamMessage = `✅ *NOVO PEDIDO CONFIRMADO* ✅\n\n`;
     teamMessage += `📦 *Pedido #${orderLabel}*\n`;
     teamMessage += `💰 Valor: R$ ${totalFormatted}\n`;
@@ -483,7 +482,6 @@ class WhatsAppService {
     teamMessage += `\n⏰ ${this.formatToBrasiliaTime(new Date())}\n\n`;
     teamMessage += `🚀 *Preparar pedido para entrega!*`;
 
-    // Customer message
     const createdAtBrasilia = this.formatToBrasiliaTime(new Date());
     let deliveryDateBrasilia = "A definir";
     let deliveryTimeBrasilia = "";
@@ -501,12 +499,10 @@ class WhatsAppService {
     customerMessage += `Olá, *${orderData.customer.name}*! ✨\n`;
     customerMessage += `Seu pagamento foi confirmado com sucesso!\n\n`;
 
-    // Informações principais do pedido
     customerMessage += `═══════════════════════════════\n`;
     customerMessage += `📦 *PEDIDO #${orderLabel}*\n`;
     customerMessage += `═══════════════════════════════\n\n`;
 
-    // Datas
     customerMessage += `📅 *Data do Pedido:* ${createdAtBrasilia}\n`;
     if (deliveryTimeBrasilia) {
       customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} às ${deliveryTimeBrasilia}\n\n`;
@@ -519,7 +515,6 @@ class WhatsAppService {
       customerMessage += `🗺️ Localização: https://maps.app.goo.gl/YwimXyog4pTBeEjP8?g_st=aw\n\n`;
     }
 
-    // Destinatário (se diferente do comprador ou anônimo)
     if (orderData.recipientPhone || orderData.send_anonymously) {
       customerMessage += `🎁 *Para:* `;
       if (orderData.send_anonymously) {
@@ -531,7 +526,6 @@ class WhatsAppService {
       customerMessage += `\n\n`;
     }
 
-    // Itens
     customerMessage += `📦 *Seu Pedido:*\n`;
     orderData.items.forEach((item) => {
       const itemTotal = (item.quantity * item.price)
@@ -540,13 +534,11 @@ class WhatsAppService {
       customerMessage += `• ${item.quantity}x ${item.name} - R$ ${itemTotal}\n`;
     });
 
-    // Total
     customerMessage += `\n💰 *TOTAL: R$ ${totalFormatted}*\n`;
     customerMessage += `💳 *Pagamento:* ${this.formatPaymentMethod(
       orderData.paymentMethod || "Não especificado",
     )}\n\n`;
 
-    // Personalizações ou link
     if (orderData.googleDriveUrl) {
       customerMessage += `🎨 *Suas Personalizações:*\n`;
       customerMessage += `📁 ${orderData.googleDriveUrl}\n\n`;
@@ -555,7 +547,6 @@ class WhatsAppService {
       customerMessage += `_Enviaremos o link das suas fotos em breve!_\n\n`;
     }
 
-    // Mensagem final
     customerMessage += `✨ *Sua cesta está sendo preparada com muito carinho!*\n\n`;
     customerMessage += `Agradecemos pela preferência! ❤️\n`;
     customerMessage += `_Equipe Cesto d'Amore_`;
@@ -563,16 +554,12 @@ class WhatsAppService {
     return { teamMessage, customerMessage };
   }
 
-  /**
-   * Normaliza número de telefone para formato WhatsApp
-   * Remove caracteres não numéricos e garante formato correto
-   * Formato esperado: 5583988887777 (código país + DDD + número)
-   */
+  
+
   private normalizePhoneForWhatsApp(phone: string): string {
-    // Remove tudo que não é número
+
     let digits = phone.replace(/\D/g, "");
 
-    // Se já tem código do país (55), retorna como está
     if (
       digits.startsWith("55") &&
       (digits.length === 12 || digits.length === 13)
@@ -580,30 +567,23 @@ class WhatsAppService {
       return digits;
     }
 
-    // Se tem 10 ou 11 dígitos (DDD + número), adiciona o código do país
     if (digits.length === 10 || digits.length === 11) {
       return `55${digits}`;
     }
 
-    // Para qualquer outro caso, tenta adicionar 55 no início
     return `55${digits}`;
   }
 
-  /**
-   * Envia mensagem direta para um número específico (não grupo)
-   */
-  /**
-   * Envia uma mensagem direta para um número de WhatsApp
-   * @param phoneNumber - Número de telefone do destinatário
-   * @param message - Texto da mensagem a ser enviada
-   * @returns Promise<boolean> - True se enviada com sucesso
-   */
+  
+
+  
+
   public async sendDirectMessage(
     phoneNumber: string,
     message: string,
   ): Promise<boolean> {
     try {
-      // Normaliza o número antes de enviar
+
       const normalizedPhone = this.normalizePhoneForWhatsApp(phoneNumber);
 
       const url = `${this.config.apiUrl}/message/sendText/${this.config.instanceName}`;
@@ -633,9 +613,8 @@ class WhatsAppService {
     }
   }
 
-  /**
-   * Formata o nome do método de pagamento
-   */
+  
+
   private formatPaymentMethod(method: string): string {
     const methods: Record<string, string> = {
       pix: "PIX",
@@ -795,8 +774,7 @@ class WhatsAppService {
         message += `${statusInfo.customerHint}\n`;
 
         if (orderData.googleDriveUrl) {
-          // REMOVIDO: Link do Drive apenas na confirmação
-          // message += `\n🎨 Acesse suas customizações: ${orderData.googleDriveUrl}\n`;
+
         }
 
         if (orderData.delivery) {
@@ -831,11 +809,8 @@ class WhatsAppService {
     }
   }
 
-  /**
-   * Envia confirmação de pedido APENAS para o comprador (user.phone)
-   * NUNCA envia para o destinatário (recipient_phone)
-   * Inclui horários em timezone de Brasília e link do Google Drive
-   */
+  
+
   async sendOrderConfirmation(data: {
     phone: string;
     orderNumber: string;

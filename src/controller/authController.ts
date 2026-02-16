@@ -62,7 +62,6 @@ class AuthController {
 
       let imageUrl: string | undefined = undefined;
 
-      // Processamento de imagem se fornecida
       if (req.file) {
         try {
           const compressedImage = await sharp(req.file.buffer)
@@ -102,14 +101,12 @@ class AuthController {
     }
   }
 
-  // Novo método: renovar token
   async refreshToken(req: any, res: Response) {
     try {
       if (!req.user) {
         return res.status(401).json({ error: "Usuário não autenticado" });
       }
 
-      // Importar a função aqui para evitar circular dependency
       const jwt = require("jsonwebtoken");
       const jwtSecret = process.env.JWT_SECRET;
 

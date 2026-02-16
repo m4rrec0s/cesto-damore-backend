@@ -43,9 +43,8 @@ interface ItemCustomizationResponse {
 }
 
 class CustomizationService {
-  /**
-   * Busca customizações de um item
-   */
+  
+
   async getItemCustomizations(
     itemId: string
   ): Promise<ItemCustomizationResponse> {
@@ -82,9 +81,8 @@ class CustomizationService {
     };
   }
 
-  /**
-   * Valida customizações de um item
-   */
+  
+
   async validateCustomizations(options: {
     itemId: string;
     inputs: CustomizationInput[];
@@ -97,7 +95,6 @@ class CustomizationService {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Buscar item e suas customizações
     const item = await prisma.item.findUnique({
       where: { id: itemId },
       include: {
@@ -121,7 +118,6 @@ class CustomizationService {
       item.customizations.map((c: any) => [c.id, c])
     );
 
-    // Verificar customizações obrigatórias
     item.customizations
       .filter((c: any) => c.isRequired)
       .forEach((customization: any) => {
@@ -136,7 +132,6 @@ class CustomizationService {
         }
       });
 
-    // Validar cada input
     for (const input of inputs) {
       const customization = customizationMap.get(input.customization_id);
 
@@ -145,7 +140,6 @@ class CustomizationService {
         continue;
       }
 
-      // Validar por tipo
       this.validateByType(customization, input, errors);
     }
 
@@ -156,9 +150,8 @@ class CustomizationService {
     };
   }
 
-  /**
-   * Valida customização por tipo
-   */
+  
+
   private validateByType(
     customization: any,
     input: CustomizationInput,
@@ -190,9 +183,8 @@ class CustomizationService {
     }
   }
 
-  /**
-   * Valida DYNAMIC_LAYOUT
-   */
+  
+
   private validateBaseLayout(
     customization: any,
     input: CustomizationInput,
@@ -204,7 +196,6 @@ class CustomizationService {
       return;
     }
 
-    // Verificar se o layout existe nos layouts disponíveis
     const layouts = data?.layouts || [];
     const layoutExists = layouts.some(
       (l: any) => l.id === input.data.layout_id
@@ -215,9 +206,8 @@ class CustomizationService {
     }
   }
 
-  /**
-   * Valida TEXT
-   */
+  
+
   private validateText(
     customization: any,
     input: CustomizationInput,
@@ -227,7 +217,6 @@ class CustomizationService {
     const fields = data?.fields || [];
     const providedFields = input.data.fields || [];
 
-    // Verificar campos obrigatórios
     fields
       .filter((f: any) => f.required)
       .forEach((field: any) => {
@@ -242,7 +231,6 @@ class CustomizationService {
         }
       });
 
-    // Validar limites de caracteres
     providedFields.forEach((providedField: any) => {
       const field = fields.find((f: any) => f.id === providedField.field_id);
 
@@ -259,9 +247,8 @@ class CustomizationService {
     });
   }
 
-  /**
-   * Valida IMAGES
-   */
+  
+
   private validateImages(
     customization: any,
     input: CustomizationInput,
@@ -288,7 +275,6 @@ class CustomizationService {
       );
     }
 
-    // Validar posições das imagens
     images.forEach((image: any, index: number) => {
       if (!image.source) {
         errors.push(`${customization.name}: Imagem ${index + 1} sem fonte`);
@@ -302,9 +288,8 @@ class CustomizationService {
     });
   }
 
-  /**
-   * Valida MULTIPLE_CHOICE
-   */
+  
+
   private validateMultipleChoice(
     customization: any,
     input: CustomizationInput,
@@ -334,7 +319,6 @@ class CustomizationService {
       );
     }
 
-    // Validar se as opções existem
     selectedOptions.forEach((selectedOption: string) => {
       const optionExists = options.some((o: any) => o.id === selectedOption);
 
@@ -344,9 +328,8 @@ class CustomizationService {
     });
   }
 
-  /**
-   * Constrói payload de preview
-   */
+  
+
   async buildPreviewPayload(params: {
     itemId: string;
     customizations: CustomizationInput[];
@@ -357,7 +340,6 @@ class CustomizationService {
     const texts: PreviewPayload["texts"] = [];
     let layout: any = null;
 
-    // Processar cada customização
     for (const customization of customizations) {
       const customizationRecord = await prisma.customization.findUnique({
         where: { id: customization.customization_id },
@@ -365,7 +347,6 @@ class CustomizationService {
 
       if (!customizationRecord) continue;
 
-      // DYNAMIC_LAYOUT ou IMAGES
       if (
         customization.customization_type === "DYNAMIC_LAYOUT" ||
         customization.customization_type === "IMAGES"
@@ -382,7 +363,6 @@ class CustomizationService {
         }
       }
 
-      // IMAGES
       if (customization.customization_type === "IMAGES") {
         const images = customization.data.images || [];
         images.forEach((image: any) => {
@@ -403,7 +383,6 @@ class CustomizationService {
         });
       }
 
-      // TEXT
       if (customization.customization_type === "TEXT") {
         const fields = customization.data.fields || [];
         fields.forEach((field: any) => {
@@ -416,12 +395,11 @@ class CustomizationService {
         });
       }
 
-      // MULTIPLE_CHOICE — permitir que opções tenham imagem opcional e incluí-las no preview
       if (customization.customization_type === "MULTIPLE_CHOICE") {
         const selectedOptions = customization.data.selected_options || [];
 
         if (selectedOptions.length > 0) {
-          // A customização registrada contém os dados das opções (labels, imagens, etc.)
+
           const options =
             (customizationRecord.customization_data as any)?.options || [];
 
@@ -431,7 +409,7 @@ class CustomizationService {
               const imageSource =
                 option.image_url || option.image || option.src;
               if (imageSource) {
-                // Inserir imagem no preview. Se a opção fornecer posição, respeita-a.
+
                 photos.push({
                   source: imageSource,
                   position: option.position || undefined,
@@ -454,15 +432,14 @@ class CustomizationService {
     };
   }
 
-  /**
-   * Mapeia layout para resposta
-   */
+  
+
   private mapLayoutResponse(layout: any) {
     return {
       id: layout.id,
       name: layout.name,
       description: layout.description || "",
-      // Suporte para ambos os formatos (Layout legado vs Mapeado do DynamicLayout)
+
       base_image_url: layout.base_image_url || layout.image_url,
       layout_data: layout.layout_data || {
         fabric_json_state: layout.fabric_json_state,
@@ -473,9 +450,8 @@ class CustomizationService {
     };
   }
 
-  /**
-   * Lista todas as customizações
-   */
+  
+
   async listAll(itemId?: string): Promise<CustomizationDTO[]> {
     const customizations = await prisma.customization.findMany({
       where: itemId ? { item_id: itemId } : undefined,
@@ -502,9 +478,8 @@ class CustomizationService {
     }));
   }
 
-  /**
-   * Busca uma customização por ID
-   */
+  
+
   async getById(id: string): Promise<CustomizationDTO> {
     const customization = await prisma.customization.findUnique({
       where: { id },
@@ -534,9 +509,8 @@ class CustomizationService {
     };
   }
 
-  /**
-   * Cria uma nova customização
-   */
+  
+
   async create(data: {
     item_id: string;
     type: CustomizationType;
@@ -546,7 +520,7 @@ class CustomizationService {
     customization_data: any;
     price: number;
   }): Promise<CustomizationDTO> {
-    // Verificar se o item existe
+
     const item = await prisma.item.findUnique({
       where: { id: data.item_id },
     });
@@ -555,7 +529,6 @@ class CustomizationService {
       throw new Error("Item não encontrado");
     }
 
-    // Validar customization_data baseado no tipo
     this.validateCustomizationData(data.type, data.customization_data);
 
     const customization = await prisma.customization.create({
@@ -582,9 +555,8 @@ class CustomizationService {
     };
   }
 
-  /**
-   * Atualiza uma customização existente
-   */
+  
+
   async update(
     id: string,
     data: {
@@ -603,7 +575,6 @@ class CustomizationService {
       throw new Error("Customização não encontrada");
     }
 
-    // Validar customization_data se fornecido
     if (data.customization_data) {
       this.validateCustomizationData(existing.type, data.customization_data);
     }
@@ -631,9 +602,8 @@ class CustomizationService {
     };
   }
 
-  /**
-   * Remove uma customização
-   */
+  
+
   async delete(id: string): Promise<void> {
     const customization = await prisma.customization.findUnique({
       where: { id },
@@ -648,9 +618,8 @@ class CustomizationService {
     });
   }
 
-  /**
-   * Valida customization_data baseado no tipo
-   */
+  
+
   private validateCustomizationData(type: CustomizationType, data: any): void {
     switch (type) {
       case "DYNAMIC_LAYOUT":

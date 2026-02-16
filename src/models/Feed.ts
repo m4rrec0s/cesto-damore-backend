@@ -113,5 +113,5 @@ export interface FeedItemResponse {
   is_featured: boolean;
   custom_title?: string;
   custom_subtitle?: string;
-  item_data?: any; // Dados do produto/categoria/adicional
+  item_data?: any;
 }

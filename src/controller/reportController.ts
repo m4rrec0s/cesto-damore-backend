@@ -2,10 +2,8 @@ import { Request, Response } from "express";
 import reportService from "../services/reportService";
 
 class ReportController {
-  /**
-   * GET /reports/stock?threshold=5
-   * Retorna relatório de estoque com itens abaixo do limite
-   */
+  
+
   async getStockReport(req: Request, res: Response) {
     try {
       const threshold = parseInt(req.query.threshold as string) || 5;
@@ -22,10 +20,8 @@ class ReportController {
     }
   }
 
-  /**
-   * GET /reports/stock/critical
-   * Retorna apenas itens com estoque crítico (zerado)
-   */
+  
+
   async getCriticalStock(req: Request, res: Response) {
     try {
       const criticalItems = await reportService.getCriticalStock();
@@ -43,10 +39,8 @@ class ReportController {
     }
   }
 
-  /**
-   * GET /reports/stock/check?threshold=3
-   * Verifica se há itens abaixo do limite (usado para notificações)
-   */
+  
+
   async checkLowStock(req: Request, res: Response) {
     try {
       const threshold = parseInt(req.query.threshold as string) || 3;

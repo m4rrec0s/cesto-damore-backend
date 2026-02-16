@@ -15,18 +15,16 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-// ✅ SEGURANÇA: Rate limit global para a API
-// Aumentado para 2000/15min para suportar interações intensas com a IA e múltiplos usuários
 export const apiRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 2000, // limite de 2000 requisições por janela por IP
+  windowMs: 15 * 60 * 1000,
+  max: 2000,
   message: {
     error: "Muitas requisições vindas deste IP, tente novamente mais tarde.",
     code: "TOO_MANY_REQUESTS",
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Pula o limitador para o IP da própria VPS e localhost
+
   skip: (req) => {
     const clientIP = req.ip || req.connection.remoteAddress || "";
     return (
@@ -37,11 +35,9 @@ export const apiRateLimit = rateLimit({
   },
 });
 
-// ✅ SEGURANÇA: Rate limit para login e rotas sensíveis
-// Aumentado para 30 tentativas por 15 minutos para evitar bloqueios por erros de digitação
 export const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 30, // limite de 30 tentativas por janela por IP
+  windowMs: 15 * 60 * 1000,
+  max: 30,
   message: {
     error: "Muitas tentativas de acesso, tente novamente após 15 minutos.",
     code: "AUTH_THROTTLED",
@@ -223,7 +219,7 @@ export const optionalAuthenticateToken = async (
           },
         });
       } catch (firebaseError) {
-        // Token provided but invalid - we still proceed as guest
+
         return next();
       }
     }
@@ -239,12 +235,11 @@ export const optionalAuthenticateToken = async (
 
     next();
   } catch (error) {
-    // Any other error, proceed as anonymous
+
     next();
   }
 };
 
-// ✅ SEGURANÇA: Validação robusta de role ADMIN
 export const requireAdmin = (
   req: AuthenticatedRequest,
   res: Response,
@@ -291,19 +286,19 @@ export const validateMercadoPagoWebhook = (
   next: NextFunction,
 ) => {
   try {
-    // Log seguro da estrutura do webhook
+
     const bodyPreview = req.body
       ? {
-          // Formato novo
+
           type:
             req.body.type || req.body.action?.split(".")[0] || req.body.topic,
           action: req.body.action,
           live_mode: req.body.live_mode,
           paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
-          // Formato antigo
+
           topic: req.body.topic,
           resource: req.body.resource,
-          // Meta
+
           hasData: !!req.body.data,
           keys: Object.keys(req.body),
         }
@@ -322,27 +317,22 @@ export const validateMercadoPagoWebhook = (
       return next();
     }
 
-    // Validar estrutura básica - aceitar diferentes formatos do MP
     let { type, data, live_mode, action, resource, topic } = req.body;
 
-    // ========== SUPORTE PARA FORMATO ANTIGO {resource, topic} ==========
     if (!type && !action && topic && resource) {
       console.log("📦 Webhook formato antigo detectado - normalizando", {
         topic,
         resource,
       });
 
-      // Extrair ID do resource
-      // Formato 1: "/v1/payments/123456789" (caminho completo)
-      // Formato 2: "123456789" (apenas ID)
       let resourceId: string | null = null;
 
       if (resource.includes("/")) {
-        // Formato com caminho completo
+
         const resourceMatch = resource.match(/\/([^\/]+)$/);
         resourceId = resourceMatch ? resourceMatch[1] : null;
       } else {
-        // Formato apenas com ID (validar se é numérico/alfanumérico)
+
         resourceId = resource.trim();
       }
 
@@ -357,7 +347,6 @@ export const validateMercadoPagoWebhook = (
         });
       }
 
-      // Normalize legacy format to the new format (type + data.id)
       type = topic;
       data = { id: resourceId } as any;
       console.warn(
@@ -369,12 +358,10 @@ export const validateMercadoPagoWebhook = (
       );
     }
 
-    // Suporte para formato com 'action' (ex: payment.updated)
     if (!type && action) {
-      type = action.split(".")[0]; // 'payment.updated' -> 'payment'
+      type = action.split(".")[0];
     }
 
-    // Validar estrutura final - apenas formato NOVO do MP: { type, action, data: { id } }
     if (!type || !data || !data.id) {
       console.error("❌ Webhook com estrutura inválida", {
         type,
@@ -397,7 +384,6 @@ export const validateMercadoPagoWebhook = (
     const signatureHeader = req.headers["x-signature"] as string;
     const xRequestId = req.headers["x-request-id"] as string;
 
-    // ✅ SEGURANÇA: Verificação obrigatória do Secret
     if (!mercadoPagoConfig.webhookSecret) {
       console.error(
         "❌ [SECURITY] MERCADO_PAGO_WEBHOOK_SECRET não configurado",
@@ -421,9 +407,8 @@ export const validateMercadoPagoWebhook = (
       });
     }
 
-    // Validação de assinatura usando padrão oficial do Mercado Pago
     if (mercadoPagoConfig.webhookSecret) {
-      // Extrair partes da assinatura (formato: ts=1234567890,v1=hash)
+
       const parts = signatureHeader.split(",");
       let timestamp: string | null = null;
       let hash: string | null = null;
@@ -442,14 +427,12 @@ export const validateMercadoPagoWebhook = (
         });
       }
 
-      // Validar timestamp (apenas log, não rejeitar)
-      // Mercado Pago pode enviar webhooks com horas/dias de diferença (reprocessamentos)
       const webhookTimestamp = parseInt(timestamp, 10);
       const currentTimestamp = Math.floor(Date.now() / 1000);
       const difference = currentTimestamp - webhookTimestamp;
 
       if (difference > 3600) {
-        // Mais de 1 hora
+
         console.warn(
           "⚠️ Webhook com timestamp antigo (possível reprocessamento) - ACEITANDO MESMO ASSIM",
           {
@@ -464,13 +447,9 @@ export const validateMercadoPagoWebhook = (
         );
       }
 
-      // ✅ NÃO rejeitar por timestamp - Mercado Pago pode enviar webhooks atrasados
-
-      // Construir manifest string conforme padrão Mercado Pago
       const dataId = data?.id?.toString() || "";
       const manifestString = `id:${dataId};request-id:${xRequestId};ts:${timestamp};`;
 
-      // Calcular HMAC SHA256
       const expectedHash = crypto
         .HmacSHA256(manifestString, mercadoPagoConfig.webhookSecret)
         .toString(crypto.enc.Hex);

@@ -2,10 +2,8 @@ import { Request, Response } from "express";
 import whatsappService from "../services/whatsappService";
 
 class WhatsAppController {
-  /**
-   * POST /whatsapp/test
-   * Testa o envio de mensagem WhatsApp
-   */
+  
+
   async testMessage(req: Request, res: Response) {
     try {
       const { message } = req.body;
@@ -46,10 +44,8 @@ class WhatsAppController {
     }
   }
 
-  /**
-   * POST /whatsapp/check-stock
-   * Verifica estoque e envia alertas se necessário
-   */
+  
+
   async checkStock(req: Request, res: Response) {
     try {
       const threshold = parseInt(req.query.threshold as string) || 5;
@@ -79,10 +75,8 @@ class WhatsAppController {
     }
   }
 
-  /**
-   * POST /whatsapp/stock-summary
-   * Envia resumo completo de estoque
-   */
+  
+
   async sendStockSummary(req: Request, res: Response) {
     try {
       if (!whatsappService.isConfigured()) {
@@ -115,10 +109,8 @@ class WhatsAppController {
     }
   }
 
-  /**
-   * GET /whatsapp/config
-   * Verifica status da configuração
-   */
+  
+
   async getConfig(req: Request, res: Response) {
     try {
       const isConfigured = whatsappService.isConfigured();

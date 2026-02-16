@@ -1,15 +1,9 @@
 import { Request, Response } from "express";
 import aiProductService from "../services/aiProductService";
 
-/**
- * Controller para endpoints de consulta de produtos pela IA
- */
 class AIProductController {
-  /**
-   * GET /ai/products/light
-   * Retorna lista leve de todos os produtos para carregamento rápido
-   * Aceita parâmetros de busca opcionais: q, keywords, occasion, price_max, tag, available
-   */
+  
+
   async getLightweightProducts(req: Request, res: Response) {
     try {
       const result = await aiProductService.getLightweightProducts(req.query);
@@ -23,10 +17,8 @@ class AIProductController {
     }
   }
 
-  /**
-   * GET /ai/products/detail/:id
-   * Retorna detalhes completos de um produto
-   */
+  
+
   async getProductDetail(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -41,10 +33,8 @@ class AIProductController {
     }
   }
 
-  /**
-   * GET /ai/products/search
-   * Endpoint especializado para consultas da IA (Tool Calling)
-   */
+  
+
   async searchProducts(req: Request, res: Response) {
     try {
       const result = await aiProductService.searchProducts(req.query);
@@ -59,10 +49,8 @@ class AIProductController {
     }
   }
 
-  /**
-   * GET /ai/products/info
-   * Retorna informações sobre o endpoint e exemplos de uso
-   */
+  
+
   async getEndpointInfo(req: Request, res: Response) {
     res.json({
       endpoints: {

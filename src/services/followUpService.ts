@@ -97,7 +97,7 @@ class FollowUpService {
         }
 
         if (jaEnviouUltimo) {
-          // Reset follow-up history after 48h follow-up is sent
+
           await prisma.followUpSent.deleteMany({
             where: { cliente_number: customer.number },
           });

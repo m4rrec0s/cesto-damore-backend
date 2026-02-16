@@ -13,10 +13,8 @@ export interface AuthenticatedRequest extends Request {
 }
 
 class DynamicLayoutController {
-  /**
-   * POST /api/layouts/dynamic
-   * Criar novo layout dinâmico
-   */
+  
+
   async create(req: AuthenticatedRequest, res: Response) {
     try {
       const {
@@ -31,7 +29,6 @@ class DynamicLayoutController {
         relatedLayoutBaseId,
       } = req.body;
 
-      // Validar campos obrigatórios
       if (
         !name ||
         !type ||
@@ -46,7 +43,6 @@ class DynamicLayoutController {
         });
       }
 
-      // Validar tipo
       const validTypes = ["mug", "frame", "custom"];
       if (!validTypes.includes(type)) {
         return res.status(400).json({
@@ -54,7 +50,6 @@ class DynamicLayoutController {
         });
       }
 
-      // Validar dimensões
       if (width <= 0 || height <= 0) {
         return res.status(400).json({
           error: "Width e height devem ser maiores que 0",
@@ -83,36 +78,31 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * GET /api/layouts/dynamic
-   * Listar layouts dinâmicos
-   */
+  
+
   async list(req: AuthenticatedRequest, res: Response) {
     try {
       const { type, isPublished, search, userId: userIdQuery } = req.query;
 
-      // Se not admin, retorna apenas layouts próprios ou públicos
       const filters: any = {};
 
       if (type) filters.type = type as string;
       if (isPublished === "true") filters.isPublished = true;
       if (search) filters.search = search as string;
 
-      // Lógica de visibilidade baseada na autenticação
       if (req.user) {
         if (req.user.role !== "admin") {
-          // Se for usuário autenticado mas não admin, vê os seus layouts
-          // ou layouts marcados como publicados
+
           filters.visibilityFilter = {
             userId: req.user.id,
             includePublished: true,
           };
         } else {
-          // Admin vê tudo de acordo com os filtros passados
+
           if (userIdQuery) filters.userId = userIdQuery as string;
         }
       } else {
-        // Acesso público (não autenticado): apenas layouts publicados
+
         filters.isPublished = true;
       }
 
@@ -130,18 +120,14 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * GET /api/layouts/dynamic/:id
-   * Obter detalhe de um layout
-   */
+  
+
   async show(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
 
       const layout = await dynamicLayoutService.getLayoutById(id);
 
-      // Verificar autorização: permitindo acesso se for publicado,
-      // ou se o usuário for o dono, ou se for admin
       const isOwner = layout.userId === req.user?.id;
       const isAdmin = req.user?.role === "admin";
       const isPubliclyVisible = layout.isPublished;
@@ -162,10 +148,8 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * PUT /api/layouts/dynamic/:id
-   * Atualizar layout dinâmico
-   */
+  
+
   async update(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
@@ -181,11 +165,9 @@ class DynamicLayoutController {
         productionTime,
       } = req.body;
 
-      // Garantir que width e height sejam números inteiros para o Prisma
       const parsedWidth = width ? Math.round(Number(width)) : undefined;
       const parsedHeight = height ? Math.round(Number(height)) : undefined;
 
-      // Verificar se layout existe e autorização
       const layout = await dynamicLayoutService.getLayoutById(id);
 
       if (
@@ -224,15 +206,12 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * DELETE /api/layouts/dynamic/:id
-   * Deletar layout
-   */
+  
+
   async delete(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
 
-      // Verificar autorização
       const layout = await dynamicLayoutService.getLayoutById(id);
 
       if (
@@ -256,16 +235,13 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * POST /api/layouts/dynamic/:id/versions
-   * Salvar versão do layout
-   */
+  
+
   async saveVersion(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
       const { changeDescription } = req.body;
 
-      // Verificar autorização
       const layout = await dynamicLayoutService.getLayoutById(id);
 
       if (
@@ -292,16 +268,13 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * GET /api/layouts/dynamic/:id/versions
-   * Listar versões do layout
-   */
+  
+
   async listVersions(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
       const { limit } = req.query;
 
-      // Verificar autorização
       const layout = await dynamicLayoutService.getLayoutById(id);
 
       if (
@@ -328,15 +301,12 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * POST /api/layouts/dynamic/:id/versions/:versionNumber/restore
-   * Restaurar versão anterior
-   */
+  
+
   async restoreVersion(req: AuthenticatedRequest, res: Response) {
     try {
       const { id, versionNumber } = req.params;
 
-      // Verificar autorização
       const layout = await dynamicLayoutService.getLayoutById(id);
 
       if (
@@ -364,10 +334,8 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * POST /api/layouts/dynamic/:id/elements
-   * Adicionar elemento ao layout
-   */
+  
+
   async addElement(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
@@ -379,7 +347,6 @@ class DynamicLayoutController {
         });
       }
 
-      // Verificar autorização
       const layout = await dynamicLayoutService.getLayoutById(id);
 
       if (
@@ -409,16 +376,13 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * PUT /api/layouts/dynamic/:layoutId/elements/:elementId
-   * Atualizar elemento
-   */
+  
+
   async updateElement(req: AuthenticatedRequest, res: Response) {
     try {
       const { layoutId, elementId } = req.params;
       const { data, order, isLocked } = req.body;
 
-      // Verificar autorização
       const layout = await dynamicLayoutService.getLayoutById(layoutId);
 
       if (
@@ -450,15 +414,12 @@ class DynamicLayoutController {
     }
   }
 
-  /**
-   * DELETE /api/layouts/dynamic/:layoutId/elements/:elementId
-   * Deletar elemento
-   */
+  
+
   async deleteElement(req: AuthenticatedRequest, res: Response) {
     try {
       const { layoutId, elementId } = req.params;
 
-      // Verificar autorização
       const layout = await dynamicLayoutService.getLayoutById(layoutId);
 
       if (

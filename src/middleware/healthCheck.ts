@@ -1,9 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { checkDatabaseConnection } from "../database/prismaRetry";
 
-/**
- * Middleware para verificar a saúde da conexão com o banco de dados
- */
 export async function databaseHealthCheck(
   req: Request,
   res: Response,
@@ -28,9 +25,6 @@ export async function databaseHealthCheck(
   }
 }
 
-/**
- * Endpoint para verificar status da API e conexão com banco
- */
 export async function healthCheckEndpoint(req: Request, res: Response) {
   const dbConnected = await checkDatabaseConnection();
 

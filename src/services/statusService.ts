@@ -8,7 +8,7 @@ class StatusService {
         const startDate = subDays(now, days);
 
         try {
-            // Buscar todos os pedidos do período
+
             const orders = await withRetry(() =>
                 prisma.order.findMany({
                     where: {
@@ -28,10 +28,8 @@ class StatusService {
                 })
             );
 
-            // Agrupar por dia para o gráfico (daily_data)
             const dailyMap = new Map();
 
-            // Inicializar o mapa com zeros para todos os dias do período
             for (let i = 0; i <= days; i++) {
                 const dateKey = subDays(now, i).toISOString().split('T')[0];
                 dailyMap.set(dateKey, {
@@ -79,7 +77,7 @@ class StatusService {
 
                 if (order.status === 'PAID' || order.status === 'SHIPPED' || order.status === 'DELIVERED') {
                     const orderValue = order.grand_total || order.total || 0;
-                    const netValue = order.payment?.net_received_amount || orderValue * 0.95; // Fallback 5% taxa
+                    const netValue = order.payment?.net_received_amount || orderValue * 0.95;
                     const fees = orderValue - netValue;
 
                     dayData.approved_orders++;
@@ -92,7 +90,6 @@ class StatusService {
                     totals.total_net_revenue += netValue;
                     totals.total_fees += fees;
 
-                    // Contagem de produtos e adicionais
                     order.items.forEach(item => {
                         dayData.total_products_sold += item.quantity;
                         totals.total_products_sold += item.quantity;
@@ -113,22 +110,18 @@ class StatusService {
                 dailyMap.set(dateKey, dayData);
             });
 
-            // Converter o mapa para array ordenado por data
             const summaries = Array.from(dailyMap.values()).sort((a: any, b: any) =>
                 new Date(a.date).getTime() - new Date(b.date).getTime()
             );
 
-            // Ticket Médio
             const averageTicket = totals.approved_orders > 0
                 ? totals.total_sales / totals.approved_orders
                 : 0;
 
-            // Taxa de Conversão
             const conversionRate = totals.total_orders > 0
                 ? (totals.approved_orders / totals.total_orders) * 100
                 : 0;
 
-            // Projeção Mensal
             const last7Days = summaries.slice(-7);
             const last7DaysSales = last7Days.reduce((sum, s) => sum + s.total_sales, 0);
             const dailyAverage = last7Days.length > 0 ? last7DaysSales / last7Days.length : 0;
@@ -136,7 +129,6 @@ class StatusService {
             const daysInMonth = differenceInDays(endOfMonth(now), startOfMonth(now)) + 1;
             const monthlyProjection = dailyAverage * daysInMonth;
 
-            // Métricas adicionais
             const activeSessions = await prisma.aIAgentSession.count({
                 where: {
                     expires_at: {
@@ -182,7 +174,7 @@ class StatusService {
 
     async getTopSellingProducts(limit: number = 5) {
         try {
-            // Simplificado: usar OrderItem para contar
+
             const topProducts = await prisma.orderItem.groupBy({
                 by: ['product_id'],
                 _sum: {
@@ -191,7 +183,7 @@ class StatusService {
                 },
                 where: {
                     order: {
-                        status: 'PAID', // Apenas pedidos pagos
+                        status: 'PAID',
                     }
                 },
                 orderBy: {
@@ -202,7 +194,6 @@ class StatusService {
                 take: limit,
             });
 
-            // Enriquecer com nomes dos produtos
             const enriched = await Promise.all(
                 topProducts.map(async (item) => {
                     const product = await prisma.product.findUnique({
@@ -214,7 +205,7 @@ class StatusService {
                         name: product?.name || 'Desconhecido',
                         image_url: product?.image_url,
                         total_sold: item._sum?.quantity || 0,
-                        revenue: (item._sum?.price || 0) * (item._sum?.quantity || 1), // Aproximação do faturamento
+                        revenue: (item._sum?.price || 0) * (item._sum?.quantity || 1),
                     };
                 })
             );

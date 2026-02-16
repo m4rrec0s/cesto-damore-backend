@@ -35,13 +35,13 @@ class CategoryService {
   }
 
   async createCategory(data: CreateCategoryInput) {
-    // Validações de campos obrigatórios
+
     if (!data.name || data.name.trim() === "") {
       throw new Error("Nome da categoria é obrigatório");
     }
 
     try {
-      // Verifica se já existe uma categoria com o mesmo nome
+
       const existingCategory = await prisma.category.findFirst({
         where: { name: data.name.trim() },
       });
@@ -72,16 +72,13 @@ class CategoryService {
       throw new Error("ID da categoria é obrigatório");
     }
 
-    // Verifica se a categoria existe
     await this.getCategoryById(id);
 
-    // Validação do nome se fornecido
     if (data.name !== undefined) {
       if (!data.name || data.name.trim() === "") {
         throw new Error("Nome da categoria não pode estar vazio");
       }
 
-      // Verifica se já existe outra categoria com o mesmo nome
       const existingCategory = await prisma.category.findFirst({
         where: {
           name: data.name.trim(),
@@ -122,11 +119,10 @@ class CategoryService {
       throw new Error("ID da categoria é obrigatório");
     }
 
-    // Verifica se a categoria existe
     await this.getCategoryById(id);
 
     try {
-      // Verifica se a categoria tem produtos
+
       const products = await prisma.product.count({
         where: { categories: { some: { category_id: id } } },
       });
@@ -147,7 +143,6 @@ class CategoryService {
     }
   }
 
-  // Métodos de compatibilidade com o código existente
   async list() {
     return this.getAllCategories();
   }

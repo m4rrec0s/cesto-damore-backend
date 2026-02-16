@@ -53,7 +53,6 @@ class ProductController {
     try {
       const data = { ...req.body };
 
-      // Converter arrays se vierem como string (multipart/form-data)
       const arraysToParse = ["categories", "components", "additionals"];
       arraysToParse.forEach((key) => {
         if (typeof data[key] === "string") {
@@ -70,7 +69,6 @@ class ProductController {
         }
       });
 
-      // Garantir que categories é um array
       if (!Array.isArray(data.categories)) {
         data.categories = [];
       }
@@ -130,7 +128,6 @@ class ProductController {
       const { id } = req.params;
       const data = { ...req.body };
 
-      // Converter arrays se vierem como string (multipart/form-data)
       const arraysToParse = ["categories", "components", "additionals"];
       arraysToParse.forEach((key) => {
         if (typeof data[key] === "string") {
@@ -147,7 +144,6 @@ class ProductController {
         }
       });
 
-      // Garantir que categories é um array
       if (!Array.isArray(data.categories)) {
         data.categories = [];
       }
@@ -162,7 +158,6 @@ class ProductController {
         return null;
       })();
 
-      // Processamento de imagem se fornecida
       if (file) {
         try {
           const compressedImage = await sharp(file.buffer)

@@ -21,8 +21,8 @@ interface FinalizeResult {
   folderId?: string;
   folderUrl?: string;
   uploadedFiles: number;
-  base64Detected?: boolean; // If any lingering base64/data URIs detected after sanitization
-  base64AffectedIds?: string[]; // List of customization ids that still had base64 after sanitization
+  base64Detected?: boolean;
+  base64AffectedIds?: string[];
 }
 
 interface ArtworkAsset {
@@ -47,7 +47,6 @@ class OrderCustomizationService {
       try {
         const val = this.parseCustomizationData(c.value);
 
-        // Matching robusto para evitar duplicidades
         const dbRuleId = c.customization_id;
         const jsonRuleId =
           val.customizationRuleId || val.customization_id || val.ruleId;
@@ -56,7 +55,7 @@ class OrderCustomizationService {
         const matchesRule =
           ruleId === dbRuleId ||
           ruleId === jsonRuleId ||
-          (dbRuleId && ruleId.startsWith(dbRuleId)) || // Para casos de ID:Componente
+          (dbRuleId && ruleId.startsWith(dbRuleId)) ||
           (jsonRuleId && ruleId.startsWith(jsonRuleId));
 
         const matchesComponent = currentComponentId === componentId;
@@ -73,7 +72,7 @@ class OrderCustomizationService {
       customization_type: input.customizationType,
       title: input.title,
       selected_layout_id: input.selectedLayoutId,
-      componentId: componentId, // Garantir que está no JSON
+      componentId: componentId,
     };
 
     const oldTempFiles: string[] = [];
@@ -172,7 +171,7 @@ class OrderCustomizationService {
 
     let record;
     if (existing) {
-      // ✅ ATUALIZAR BY ID para evitar duplicatas
+
       logger.info(
         `📝 [saveOrderItemCustomization] Atualizando customização existente ID: ${existing.id}`,
       );
@@ -180,12 +179,12 @@ class OrderCustomizationService {
         where: { id: existing.id },
         data: {
           value: valueStr,
-          customization_id: payload.customization_id, // Atualizar FK se necessário
+          customization_id: payload.customization_id,
           updated_at: new Date(),
         },
       });
     } else {
-      // ✅ CRIAR se não existe
+
       logger.info(
         `🆕 [saveOrderItemCustomization] Criando nova customização para regra: ${ruleId}`,
       );
@@ -194,7 +193,6 @@ class OrderCustomizationService {
       });
     }
 
-    // ✅ DELETAR arquivos antigos
     if (oldTempFiles.length > 0) {
       try {
         const result = tempFileService.deleteFiles(oldTempFiles);
@@ -209,22 +207,14 @@ class OrderCustomizationService {
     return record;
   }
 
-  /**
-   * Helper para verificar se a customização está realmente preenchida de forma válida.
-   * Regras simplificadas (alinhadas com frontend):
-   * - TEXT: valor preenchido.
-   * - MULTIPLE_CHOICE: opção e nome da mesma.
-   * - IMAGES: quantidade de imagens > 0 e URLs válidas (não blob/data).
-   * - DYNAMIC_LAYOUT: arte final + fabric state.
-   */
+  
+
   private isCustomizationValid(type: string, data: any): boolean {
     if (!data) return false;
 
-    // ✅ NOVO: Verificar apenas formato de URL (não existência física no disco)
-    // Alinhado com validação do frontend para evitar falsos negativos após reload
     const checkValidUrl = (url: string | undefined): boolean => {
       if (!url) return false;
-      // Verificar que não é blob ou data URL (significa que foi salvo no servidor)
+
       return !url.startsWith("blob:") && !url.startsWith("data:");
     };
 
@@ -233,7 +223,7 @@ class OrderCustomizationService {
         return typeof data.text === "string" && data.text.trim().length > 0;
 
       case "MULTIPLE_CHOICE":
-        // Relaxado: ter opção OU label já conta como preenchido para evitar falsos negativos no segundo GET
+
         const hasOption = !!(
           data.selected_option ||
           data.id ||
@@ -249,7 +239,7 @@ class OrderCustomizationService {
       case "IMAGES":
         const photos = data.photos || data.files || [];
         if (!Array.isArray(photos) || photos.length === 0) return false;
-        // ✅ Relaxado: Se tem fotos, verificamos se não são blobs
+
         return photos.some((p: any) => {
           const url =
             p?.preview_url || p?.url || (typeof p === "string" ? p : null);
@@ -257,7 +247,7 @@ class OrderCustomizationService {
         });
 
       case "DYNAMIC_LAYOUT":
-        // Arte final + Fabric state
+
         const artworkUrl =
           data.image?.preview_url ||
           data.previewUrl ||
@@ -265,7 +255,7 @@ class OrderCustomizationService {
           data.final_artwork?.preview_url ||
           data.finalArtwork?.preview_url ||
           data.final_artworks?.[0]?.preview_url;
-        // ✅ Relaxado: Arte OU Fabric OU Label já conta como válido
+
         const hasArtwork = !!artworkUrl && checkValidUrl(artworkUrl);
         const hasLabelDL = !!(
           data.selected_item_label ||
@@ -275,15 +265,13 @@ class OrderCustomizationService {
         return !!hasArtwork || !!data.fabricState || hasLabelDL;
 
       default:
-        // Qualquer objeto com dados é considerado preenchido
+
         return data && Object.keys(data).length > 0;
     }
   }
 
-  /**
-   * ✅ NOVO: Consolida dados de customização para revisão no carrinho/checkout
-   * Busca itens do pedido, seus produtos, regras disponíveis por componente e dados preenchidos.
-   */
+  
+
   async getOrderReviewData(orderId: string) {
     const orderItems = await prisma.orderItem.findMany({
       where: { order_id: orderId },
@@ -351,7 +339,6 @@ class OrderCustomizationService {
         }
       }
 
-      // Filtrar apenas customizações que REALMENTE têm valor preenchido e evitar duplicatas
       const seen = new Set();
       const filledCustomizations = item.customizations
         .map((c: any) => {
@@ -375,12 +362,12 @@ class OrderCustomizationService {
             order_item_id: c.order_item_id,
             customization_id: ruleId,
             value: parsedValue,
-            componentId: parsedValue.componentId, // Important to expose componentId
+            componentId: parsedValue.componentId,
           };
         })
         .filter((c: any) => {
           if (!c) return false;
-          // Deduplicar: se já temos esse RuleID para o mesmo ComponentID, ignorar o posterior
+
           const key = `${c.customization_id}-${c.componentId || "default"}`;
           if (seen.has(key)) return false;
           seen.add(key);
@@ -429,20 +416,17 @@ class OrderCustomizationService {
       throw new Error("Customização não encontrada");
     }
 
-    // Parsear o valor existente
     const existingData = this.parseCustomizationData(existing.value);
 
-    // ✅ NOVO: Coletar URLs temporárias antigas para deletar se forem substituídas
     const oldTempFiles: string[] = [];
 
-    // Coletar arquivos antigos que serão substituídos
     if (
       input.customizationData?.image?.preview_url &&
       existingData.image?.preview_url &&
       input.customizationData.image.preview_url !==
         existingData.image.preview_url
     ) {
-      // Se o novo canvas preview é diferente do antigo, deletar o antigo
+
       if (existingData.image.preview_url.includes("/uploads/temp/")) {
         const oldFilename = existingData.image.preview_url
           .split("/uploads/temp/")
@@ -454,13 +438,11 @@ class OrderCustomizationService {
       }
     }
 
-    // Mesclar com novos dados de customização
     const mergedCustomizationData = {
       ...existingData,
       ...(input.customizationData ?? {}),
     };
 
-    // Se input tem título ou tipo, atualizar também
     if (input.title) {
       mergedCustomizationData.title = input.title;
     }
@@ -471,7 +453,6 @@ class OrderCustomizationService {
       mergedCustomizationData.selected_layout_id = input.selectedLayoutId;
     }
 
-    // Recompute label_selected when updating
     const updatedLabel = await this.computeLabelSelected(
       input.customizationType ?? mergedCustomizationData.customization_type,
       mergedCustomizationData,
@@ -494,7 +475,7 @@ class OrderCustomizationService {
         mergedCustomizationData.selected_item_label = updatedLabel;
       }
     } else {
-      // If no label can be computed, ensure we don't accidentally keep stale labels
+
       delete mergedCustomizationData.label_selected;
       delete mergedCustomizationData.selected_option_label;
       delete mergedCustomizationData.selected_item_label;
@@ -513,7 +494,7 @@ class OrderCustomizationService {
         }, ruleId=${input.customizationRuleId ?? existing.customization_id}`,
       );
     } catch (err) {
-      /* ignore logging errors */
+      
     }
 
     const result = await prisma.orderItemCustomization.update({
@@ -521,7 +502,6 @@ class OrderCustomizationService {
       data: updateData,
     });
 
-    // ✅ NOVO: Deletar arquivos temporários antigos (não bloqueia se falhar)
     if (oldTempFiles.length > 0) {
       try {
         const deleteResult = tempFileService.deleteFiles(oldTempFiles);
@@ -532,20 +512,17 @@ class OrderCustomizationService {
         logger.warn(
           `⚠️ Erro ao deletar arquivos antigos na atualização: ${error.message}`,
         );
-        // Não falha o processo se não conseguir deletar
+
       }
     }
 
     return result;
   }
 
-  /**
-   * ✅ NOVO: Após fazer upload para Google Drive, deletar arquivos temporários
-   * Extrai filenames de /uploads/temp/ URLs e deleta os arquivos
-   */
-  /**
-   * 🔥 NOVO: Criar backup redundante antes de deletar arquivos temp
-   */
+  
+
+  
+
   private async backupTempFilesBeforeDelete(
     files: string[],
   ): Promise<{ success: number; failed: number }> {
@@ -554,7 +531,6 @@ class OrderCustomizationService {
     const tempDir = path.join(baseStorageDir, "temp");
     const backupDir = path.join(baseStorageDir, "backup");
 
-    // Criar diretório de backup se não existir
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
       logger.info(`📁 Diretório de backup criado: ${backupDir}`);
@@ -567,19 +543,16 @@ class OrderCustomizationService {
       try {
         const sourcePath = path.join(tempDir, filename);
 
-        // Verificar se arquivo existe
         if (!fs.existsSync(sourcePath)) {
           logger.warn(`⚠️ Arquivo não encontrado para backup: ${filename}`);
           failed++;
           continue;
         }
 
-        // Criar nome único com timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const backupFilename = `${timestamp}_${filename}`;
         const backupPath = path.join(backupDir, backupFilename);
 
-        // Copiar arquivo (não mover)
         fs.copyFileSync(sourcePath, backupPath);
 
         success++;
@@ -604,7 +577,7 @@ class OrderCustomizationService {
       const tempFilesToDelete: string[] = [];
 
       for (const asset of assets) {
-        // Se a URL é do temp storage, extrair o filename
+
         if (asset.url && asset.url.includes("/uploads/temp/")) {
           const filename = asset.url.split("/uploads/temp/").pop();
           if (filename && filename.length > 0) {
@@ -614,7 +587,7 @@ class OrderCustomizationService {
       }
 
       if (tempFilesToDelete.length > 0) {
-        // 🔥 NOVO: Criar backup antes de deletar
+
         logger.info(
           `🔄 [finalizeOrderCustomizations] Criando backup de ${tempFilesToDelete.length} arquivos antes de deletar...`,
         );
@@ -632,7 +605,7 @@ class OrderCustomizationService {
       logger.warn(
         `⚠️ Erro ao deletar temp files após upload: ${error.message}`,
       );
-      // Não falha o processo se não conseguir deletar
+
     }
   }
 
@@ -641,7 +614,6 @@ class OrderCustomizationService {
       `🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`,
     );
 
-    // ✅ VERIFICAÇÃO DE IDEMPOTÊNCIA: Se a pasta já foi criada, retornar dados existentes
     const existingOrder = await prisma.order.findUnique({
       where: { id: orderId },
       select: {
@@ -701,7 +673,7 @@ class OrderCustomizationService {
     let uploadedFiles = 0;
     let base64Detected = false;
     const base64AffectedIds: string[] = [];
-    const subfolderMap: Record<string, string> = {}; // Map folder name -> subfolder ID
+    const subfolderMap: Record<string, string> = {};
 
     const componentNameMap = new Map<string, string>();
     const additionalNameMap = new Map<string, string>();
@@ -778,7 +750,6 @@ class OrderCustomizationService {
           return item.product?.name || customizationType || "Customizacoes";
         })();
 
-        // ✅ NOVO: extractArtworkAssets agora retorna Promise<{ url, filename, mimeType }[]>
         const artworkUrls = await this.extractArtworkAssets(data);
 
         if (artworkUrls.length === 0) {
@@ -787,7 +758,6 @@ class OrderCustomizationService {
 
         const targetFolder = await ensureSubfolder(folderName);
 
-        // ✅ NOVO: uploadArtworkFromUrl em vez de uploadArtwork
         const uploads = await Promise.all(
           artworkUrls.map((asset) =>
             this.uploadArtworkFromUrl(
@@ -802,7 +772,6 @@ class OrderCustomizationService {
 
         const sanitizedData = this.removeBase64FromData(data, uploads);
 
-        // Recompute label_selected for DYNAMIC_LAYOUT / MULTIPLE_CHOICE if missing
         try {
           const cType = sanitizedData.customization_type;
           if (
@@ -837,7 +806,6 @@ class OrderCustomizationService {
           );
         }
 
-        // Defense: ensure no lingering base64 fields anywhere in the JSON
         const removedFieldsCount =
           this.removeBase64FieldsRecursive(sanitizedData);
         if (removedFieldsCount > 0) {
@@ -855,7 +823,6 @@ class OrderCustomizationService {
           },
         });
 
-        // Verification: read back the saved value and ensure it doesn't contain base64
         try {
           const updated = await prisma.orderItemCustomization.findUnique({
             where: { id: customization.id },
@@ -871,7 +838,7 @@ class OrderCustomizationService {
             );
             base64Detected = true;
             base64AffectedIds.push(customization.id);
-            // Try an additional pass: parse and remove any lingering base64 fields and resave
+
             try {
               const parsed = JSON.parse(updatedVal);
               const removed = this.removeBase64FieldsRecursive(parsed);
@@ -884,7 +851,6 @@ class OrderCustomizationService {
                   data: { value: JSON.stringify(parsed) },
                 });
 
-                // verify again
                 const refetch = await prisma.orderItemCustomization.findUnique({
                   where: { id: customization.id },
                   select: { value: true },
@@ -894,7 +860,7 @@ class OrderCustomizationService {
                   logger.info(
                     `✅ Re-sanitization successful for customization ${customization.id}`,
                   );
-                  // remove from base64AffectedIds since it was fixed
+
                   const idx = base64AffectedIds.indexOf(customization.id);
                   if (idx >= 0) base64AffectedIds.splice(idx, 1);
                 }
@@ -921,7 +887,6 @@ class OrderCustomizationService {
 
     const folderUrl = googleDriveService.getFolderUrl(mainFolderId);
 
-    // ✅ NOVO: Deletar temp files após finalização completa
     try {
       const allAssets: Array<{ url: string; filename?: string }> = [];
 
@@ -929,7 +894,6 @@ class OrderCustomizationService {
         for (const customization of item.customizations) {
           const data = this.parseCustomizationData(customization.value);
 
-          // Coletar preview_url de todos os campos possíveis
           if (data?.photos && Array.isArray(data.photos)) {
             data.photos.forEach((p: any) => {
               if (p.preview_url) {
@@ -961,12 +925,11 @@ class OrderCustomizationService {
       }
     } catch (error: any) {
       logger.warn(`⚠️ Erro ao limpar temp files: ${error.message}`);
-      // Não falha o processo se não conseguir deletar
+
     }
 
     base64Detected = base64AffectedIds.length > 0;
 
-    // ✅ NOVO: Atualizar o status de processamento do pedido para idempotência
     try {
       await prisma.order.update({
         where: { id: orderId },
@@ -1014,7 +977,6 @@ class OrderCustomizationService {
       },
     });
 
-    // Sanitizar valores de customização antes de retornar (remover base64)
     const sanitizedItems = items.map((item: any) => ({
       ...item,
       customizations: (item.customizations || []).map((c: any) => {
@@ -1026,7 +988,7 @@ class OrderCustomizationService {
             value: JSON.stringify(parsed),
           };
         } catch (err) {
-          // Caso parsing falhe, retornar o registro sem alteração
+
           logger.warn("Erro ao sanitizar customização ao listar:", c.id, err);
           return c;
         }
@@ -1054,7 +1016,6 @@ class OrderCustomizationService {
   ): Promise<string | undefined> {
     if (!customizationData) return undefined;
 
-    // MULTIPLE_CHOICE — find the option label using provided options or DB rule
     if (customizationType === "MULTIPLE_CHOICE") {
       const selectedOption =
         customizationData.selected_option ||
@@ -1064,7 +1025,6 @@ class OrderCustomizationService {
 
       if (!selectedOption) return undefined;
 
-      // First try options provided by the frontend in the customization data
       const options = customizationData.options || undefined;
 
       if (Array.isArray(options)) {
@@ -1072,7 +1032,6 @@ class OrderCustomizationService {
         if (opt) return opt.label || opt.name || opt.title;
       }
 
-      // Fallback: fetch customization rule and options from DB
       if (customizationRuleId) {
         try {
           const rule = await prisma.customization.findUnique({
@@ -1085,7 +1044,7 @@ class OrderCustomizationService {
           );
           if (match) return match.label || match.name || match.title;
         } catch (error) {
-          // ignore DB errors and return undefined
+
           console.warn(
             "computeLabelSelected: erro ao buscar customization rule",
             error,
@@ -1096,9 +1055,8 @@ class OrderCustomizationService {
       return undefined;
     }
 
-    // DYNAMIC_LAYOUT — use the provided layout id or selected_layout_id to get layout name
     if (customizationType === "DYNAMIC_LAYOUT") {
-      // Try typical fields then recursively search the object for common keys
+
       const layoutId =
         selectedLayoutId ||
         customizationData.layout_id ||
@@ -1107,7 +1065,7 @@ class OrderCustomizationService {
       if (!layoutId) return undefined;
 
       try {
-        // Tabela layout foi removida. Tentar buscar em DynamicLayout ou LayoutBase se necessário.
+
         const layout = await prisma.dynamicLayout.findUnique({
           where: { id: layoutId },
         });
@@ -1126,7 +1084,6 @@ class OrderCustomizationService {
     return undefined;
   }
 
-  // Search recursively for layout id in nested JSON structure
   private findLayoutIdInObject(obj: any): string | undefined {
     if (!obj || typeof obj !== "object") return undefined;
     const keys = [
@@ -1159,7 +1116,6 @@ class OrderCustomizationService {
     const assets: Array<{ url: string; filename: string; mimeType: string }> =
       [];
 
-    // ✅ DYNAMIC_LAYOUT: Prioridade máxima para design final
     if (data?.customization_type === "DYNAMIC_LAYOUT") {
       const bestUrl =
         data.highQualityUrl ||
@@ -1184,7 +1140,6 @@ class OrderCustomizationService {
       }
     }
 
-    // Suporte para campo "photos" (IMAGES type)
     if (data?.customization_type === "IMAGES") {
       const photos = Array.isArray(data?.photos) ? data.photos : [];
       photos.forEach((photo: any, index: number) => {
@@ -1211,7 +1166,6 @@ class OrderCustomizationService {
       });
     }
 
-    // Suporte para "images" array (compatibilidade genérica se não for DYNAMIC_LAYOUT já processado)
     if (data?.customization_type !== "DYNAMIC_LAYOUT") {
       const images = Array.isArray(data?.images) ? data.images : [];
       images.forEach((image: any, index: number) => {
@@ -1239,10 +1193,8 @@ class OrderCustomizationService {
     return assets;
   }
 
-  /**
-   * ✅ NOVO: Upload de arquivo a partir de URL temporária (armazenado em /storage/temp)
-   * Busca o arquivo da VPS e faz upload para o Google Drive
-   */
+  
+
   private async uploadArtworkFromUrl(
     asset: { url: string; filename: string; mimeType: string },
     customization: { id: string },
@@ -1257,13 +1209,11 @@ class OrderCustomizationService {
 
       let fileBuffer: Buffer | null = null;
 
-      // Se for URL temporária local (/uploads/temp/...)
       if (url.startsWith("/uploads/temp/")) {
         const tempFileName = url.replace("/uploads/temp/", "");
         const baseStorageDir = path.join(process.cwd(), "storage");
         const filePath = path.join(baseStorageDir, "temp", tempFileName);
 
-        // Validação de segurança: garantir que não está tentando fazer path traversal
         if (!filePath.startsWith(path.join(baseStorageDir, "temp"))) {
           throw new Error(`Invalid file path: ${filePath}`);
         }
@@ -1278,7 +1228,7 @@ class OrderCustomizationService {
           `✅ Arquivo lido do temp: ${tempFileName} (${fileBuffer.length} bytes)`,
         );
       }
-      // Se for URL HTTP (para compatibilidade/fallback)
+
       else if (url.startsWith("http")) {
         logger.debug(`📥 Baixando arquivo de URL: ${url}`);
         const response = await axios.get(url, {
@@ -1288,12 +1238,12 @@ class OrderCustomizationService {
         fileBuffer = Buffer.from(response.data);
         logger.debug(`✅ Arquivo baixado: ${fileBuffer.length} bytes`);
       }
-      // Se for base64 (para compatibilidade durante migração)
+
       else if (url.startsWith("data:")) {
         logger.warn(
           `⚠️ Asset ainda contém base64 (devia ter sido migrado): ${filename}`,
         );
-        // Extrair base64
+
         const matches = url.match(/data:[^;]*;base64,(.*)/);
         if (!matches || !matches[1]) {
           throw new Error("Invalid base64 format");
@@ -1307,7 +1257,6 @@ class OrderCustomizationService {
         throw new Error("Failed to load file buffer");
       }
 
-      // Upload para Google Drive
       const extension = this.resolveExtension(mimeType);
       const fileName =
         filename ||
@@ -1326,10 +1275,6 @@ class OrderCustomizationService {
       logger.info(
         `✅ Arquivo enviado para Drive: ${fileName} (id=${upload.id}, size=${fileBuffer.length})`,
       );
-
-      // ⚠️ NOTA: Temp files deletados no final do ciclo de vida (status DELIVERED)
-      // Não deletar aqui pois causa erro 404 ao fazer requisições HTTP
-      // A deleção é feita em updateOrderStatus quando status = DELIVERED
 
       return {
         ...upload,
@@ -1391,7 +1336,6 @@ class OrderCustomizationService {
   ) {
     const sanitized = { ...data };
 
-    // Normalizar finalArtwork (camelCase) para final_artwork (snake_case)
     if (sanitized.finalArtwork && !sanitized.final_artwork) {
       sanitized.final_artwork = sanitized.finalArtwork;
       delete sanitized.finalArtwork;
@@ -1442,9 +1386,6 @@ class OrderCustomizationService {
       });
     }
 
-    // photos may follow final_artwork/final_artworks in the upload sequence.
-    // We must compute the correct upload index offset based on the number of
-    // final_artwork and final_artworks that were present.
     let uploadIndex = 0;
     if (sanitized.final_artwork) {
       uploadIndex += 1;
@@ -1457,7 +1398,7 @@ class OrderCustomizationService {
       const isImagesType = sanitized.customization_type === "IMAGES";
 
       sanitized.photos = sanitized.photos.map((photo: any, idx: number) => {
-        // Apenas buscar no array de uploads se o tipo for de fato IMAGES
+
         const upload = isImagesType ? uploads[uploadIndex + idx] : undefined;
 
         const newPhoto = {
@@ -1475,7 +1416,7 @@ class OrderCustomizationService {
             `✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`,
           );
         } else if (isImagesType) {
-          // Só avisar se for o tipo esperado e falhar
+
           logger.warn(
             `⚠️ Photo sanitized but no upload info found for index ${idx}`,
           );
@@ -1489,18 +1430,16 @@ class OrderCustomizationService {
       }
     }
 
-    // ✅ NOVO: Sanitizar LAYOUT_BASE images array
     if (Array.isArray(sanitized.images)) {
       const isDynamic = sanitized.customization_type === "DYNAMIC_LAYOUT";
 
       sanitized.images = sanitized.images.map((image: any, idx: number) => {
-        // Para DYNAMIC_LAYOUT, as imagens individuais dos slots não sobem para o Drive
-        // (apenas a arte final sobe), então não buscamos info de upload para elas.
+
         const upload = !isDynamic ? uploads[uploadIndex + idx] : undefined;
 
         const newImage = {
           ...image,
-          url: undefined, // Remove base64 URL
+          url: undefined,
           base64: undefined,
           base64Data: undefined,
           mimeType: upload?.mimeType || image?.mimeType,
@@ -1518,7 +1457,7 @@ class OrderCustomizationService {
             })`,
           );
         } else if (!isDynamic) {
-          // Só logar aviso se não for dinâmico, pois no dinâmico é esperado não ter upload individual
+
           logger.warn(
             `⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`,
           );
@@ -1527,13 +1466,11 @@ class OrderCustomizationService {
         return newImage;
       });
 
-      // Apenas avançar o ponteiro de uploads se as imagens foram de fato carregadas
       if (!isDynamic) {
         uploadIndex += sanitized.images.length;
       }
     }
 
-    // ✅ NOVO: Remover base64 do campo text se for uma URL base64
     if (
       sanitized.text &&
       typeof sanitized.text === "string" &&
@@ -1576,7 +1513,6 @@ class OrderCustomizationService {
 
       const value = obj[key];
 
-      // Check for data URI strings
       if (typeof value === "string" && value.startsWith("data:image")) {
         delete obj[key];
         removedCount++;
@@ -1611,10 +1547,8 @@ class OrderCustomizationService {
       .toLowerCase();
   }
 
-  /**
-   * ✅ NOVO: Valida a existência física dos arquivos de customização.
-   * Retorna um mapa { [customizationId]: isValid }.
-   */
+  
+
   async validateOrderCustomizationsFiles(
     orderId: string,
   ): Promise<{ files: Record<string, boolean> }> {
@@ -1636,9 +1570,8 @@ class OrderCustomizationService {
           if (!obj) return;
           if (typeof obj === "object") {
             if (obj.preview_url) urls.push(obj.preview_url);
-            if (obj.url) urls.push(obj.url); // Legacy
+            if (obj.url) urls.push(obj.url);
 
-            // Recursively search
             if (Array.isArray(obj)) {
               obj.forEach(extractUrls);
             } else {
@@ -1655,7 +1588,7 @@ class OrderCustomizationService {
               url.includes("/images/customizations/"))
           ) {
             const filePath = this.getFilePathFromUrl(url);
-            // Se path foi resolvido mas arquivo não existe
+
             if (filePath && !fs.existsSync(filePath)) {
               isValid = false;
               break;
@@ -1671,26 +1604,19 @@ class OrderCustomizationService {
 
   private getFilePathFromUrl(url: string): string | null {
     try {
-      // Remover domínio se houver
-      const urlPath = url.replace(/^https?:\/\/[^\/]+/, "");
 
-      // Ajustar caminhos baseados na configuração do projeto
-      // Assumindo estrutura padrão vista em uploadController ou rotas
-      // Rota: /uploads/temp -> process.cwd()/storage/temp (conforme routes.ts getTempUploadsPath)
-      // OU process.cwd()/uploads/temp (conforme lógica de delete no próprio service)
+      const urlPath = url.replace(/^https?:\/\/[^\/]+/, "");
 
       if (urlPath.includes("/uploads/temp/")) {
         const filename = urlPath.split("/uploads/temp/").pop();
         if (!filename) return null;
 
-        // Tentar locations comuns
         const path1 = path.join(process.cwd(), "uploads", "temp", filename);
         const path2 = path.join(process.cwd(), "storage", "temp", filename);
 
         if (fs.existsSync(path1)) return path1;
         if (fs.existsSync(path2)) return path2;
 
-        // Se não existe em lugar nenhum, retorna path1 como default para falhar a checagem
         return path1;
       }
 
@@ -1699,7 +1625,6 @@ class OrderCustomizationService {
         const relativePath = parts[1];
         if (!relativePath) return null;
 
-        // Decodificar URI parts (espaços, etc)
         const safeRelative = decodeURIComponent(relativePath);
 
         return path.join(

@@ -2,9 +2,8 @@ import { Request, Response } from "express";
 import productComponentService from "../services/productComponentService";
 
 class ProductComponentController {
-  /**
-   * Adiciona item como componente de um produto
-   */
+  
+
   async addComponent(req: Request, res: Response) {
     try {
       const { productId } = req.params;
@@ -26,7 +25,6 @@ class ProductComponentController {
         quantity,
       });
 
-      // Atualizar estoque do produto após adicionar componente
       const newStock = await productComponentService.updateProductStock(
         productId
       );
@@ -51,9 +49,8 @@ class ProductComponentController {
     }
   }
 
-  /**
-   * Atualiza quantidade de um componente
-   */
+  
+
   async updateComponent(req: Request, res: Response) {
     try {
       const { componentId } = req.params;
@@ -70,7 +67,6 @@ class ProductComponentController {
         { quantity }
       );
 
-      // Atualizar estoque do produto após atualizar componente
       const newStock = await productComponentService.updateProductStock(
         component.product_id
       );
@@ -92,9 +88,8 @@ class ProductComponentController {
     }
   }
 
-  /**
-   * Remove componente de um produto
-   */
+  
+
   async removeComponent(req: Request, res: Response) {
     try {
       const { componentId } = req.params;
@@ -103,7 +98,6 @@ class ProductComponentController {
         componentId
       );
 
-      // Atualizar estoque do produto após remover componente
       const newStock = await productComponentService.updateProductStock(
         component.product_id
       );
@@ -125,9 +119,8 @@ class ProductComponentController {
     }
   }
 
-  /**
-   * Lista componentes de um produto
-   */
+  
+
   async getProductComponents(req: Request, res: Response) {
     try {
       const { productId } = req.params;
@@ -150,9 +143,8 @@ class ProductComponentController {
     }
   }
 
-  /**
-   * Calcula estoque disponível do produto
-   */
+  
+
   async calculateProductStock(req: Request, res: Response) {
     try {
       const { productId } = req.params;
@@ -173,9 +165,8 @@ class ProductComponentController {
     }
   }
 
-  /**
-   * Valida se há estoque suficiente para os componentes
-   */
+  
+
   async validateComponentsStock(req: Request, res: Response) {
     try {
       const { productId } = req.params;
@@ -212,9 +203,8 @@ class ProductComponentController {
     }
   }
 
-  /**
-   * Busca produtos que usam um item específico
-   */
+  
+
   async getProductsUsingItem(req: Request, res: Response) {
     try {
       const { itemId } = req.params;

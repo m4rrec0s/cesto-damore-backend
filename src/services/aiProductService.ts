@@ -1,11 +1,10 @@
 import prisma from "../database/prisma";
 
 class AIProductService {
-  /**
-   * Constrói filtro WHERE combinando múltiplos critérios com lógica AND/OR correta
-   */
+  
+
   private buildWhereFilter(query: any): any {
-    // Validar query
+
     query = query || {};
 
     const where: any = {
@@ -13,10 +12,8 @@ class AIProductService {
       type: { name: { equals: "Cestas", mode: "insensitive" } },
     };
 
-    // Lista de ANDs para combinar múltiplos filtros
     const andConditions: any[] = [];
 
-    // 1. FILTRO DE TEXTO (keywords ou q) - usa OR
     const searchTerm = query.keywords || query.q;
     if (searchTerm) {
       andConditions.push({
@@ -36,7 +33,6 @@ class AIProductService {
       });
     }
 
-    // 2. FILTRO DE OCASIÃO
     if (query.occasion) {
       const occasionToCategoryMap: { [key: string]: string[] } = {
         namorados: ["Romântica"],
@@ -54,7 +50,6 @@ class AIProductService {
       const categoryNames =
         occasionToCategoryMap[query.occasion.toLowerCase()] || [];
 
-      // Se não encontrar no mapa, busca por texto também
       if (categoryNames.length > 0) {
         andConditions.push({
           categories: {
@@ -66,7 +61,7 @@ class AIProductService {
           },
         });
       } else {
-        // Fallback: busca por ocasião como texto
+
         andConditions.push({
           OR: [
             { name: { contains: query.occasion, mode: "insensitive" } },
@@ -85,7 +80,6 @@ class AIProductService {
       }
     }
 
-    // 3. FILTRO DE PREÇO MÁXIMO
     if (query.price_max) {
       const maxPrice = parseFloat(query.price_max);
       if (!isNaN(maxPrice)) {
@@ -95,7 +89,6 @@ class AIProductService {
       }
     }
 
-    // 4. FILTRO DE TAG (em componentes ou nome)
     if (query.tag) {
       const tagTerm = query.tag.replace(/-/g, " ");
       andConditions.push({
@@ -116,14 +109,12 @@ class AIProductService {
       });
     }
 
-    // 5. FILTRO DE DISPONIBILIDADE
     if (query.available === "true") {
       andConditions.push({
         stock_quantity: { gt: 0 },
       });
     }
 
-    // 6. COMBINAR TODOS OS FILTROS COM AND
     if (andConditions.length > 0) {
       where.AND = andConditions;
     }
@@ -133,7 +124,7 @@ class AIProductService {
 
   async getLightweightProducts(query?: any) {
     try {
-      // Construir filtro com lógica corrigida
+
       const where = this.buildWhereFilter(query || {});
 
       const products = await prisma.product.findMany({
@@ -185,12 +176,12 @@ class AIProductService {
         return {
           id: p.id,
           name: p.name,
-          description: p.description || "Sem descrição disponível", // Descrição completa
+          description: p.description || "Sem descrição disponível",
           price: p.price,
           final_price: this.calculateFinalPrice(p.price, p.discount || 0),
           image: p.image_url ? this.formatImageUrl(p.image_url, baseUrl) : null,
-          category: p.type?.name || "Outros", // Usando o Tipo como categoria principal visual
-          real_categories: p.categories.map((c) => c.category.name), // Categorias reais
+          category: p.type?.name || "Outros",
+          real_categories: p.categories.map((c) => c.category.name),
           occasion: occasions[0]?.toLowerCase() || "geral",
           tags: tags,
           allows_customization: p.allows_customization,
@@ -198,15 +189,9 @@ class AIProductService {
           components: componentsList,
           has_additionals: p.additionals.length > 0,
           additionals: additionalsList,
-          detail_endpoint: `/ai/products/detail/${slug}`, // Usando slug
+          detail_endpoint: `/ai/products/detail/${slug}`,
         };
       });
-
-      // Ordenação personalizada em memória
-      // 1. Produtos mais caros - Contendo Quadro/Pelúcias/Polaroides
-      // 2. Produtos mais baratos - Contendo Quadro/Pelúcias/Polaroides
-      // 3. Produtos mais caros - Contendo Caneca/Quebra-Cabeça
-      // 4. Mais baratos de forma geral
 
       const premiumKeywords = ["quadro", "pelucia", "pelúcia", "polaroid"];
       const standardKeywords = ["caneca", "quebra-cabeça", "quebra-cabeca"];
@@ -227,11 +212,7 @@ class AIProductService {
       const otherProducts: any[] = [];
 
       lightweightProducts.forEach((p: any) => {
-        // Precisamos checar os dados originais para a busca de keywords,
-        // mas lightweightProducts já está formatado.
-        // Vamos usar o objeto formatado mesmo, pois ele tem name, description e components (nomes).
 
-        // Reconstruindo verificação baseada no objeto formatado
         const text = (
           p.name +
           " " +
@@ -252,14 +233,10 @@ class AIProductService {
         }
       });
 
-      // Ordenar grupos
-      // Premium: DESC (Mais caro -> Mais barato)
       premiumProducts.sort((a, b) => b.price - a.price);
 
-      // Standard: DESC (Mais caro -> Mais barato)
       standardProducts.sort((a, b) => b.price - a.price);
 
-      // Outros: ASC (Mais barato -> Mais caro)
       otherProducts.sort((a, b) => a.price - b.price);
 
       const sortedProducts = [
@@ -268,7 +245,6 @@ class AIProductService {
         ...otherProducts,
       ];
 
-      // Gerar filtros dinâmicos
       const filters = {
         occasions: [
           "aniversario",
@@ -305,7 +281,6 @@ class AIProductService {
     try {
       let productId = idOrSlug;
 
-      // Se não for UUID, tentar encontrar pelo slug
       if (!this.isUUID(idOrSlug)) {
         const foundId = await this.findIdBySlug(idOrSlug);
         if (!foundId) {
@@ -383,12 +358,11 @@ class AIProductService {
     }
   }
 
-  /**
-   * Busca produtos com otimização para ferramentas de IA (tool calling)
-   */
+  
+
   async searchProducts(query: any) {
     try {
-      // Usar o mesmo buildWhereFilter para consistência
+
       const where = this.buildWhereFilter(query || {});
 
       const products = await prisma.product.findMany({
@@ -419,18 +393,14 @@ class AIProductService {
     }
   }
 
-  // ==========================================
-  // HELPER METHODS
-  // ==========================================
-
   private toSlug(text: string): string {
     return text
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // Remove acentos
-      .replace(/[^\w\s-]/g, "") // Remove caracteres especiais
-      .replace(/\s+/g, "-") // Substitui espaços por hífens
-      .replace(/^-+|-+$/g, ""); // Remove hífens do início/fim
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "");
   }
 
   private isUUID(str: string): boolean {
@@ -440,8 +410,7 @@ class AIProductService {
   }
 
   private async findIdBySlug(slug: string): Promise<string | null> {
-    // Como slugs não estão no banco, buscamos todos e filtramos
-    // Para catálogos pequenos (<1000 itens) isso é performático o suficiente
+
     const products = await prisma.product.findMany({
       where: {
         is_active: true,
@@ -457,7 +426,6 @@ class AIProductService {
   private generateTags(product: any, occasions: string[]): string[] {
     const tags = new Set<string>();
 
-    // Adiciona ocasiões como tags
     occasions.forEach((o) =>
       tags.add(
         o
@@ -468,7 +436,6 @@ class AIProductService {
       )
     );
 
-    // Adiciona tipo do produto
     if (product.type?.name) {
       tags.add(product.type.name.toLowerCase());
     }
@@ -510,12 +477,10 @@ class AIProductService {
         ?.map((c: any) => c.item.name.toLowerCase())
         .join(" ") || "";
 
-    // Combinar todos os textos para análise
     const allText = `${name} ${description} ${categories.join(
       " "
     )} ${components}`;
 
-    // Mapa de palavras-chave para ocasiões com prioridade
     const occasionPatterns: Array<{
       keywords: string[];
       occasion: string;
@@ -584,7 +549,6 @@ class AIProductService {
       },
     ];
 
-    // Verificar cada padrão
     occasionPatterns.forEach((pattern) => {
       const hasKeyword = pattern.keywords.some((keyword) =>
         allText.includes(keyword)
@@ -594,12 +558,10 @@ class AIProductService {
       }
     });
 
-    // Se não encontrou nenhuma ocasião, retorna "Geral"
     if (occasions.length === 0) {
       occasions.push("Geral");
     }
 
-    // Remover duplicatas mantendo ordem
     return Array.from(new Set(occasions));
   }
 }

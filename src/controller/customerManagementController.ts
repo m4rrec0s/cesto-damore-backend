@@ -2,9 +2,8 @@ import { Request, Response } from "express";
 import customerManagementService from "../services/customerManagementService";
 
 class CustomerManagementController {
-  /**
-   * GET /api/customers/:phone - Busca informações completas de um cliente
-   */
+  
+
   async getCustomerInfo(req: Request, res: Response): Promise<Response> {
     try {
       const { phone } = req.params;
@@ -34,9 +33,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * GET /api/customers - Lista todos os clientes n8n
-   */
+  
+
   async listCustomers(req: Request, res: Response): Promise<Response> {
     try {
       const { follow_up, service_status, already_a_customer, limit, offset } =
@@ -70,9 +68,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * POST /api/customers - Cria ou atualiza um cliente n8n
-   */
+  
+
   async upsertCustomer(req: Request, res: Response): Promise<Response> {
     try {
       const { number, name, service_status, already_a_customer, follow_up } =
@@ -108,9 +105,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * PATCH /api/customers/:phone/follow-up - Atualiza follow-up do cliente
-   */
+  
+
   async updateFollowUp(req: Request, res: Response): Promise<Response> {
     try {
       const { phone } = req.params;
@@ -153,9 +149,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * POST /api/customers/:phone/send-message - Envia mensagem ao cliente
-   */
+  
+
   async sendMessage(req: Request, res: Response): Promise<Response> {
     try {
       const { phone } = req.params;
@@ -219,9 +214,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * PATCH /api/customers/:phone/service-status - Atualiza status de serviço
-   */
+  
+
   async updateServiceStatus(req: Request, res: Response): Promise<Response> {
     try {
       const { phone } = req.params;
@@ -258,9 +252,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * PATCH /api/customers/:phone/customer-status - Atualiza se já é cliente
-   */
+  
+
   async updateCustomerStatus(req: Request, res: Response): Promise<Response> {
     try {
       const { phone } = req.params;
@@ -297,9 +290,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * PATCH /api/customers/:phone/name - Atualiza nome do cliente
-   */
+  
+
   async updateName(req: Request, res: Response): Promise<Response> {
     try {
       const { phone } = req.params;
@@ -336,9 +328,8 @@ class CustomerManagementController {
     }
   }
 
-  /**
-   * POST /api/customers/sync/:userId - Sincroniza usuário do app para n8n
-   */
+  
+
   async syncAppUser(req: Request, res: Response): Promise<Response> {
     try {
       const { userId } = req.params;

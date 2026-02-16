@@ -3,10 +3,8 @@ import tempFileService from "../services/tempFileService";
 import logger from "../utils/logger";
 
 class TempFileController {
-  /**
-   * POST /api/temp/upload
-   * Upload de arquivo temporário (para customizações durante carrinho)
-   */
+  
+
   async upload(req: Request, res: Response) {
     try {
       if (!req.file) {
@@ -18,8 +16,7 @@ class TempFileController {
 
       const file = req.file;
 
-      // Validar tamanho máximo
-      const maxSize = 10 * 1024 * 1024; // 10MB
+      const maxSize = 10 * 1024 * 1024;
       if (file.size > maxSize) {
         return res.status(413).json({
           error: "Arquivo muito grande",
@@ -29,7 +26,6 @@ class TempFileController {
         });
       }
 
-      // Validar tipo de arquivo (apenas imagens)
       const allowedMimes = [
         "image/jpeg",
         "image/png",
@@ -46,7 +42,6 @@ class TempFileController {
         });
       }
 
-      // Salvar arquivo
       const result = await tempFileService.saveFile(
         file.buffer,
         file.originalname
@@ -69,13 +64,11 @@ class TempFileController {
     }
   }
 
-  /**
-   * GET /api/temp/files
-   * Lista arquivos temporários (apenas para admin/debug)
-   */
+  
+
   async listFiles(req: Request, res: Response) {
     try {
-      // Validar que é admin (middleware deve estar na rota)
+
       const files = tempFileService.listFiles();
 
       return res.json({
@@ -101,10 +94,8 @@ class TempFileController {
     }
   }
 
-  /**
-   * DELETE /api/temp/files/:filename
-   * Deleta um arquivo temporário específico
-   */
+  
+
   async deleteFile(req: Request, res: Response) {
     try {
       const { filename } = req.params;
@@ -115,7 +106,6 @@ class TempFileController {
         });
       }
 
-      // Validação de segurança: prevenir path traversal
       if (
         filename.includes("..") ||
         filename.includes("/") ||
@@ -148,13 +138,11 @@ class TempFileController {
     }
   }
 
-  /**
-   * DELETE /api/temp/cleanup
-   * Limpa arquivos temporários antigos (admin only)
-   */
+  
+
   async cleanup(req: Request, res: Response) {
     try {
-      // Parâmetro opcional: horas threshold (default 48)
+
       const hoursParam = req.query.hours;
       const hours =
         hoursParam && !isNaN(Number(hoursParam)) ? Number(hoursParam) : 48;
@@ -176,11 +164,8 @@ class TempFileController {
     }
   }
 
-  /**
-   * POST /api/temp/cleanup-by-order
-   * Deleta todos os arquivos temporários associados a um pedido
-   * Usado após finalização do pedido no webhook
-   */
+  
+
   async cleanupByOrder(req: Request, res: Response) {
     try {
       const { filenames } = req.body as { filenames?: string[] };

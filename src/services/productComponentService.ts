@@ -12,11 +12,10 @@ interface UpdateComponentInput {
 }
 
 class ProductComponentService {
-  /**
-   * Adiciona item como componente de um produto
-   */
+  
+
   async addComponent(data: AddComponentInput) {
-    // Validações
+
     if (!data.product_id || !data.item_id) {
       throw new Error("Product ID e Item ID são obrigatórios");
     }
@@ -25,7 +24,6 @@ class ProductComponentService {
       throw new Error("Quantidade deve ser maior que zero");
     }
 
-    // Verificar se produto existe
     const product = await prisma.product.findUnique({
       where: { id: data.product_id },
     });
@@ -34,7 +32,6 @@ class ProductComponentService {
       throw new Error("Produto não encontrado");
     }
 
-    // Verificar se item existe
     const item = await prisma.item.findUnique({
       where: { id: data.item_id },
     });
@@ -43,7 +40,6 @@ class ProductComponentService {
       throw new Error("Item não encontrado");
     }
 
-    // Verificar se já existe esse componente no produto
     const existing = await prisma.productComponent.findFirst({
       where: {
         product_id: data.product_id,
@@ -71,9 +67,8 @@ class ProductComponentService {
     });
   }
 
-  /**
-   * Atualiza quantidade de um componente
-   */
+  
+
   async updateComponent(componentId: string, data: UpdateComponentInput) {
     if (data.quantity <= 0) {
       throw new Error("Quantidade deve ser maior que zero");
@@ -96,9 +91,8 @@ class ProductComponentService {
     });
   }
 
-  /**
-   * Remove componente de um produto
-   */
+  
+
   async removeComponent(componentId: string) {
     const component = await prisma.productComponent.findUnique({
       where: { id: componentId },
@@ -113,10 +107,8 @@ class ProductComponentService {
     });
   }
 
-  /**
-   * Lista componentes de um produto
-   * @param forceRefresh - Se true, força busca sem cache
-   */
+  
+
   async getProductComponents(productId: string, forceRefresh = false) {
     const query = {
       where: { product_id: productId },
@@ -131,7 +123,7 @@ class ProductComponentService {
     };
 
     if (forceRefresh) {
-      // Força bypass de cache do Prisma
+
       const rows = (await prisma.$queryRawUnsafe(
         `
         SELECT 
@@ -166,9 +158,8 @@ class ProductComponentService {
     return prisma.productComponent.findMany(query);
   }
 
-  /**
-   * Calcula estoque disponível do produto baseado nos componentes
-   */
+  
+
   async calculateProductStock(productId: string): Promise<number> {
     const components = await prisma.productComponent.findMany({
       where: { product_id: productId },
@@ -185,7 +176,6 @@ class ProductComponentService {
       return 0;
     }
 
-    // Fórmula: MIN(item1.stock / qty1, item2.stock / qty2, ..., itemN.stock / qtyN)
     const availableQuantities = components.map((component) => {
       const stock = component.item.stock_quantity ?? 0;
       return Math.floor(stock / component.quantity);
@@ -194,9 +184,8 @@ class ProductComponentService {
     return Math.min(...availableQuantities);
   }
 
-  /**
-   * Atualiza estoque do produto baseado nos componentes
-   */
+  
+
   async updateProductStock(productId: string) {
     const availableStock = await this.calculateProductStock(productId);
 
@@ -208,57 +197,25 @@ class ProductComponentService {
     return availableStock;
   }
 
-  /**
-   * Decrementa estoque de todos os itens componentes de um produto
-   * ⚠️ TEMPORARIAMENTE DESABILITADO - Mantém validações mas não decrementa
-   */
+  
+
   async decrementComponentsStock(productId: string, productQuantity: number) {
     logger.warn(
       `⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`
     );
-    return; // ✅ Desabilitado temporariamente
+    return;
 
-    /* CÓDIGO ORIGINAL (COMENTADO):
-    const components = await this.getProductComponents(productId);
+    
 
-    for (const component of components) {
-      const itemQuantityNeeded = component.quantity * productQuantity;
-
-      // Verificar se tem estoque suficiente
-      const stock = component.item.stock_quantity ?? 0;
-      if (stock < itemQuantityNeeded) {
-        throw new Error(
-          `Estoque insuficiente para ${component.item.name}. ` +
-            `Disponível: ${component.item.stock_quantity}, ` +
-            `Necessário: ${itemQuantityNeeded}`
-        );
-      }
-
-      // Decrementar estoque do item
-      await prisma.item.update({
-        where: { id: component.item_id },
-        data: {
-          stock_quantity: {
-            decrement: itemQuantityNeeded,
-          },
-        },
-      });
-    }
-
-    // Atualizar estoque do produto
-    await this.updateProductStock(productId);
-    */
   }
 
-  /**
-   * Valida se há estoque suficiente para os componentes
-   * ✅ CRÍTICO: Usa forceRefresh=true para evitar cache
-   */
+  
+
   async validateComponentsStock(
     productId: string,
     productQuantity: number
   ): Promise<{ valid: boolean; errors: string[] }> {
-    // ✅ Force refresh para garantir dados atualizados
+
     const components = await this.getProductComponents(productId, true);
     const errors: string[] = [];
 
@@ -281,9 +238,8 @@ class ProductComponentService {
     };
   }
 
-  /**
-   * Busca produtos que usam um item específico
-   */
+  
+
   async getProductsUsingItem(itemId: string) {
     const components = await prisma.productComponent.findMany({
       where: { item_id: itemId },

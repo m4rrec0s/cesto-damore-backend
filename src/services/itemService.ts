@@ -19,9 +19,8 @@ interface UpdateItemInput {
 }
 
 class ItemService {
-  /**
-   * Lista todos os itens com paginação
-   */
+  
+
   async listItems(params?: {
     page?: number;
     perPage?: number;
@@ -85,9 +84,8 @@ class ItemService {
     };
   }
 
-  /**
-   * Busca item por ID
-   */
+  
+
   async getItemById(itemId: string) {
     const item = await prisma.item.findUnique({
       where: { id: itemId },
@@ -143,16 +141,15 @@ class ItemService {
             quantity: true,
           },
         },
-        // Removed legacy 'personalizations' include (table deprecated)
+
       },
     });
   }
 
-  /**
-   * Cria novo item
-   */
+  
+
   async createItem(data: CreateItemInput) {
-    // Validações
+
     if (!data.name || data.name.trim() === "") {
       throw new Error("Nome do item é obrigatório");
     }
@@ -181,14 +178,12 @@ class ItemService {
     });
   }
 
-  /**
-   * Atualiza item
-   */
+  
+
   async updateItem(itemId: string, data: UpdateItemInput) {
-    // Verificar se item existe
+
     await this.getItemById(itemId);
 
-    // Validações
     if (data.base_price !== undefined && data.base_price < 0) {
       throw new Error("Preço base não pode ser negativo");
     }
@@ -207,14 +202,12 @@ class ItemService {
     });
   }
 
-  /**
-   * Deleta item
-   */
+  
+
   async deleteItem(itemId: string) {
-    // Verificar se item existe
+
     await this.getItemById(itemId);
 
-    // Verificar se item está sendo usado em algum produto
     const componentsCount = await prisma.productComponent.count({
       where: { item_id: itemId },
     });
@@ -230,9 +223,8 @@ class ItemService {
     });
   }
 
-  /**
-   * Atualiza estoque do item
-   */
+  
+
   async updateStock(itemId: string, quantity: number) {
     if (quantity < 0) {
       throw new Error("Quantidade não pode ser negativa");
@@ -244,9 +236,8 @@ class ItemService {
     });
   }
 
-  /**
-   * Decrementa estoque do item
-   */
+  
+
   async decrementStock(itemId: string, quantity: number) {
     const item = await this.getItemById(itemId);
 
@@ -266,9 +257,8 @@ class ItemService {
     });
   }
 
-  /**
-   * Busca itens que podem ser adicionados a um produto
-   */
+  
+
   async getAvailableItems() {
     return prisma.item.findMany({
       where: {
@@ -289,9 +279,8 @@ class ItemService {
     });
   }
 
-  /**
-   * Busca itens com customizações
-   */
+  
+
   async getItemsWithCustomizations() {
     return prisma.item.findMany({
       where: {

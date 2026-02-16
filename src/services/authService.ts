@@ -48,7 +48,6 @@ function ensureGoogleOAuthTokens() {
   }
 }
 
-// Nova função para criar JWT interno da aplicação
 function createAppJWT(userId: string, email: string) {
   const jwtSecret = process.env.JWT_SECRET;
 
@@ -64,7 +63,7 @@ function createAppJWT(userId: string, email: string) {
     },
     jwtSecret,
     {
-      expiresIn: "7d", // Token dura 7 dias
+      expiresIn: "7d",
     },
   );
 }
@@ -86,7 +85,6 @@ class AuthService {
     return user;
   }
 
-  // Novo: registra usuário no Firebase (email+senha) e no DB local
   async registerWithEmail(
     email: string,
     password: string,
@@ -94,7 +92,7 @@ class AuthService {
     imageUrl?: string,
   ) {
     try {
-      // cria usuário no Firebase Auth via admin SDK
+
       const firebaseUser = await auth.createUser({
         email,
         password,
@@ -102,7 +100,6 @@ class AuthService {
         photoURL: imageUrl ?? undefined,
       });
 
-      // cria usuário local no DB
       const user = await prisma.user.create({
         data: {
           firebaseUId: firebaseUser.uid,
@@ -112,7 +109,6 @@ class AuthService {
         },
       });
 
-      // Criar tokens
       const sessionToken = await createCustomToken(firebaseUser.uid);
       const appToken = createAppJWT(user.id, user.email);
 
@@ -140,15 +136,12 @@ class AuthService {
     name,
     imageUrl,
   }: GoogleLoginInput) {
-    // Removi a verificação ensureGoogleOAuthTokens() porque ela é para Google Drive API
-    // A autenticação do Firebase não depende das credenciais OAuth do Drive
 
     const decoded = (await auth.verifyIdToken(idToken as string)) as any;
     const uid = decoded.uid;
     if (firebaseUid && firebaseUid !== uid)
       throw new Error("firebaseUid não corresponde ao idToken");
 
-    // prefer Google picture from the decoded token, fallback to provided imageUrl
     const googlePicture = decoded.picture ?? imageUrl;
 
     let user = await prisma.user.findUnique({ where: { firebaseUId: uid } });
@@ -163,20 +156,18 @@ class AuthService {
       });
     }
 
-    // update updated_at and user's image if Google picture is available and different
     const updateData: any = { updated_at: new Date() };
     if (googlePicture && user.image_url !== googlePicture) {
       updateData.image_url = googlePicture;
     }
 
-    // 🔥 FIX: Capture returned updated user
     user = await prisma.user.update({
       where: { firebaseUId: uid },
       data: updateData,
     });
 
     const sessionToken = await createCustomToken(uid);
-    const appToken = createAppJWT(user.id, user.email); // Criar token da aplicação
+    const appToken = createAppJWT(user.id, user.email);
 
     return { idToken, firebaseUid: uid, user, sessionToken, appToken };
   }
@@ -195,14 +186,13 @@ class AuthService {
         localId: string;
       };
 
-      // Buscar usuário no banco
       let user = await prisma.user.findUnique({ where: { firebaseUId: uid } });
 
       if (!user) {
-        // Se não encontrou por firebaseUId, tentar por email
+
         user = await prisma.user.findUnique({ where: { email } });
         if (user) {
-          // Atualizar firebaseUId se encontrou por email
+
           user = await prisma.user.update({
             where: { email },
             data: { firebaseUId: uid, updated_at: new Date() },
@@ -213,19 +203,18 @@ class AuthService {
           );
         }
       } else {
-        // Atualizar timestamp
+
         await prisma.user.update({
           where: { firebaseUId: uid },
           data: { updated_at: new Date() },
         });
       }
 
-      // 🔐 Check if 2FA is needed (Admin role)
       if (user.role.toLowerCase() === "admin") {
         const twoFactorCode = Math.floor(
           100000 + Math.random() * 900000,
         ).toString();
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
         await prisma.user.update({
           where: { id: user.id },
@@ -243,7 +232,6 @@ class AuthService {
         };
       }
 
-      // Criar tokens
       const sessionToken = await createCustomToken(uid);
       const appToken = createAppJWT(user.id, user.email);
 
@@ -280,7 +268,6 @@ class AuthService {
       throw new Error("Código 2FA inválido ou expirado");
     }
 
-    // Clear code after successful verification
     await prisma.user.update({
       where: { id: user.id },
       data: {

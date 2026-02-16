@@ -19,7 +19,6 @@ class AISummaryService {
             const now = new Date();
             const monday = isMonday(now);
 
-            // Se não for segunda-feira e não for forçado, tenta buscar o último resumo do banco
             if (!monday && !forceRefresh) {
                 const lastSummary = await prisma.aISummary.findFirst({
                     orderBy: { created_at: 'desc' }
@@ -36,7 +35,6 @@ class AISummaryService {
                 }
             }
 
-            // Se for segunda-feira (ou refresh forçado), verificamos se já geramos um hoje
             if (monday && !forceRefresh) {
                 const todaySummary = await prisma.aISummary.findFirst({
                     where: {
@@ -58,7 +56,6 @@ class AISummaryService {
                 }
             }
 
-            // Caso contrário (ou se forçado), gera um novo
             return this.generateAndSaveSummary();
         } catch (error: any) {
             logger.error("Erro no getWeeklySummary:", error);
@@ -70,7 +67,6 @@ class AISummaryService {
         try {
             logger.info("Gerando novo resumo AI semanal...");
 
-            // Buscar dados dos últimos 7 dias para o resumo
             const statusData = await statusService.getBusinessStatus(7);
             const topProducts = await statusService.getTopSellingProducts(5);
 
@@ -115,7 +111,6 @@ class AISummaryService {
 
             const summaryContent = response.choices[0].message.content || "";
 
-            // Tenta encontrar um resumo para o mesmo período exato
             const existingSummary = await prisma.aISummary.findFirst({
                 where: {
                     period_start: statusData.period.startDate,

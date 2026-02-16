@@ -1,9 +1,5 @@
 import logger from "./logger";
 
-/**
- * Valida se todas as variáveis de ambiente obrigatórias estão presentes.
- * O servidor deve falhar imediatamente se faltar alguma configuração crítica.
- */
 export const validateEnv = () => {
   const requiredEnvVars = [
     "DATABASE_URL",

@@ -17,10 +17,8 @@ const itemConstraintInputSchema = z.object({
 });
 
 class ItemConstraintController {
-  /**
-   * Lista todos os constraints
-   * GET /admin/constraints
-   */
+  
+
   async listAll(req: Request, res: Response) {
     try {
       return res.json([]);
@@ -51,13 +49,11 @@ class ItemConstraintController {
       });
     }
   }
-  /**
-   * Cria um novo constraint
-   * POST /admin/constraints
-   */
+  
+
   async create(req: Request, res: Response) {
     try {
-      // Tabela ItemConstraint foi removida do schema
+
       return res.status(501).json({
         error: "Funcionalidade desabilitada - Tabela removida",
       });
@@ -77,13 +73,11 @@ class ItemConstraintController {
     }
   }
 
-  /**
-   * Atualiza um constraint
-   * PUT /admin/constraints/:constraintId
-   */
+  
+
   async update(req: Request, res: Response) {
     try {
-      // Tabela ItemConstraint foi removida do schema
+
       return res.status(501).json({
         error: "Funcionalidade desabilitada - Tabela removida",
       });
@@ -103,13 +97,11 @@ class ItemConstraintController {
     }
   }
 
-  /**
-   * Deleta um constraint
-   * DELETE /admin/constraints/:constraintId
-   */
+  
+
   async delete(req: Request, res: Response) {
     try {
-      // Tabela ItemConstraint foi removida do schema
+
       return res.json({
         message: "Constraint deletado com sucesso (simulado)",
       });

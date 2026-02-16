@@ -34,13 +34,13 @@ class TypeService {
   }
 
   async createType(data: { name: string }) {
-    // Validações de campos obrigatórios
+
     if (!data.name || data.name.trim() === "") {
       throw new Error("Nome do tipo é obrigatório");
     }
 
     try {
-      // Verifica se já existe um tipo com o mesmo nome
+
       const existingType = await prisma.productType.findFirst({
         where: { name: data.name.trim() },
       });
@@ -70,16 +70,13 @@ class TypeService {
       throw new Error("ID do tipo é obrigatório");
     }
 
-    // Verifica se o tipo existe
     await this.getTypeById(id);
 
-    // Validação do nome se fornecido
     if (data.name !== undefined) {
       if (!data.name || data.name.trim() === "") {
         throw new Error("Nome do tipo não pode estar vazio");
       }
 
-      // Verifica se já existe outro tipo com o mesmo nome
       const existingType = await prisma.productType.findFirst({
         where: {
           name: data.name.trim(),
@@ -120,11 +117,10 @@ class TypeService {
       throw new Error("ID do tipo é obrigatório");
     }
 
-    // Verifica se o tipo existe
     await this.getTypeById(id);
 
     try {
-      // Verifica se o tipo tem produtos
+
       const products = await prisma.product.count({ where: { type_id: id } });
       if (products > 0) {
         throw new Error("Não é possível deletar tipo que possui produtos");
@@ -143,7 +139,6 @@ class TypeService {
     }
   }
 
-  // Métodos de compatibilidade com o código existente
   async list() {
     return this.getAllTypes();
   }

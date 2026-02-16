@@ -35,8 +35,6 @@ const storageTemp = multer.diskStorage({
   destination: (req, file, cb) => {
     let { sessionId } = req.body;
 
-    // ✅ SEGURANÇA: Sanitizar sessionId para prevenir Path Traversal
-    // Apenas alfanuméricos e hifens
     if (sessionId) {
       sessionId = sessionId.toString().replace(/[^a-zA-Z0-9-]/g, "");
     }
@@ -45,8 +43,6 @@ const storageTemp = multer.diskStorage({
       sessionId = "default";
     }
 
-    // Pasta de storage
-    // Garantimos que o caminho seja relativo ao diretório de trabalho do app
     const baseStorageDir = path.join(process.cwd(), "storage");
 
     const tempDir = path.join(baseStorageDir, "temp", sessionId || "default");
@@ -67,7 +63,7 @@ const storageTemp = multer.diskStorage({
 
 export const uploadTemp = multer({
   storage: storageTemp,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedMimes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
@@ -159,7 +155,6 @@ export const convertImagesToWebPLossless = async (
         ? `uploaded_${Date.now()}`
         : (file.originalname || `file_${Date.now()}`).replace(/\.[^.]+$/, "");
 
-      // Convert using withMetadata to preserve profile/density when possible
       const webpBuffer = await sharp(file.buffer)
         .withMetadata()
         .webp({ lossless: true })

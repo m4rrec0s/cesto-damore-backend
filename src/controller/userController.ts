@@ -35,7 +35,6 @@ class UserController {
     try {
       const data = { ...req.body };
 
-      // Processamento de imagem se fornecida
       if (req.file) {
         try {
           const compressedImage = await sharp(req.file.buffer)
@@ -80,7 +79,6 @@ class UserController {
       const { id } = req.params;
       const data = { ...req.body };
 
-      // Processamento de imagem se fornecida
       if (req.file) {
         try {
           const compressedImage = await sharp(req.file.buffer)
@@ -142,7 +140,6 @@ class UserController {
     }
   }
 
-  // Novo método: obter informações do usuário logado
   async me(req: any, res: Response) {
     try {
       if (!req.user) {
@@ -161,7 +158,6 @@ class UserController {
     }
   }
 
-  // Novo método: consultar informações de endereço por CEP
   async getAddressByZipCode(req: Request, res: Response) {
     try {
       const { zipCode } = req.params;

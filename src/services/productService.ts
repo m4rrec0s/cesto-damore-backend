@@ -64,7 +64,7 @@ class ProductService {
               include: {
                 additional: {
                   include: {
-                    customizations: true, // Incluir customizações dos adicionais
+                    customizations: true,
                   },
                 },
               },
@@ -75,9 +75,9 @@ class ProductService {
               include: {
                 item: {
                   include: {
-                    // Não incluir additionals dos items
-                    customizations: true, // Incluir apenas customizações dos items
-                    layout_base: true, // Incluir layout base para acessar additional_time
+
+                    customizations: true,
+                    layout_base: true,
                   },
                 },
               },
@@ -116,7 +116,7 @@ class ProductService {
             include: {
               additional: {
                 include: {
-                  customizations: true, // Incluir customizações dos adicionais
+                  customizations: true,
                 },
               },
             },
@@ -127,8 +127,8 @@ class ProductService {
             include: {
               item: {
                 include: {
-                  // Não incluir additionals dos items (não é necessário na página do produto)
-                  customizations: true, // Incluir apenas customizações dos items
+
+                  customizations: true,
                 },
               },
             },
@@ -140,14 +140,12 @@ class ProductService {
         throw new Error("Produto não encontrado");
       }
 
-      // Calcular estoque baseado nos componentes
       if (product.components.length > 0) {
         const availableStock =
           await productComponentService.calculateProductStock(id);
         (product as any).calculated_stock = availableStock;
       }
 
-      // Buscar produtos relacionados (mesmo tipo e categorias semelhantes) - no máximo 6
       const categoryIds =
         (product.categories || []).map((pc: any) => pc.category.id) || [];
 
@@ -287,19 +285,16 @@ class ProductService {
       throw new Error("ID do produto é obrigatório");
     }
 
-    // Verifica se o produto existe e obtém dados atuais
     const currentProduct = await this.getProductById(id);
 
     try {
       const { additionals, categories, components, ...rest } = data as any;
       const normalized: any = { ...rest };
 
-      // Validar categorias se fornecidas
       if (categories && Array.isArray(categories) && categories.length > 0) {
         await this.validateCategories(categories);
       }
 
-      // Normalização de tipos apenas se fornecidos
       if (normalized.price !== undefined) {
         normalized.price = this.normalizePrice(normalized.price);
       }
@@ -333,7 +328,6 @@ class ProductService {
         data: { ...normalized },
       });
 
-      // Atualizar categorias se fornecidas
       if (categories && Array.isArray(categories)) {
         await prisma.productCategory.deleteMany({
           where: { product_id: id },
@@ -406,7 +400,7 @@ class ProductService {
     const product = await this.getProductById(id);
 
     try {
-      // 1. Verificar se existem pedidos vinculados
+
       const orderCount = await prisma.orderItem.count({
         where: { product_id: id },
       });
@@ -417,13 +411,10 @@ class ProductService {
         );
       }
 
-      // 2. Deletar imagem se existir
       if (product.image_url) {
         await deleteProductImage(product.image_url);
       }
 
-      // 3. Deletar todas as dependências antes de deletar o produto
-      // Isso evita erros de chave estrangeira caso o CASCADE não esteja 100% configurado no banco
       await prisma.$transaction([
         prisma.productAdditional.deleteMany({ where: { product_id: id } }),
         prisma.productCategory.deleteMany({ where: { product_id: id } }),

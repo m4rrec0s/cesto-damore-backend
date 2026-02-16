@@ -6,14 +6,9 @@ import {
   saveBase64Image,
 } from "../config/localStorage";
 
-/**
- * Serviço para gerenciar layouts dinâmicos (v2)
- * Suporta criação, edição, versionamento e gerenciamento de camadas
- */
 class DynamicLayoutService {
-  /**
-   * Criar novo layout dinâmico
-   */
+  
+
   async createLayout(data: {
     userId?: string;
     name: string;
@@ -28,13 +23,12 @@ class DynamicLayoutService {
     relatedLayoutBaseId?: string;
   }) {
     try {
-      // Processar baseImageUrl se for base64
+
       const finalBaseImageUrl = await saveBase64Image(
         data.baseImageUrl,
         "base-layout",
       );
 
-      // Processar previewImageUrl se for base64
       const finalPreviewImageUrl = data.previewImageUrl
         ? await saveBase64Image(data.previewImageUrl, "preview-layout")
         : data.previewImageUrl;
@@ -72,9 +66,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Listar layouts com filtros opcionais
-   */
+  
+
   async listLayouts(filters?: {
     userId?: string;
     type?: string;
@@ -88,7 +81,6 @@ class DynamicLayoutService {
     try {
       const where: any = {};
 
-      // 1. Filtros de visibilidade (Complexo vs Simples)
       if (filters?.visibilityFilter) {
         where.OR = [
           { userId: filters.visibilityFilter.userId },
@@ -102,10 +94,8 @@ class DynamicLayoutService {
           where.isPublished = filters.isPublished;
       }
 
-      // 2. Filtro por tipo
       if (filters?.type) {
-        // Se já houver um OR (da visibilidade), precisamos garantir que o tipo
-        // seja aplicado a todos os casos (AND)
+
         if (where.OR) {
           where.AND = [{ type: filters.type }, { OR: where.OR }];
           delete where.OR;
@@ -114,7 +104,6 @@ class DynamicLayoutService {
         }
       }
 
-      // 3. Filtro de busca textual
       if (filters?.search) {
         const searchCondition = {
           OR: [
@@ -126,7 +115,7 @@ class DynamicLayoutService {
         if (where.AND) {
           where.AND.push(searchCondition);
         } else if (where.OR) {
-          // Wrap previous OR and Search OR in AND
+
           const previousOR = where.OR;
           delete where.OR;
           where.AND = [{ OR: previousOR }, searchCondition];
@@ -164,9 +153,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Obter detalhe de um layout
-   */
+  
+
   async getLayoutById(layoutId: string) {
     try {
       const layout = await prisma.dynamicLayout.findUnique({
@@ -188,7 +176,7 @@ class DynamicLayoutService {
             orderBy: {
               versionNumber: "desc",
             },
-            take: 5, // Últimas 5 versões por padrão
+            take: 5,
           },
         },
       });
@@ -204,9 +192,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Atualizar layout dinâmico
-   */
+  
+
   async updateLayout(
     layoutId: string,
     data: {
@@ -223,7 +210,7 @@ class DynamicLayoutService {
     },
   ) {
     try {
-      // 1. Obter estado atual para conferência e deleção consciente
+
       const currentLayout = await prisma.dynamicLayout.findUnique({
         where: { id: layoutId },
         select: {
@@ -237,13 +224,11 @@ class DynamicLayoutService {
 
       const updateData: any = { ...data };
 
-      // 2. Processar baseImageUrl (se enviada como base64 ou se a atual no banco for base64)
       let targetBaseImage = data.baseImageUrl || currentLayout.baseImageUrl;
       if (targetBaseImage && targetBaseImage.startsWith("data:image")) {
         const newUrl = await saveBase64Image(targetBaseImage, "base-layout");
         updateData.baseImageUrl = newUrl;
 
-        // Tentar deletar antiga se for diferente da nova e for um arquivo local
         if (
           currentLayout.baseImageUrl &&
           currentLayout.baseImageUrl !== newUrl
@@ -252,7 +237,6 @@ class DynamicLayoutService {
         }
       }
 
-      // 3. Processar previewImageUrl (se enviada)
       if (
         data.previewImageUrl &&
         data.previewImageUrl.startsWith("data:image")
@@ -271,7 +255,6 @@ class DynamicLayoutService {
         }
       }
 
-      // 4. Limpeza recursiva de base64 dentro do fabricJsonState (Opcional, mas recomendado)
       if (data.fabricJsonState) {
         updateData.fabricJsonState = await this.extractBase64FromObjects(
           data.fabricJsonState,
@@ -299,15 +282,14 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Varre o JSON do Fabric.js e extrai imagens base64 para arquivos físicos
-   */
+  
+
   private async extractBase64FromObjects(json: any): Promise<any> {
     if (!json || !json.objects) return json;
 
     const processedObjects = await Promise.all(
       json.objects.map(async (obj: any) => {
-        // Se for uma imagem com src em base64
+
         if (
           (obj.type === "image" || obj.type === "Image") &&
           obj.src &&
@@ -328,9 +310,8 @@ class DynamicLayoutService {
     return { ...json, objects: processedObjects };
   }
 
-  /**
-   * Salvar versão do layout (snapshot histórico)
-   */
+  
+
   async saveVersion(
     layoutId: string,
     data: { changeDescription?: string; changedBy?: string },
@@ -341,7 +322,6 @@ class DynamicLayoutService {
         description: data.changeDescription,
       });
 
-      // Obter layout atual
       const layout = await prisma.dynamicLayout.findUnique({
         where: { id: layoutId },
       });
@@ -350,12 +330,10 @@ class DynamicLayoutService {
         throw new Error("Layout não encontrado");
       }
 
-      // Contar versões existentes
       const versionCount = await prisma.dynamicLayoutVersion.count({
         where: { layoutId },
       });
 
-      // Criar nova versão
       const version = await prisma.dynamicLayoutVersion.create({
         data: {
           layoutId,
@@ -366,7 +344,6 @@ class DynamicLayoutService {
         },
       });
 
-      // Atualizar versão do layout
       await prisma.dynamicLayout.update({
         where: { id: layoutId },
         data: { version: layout.version + 1 },
@@ -384,9 +361,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Listar versões de um layout
-   */
+  
+
   async getVersions(layoutId: string, limit = 10) {
     try {
       const versions = await prisma.dynamicLayoutVersion.findMany({
@@ -409,9 +385,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Restaurar versão anterior
-   */
+  
+
   async restoreVersion(
     layoutId: string,
     versionNumber: number,
@@ -423,7 +398,6 @@ class DynamicLayoutService {
         versionNumber,
       });
 
-      // Obter versão
       const version = await prisma.dynamicLayoutVersion.findUnique({
         where: {
           layoutId_versionNumber: {
@@ -437,7 +411,6 @@ class DynamicLayoutService {
         throw new Error("Versão não encontrada");
       }
 
-      // Salvar versão atual antes de restaurar
       const currentLayout = await prisma.dynamicLayout.findUnique({
         where: { id: layoutId },
       });
@@ -449,7 +422,6 @@ class DynamicLayoutService {
         });
       }
 
-      // Restaurar estado anterior
       const restoredLayout = await prisma.dynamicLayout.update({
         where: { id: layoutId },
         data: {
@@ -478,9 +450,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Deletar layout
-   */
+  
+
   async deleteLayout(layoutId: string) {
     try {
       logger.info("🗑️ [DYNAMIC_LAYOUT] Deletando layout", {
@@ -495,7 +466,6 @@ class DynamicLayoutService {
         throw new Error("Layout não encontrado");
       }
 
-      // Deletar imagem preview se existir
       if (layout.previewImageUrl) {
         try {
           await deleteImageLocally(layout.previewImageUrl);
@@ -504,7 +474,6 @@ class DynamicLayoutService {
         }
       }
 
-      // Prisma cascata delete (elementos e versões)
       await prisma.dynamicLayout.delete({
         where: { id: layoutId },
       });
@@ -520,9 +489,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Adicionar elemento ao layout
-   */
+  
+
   async addElement(
     layoutId: string,
     element: {
@@ -539,7 +507,6 @@ class DynamicLayoutService {
         elementType: element.elementType,
       });
 
-      // Obter próxima ordem se não fornecida
       let order = element.order;
       if (order === undefined) {
         const lastElement = await prisma.dynamicLayoutElement.findFirst({
@@ -571,9 +538,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Atualizar elemento
-   */
+  
+
   async updateElement(
     elementId: string,
     data: {
@@ -599,9 +565,8 @@ class DynamicLayoutService {
     }
   }
 
-  /**
-   * Deletar elemento
-   */
+  
+
   async deleteElement(elementId: string) {
     try {
       await prisma.dynamicLayoutElement.delete({

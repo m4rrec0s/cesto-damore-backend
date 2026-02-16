@@ -3,7 +3,6 @@ import { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 
-// Controllers
 import additionalController from "./controller/additionalController";
 import productController from "./controller/productController";
 import categoryController from "./controller/categoryController";
@@ -43,7 +42,6 @@ import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import tempFileController from "./controller/tempFileController";
 
-// Config & Middleware
 import {
   upload,
   uploadAny,
@@ -66,13 +64,7 @@ import {
 
 const router = Router();
 
-// ✅ SEGURANÇA: Aplicar limite de requisições apenas nas rotas de API
-// Isso evita que o limite bloqueie o carregamento de imagens estáticas
 router.use(apiRateLimit);
-
-// ==========================================
-// 1. UTIL & DEBUG ROUTES
-// ==========================================
 
 router.post(
   "/debug/test-upload",
@@ -152,10 +144,6 @@ router.get("/preview", (req: Request, res: Response) => {
   }
 });
 
-// ==========================================
-// 2. STATIC FILE SERVING
-// ==========================================
-
 const getImagesPath = () =>
   process.env.UPLOAD_DIR
     ? path.resolve(process.env.UPLOAD_DIR)
@@ -163,7 +151,7 @@ const getImagesPath = () =>
 
 router.get("/images/:filename", (req: Request, res: Response) => {
   const filename = req.params.filename;
-  // Bloquear tentativas de path traversal
+
   if (
     filename.includes("..") ||
     filename.includes("/") ||
@@ -218,7 +206,6 @@ router.get(
   },
 );
 
-// Servir arquivos temporários (uploads)
 const getTempUploadsPath = () =>
   process.env.TEMP_UPLOADS_DIR
     ? path.resolve(process.env.TEMP_UPLOADS_DIR)
@@ -226,7 +213,7 @@ const getTempUploadsPath = () =>
 
 router.get("/uploads/temp/:filename", (req: Request, res: Response) => {
   const filename = req.params.filename;
-  // Bloquear tentativas de path traversal
+
   if (
     filename.includes("..") ||
     filename.includes("/") ||
@@ -240,10 +227,6 @@ router.get("/uploads/temp/:filename", (req: Request, res: Response) => {
   }
   res.status(404).json({ error: "Arquivo temporário não encontrado" });
 });
-
-// ==========================================
-// 3. AUTH & USER ROUTES
-// ==========================================
 
 router.post("/auth/google", authRateLimit, authController.google);
 router.post("/auth/login", authRateLimit, authController.login);
@@ -289,10 +272,6 @@ router.delete(
   requireAdmin,
   userController.remove,
 );
-
-// ==========================================
-// 4. PRODUCT & CATALOG ROUTES
-// ==========================================
 
 router.get("/products", productController.index);
 router.get("/products/:id", optionalAuthenticateToken, productController.show);
@@ -401,7 +380,6 @@ router.delete(
   typeController.remove,
 );
 
-// Product Components
 router.get(
   "/products/:productId/components",
   productComponentController.getProductComponents,
@@ -437,7 +415,6 @@ router.get(
   productComponentController.getProductsUsingItem,
 );
 
-// Additionals
 router.get("/additional", additionalController.index);
 router.get("/additional/:id", additionalController.show);
 router.post(
@@ -486,7 +463,6 @@ router.get(
   additionalController.getByProduct,
 );
 
-// Constraints
 router.get(
   "/constraints/item/:itemType/:itemId",
   itemConstraintController.getByItem,
@@ -515,10 +491,6 @@ router.delete(
   requireAdmin,
   itemConstraintController.delete,
 );
-
-// ==========================================
-// 5. DYNAMIC LAYOUTS & DESIGN BANK
-// ==========================================
 
 router.get(
   "/layouts/dynamic",
@@ -576,7 +548,6 @@ router.delete(
   dynamicLayoutController.deleteElement,
 );
 
-// Elements Bank
 router.get(
   "/elements/bank",
   optionalAuthenticateToken,
@@ -613,17 +584,6 @@ router.post(
   requireAdmin,
   elementBankController.bulkCreate,
 );
-
-// Legacy Layouts (Commented out)
-// router.get("/layouts", layoutBaseController.list);
-// router.get("/layouts/:id", layoutBaseController.show);
-// router.post("/admin/layouts", authenticateToken, requireAdmin, upload.single("image"), layoutBaseController.create);
-// router.put("/admin/layouts/:id", authenticateToken, requireAdmin, upload.single("image"), layoutBaseController.update);
-// router.delete("/admin/layouts/:id", authenticateToken, requireAdmin, layoutBaseController.delete);
-
-// ==========================================
-// 6. CUSTOMIZATIONS & ORDERS
-// ==========================================
 
 router.get(
   "/customizations",
@@ -718,11 +678,6 @@ router.get(
   orderCustomizationController.validateOrderCustomizationsFiles,
 );
 
-
-// ==========================================
-// 7. PAYMENT & WEBHOOKS
-// ==========================================
-
 router.get("/payment/health", PaymentController.healthCheck);
 router.post(
   "/payment/preference",
@@ -785,7 +740,6 @@ router.get(
   webhookNotificationController.getStats,
 );
 
-// Mercado Pago Proxy/Helpers
 router.post(
   "/mercadopago/create-token",
   authenticateToken,
@@ -816,10 +770,6 @@ router.post(
     return getInstallments(req, res);
   },
 );
-
-// ==========================================
-// 8. UPLOADS & TEMP FILES
-// ==========================================
 
 router.post(
   "/upload/image",
@@ -893,10 +843,6 @@ router.post(
   tempUploadController.cleanup,
 );
 
-// ==========================================
-// 9. CUSTOMER MANAGEMENT
-// ==========================================
-
 router.get(
   "/customers",
   authenticateToken,
@@ -957,10 +903,6 @@ router.post(
   requireAdmin,
   customerManagementController.syncAppUser,
 );
-
-// ==========================================
-// 10. AI & FEED & REPORTS
-// ==========================================
 
 router.get("/feed", optionalAuthenticateToken, feedController.getPublicFeed);
 router.get("/feed/section-types", feedController.getSectionTypes);
@@ -1047,7 +989,6 @@ router.delete(
   feedController.deleteConfiguration,
 );
 
-// Feed Section Items
 router.post(
   "/admin/feed/sections/:sectionId/items",
   authenticateToken,
@@ -1074,7 +1015,6 @@ router.get(
   aiAgentController.getHistory,
 );
 
-// 🔄 INCREMENTAL AI AGENT (TEST VERSION)
 router.post(
   "/ai/agent/chat-incremental",
   async (req: Request, res: Response) => {
@@ -1091,7 +1031,6 @@ router.post(
         await import("./services/aiAgentServiceIncremental")
       ).default;
 
-      // Aguarda o processamento completo e retorna a mensagem
       const result = await aiAgentServiceIncremental.chatIncremental(
         sessionId,
         message,
@@ -1176,10 +1115,6 @@ router.post(
   requireAdmin,
   whatsappController.testMessage,
 );
-
-// ==========================================
-// 11. ADMIN & SYSTEM
-// ==========================================
 
 router.get(
   "/admin/holidays",

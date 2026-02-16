@@ -35,11 +35,10 @@ interface UpdateLayoutBaseInput {
 }
 
 class LayoutBaseService {
-  /**
-   * Criar novo layout base
-   */
+  
+
   async create(data: CreateLayoutBaseInput) {
-    // Validar slots
+
     this.validateSlots(data.slots);
 
     const layoutBase = await prisma.layoutBase.create({
@@ -57,18 +56,16 @@ class LayoutBaseService {
     return layoutBase;
   }
 
-  /**
-   * Buscar layout por ID (suporta LayoutBase e DynamicLayout)
-   * Prioriza DynamicLayout (v2)
-   */
+  
+
   async getById(id: string) {
-    // 1. Tentar buscar na tabela DynamicLayout (v2)
+
     const dynamicLayout = await prisma.dynamicLayout.findUnique({
       where: { id },
     });
 
     if (dynamicLayout) {
-      // Mapear para o formato compatível com o frontend
+
       return {
         id: dynamicLayout.id,
         name: dynamicLayout.name,
@@ -76,7 +73,7 @@ class LayoutBaseService {
         image_url: dynamicLayout.baseImageUrl,
         width: dynamicLayout.width,
         height: dynamicLayout.height,
-        slots: [], // Layouts dinâmicos usam o estado Fabric.js em vez de slots fixos
+        slots: [],
         fabric_json_state: dynamicLayout.fabricJsonState,
         additional_time: 0,
         is_dynamic: true,
@@ -85,7 +82,6 @@ class LayoutBaseService {
       };
     }
 
-    // 2. Fallback para a tabela LayoutBase (legado)
     const layoutBase = await prisma.layoutBase.findUnique({
       where: { id },
     });
@@ -100,9 +96,8 @@ class LayoutBaseService {
     throw new Error("Layout base não encontrado");
   }
 
-  /**
-   * Mapeia tipos de Layout Dinâmico para os tipos do Layout Base
-   */
+  
+
   private mapDynamicType(type: string): string {
     const mapping: Record<string, string> = {
       mug: "CANECA",
@@ -113,9 +108,8 @@ class LayoutBaseService {
     return mapping[type.toLowerCase()] || type.toUpperCase();
   }
 
-  /**
-   * Mapeia tipos de Layout Base para os tipos do Layout Dinâmico
-   */
+  
+
   private mapReverseType(itemType: string): string {
     const mapping: Record<string, string> = {
       CANECA: "mug",
@@ -126,11 +120,10 @@ class LayoutBaseService {
     return mapping[itemType.toUpperCase()] || itemType.toLowerCase();
   }
 
-  /**
-   * Listar layouts (Consolidado: Dynamic + Legacy)
-   */
+  
+
   async list(itemType?: string) {
-    // 1. Buscar layouts dinâmicos (públicos)
+
     const dynamicLayouts = await prisma.dynamicLayout.findMany({
       where: {
         ...(itemType ? { type: this.mapReverseType(itemType) } : {}),
@@ -154,7 +147,6 @@ class LayoutBaseService {
       updated_at: dl.updatedAt,
     }));
 
-    // 2. Buscar layouts legados
     const legacyLayouts = await prisma.layoutBase.findMany({
       where: itemType ? { item_type: itemType } : {},
       orderBy: { created_at: "desc" },
@@ -165,18 +157,15 @@ class LayoutBaseService {
       is_dynamic: false,
     }));
 
-    // Retornar ambos (Dinâmicos primeiro)
     return [...mappedDynamic, ...mappedLegacy];
   }
 
-  /**
-   * Atualizar layout base
-   */
+  
+
   async update(id: string, data: UpdateLayoutBaseInput) {
-    // Verificar se existe
+
     await this.getById(id);
 
-    // Validar slots se fornecidos
     if (data.slots) {
       this.validateSlots(data.slots);
     }
@@ -199,13 +188,11 @@ class LayoutBaseService {
     return updated;
   }
 
-  /**
-   * Deletar layout base
-   */
+  
+
   async delete(id: string) {
     const layoutBase = await this.getById(id);
 
-    // Verificar se há itens que referenciam este layout como layout_base
     const itemsUsingLayoutCount = await prisma.item.count({
       where: { layout_base_id: id },
     });
@@ -216,8 +203,6 @@ class LayoutBaseService {
       );
     }
 
-    // Verificar se existem Customizations (definições) cujo customization_data referenciam este layout
-    // Observação: customization_data é JSON livre - fazemos uma busca textual para evitar referenciar tabela legada
     const customizationCountResult: Array<{ count: string }> =
       await prisma.$queryRaw`
       SELECT COUNT(*) FROM "Customization" WHERE customization_data::text LIKE ${"%" + id + "%"
@@ -232,7 +217,6 @@ class LayoutBaseService {
       );
     }
 
-    // Deletar arquivo físico se existir
     if (layoutBase.image_url) {
       const imagePath = path.join(
         process.cwd(),
@@ -247,7 +231,6 @@ class LayoutBaseService {
       }
     }
 
-    // Deletar do banco
     await prisma.layoutBase.delete({
       where: { id },
     });
@@ -255,27 +238,24 @@ class LayoutBaseService {
     return { message: "Layout base deletado com sucesso" };
   }
 
-  /**
-   * Validar estrutura dos slots
-   */
+  
+
   private validateSlots(slots: SlotDef[]) {
-    // Slots são opcionais - permitir array vazio
+
     if (!Array.isArray(slots)) {
       throw new Error("Slots devem ser um array (pode ser vazio)");
     }
 
-    // Se não houver slots, retornar (sem erros)
     if (slots.length === 0) {
       return;
     }
 
     for (const slot of slots) {
-      // Validar campos obrigatórios
+
       if (!slot.id || typeof slot.id !== "string") {
         throw new Error("Cada slot deve ter um 'id' string");
       }
 
-      // Validar percentuais (0-100)
       if (typeof slot.x !== "number" || slot.x < 0 || slot.x > 100) {
         throw new Error(
           `Slot '${slot.id}': 'x' deve ser um número entre 0 e 100`,
@@ -308,25 +288,21 @@ class LayoutBaseService {
         );
       }
 
-      // Validar fit se fornecido
       if (slot.fit && !["cover", "contain"].includes(slot.fit)) {
         throw new Error(
           `Slot '${slot.id}': 'fit' deve ser 'cover' ou 'contain'`,
         );
       }
 
-      // Validar rotation se fornecido
       if (slot.rotation !== undefined && typeof slot.rotation !== "number") {
         throw new Error(`Slot '${slot.id}': 'rotation' deve ser um número`);
       }
 
-      // Validar zIndex se fornecido
       if (slot.zIndex !== undefined && typeof slot.zIndex !== "number") {
         throw new Error(`Slot '${slot.id}': 'zIndex' deve ser um número`);
       }
     }
 
-    // Validar IDs únicos
     const ids = slots.map((s) => s.id);
     const uniqueIds = new Set(ids);
     if (ids.length !== uniqueIds.size) {

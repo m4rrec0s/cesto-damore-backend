@@ -3,41 +3,30 @@ import logger from "../utils/logger";
 import PaymentService from "./paymentService";
 import trendStatsService from "./trendStatsService";
 
-/**
- * 🔥 NOVO: Serviço para gerenciar jobs agendados (cron jobs)
- * Executa tarefas periódicas de manutenção e monitoramento
- */
-
 class ScheduledJobsService {
   private webhookReplayInterval: NodeJS.Timeout | null = null;
   private driveRetryInterval: NodeJS.Timeout | null = null;
-  private backupCleanupInterval: NodeJS.Timeout | null = null; // 🔥 NOVO
+  private backupCleanupInterval: NodeJS.Timeout | null = null;
   private trendStatsInterval: NodeJS.Timeout | null = null;
 
-  /**
-   * Inicia todos os jobs agendados
-   */
+  
+
   start() {
     logger.info("🕐 Iniciando scheduled jobs...");
 
-    // Job 1: Reprocessar webhooks offline a cada 5 minutos
     this.startWebhookReplayJob();
 
-    // Job 2: Reenviar links do Google Drive pendentes a cada 10 minutos
     this.startDriveRetryJob();
 
-    // 🔥 NOVO: Job 3: Limpar backups antigos a cada 24 horas
     this.startBackupCleanupJob();
 
-    // 🔥 NOVO: Job 4: Atualizar estatisticas de tendencias a cada 24 horas
     this.startTrendStatsJob();
 
     logger.info("✅ Scheduled jobs iniciados");
   }
 
-  /**
-   * Para todos os jobs agendados
-   */
+  
+
   stop() {
     logger.info("⏹️ Parando scheduled jobs...");
 
@@ -51,7 +40,6 @@ class ScheduledJobsService {
       this.driveRetryInterval = null;
     }
 
-    // 🔥 NOVO
     if (this.backupCleanupInterval) {
       clearInterval(this.backupCleanupInterval);
       this.backupCleanupInterval = null;
@@ -65,29 +53,24 @@ class ScheduledJobsService {
     logger.info("✅ Scheduled jobs parados");
   }
 
-  /**
-   * 🔥 Job 1: Reprocessar webhooks armazenados offline
-   * Executa a cada 5 minutos
-   */
+  
+
   private startWebhookReplayJob() {
-    const INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+    const INTERVAL_MS = 5 * 60 * 1000;
 
     logger.info(
       `🔄 Agendando reprocessamento de webhooks offline (intervalo: ${INTERVAL_MS / 1000}s)`,
     );
 
-    // Executar imediatamente na inicialização
     this.replayOfflineWebhooks();
 
-    // Agendar execução periódica
     this.webhookReplayInterval = setInterval(() => {
       this.replayOfflineWebhooks();
     }, INTERVAL_MS);
   }
 
-  /**
-   * Executa reprocessamento de webhooks offline
-   */
+  
+
   private async replayOfflineWebhooks() {
     try {
       logger.debug("🔍 Verificando webhooks offline armazenados...");
@@ -98,23 +81,19 @@ class ScheduledJobsService {
     }
   }
 
-  /**
-   * 🔥 Job 2: Reenviar links do Google Drive para pedidos aprovados
-   * Executa a cada 10 minutos
-   */
+  
+
   private startDriveRetryJob() {
-    const INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
+    const INTERVAL_MS = 10 * 60 * 1000;
 
     logger.info(
       `📁 Agendando reenvio de links do Drive pendentes (intervalo: ${INTERVAL_MS / 1000}s)`,
     );
 
-    // Executar após 2 minutos da inicialização (dar tempo para o sistema estabilizar)
     setTimeout(
       () => {
         this.retryPendingDriveLinks();
 
-        // Agendar execução periódica
         this.driveRetryInterval = setInterval(() => {
           this.retryPendingDriveLinks();
         }, INTERVAL_MS);
@@ -123,15 +102,12 @@ class ScheduledJobsService {
     );
   }
 
-  /**
-   * Busca pedidos aprovados sem link do Drive e tenta finalizar novamente
-   */
+  
+
   private async retryPendingDriveLinks() {
     try {
       logger.debug("🔍 Buscando pedidos aprovados sem link do Drive...");
 
-      // Buscar pedidos PAID sem google_drive_folder_url
-      // criados nas últimas 48 horas (evitar reprocessar muito antigos)
       const twoDaysAgo = new Date();
       twoDaysAgo.setHours(twoDaysAgo.getHours() - 48);
 
@@ -169,9 +145,9 @@ class ScheduledJobsService {
             },
           },
         },
-        take: 10, // Processar no máximo 10 por vez para não sobrecarregar
+        take: 10,
         orderBy: {
-          created_at: "asc", // Mais antigos primeiro
+          created_at: "asc",
         },
       });
 
@@ -186,7 +162,7 @@ class ScheduledJobsService {
 
       for (const order of ordersWithoutDriveLink) {
         try {
-          // Verificar se ordem tem customizações que precisam de Drive
+
           const hasCustomizations = order.items.some(
             (item) => item.customizations.length > 0,
           );
@@ -196,7 +172,6 @@ class ScheduledJobsService {
               `⏭️ Pedido ${order.id} não tem customizações, pulando`,
             );
 
-            // Marcar como processado para não ficar verificando sempre
             await prisma.order.update({
               where: { id: order.id },
               data: { customizations_drive_processed: true },
@@ -209,7 +184,6 @@ class ScheduledJobsService {
             `🔄 Tentando finalizar customizações do pedido ${order.id}...`,
           );
 
-          // Importar dinamicamente para evitar dependência circular
           const { default: orderCustomizationService } =
             await import("./orderCustomizationService");
 
@@ -223,7 +197,6 @@ class ScheduledJobsService {
               `✅ Link do Drive gerado para pedido ${order.id}: ${result.folderUrl}`,
             );
 
-            // Enviar notificação ao cliente com o link
             if (order.user?.phone) {
               const whatsappService = (await import("./whatsappService"))
                 .default;
@@ -251,7 +224,7 @@ class ScheduledJobsService {
             `❌ Erro ao processar pedido ${order.id}:`,
             error instanceof Error ? error.message : error,
           );
-          // Continuar com próximo pedido mesmo em caso de erro
+
         }
       }
 
@@ -263,10 +236,8 @@ class ScheduledJobsService {
     }
   }
 
-  /**
-   * 🔥 Job 4: Atualizar estatisticas de tendencias
-   * Executa a cada 24 horas
-   */
+  
+
   private startTrendStatsJob() {
     const INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -274,7 +245,6 @@ class ScheduledJobsService {
       `📊 Agendando atualizacao de tendencias (intervalo: ${INTERVAL_MS / 1000}s)`,
     );
 
-    // Executar imediatamente na inicializacao
     trendStatsService.refreshRollingTrends();
 
     this.trendStatsInterval = setInterval(() => {
@@ -282,10 +252,8 @@ class ScheduledJobsService {
     }, INTERVAL_MS);
   }
 
-  /**
-   * 🔥 NOVO: Job manual para forçar reenvio de link específico
-   * Útil para casos de suporte/emergência
-   */
+  
+
   async forceRetryOrder(orderId: string): Promise<{
     success: boolean;
     message: string;
@@ -313,7 +281,6 @@ class ScheduledJobsService {
         };
       }
 
-      // Importar dinamicamente para evitar dependência circular
       const { default: orderCustomizationService } =
         await import("./orderCustomizationService");
 
@@ -327,7 +294,6 @@ class ScheduledJobsService {
         };
       }
 
-      // Enviar notificação
       if (order.user?.phone) {
         const whatsappService = (await import("./whatsappService")).default;
 
@@ -355,9 +321,8 @@ class ScheduledJobsService {
     }
   }
 
-  /**
-   * Status dos jobs agendados
-   */
+  
+
   getStatus() {
     return {
       webhookReplayJob: {
@@ -375,23 +340,19 @@ class ScheduledJobsService {
     };
   }
 
-  /**
-   * 🔥 NOVO: Job 3: Limpar backups antigos
-   * Executa a cada 24 horas, mantém backups por 7 dias
-   */
+  
+
   private startBackupCleanupJob() {
-    const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 horas
+    const INTERVAL_MS = 24 * 60 * 60 * 1000;
 
     logger.info(
       `🗑️ Agendando limpeza de backups antigos (intervalo: ${INTERVAL_MS / 1000 / 60 / 60}h)`,
     );
 
-    // Executar após 1 hora da inicialização
     setTimeout(
       () => {
         this.cleanupOldBackups();
 
-        // Agendar execução periódica
         this.backupCleanupInterval = setInterval(() => {
           this.cleanupOldBackups();
         }, INTERVAL_MS);
@@ -400,9 +361,8 @@ class ScheduledJobsService {
     );
   }
 
-  /**
-   * Remove backups com mais de 7 dias
-   */
+  
+
   private async cleanupOldBackups() {
     try {
       logger.debug("🔍 Verificando backups antigos...");
@@ -414,14 +374,13 @@ class ScheduledJobsService {
 
       const backupDir = path.join(baseStorageDir, "backup");
 
-      // Verificar se diretório existe
       if (!fs.existsSync(backupDir)) {
         logger.debug("📁 Diretório de backup não existe, nada a limpar");
         return;
       }
 
       const files = fs.readdirSync(backupDir);
-      // ✅ NOVO: Aumentado para 30 dias (customizações finais devem persistir por mais tempo)
+
       const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
       let deletedCount = 0;
@@ -431,7 +390,6 @@ class ScheduledJobsService {
         const filePath = path.join(backupDir, file);
         const stats = fs.statSync(filePath);
 
-        // Verificar se arquivo é antigo o suficiente (30 dias)
         if (stats.mtimeMs < thirtyDaysAgo) {
           try {
             totalSize += stats.size;
@@ -458,5 +416,4 @@ class ScheduledJobsService {
   }
 }
 
-// Exportar singleton
 export default new ScheduledJobsService();

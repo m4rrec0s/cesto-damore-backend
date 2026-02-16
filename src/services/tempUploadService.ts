@@ -4,7 +4,6 @@ import crypto from "crypto";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
-// Normalização de caminhos
 const normalizeStoragePath = (envVar?: string, defaultPath: string = "") => {
   if (!envVar) return path.join(process.cwd(), defaultPath);
   return path.resolve(envVar);
@@ -21,7 +20,6 @@ const FINAL_UPLOADS_DIR = normalizeStoragePath(
 
 const DEFAULT_TTL_HOURS = parseInt(process.env.TEMP_UPLOAD_TTL_HOURS || "24");
 
-// Garantir que os diretórios existem com permissões corretas
 const ensureDirectory = (dirPath: string) => {
   if (!fs.existsSync(dirPath)) {
     try {
@@ -29,7 +27,7 @@ const ensureDirectory = (dirPath: string) => {
       logger.info(`📁 Diretório criado: ${dirPath}`);
     } catch (error) {
       logger.error(`❌ Erro ao criar diretório ${dirPath}:`, error);
-      // Se falhar em Docker com /app/, tentar com caminho relativo
+
       const fallbackPath = dirPath.replace(/^\/app\//, "./");
       if (fallbackPath !== dirPath) {
         try {
@@ -62,9 +60,8 @@ interface CleanupResult {
 }
 
 class TempUploadService {
-  /**
-   * Salvar arquivo temporário com TTL
-   */
+  
+
   async saveTempUpload(
     fileBuffer: Buffer,
     originalFilename: string,
@@ -74,23 +71,20 @@ class TempUploadService {
     const { userId, clientIp, ttlHours = DEFAULT_TTL_HOURS } = options;
 
     try {
-      // Gerar nome único
+
       const ext = path.extname(originalFilename);
       const hash = crypto.randomBytes(16).toString("hex");
       const filename = `${Date.now()}_${hash}${ext}`;
       const filePath = path.join(TEMP_UPLOADS_DIR, filename);
 
-      // Garantir que o diretório existe antes de escrever
       ensureDirectory(TEMP_UPLOADS_DIR);
 
-      // Salvar arquivo com tratamento de erro
       try {
         fs.writeFileSync(filePath, fileBuffer);
       } catch (writeError: any) {
-        // Se falhar, pode ser problema de permissão - tentar com fallback
+
         logger.error(`⚠️ Erro ao escrever em ${filePath}:`, writeError.message);
 
-        // Tentar criar arquivo no diretório relativo
         const fallbackPath = path.join("./storage/temp", filename);
         ensureDirectory(path.dirname(fallbackPath));
         fs.writeFileSync(fallbackPath, fileBuffer);
@@ -98,10 +92,8 @@ class TempUploadService {
         logger.info(`✅ Arquivo salvo em fallback: ${fallbackPath}`);
       }
 
-      // Calcular expiração
       const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
 
-      // Registrar no DB
       const upload = await prisma.tempUpload.create({
         data: {
           filename,
@@ -117,7 +109,6 @@ class TempUploadService {
 
       logger.info(`✅ Arquivo temporário salvo: ${filename}`);
 
-      // Retornar URL relativa (cliente pode usar como "/uploads/temp/{filename}")
       const publicUrl = `/uploads/temp/${filename}`;
 
       return {
@@ -133,9 +124,8 @@ class TempUploadService {
     }
   }
 
-  /**
-   * Converter arquivo temporário para permanente (após compra)
-   */
+  
+
   async makePermanent(uploadId: string, orderId: string) {
     try {
       const upload = await prisma.tempUpload.findUnique({
@@ -146,18 +136,16 @@ class TempUploadService {
         throw new Error("Upload não encontrado");
       }
 
-      // Copiar para pasta de permanentes
       const destPath = path.join(
         FINAL_UPLOADS_DIR,
         `${orderId}_${upload.filename}`,
       );
       fs.copyFileSync(upload.filePath, destPath);
 
-      // Atualizar BD: remover TTL e associar com ordem
       await prisma.tempUpload.update({
         where: { id: uploadId },
         data: {
-          expiresAt: new Date("2099-12-31"), // Marcar como permanente
+          expiresAt: new Date("2099-12-31"),
           orderId,
         },
       });
@@ -176,9 +164,8 @@ class TempUploadService {
     }
   }
 
-  /**
-   * Obter arquivo temporário (verificar se ainda é válido)
-   */
+  
+
   async getTempUpload(uploadId: string) {
     try {
       const upload = await prisma.tempUpload.findUnique({
@@ -189,7 +176,6 @@ class TempUploadService {
         throw new Error("Upload não encontrado");
       }
 
-      // Verificar expiração
       if (new Date() > upload.expiresAt && !upload.deletedAt) {
         logger.warn(`⚠️ Upload ${uploadId} expirado`);
         return null;
@@ -202,9 +188,8 @@ class TempUploadService {
     }
   }
 
-  /**
-   * Deletar arquivo temporário manualmente
-   */
+  
+
   async deleteTempUpload(uploadId: string) {
     try {
       const upload = await prisma.tempUpload.findUnique({
@@ -215,12 +200,10 @@ class TempUploadService {
         throw new Error("Upload não encontrado");
       }
 
-      // Deletar arquivo
       if (fs.existsSync(upload.filePath)) {
         fs.unlinkSync(upload.filePath);
       }
 
-      // Marcar como deletado no BD
       await prisma.tempUpload.update({
         where: { id: uploadId },
         data: { deletedAt: new Date() },
@@ -233,9 +216,8 @@ class TempUploadService {
     }
   }
 
-  /**
-   * Limpeza automática de arquivos expirados (CRON JOB)
-   */
+  
+
   async cleanupExpiredUploads(): Promise<CleanupResult> {
     const result: CleanupResult = {
       deletedCount: 0,
@@ -248,7 +230,6 @@ class TempUploadService {
 
       const now = new Date();
 
-      // Buscar uploads expirados ainda não deletados
       const expiredUploads = await prisma.tempUpload.findMany({
         where: {
           expiresAt: { lt: now },
@@ -262,14 +243,13 @@ class TempUploadService {
 
       for (const upload of expiredUploads) {
         try {
-          // Deletar arquivo do disco
+
           if (fs.existsSync(upload.filePath)) {
             const stats = fs.statSync(upload.filePath);
             fs.unlinkSync(upload.filePath);
             result.deletedSize += stats.size;
           }
 
-          // Marcar como deletado no BD
           await prisma.tempUpload.update({
             where: { id: upload.id },
             data: { deletedAt: now },
@@ -283,8 +263,6 @@ class TempUploadService {
         }
       }
 
-      // Cleanup: deletar registros muito antigos (após 30 dias de expiração)
-      // ✅ NOVO: Aumentado para 30 dias para manter customizações finais por mais tempo
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       await prisma.tempUpload.deleteMany({
         where: {
@@ -303,9 +281,8 @@ class TempUploadService {
     }
   }
 
-  /**
-   * Obter estatísticas de uso
-   */
+  
+
   async getStorageStats() {
     try {
       const tempCount = await prisma.tempUpload.count({
@@ -319,7 +296,6 @@ class TempUploadService {
         },
       });
 
-      // Calcular tamanho ocupado
       const tempSize = fs
         .readdirSync(TEMP_UPLOADS_DIR)
         .reduce((total, file) => {

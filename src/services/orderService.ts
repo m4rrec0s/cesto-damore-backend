@@ -68,7 +68,7 @@ type CreateOrderInput = {
   delivery_city: string;
   delivery_state: string;
   delivery_date?: Date | null;
-  recipient_phone: string; // Número do destinatário (obrigatório)
+  recipient_phone: string;
   complement?: string;
   items: CreateOrderItem[];
   is_draft?: boolean;
@@ -127,7 +127,6 @@ class OrderService {
           try {
             const customData = JSON.parse(customization.value || "{}");
 
-            // Se tem selected_option mas não tem label, buscar do customization_data
             if (
               customData.selected_option &&
               !customData.selected_option_label &&
@@ -137,7 +136,6 @@ class OrderService {
                 customization.customization.customization_data;
               const options = customizationData.options || [];
 
-              // Encontrar a opção selecionada
               const selectedOption = options.find(
                 (opt: any) => opt.id === customData.selected_option,
               );
@@ -145,12 +143,11 @@ class OrderService {
               if (selectedOption) {
                 customData.selected_option_label =
                   selectedOption.label || selectedOption.name;
-                // Also expose label_selected for backwards compatibility with API
+
                 customData.label_selected = customData.selected_option_label;
               }
             }
 
-            // If it's a base layout and we have a selected_item, map it to label_selected
             if (!customData.label_selected && customData.selected_item) {
               const selected =
                 typeof customData.selected_item === "string"
@@ -181,10 +178,8 @@ class OrderService {
     }));
   }
 
-  /**
-   * Remove todos os campos base64 das customizações antes de retornar ao frontend
-   * Mantém apenas os links do Google Drive
-   */
+  
+
   private removeBase64Recursive(obj: any) {
     if (!obj || typeof obj !== "object") return;
 
@@ -200,7 +195,7 @@ class OrderService {
       }
 
       const value = obj[key];
-      // Remover strings que começam com data:image (base64)
+
       if (typeof value === "string" && value.startsWith("data:image")) {
         delete obj[key];
         continue;
@@ -212,10 +207,8 @@ class OrderService {
     }
   }
 
-  /**
-   * Remove todos os campos base64 das customizações antes de retornar ao frontend
-   * Mantém apenas os links do Google Drive
-   */
+  
+
   private sanitizeBase64FromCustomizations(orders: any[]) {
     return orders.map((order) => ({
       ...order,
@@ -225,7 +218,6 @@ class OrderService {
           try {
             const customData = JSON.parse(customization.value || "{}");
 
-            // Sanitização recursiva para garantir que nada escape
             this.removeBase64Recursive(customData);
 
             return {
@@ -318,10 +310,8 @@ class OrderService {
         }),
       ]);
 
-      // Enriquecer customizações com labels das opções
       const enriched = this.enrichCustomizations(orders);
 
-      // Sanitizar base64 antes de retornar
       const sanitized = this.sanitizeBase64FromCustomizations(enriched);
 
       const totalPages = Math.ceil(total / limit);
@@ -360,7 +350,7 @@ class OrderService {
             product: true,
             customizations: {
               include: {
-                customization: true, // Incluir os dados da customização
+                customization: true,
               },
             },
           },
@@ -453,7 +443,6 @@ class OrderService {
         throw new Error("Pedido não encontrado");
       }
 
-      // Enriquecer e sanitizar o pedido único
       const enriched = this.enrichCustomizations([order]);
       const sanitized = this.sanitizeBase64FromCustomizations(enriched);
 
@@ -552,7 +541,7 @@ class OrderService {
       if (!item.product_id || item.product_id.trim() === "") {
         throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
       }
-      // Validar formato UUID do product_id para evitar erros comuns de payload
+
       const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(item.product_id)) {
@@ -730,13 +719,11 @@ class OrderService {
         return typeof payloadPrice === "number" ? payloadPrice : 0;
       };
 
-      // 🔥 NOVO: Validar customizações obrigatórias antes de criar pedido
       if (!data.is_draft) {
         logger.info(
           "🔍 [OrderService] Validando customizações obrigatórias...",
         );
 
-        // Transformar CreateOrderItem para o formato esperado pelo validador
         const itemsForValidation = data.items.map((item) => ({
           product_id: item.product_id,
           customizations: (item.customizations || []).map((customization) => ({
@@ -763,7 +750,6 @@ class OrderService {
           throw error;
         }
 
-        // Log warnings (não bloqueiam pedido)
         if (customizationValidation.warnings.length > 0) {
           logger.warn(
             "⚠️ [OrderService] Avisos de customização:",
@@ -846,14 +832,14 @@ class OrderService {
           total,
           delivery_address: orderData.delivery_address,
           complement: orderData.complement,
-          delivery_date: orderData.delivery_date || null, // ✅ NOVO: delivery_date é opcional
+          delivery_date: orderData.delivery_date || null,
           shipping_price,
           payment_method: paymentMethod,
           grand_total,
-          recipient_phone: phoneDigits, // Salvar com código do país
+          recipient_phone: phoneDigits,
           send_anonymously: data.send_anonymously || false,
-          delivery_city: orderData.delivery_city, // ✅ NOVO: Salvar cidade
-          delivery_state: orderData.delivery_state, // ✅ NOVO: Salvar estado
+          delivery_city: orderData.delivery_city,
+          delivery_state: orderData.delivery_state,
           delivery_method: orderData.delivery_method || "delivery",
         },
       });
@@ -875,7 +861,6 @@ class OrderService {
         });
         createdItems.push({ id: orderItem.id, index: idx });
 
-        // Preparar adicionais
         if (Array.isArray(item.additionals) && item.additionals.length > 0) {
           for (const additional of item.additionals) {
             const resolvedPrice = resolveAdditionalPrice(
@@ -892,7 +877,6 @@ class OrderService {
           }
         }
 
-        // Preparar customizações
         if (
           Array.isArray(item.customizations) &&
           item.customizations.length > 0
@@ -911,7 +895,6 @@ class OrderService {
             const isValidUUID =
               customization_id && uuidRegex.test(customization_id);
 
-            // ✅ NOVO: Sanitizar base64 antes de salvar no banco
             const customizationDataToSave = {
               customization_type,
               title,
@@ -942,11 +925,6 @@ class OrderService {
         `✅ [OrderService.createOrder] inserted items in ${createDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`,
       );
 
-      // ========== DECREMENTO DE ESTOQUE REMOVIDO DA CRIAÇÃO ==========
-      // O estoque agora é decrementado apenas após a confirmação do pagamento
-      // via updateOrderStatus("PAID") ou processamento de webhook.
-
-      // Sincronizar cliente com n8n (não bloqueia o pedido se falhar)
       try {
         const orderWithUser = await this.getOrderById(created.id);
         if (orderWithUser?.user?.phone) {
@@ -960,7 +938,7 @@ class OrderService {
           "⚠️ Erro ao sincronizar cliente com n8n:",
           syncError.message,
         );
-        // Não falha o pedido se a sincronização falhar
+
       }
 
       return await this.getOrderById(created.id);
@@ -978,10 +956,8 @@ class OrderService {
     }
   }
 
-  /**
-   * ✅ NOVO: Deleta pastas do Google Drive associadas ao pedido
-   * Remove pasta raiz + subpastas de customização
-   */
+  
+
   private async deleteOrderGoogleDriveFolders(orderId: string): Promise<void> {
     try {
       const order = await prisma.order.findUnique({
@@ -994,7 +970,6 @@ class OrderService {
         return;
       }
 
-      // ✅ Deletar pasta raiz (com cascata de subpastas)
       await googleDriveService.deleteFolder(order.google_drive_folder_id);
       logger.info(
         `✅ Pasta Google Drive deletada: ${order.google_drive_folder_id}`,
@@ -1004,7 +979,7 @@ class OrderService {
         `⚠️ Erro ao deletar pasta Google Drive do pedido ${orderId}:`,
         err,
       );
-      // Não bloquear deleção do pedido se Drive falhar
+
     }
   }
 
@@ -1013,16 +988,13 @@ class OrderService {
       throw new Error("ID do pedido é obrigatório");
     }
 
-    // Verifica se o pedido existe
     await this.getOrderById(id);
 
     try {
       logger.info(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
 
-      // ✅ NOVO: Deletar pastas do Google Drive ANTES de deletar do banco
       await this.deleteOrderGoogleDriveFolders(id);
 
-      // ✅ NOVO: Buscar arquivos locais antes de deletar customizações do banco
       const filesToDelete: string[] = [];
       const customizationsToDelete =
         await prisma.orderItemCustomization.findMany({
@@ -1048,26 +1020,22 @@ class OrderService {
         try {
           const value = JSON.parse(customization.value);
 
-          // 1. Fotos
           if (value.photos && Array.isArray(value.photos)) {
             value.photos.forEach((photo: any) =>
               extractFilename(photo.preview_url),
             );
           }
 
-          // 2. Final Artwork (Objeto único)
           if (value.final_artwork) {
             extractFilename(value.final_artwork.preview_url);
           }
 
-          // 3. Final Artworks (Array)
           if (value.final_artworks && Array.isArray(value.final_artworks)) {
             value.final_artworks.forEach((artwork: any) =>
               extractFilename(artwork.preview_url),
             );
           }
 
-          // 4. Texto/URL em DYNAMIC_LAYOUT (às vezes a URL da arte final fica aqui)
           if (
             (value.customization_type === "DYNAMIC_LAYOUT" ||
               value.customizationType === "DYNAMIC_LAYOUT") &&
@@ -1076,7 +1044,6 @@ class OrderService {
             extractFilename(value.text);
           }
 
-          // 5. Outros campos genéricos
           if (value.imageUrl) extractFilename(value.imageUrl);
           if (value.previewUrl) extractFilename(value.previewUrl);
         } catch (err) {
@@ -1084,7 +1051,6 @@ class OrderService {
         }
       }
 
-      // ✅ NOVO: Buscar TempUploads vinculados a este pedido
       const associatedUploads = await prisma.tempUpload.findMany({
         where: { orderId: id },
         select: { filename: true, filePath: true },
@@ -1093,7 +1059,7 @@ class OrderService {
       associatedUploads.forEach((upload) => {
         if (upload.filename) {
           filesToDelete.push(upload.filename);
-          // Arquivos permanentes costumam ter o prefixo ORDER_ID_
+
           filesToDelete.push(`${id}_${upload.filename}`);
         }
       });
@@ -1106,7 +1072,7 @@ class OrderService {
         const itemIds = items.map((item) => item.id);
 
         if (itemIds.length > 0) {
-          // 1. Deletar customizações de itens
+
           const deletedCustomizations =
             await tx.orderItemCustomization.deleteMany({
               where: { order_item_id: { in: itemIds } },
@@ -1115,20 +1081,17 @@ class OrderService {
             `  ✓ Customizações deletadas: ${deletedCustomizations.count}`,
           );
 
-          // 2. Deletar adicionais de itens
           const deletedAdditionals = await tx.orderItemAdditional.deleteMany({
             where: { order_item_id: { in: itemIds } },
           });
           logger.info(`  ✓ Adicionais deletados: ${deletedAdditionals.count}`);
         }
 
-        // 3. Deletar itens do pedido
         const deletedItems = await tx.orderItem.deleteMany({
           where: { order_id: id },
         });
         logger.info(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
 
-        // 5. Deletar pagamento associado (usando deleteMany para não falhar se não existir)
         const deletedPayment = await tx.payment.deleteMany({
           where: { order_id: id },
         });
@@ -1138,17 +1101,14 @@ class OrderService {
           logger.info("  ℹ️ Sem pagamento para deletar");
         }
 
-        // 6. Deletar registros de TempUpload vinculados
         await tx.tempUpload.deleteMany({
           where: { orderId: id },
         });
 
-        // 7. Por fim, deletar o pedido
         await tx.order.delete({ where: { id } });
         logger.info("  ✓ Pedido deletado com sucesso do banco");
       });
 
-      // ✅ NOVO: Deletar arquivos locais após deletar pedido do banco
       if (filesToDelete.length > 0) {
         const tempFileService = require("../services/tempFileService").default;
         const uniqueFiles = Array.from(new Set(filesToDelete));
@@ -1211,13 +1171,12 @@ class OrderService {
       `[OrderService] Atualizando itens do pedido ${orderId} - quantidade: ${items.length}`,
     );
 
-    // Validação básica dos itens
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (!item.product_id || item.product_id.trim() === "") {
         throw new Error(`Item ${i + 1}: ID do produto é obrigatório`);
       }
-      // Validar formato UUID do product_id para evitar erros comuns de payload
+
       const uuidRegex =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(item.product_id)) {
@@ -1269,7 +1228,6 @@ class OrderService {
       throw err;
     }
 
-    // Validar se os adicionais existem
     const additionalsIds = items
       .flatMap((item) => item.additionals?.map((ad) => ad.additional_id) || [])
       .filter(Boolean);
@@ -1390,14 +1348,11 @@ class OrderService {
       (total - discount + shipping_price).toFixed(2),
     );
 
-    // ✅ Use transaction to ensure atomicity and prevent FK constraint violations
-    // To avoid timeouts, perform fewer DB roundtrips by batching adds
-    // and increase transaction timeout to handle larger payloads
     const txStart = Date.now();
     try {
       await prisma.$transaction(
         async (tx) => {
-          // Remover itens antigos (customizações e adicionais em cascata)
+
           const existingItems = await tx.orderItem.findMany({
             where: { order_id: orderId },
             select: { id: true },
@@ -1419,7 +1374,6 @@ class OrderService {
           const additionalsBatch: any[] = [];
           const customizationsBatch: any[] = [];
 
-          // Criar novos itens e acumular additionals/customizations para createMany
           for (let idx = 0; idx < items.length; idx++) {
             const item = items[idx];
             const createdItem = await tx.orderItem.create({
@@ -1469,7 +1423,6 @@ class OrderService {
                 const isValidUUID =
                   customization_id && uuidRegex.test(customization_id);
 
-                // ✅ NOVO: Sanitizar base64 antes de salvar no banco
                 const customizationDataToSave = {
                   customization_type,
                   title,
@@ -1487,7 +1440,6 @@ class OrderService {
             }
           }
 
-          // Insert all additionals and customizations in bulk to reduce queries
           if (additionalsBatch.length > 0) {
             await tx.orderItemAdditional.createMany({ data: additionalsBatch });
           }
@@ -1497,7 +1449,6 @@ class OrderService {
             });
           }
 
-          // Atualizar o pedido
           await tx.order.update({
             where: { id: orderId },
             data: { total, grand_total },
@@ -1539,7 +1490,7 @@ class OrderService {
       delivery_state?: string | null;
       recipient_phone?: string | null;
       delivery_date?: Date | string | null;
-      shipping_price?: number; // ✅ NOVO: permitir atualizar frete
+      shipping_price?: number;
       payment_method?: "pix" | "card";
       discount?: number;
       delivery_method?: "delivery" | "pickup";
@@ -1554,7 +1505,6 @@ class OrderService {
       throw new Error("Pedido não encontrado");
     }
 
-    // Só permite atualizar pedidos PENDING
     if (order.status !== "PENDING") {
       throw new Error("Apenas pedidos pendentes podem ser atualizados");
     }
@@ -1570,7 +1520,6 @@ class OrderService {
       updateData.delivery_method = data.delivery_method;
     }
 
-    // Permitir atualização de endereço/telefone no pedido quando for rascunho (PENDING)
     if (typeof data.delivery_address === "string") {
       updateData.delivery_address = data.delivery_address || null;
     }
@@ -1581,13 +1530,13 @@ class OrderService {
       updateData.delivery_state = data.delivery_state || null;
     }
     if (typeof data.recipient_phone === "string") {
-      // Normalizar telefone para o formato que usamos no backend
+
       const digits = data.recipient_phone.replace(/\D/g, "");
       let normalized = digits;
       if (!digits.startsWith("55")) {
         normalized = "55" + digits;
       }
-      // Validação simples do tamanho do telefone (sem código do país)
+
       const localDigits = normalized.startsWith("55")
         ? normalized.substring(2)
         : normalized;
@@ -1597,9 +1546,8 @@ class OrderService {
       updateData.recipient_phone = normalized;
     }
 
-    // Validar data de entrega se fornecida
     if (data.delivery_date === null) {
-      updateData.delivery_date = null; // permite limpar a data
+      updateData.delivery_date = null;
     } else if (
       typeof data.delivery_date === "string" ||
       data.delivery_date instanceof Date
@@ -1611,7 +1559,7 @@ class OrderService {
       if (isNaN(Number(dt))) {
         throw new Error("Data de entrega inválida");
       }
-      // Opcional: evitar datas no passado
+
       const now = new Date();
       if (dt < now) {
         throw new Error("Data de entrega não pode ser no passado");
@@ -1619,7 +1567,6 @@ class OrderService {
       updateData.delivery_date = dt;
     }
 
-    // Validar estado de entrega se fornecido
     if (typeof data.delivery_state === "string") {
       const normalizedState = normalizeText(data.delivery_state || "");
       if (
@@ -1646,7 +1593,6 @@ class OrderService {
       updateData.discount = data.discount;
     }
 
-    // ✅ NOVO: Atualizar frete e recalcular total
     if (typeof data.shipping_price === "number") {
       if (data.shipping_price < 0) {
         throw new Error("O valor do frete não pode ser negativo");
@@ -1732,7 +1678,6 @@ class OrderService {
       throw new Error("Pedido não encontrado");
     }
 
-    // Se status não mudou, apenas retorna o pedido completo (sanitizado via getOrderById)
     if (current.status === normalizedStatus) {
       return this.getOrderById(id);
     }
@@ -1759,14 +1704,12 @@ class OrderService {
       },
     });
 
-    // ✅ NOVO: Decrementar estoque quando o pedido for pago
     if (normalizedStatus === "PAID" && current.status !== "PAID") {
       try {
         logger.info(
           `📦 [OrderService] Pedido ${id} pago - decrementando estoque...`,
         );
 
-        // Transformar items para o formato esperado pelo stockService
         const stockItems = updated.items.map((item) => ({
           product_id: item.product_id,
           quantity: item.quantity,
@@ -1783,18 +1726,16 @@ class OrderService {
           `❌ Erro crítico ao decrementar estoque do pedido ${id}:`,
           stockError,
         );
-        // O pedido permanece PAID, mas o erro é registrado para intervenção manual se necessário
+
       }
     }
 
-    // ✅ NOVO: Limpar recursos quando pedido é ENTREGUE
     if (normalizedStatus === "DELIVERED") {
       try {
         logger.info(
           `📦 [OrderService] Pedido ${id} marcado como ENTREGUE - limpando recursos...`,
         );
 
-        // Deletar Google Drive folder
         if (updated.google_drive_folder_id) {
           await googleDriveService
             .deleteFolder(updated.google_drive_folder_id)
@@ -1811,7 +1752,6 @@ class OrderService {
             });
         }
 
-        // ✅ Deletar OrderItemCustomization (mantém OrderItem e Order)
         const customizationsDeleted =
           await prisma.orderItemCustomization.deleteMany({
             where: {
@@ -1825,8 +1765,6 @@ class OrderService {
           `🗑️ ${customizationsDeleted.count} customização(ões) deletada(s)`,
         );
 
-        // ✅ NOVO: Deletar arquivos temporários da VPS
-        // Buscar customizações antes de deletar para coletar temp files
         const customizationsBeforeDeletion =
           await prisma.orderItemCustomization.findMany({
             where: {
@@ -1847,7 +1785,6 @@ class OrderService {
               : {};
             const tempFiles: string[] = [];
 
-            // Coletar URLs de temp files
             if (data.image?.preview_url?.startsWith("/uploads/temp/")) {
               tempFiles.push(data.image.preview_url);
             }
@@ -1859,7 +1796,6 @@ class OrderService {
               });
             }
 
-            // Deletar cada arquivo
             for (const tempUrl of tempFiles) {
               try {
                 const tempFileName = tempUrl.replace("/uploads/temp/", "");
@@ -1869,7 +1805,6 @@ class OrderService {
                   tempFileName,
                 );
 
-                // Validação de segurança
                 if (
                   filePath.startsWith(path.join(baseStorageDir, "temp")) &&
                   fs.existsSync(filePath)
@@ -1903,13 +1838,13 @@ class OrderService {
           `⚠️ Erro na limpeza de recursos do pedido entregue ${id}:`,
           err,
         );
-        // Não bloquear - pedido continua sendo retornado
+
       }
     }
 
     if (options.notifyCustomer !== false) {
       try {
-        // Preferir pasta do pedido (fonte correta) e usar customizacao apenas como fallback
+
         let driveLink: string | undefined =
           updated.google_drive_folder_url || undefined;
         if (!driveLink) {
@@ -1930,7 +1865,7 @@ class OrderService {
               });
             driveLink = customizationWithDrive?.google_drive_url || undefined;
           } catch (error) {
-            // Ignorar se a coluna ainda não existir
+
           }
         }
 
@@ -1976,7 +1911,6 @@ class OrderService {
       }
     }
 
-    // Retornar via getOrderById para garantir sanitização
     return this.getOrderById(id);
   }
 
@@ -1998,7 +1932,7 @@ class OrderService {
               include: { additional: true },
             },
             customizations: {
-              include: { customization: true }, // ✅ ADICIONAR customizações
+              include: { customization: true },
             },
           },
         },
@@ -2011,7 +1945,6 @@ class OrderService {
 
     if (!pendingOrder) return null;
 
-    // Enriquecer e sanitizar o pedido pendente
     const enriched = this.enrichCustomizations([pendingOrder]);
     const sanitized = this.sanitizeBase64FromCustomizations(enriched);
 
@@ -2117,7 +2050,6 @@ class OrderService {
         `🗑️ [OrderService] Cancelando ${pendingOrders.length} pedido(s) PENDING anterior(es) do usuário ${userId}`,
       );
 
-      // Cancelar cada pedido PENDING antigo
       let canceledCount = 0;
       for (const order of pendingOrders) {
         try {
@@ -2161,7 +2093,7 @@ class OrderService {
           id: true,
           user_id: true,
           created_at: true,
-          google_drive_folder_id: true, // ✅ NOVO
+          google_drive_folder_id: true,
         },
       });
 
@@ -2176,7 +2108,6 @@ class OrderService {
         `🧹 [OrderService] Limpando ${abandonedOrders.length} pedido(s) abandonado(s)`,
       );
 
-      // ✅ NOVO: Deletar pastas Google Drive em paralelo
       const driveDeletePromises = abandonedOrders
         .filter((order) => order.google_drive_folder_id)
         .map((order) =>
@@ -2192,7 +2123,7 @@ class OrderService {
                 `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
                 err,
               );
-              // Não bloquear limpeza se Drive falhar
+
             }),
         );
       await Promise.all(driveDeletePromises);
@@ -2214,13 +2145,12 @@ class OrderService {
         `✅ [OrderService] ${cleanedCount} pedido(s) abandonado(s) limpo(s) com sucesso`,
       );
 
-      // 2. Deletar rascunhos sem itens
       try {
         const emptyOrders = await prisma.order.findMany({
           where: {
             items: { none: {} },
             status: "PENDING",
-            created_at: { lt: new Date(Date.now() - 2 * 60 * 60 * 1000) }, // Apenas se tiver mais de 2 horas
+            created_at: { lt: new Date(Date.now() - 2 * 60 * 60 * 1000) },
           },
           select: { id: true, google_drive_folder_id: true },
         });
@@ -2265,7 +2195,6 @@ class OrderService {
         `🗑️ [OrderService] Iniciando deleção de ${canceledOrders.length} pedido(s) cancelado(s)`,
       );
 
-      // ✅ NOVO: Deletar pastas Google Drive em paralelo ANTES de deletar do banco
       const driveDeletePromises = canceledOrders
         .filter((order) => order.google_drive_folder_id)
         .map((order) =>
@@ -2281,7 +2210,7 @@ class OrderService {
                 `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
                 err,
               );
-              // Não bloquear deleção se Drive falhar
+
             }),
         );
       await Promise.all(driveDeletePromises);
@@ -2315,13 +2244,11 @@ class OrderService {
         });
         console.log(`  ✓ Itens do pedido deletados: ${deletedItems.count}`);
 
-        // 5. Deletar pagamentos
         const deletedPayments = await tx.payment.deleteMany({
           where: { order_id: { in: orderIds } },
         });
         console.log(`  ✓ Pagamentos deletados: ${deletedPayments.count}`);
 
-        // 6. Deletar pedidos
         const deletedOrders = await tx.order.deleteMany({
           where: { id: { in: orderIds } },
         });

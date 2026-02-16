@@ -283,8 +283,6 @@ class FeedController {
     }
   }
 
-  // ============== FEED SECTION ITEM ENDPOINTS ==============
-
   async createSectionItem(req: Request, res: Response) {
     try {
       const data = req.body;
@@ -339,8 +337,6 @@ class FeedController {
     }
   }
 
-  // ============== PUBLIC FEED ENDPOINT ==============
-
   async getPublicFeed(req: Request, res: Response) {
     try {
       const configId = req.query.config_id as string;
@@ -358,8 +354,6 @@ class FeedController {
       }
     }
   }
-
-  // ============== UTILITY ENDPOINTS ==============
 
   async getSectionTypes(req: Request, res: Response) {
     try {

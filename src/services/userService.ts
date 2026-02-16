@@ -31,7 +31,7 @@ class UserService {
   }
 
   async createUser(data: CreateUserInput) {
-    // Validações de campos obrigatórios
+
     if (!data.name || data.name.trim() === "") {
       throw new Error("Nome do usuário é obrigatório");
     }
@@ -42,13 +42,11 @@ class UserService {
       throw new Error("Firebase UID é obrigatório");
     }
 
-    // Validação de formato de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(data.email)) {
       throw new Error("Formato de email inválido");
     }
 
-    // Validação de CEP se fornecido
     if (data.zip_code && data.zip_code.trim() !== "") {
       if (!cepService.validateCepFormat(data.zip_code)) {
         throw new Error(
@@ -58,7 +56,7 @@ class UserService {
     }
 
     try {
-      // Verifica se o email já existe
+
       const existingUser = await prisma.user.findFirst({
         where: {
           OR: [{ email: data.email }, { firebaseUId: data.firebaseUId }],
@@ -74,7 +72,6 @@ class UserService {
         }
       }
 
-      // Formata CEP se fornecido
       const userData = { ...data };
       if (userData.zip_code && userData.zip_code.trim() !== "") {
         userData.zip_code = cepService.formatCep(userData.zip_code);
@@ -98,17 +95,14 @@ class UserService {
       throw new Error("ID do usuário é obrigatório");
     }
 
-    // Verifica se o usuário existe
     await this.getUserById(id);
 
-    // Validação de email se fornecido
     if (data.email && data.email.trim() !== "") {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(data.email)) {
         throw new Error("Formato de email inválido");
       }
 
-      // Verifica se o email já está em uso por outro usuário
       const existingUser = await prisma.user.findFirst({
         where: {
           email: data.email,
@@ -121,7 +115,6 @@ class UserService {
       }
     }
 
-    // Validação de CEP se fornecido
     if (data.zip_code && data.zip_code.trim() !== "") {
       if (!cepService.validateCepFormat(data.zip_code)) {
         throw new Error(
@@ -131,7 +124,7 @@ class UserService {
     }
 
     try {
-      // Formata CEP se fornecido
+
       const userData = { ...data };
       if (userData.zip_code && userData.zip_code.trim() !== "") {
         userData.zip_code = cepService.formatCep(userData.zip_code);
@@ -155,11 +148,10 @@ class UserService {
       throw new Error("ID do usuário é obrigatório");
     }
 
-    // Verifica se o usuário existe
     await this.getUserById(id);
 
     try {
-      // Verifica se o usuário tem pedidos
+
       const orders = await prisma.order.count({ where: { user_id: id } });
       if (orders > 0) {
         throw new Error("Não é possível deletar usuário que possui pedidos");
@@ -178,7 +170,6 @@ class UserService {
     }
   }
 
-  // Métodos de compatibilidade com o código existente
   async list() {
     return this.getAllUsers();
   }
@@ -206,7 +197,6 @@ class UserService {
     return this.deleteUser(id);
   }
 
-  // Novo método: consulta informações de endereço por CEP
   async getAddressByZipCode(zipCode: string) {
     try {
       const addressInfo = await cepService.getAddressByCep(zipCode);

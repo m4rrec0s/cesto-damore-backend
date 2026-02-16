@@ -3,7 +3,6 @@ import fs from "fs/promises";
 import path from "path";
 import logger from "../utils/logger";
 import { Readable } from "stream";
-// crypto removed - not required when using only OAuth
 
 interface UploadFileOptions {
   filePath: string;
@@ -44,7 +43,6 @@ class GoogleDriveService {
   private drive: any;
   private tokenPath: string;
   private baseUrl: string;
-  // Service Account removed - using OAuth only
 
   constructor() {
     this.rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
@@ -57,8 +55,6 @@ class GoogleDriveService {
     this.baseUrl = process.env.BASE_URL || "";
 
     const redirectUri = process.env.GOOGLE_REDIRECT_URI;
-
-    // Removed Service Account flow - using OAuth only
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -81,7 +77,7 @@ class GoogleDriveService {
     );
     this.setupOAuth2Client(this.oauth2Client);
     this.drive = google.drive({ version: "v3", auth: this.oauth2Client });
-    // ensure OAuth-only mode (no service account)
+
     this.loadSavedTokens();
   }
 
@@ -92,7 +88,6 @@ class GoogleDriveService {
       const current = client.credentials || {};
       const updated: OAuth2Credentials = { ...current, ...tokens };
 
-      // NUNCA perca o refresh_token
       if (current.refresh_token && !tokens.refresh_token) {
         updated.refresh_token = current.refresh_token;
         logger.info("Refresh token preservado");
@@ -133,9 +128,8 @@ class GoogleDriveService {
     return tokens;
   }
 
-  /**
-   * Carrega tokens OAuth2 salvos do arquivo
-   */
+  
+
   private async loadSavedTokens(): Promise<void> {
     const envTokens = this.getTokensFromEnv();
     if (envTokens) {
@@ -153,8 +147,6 @@ class GoogleDriveService {
       );
     }
   }
-
-  // Service Account init removed - OAuth only
 
   private async saveTokens(tokens: OAuth2Credentials): Promise<void> {
     try {
@@ -239,9 +231,8 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Atualiza ou adiciona uma variável no conteúdo do .env
-   */
+  
+
   private updateEnvVariable(
     content: string,
     key: string,
@@ -250,17 +241,16 @@ class GoogleDriveService {
     const regex = new RegExp(`^${key}=.*$`, "m");
 
     if (regex.test(content)) {
-      // Atualizar valor existente
+
       return content.replace(regex, `${key}=${value}`);
     } else {
-      // Adicionar nova variável
+
       return content + `\n${key}=${value}`;
     }
   }
 
-  /**
-   * Gera URL de autenticação OAuth2
-   */
+  
+
   getAuthUrl(): string {
     if (!this.oauth2Client) {
       throw new Error("Cliente OAuth2 não inicializado");
@@ -276,7 +266,6 @@ class GoogleDriveService {
       throw new Error("GOOGLE_REDIRECT_URI não definido");
     }
 
-    // Validar formato do redirect_uri
     if (
       !redirectUri.startsWith("http://") &&
       !redirectUri.startsWith("https://")
@@ -352,7 +341,6 @@ class GoogleDriveService {
       );
     }
 
-    // Se não temos access_token mas temos refresh_token, o cliente vai atualizar automaticamente na próxima chamada
     logger.debug(
       "🔍 Credenciais OAuth2 verificadas - cliente atualizará automaticamente se necessário"
     );
@@ -398,7 +386,7 @@ class GoogleDriveService {
       ) {
         await fs.unlink(this.tokenPath);
       }
-      // Clear in-memory credentials
+
       if (this.oauth2Client) this.oauth2Client.credentials = {};
       logger.info("✅ Google Drive tokens cleared");
     } catch (err) {
@@ -452,9 +440,8 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Faz upload de múltiplos arquivos
-   */
+  
+
   async uploadMultipleFiles(
     files: Array<{ path: string; name: string; mimeType?: string }>,
     folderId: string
@@ -494,7 +481,7 @@ class GoogleDriveService {
       });
 
       try {
-        // try to make file public (if allowed)
+
         await this.drive.permissions.create({
           fileId: response.data.id,
           requestBody: {
@@ -503,7 +490,7 @@ class GoogleDriveService {
           },
         });
       } catch (permErr) {
-        // For service accounts or restricted drives, setting permissions might fail - log and continue
+
         console.warn(
           "Could not set file permissions to anyone: ",
           String(permErr)
@@ -521,7 +508,7 @@ class GoogleDriveService {
     } catch (error: any) {
       console.error("❌ Erro ao fazer upload via buffer:", String(error));
       console.error("🔎 folderId usado no upload:", folderId);
-      // Detect specific errors and provide actionable messages
+
       const message = String(error?.message || error);
       if (
         message.includes("invalid_grant") ||
@@ -544,7 +531,7 @@ class GoogleDriveService {
         message.includes("Forbidden") ||
         message.includes("permission")
       ) {
-        // Permission denied - OAuth account may not have rights to the target folder
+
         throw new Error(
           "Permissão negada: a conta autenticada não tem acesso à pasta/folderId. Verifique as permissões e se a pasta pertence ao Drive correto."
         );
@@ -554,30 +541,26 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Obtém URL da pasta no Google Drive
-   */
+  
+
   getFolderUrl(folderId: string): string {
     return `https://drive.google.com/drive/folders/${folderId}`;
   }
 
-  /**
-   * Obtém URL de visualização de um arquivo
-   */
+  
+
   getFileUrl(fileId: string): string {
     return `https://drive.google.com/file/d/${fileId}/view`;
   }
 
-  /**
-   * Obtém URL de download direto de um arquivo
-   */
+  
+
   getDirectDownloadUrl(fileId: string): string {
     return `https://drive.google.com/uc?id=${fileId}&export=download`;
   }
 
-  /**
-   * Lista arquivos de uma pasta no Google Drive
-   */
+  
+
   async listFiles(folderId: string): Promise<UploadedFile[]> {
     try {
       await this.ensureValidToken();
@@ -600,9 +583,8 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Deleta um arquivo do Google Drive
-   */
+  
+
   async deleteFile(fileId: string): Promise<void> {
     try {
       await this.ensureValidToken();
@@ -632,9 +614,8 @@ class GoogleDriveService {
     }
   }
 
-  /**
-   * Torna uma pasta pública
-   */
+  
+
   async makeFolderPublic(folderId: string): Promise<void> {
     try {
       await this.ensureValidToken();
@@ -652,7 +633,7 @@ class GoogleDriveService {
   }
 
   isConfigured(): boolean {
-    // OAuth-only: consider configured if we have tokens
+
     return (
       !!this.oauth2Client.credentials?.access_token ||
       !!this.oauth2Client.credentials?.refresh_token

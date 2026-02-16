@@ -32,9 +32,6 @@ class MCPClientService {
         },
         {
           capabilities: {},
-
-          
-          timeout: 45000,
         },
       );
 

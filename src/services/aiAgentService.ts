@@ -339,6 +339,10 @@ REGRAS PARA SUA RESPOSTA:
 7. Mencione tempo de produção somente quando o produto e o tempo forem conhecidos
 8. Se produto tiver "caneca" no nome, mencione opções de customização
 9. DESCREVA OS PRODUTOS EXATAMENTE COMO RETORNADOS. NÃO invente itens (comidas, bebidas) que não estão listados no JSON da ferramenta.
+10. FECHAMENTO DE PEDIDO: Se estiver finalizando um pedido (com data, endereço e pagamento), use OBRIGATORIAMENTE o formato de Resumo Visual:
+    ═══ 📋 RESUMO DO SEU PEDIDO ═══
+    (detalhes aqui...)
+    ════════════════════════════
 
 Gere APENAS a mensagem final para o cliente.`;
   }
@@ -361,13 +365,14 @@ Gere APENAS a mensagem final para o cliente.`;
       { pattern: /caneca/, term: "caneca" },
       { pattern: /pelu[cç]ia|urso/, term: "pelúcia" },
       { pattern: /quebra[-\s]?cabe[cç]a/, term: "quebra-cabeça" },
-      { pattern: /quadro/, term: "quadro" },
+      { pattern: /quadro|polaroid|foto/, term: "quadro" },
       { pattern: /bar|bebida/, term: "bar" },
       { pattern: /chocolate/, term: "chocolate" },
       { pattern: /cafe|caf[eé]/, term: "café" },
       { pattern: /anivers[aá]rio/, term: "aniversário" },
       { pattern: /namorad[oa]s?/, term: "namorados" },
       { pattern: /rom[aâ]ntic[ao]/, term: "romântica" },
+      { pattern: /esposa/, term: "esposa" },
     ];
 
     for (const mapping of mappings) {
@@ -1569,6 +1574,13 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           if (name === "consultarCatalogo" && args.termo) {
             const termoOriginal = args.termo.toString();
             let termoNormalizado = this.normalizarTermoBusca(termoOriginal);
+
+            if (!args.contexto || args.contexto.toString().trim().split(/\s+/).length < 3) {
+              const extraContext = (args.contexto || "") + " " + currentUserMessage;
+              args.contexto = extraContext.trim();
+              logger.info(`🧠 Enriquecendo contexto da busca: "${args.contexto}"`);
+            }
+
             const wordCount = termoNormalizado.split(/\s+/).filter(Boolean).length;
             const needsReduction =
               termoNormalizado.length > 40 ||

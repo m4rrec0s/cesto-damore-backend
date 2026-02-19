@@ -283,6 +283,13 @@ class AIAgentService {
         prompt: "faq_production_guideline",
         priority: 2,
       },
+      {
+        patterns: [
+          /falar com humano|falar com atendente|pessoa|atendimento humano|falar com alguém|falar com alguem|suporte|falar com paulo|manda pro paulo|chama o paulo|falar com o paulo/i,
+        ],
+        prompt: "human_transfer_guideline",
+        priority: 0,
+      },
     ];
 
     if (isGreetingOnly) {
@@ -343,6 +350,7 @@ REGRAS PARA SUA RESPOSTA:
     ═══ 📋 RESUMO DO SEU PEDIDO ═══
     (detalhes aqui...)
     ════════════════════════════
+11. ATENDIMENTO HUMANO: Se as ferramentas indicarem que o suporte foi notificado, informe ao cliente que o Paulo (ou o time) já vai atender e cite o horário comercial se necessário.
 
 Gere APENAS a mensagem final para o cliente.`;
   }
@@ -1286,11 +1294,30 @@ Aguarde: "Sim", "pode finalizar", "perfeito", etc.
 - Chame: block_session()
 - Diga: "Perfeito! Já passei para o time humano. Logo eles te respondem! Obrigadaaa ❤️🥰"
 
+---
+
+## 🆘 ESCAPE HATCH: TRANSFERÊNCIA HUMANA
+
+⚠️ **PRIORIDADE MÁXIMA**: Se o cliente pedir para falar com um humano, atendente, "Paulo" ou demonstrar irritação, você DEVE **INTERROMPER** este protocolo IMEDIATAMENTE e transferir.
+
+**QUANDO TRANSFERIR:**
+- "Quero falar com Paulo"
+- "Me passa para um atendente"
+- "Não quero falar com robô"
+- "Preciso de ajuda com [caso complexo]"
+
+**COMO AGIR:**
+1. Informe o horário comercial: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
+2. Diga: "Vou te passar para o Paulo agora mesmo! Um momento. 💕"
+3. Execute notify_human_support e block_session.
+
+---
+
 ⚠️ CRÍTICO:
-- ❌ NUNCA pule etapas
+- ❌ NUNCA pule etapas se o cliente quer comprar
+- ❌ NUNCA insista no protocolo se o cliente quer um humano
 - ❌ NUNCA finalize sem os 5 dados (produto, data, horário, endereço, pagamento)
-- ❌ NÃO notifique equipe se faltar algo
-- ✅ Valide TODAS as informações antes de notificar
+- ❌ NÃO notifique equipe se faltar algo no checkout (exceto se for pedido de ajuda)
 
 Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
 `;
@@ -1368,7 +1395,13 @@ Se o cliente diz "boa noite", responda naturalmente! Você NÃO precisa validar 
 | "Para qual data?" | validate_delivery_availability | ✅ SOMENTE se o cliente mencionar data/horário |
 | "Boa noite!" | — | ❌ Responda direto |
 | "Qual horário?" | — | ❌ Responda direto |
+| "Falar com humano" | notify_human_support | ✅ IMEDIATAMENTE |
 | "Quero comprar!" | notify_human_support | ✅ Checkout completo |
+
+### ⚠️ REGRAS SOBRE ATENDIMENTO HUMANO:
+1. **NUNCA tente coletar dados** se o cliente pedir por um atendente ou pelo Paulo.
+2. Informe SEMPRE os horários comerciais: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
+3. Transfira e bloqueie a sessão assim que o cliente confirmar o desejo de falar com alguém.
 
 ### ⚠️ REGRAS SOBRE DATAS E HORÁRIOS:
 1. **NUNCA deduza uma data** se o cliente não falou nada.

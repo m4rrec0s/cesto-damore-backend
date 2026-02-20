@@ -350,7 +350,9 @@ REGRAS PARA SUA RESPOSTA:
     ═══ 📋 RESUMO DO SEU PEDIDO ═══
     (detalhes aqui...)
     ════════════════════════════
-11. ATENDIMENTO HUMANO: Se as ferramentas indicarem que o suporte foi notificado, informe ao cliente que o Paulo (ou o time) já vai atender e cite o horário comercial se necessário.
+11. ATENDIMENTO HUMANO: Se as ferramentas indicarem que o suporte foi notificado, informe ao cliente que o time já vai atender e cite o horário comercial se necessário.
+12. ⛔ DATAS DE ENTREGA: Se a ferramenta retornou suggested_slots, APRESENTE TODOS ao cliente e PERGUNTE qual ele prefere. NUNCA escolha um horário por conta própria. O estimated_ready_time é tempo de produção, NÃO é o horário de entrega escolhido.
+13. NUNCA mencione o nome de funcionários específicos ao cliente. Use "nosso time" ou "nosso atendente".
 
 Gere APENAS a mensagem final para o cliente.`;
   }
@@ -544,7 +546,7 @@ TOTAL: R$ ${checkoutData.totalValue}",
   should_block_flow: true
 }
 
-Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. Como agora eles vão cuidar do seu pagamento e personalização, eu vou me retirar para não atrapalhar, tá ok? Logo eles te respondem! Obrigadaaa ❤️🥰"`;
+Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. Obrigadaaa ❤️🥰"`;
 
       default:
         return "";
@@ -679,6 +681,103 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
     ];
 
     return lines.join("\n");
+  }
+
+  private async handleCheckoutConfirmation(
+    recentHistory: any[],
+    userMessage: string,
+    sessionId: string,
+    customerPhone: string,
+    customerName: string,
+    remoteJidAlt?: string,
+  ): Promise<any | null> {
+    const assistantMsgs = recentHistory.filter((m) => m.role === "assistant" && m.content);
+    const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+    if (!lastAssistant) return null;
+
+    const assistantContent = (lastAssistant.content || "").toString();
+    const hasSummary =
+      /resumo.*pedido|está tudo cert|posso confirmar|posso finalizar|tudo certinho/i.test(
+        assistantContent,
+      ) &&
+      /produto|cesta|buqu|caneca|flor|rosa|quadro/i.test(assistantContent) &&
+      /entrega|data/i.test(assistantContent) &&
+      /pagamento|pix|cart[aã]o/i.test(assistantContent);
+
+    if (!hasSummary) return null;
+
+    const msgLower = userMessage.toLowerCase().trim();
+    const isConfirmation =
+      /^(sim|pode|perfeito|tudo certo|confirma|t[aá] certo|t[aá] ok|isso|isso mesmo|fechado|fechar|bora|vamos|ok|blz|beleza|pode sim|show|boa|pode finalizar|sim pode|certinho|issoo|simm|isso a[ií]|fechou|s|ss|sss|pode confirmar|t[aá] perfeito|correto|certo)$/i.test(
+        msgLower,
+      ) ||
+      (/\b(sim|pode finalizar|tudo certo|confirma|pode confirmar|t[aá] perfeito|isso mesmo|fechado)\b/i.test(
+        msgLower,
+      ) &&
+        msgLower.length < 80);
+
+    if (!isConfirmation) return null;
+
+    logger.info("🔒 CHECKOUT CONFIRMADO - Executando notify+block garantido");
+
+    const extractedPhone = sessionId.match(/^session-(\d+)$/)?.[1] || "";
+    const phoneFromRemote = remoteJidAlt ? remoteJidAlt.replace(/\D/g, "") : "";
+    const resolvedPhone = customerPhone || extractedPhone || phoneFromRemote;
+    const resolvedName = customerName || "Cliente";
+
+    try {
+      await mcpClientService.callTool("notify_human_support", {
+        reason: "checkout_client_confirmed",
+        customer_context: assistantContent,
+        customer_name: resolvedName,
+        customer_phone: resolvedPhone,
+        should_block_flow: true,
+        session_id: sessionId,
+      });
+      await mcpClientService.callTool("block_session", {
+        session_id: sessionId,
+      });
+    } catch (error: any) {
+      logger.error(`❌ Falha no checkout confirmation garantido: ${error.message}`);
+    }
+
+    await this.blockSession(sessionId);
+
+    const confirmResponse =
+      "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. Obrigadaaa ❤️🥰";
+
+    await prisma.aIAgentMessage.create({
+      data: {
+        session_id: sessionId,
+        role: "assistant",
+        content: confirmResponse,
+      },
+    });
+
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { choices: [{ delta: { content: confirmResponse } }] };
+      },
+    };
+    return mockStream;
+  }
+
+  private detectCheckoutFlowFromHistory(recentHistory: any[]): boolean {
+    const recentAssistantMsgs = recentHistory
+      .filter((m) => m.role === "assistant" && m.content)
+      .slice(-4);
+
+    for (const msg of recentAssistantMsgs) {
+      const content = (msg.content || "").toString().toLowerCase();
+      if (
+        /qual data|data.*entrega|quando.*entrega|para quando|qual.*hor[aá]rio|endere[cç]o completo|rua.*n[uú]mero.*bairro|pix ou cart|forma de pagamento|resumo.*pedido|posso confirmar|posso finalizar|pode confirmar|vou levar|quero essa|quero esse/.test(
+          content,
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private filterHistoryForContext(history: any[]): any[] {
@@ -1204,6 +1303,18 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
 
     const recentHistory = this.filterHistoryForContext(history);
 
+    const checkoutConfirmationResult = await this.handleCheckoutConfirmation(
+      recentHistory,
+      userMessage,
+      sessionId,
+      customerPhone || session.customer_phone || "",
+      customerName || "Cliente",
+      remoteJidAlt,
+    );
+    if (checkoutConfirmationResult) {
+      return checkoutConfirmationResult;
+    }
+
     const { prompts: relevantPrompts, wasExplicitMatch } = this.detectContextualPrompts(userMessage);
     logger.info(`📚 RAG: Carregando ${relevantPrompts.length} prompts (match=${wasExplicitMatch}): ${relevantPrompts.join(', ')}`);
 
@@ -1243,7 +1354,9 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
       userMessage.toLowerCase(),
     );
 
-    if (finalizationIntent) {
+    const isInCheckoutFlow = this.detectCheckoutFlowFromHistory(recentHistory);
+
+    if (finalizationIntent || isInCheckoutFlow) {
       const closingProtocolPrompt = `
 
 --- 🚀 PROTOCOLO OBRIGATÓRIO: FECHAMENTO DE COMPRA ---
@@ -1257,11 +1370,13 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time humano. C
 
 **ETAPA 2: Colete Data e Horário (OBRIGATÓRIO)**
 - Pergunte: "Para qual data você gostaria da entrega?"
-- **NUNCA assuma ou deduza uma data/horário por conta própria.**
+- ⛔ **NUNCA ASSUMA, DEDUZA OU INVENTE UMA DATA/HORÁRIO.** Se o cliente não disse a data, PERGUNTE.
+- ⛔ Se a tool retornar suggested_slots, APRESENTE TODOS ao cliente e AGUARDE a escolha. NÃO escolha por ele.
+- ⛔ Se a tool retornar estimated_ready_time, isso é uma ESTIMATIVA de produção, NÃO é o horário de entrega escolhido.
 - Aguarde o cliente responder com uma data (ex: "hoje", "amanhã", "dia 20").
 - Somente após a resposta do cliente, use validate_delivery_availability(date_str, time_str)
 - Apresente TODOS os horários disponíveis retornados pela tool.
-- Cliente escolhe o horário desejado.
+- Cliente ESCOLHE o horário desejado.
 - ✅ CONFIRME ambos (Data e Horário) antes de passar para o endereço.
 
 **ETAPA 3: Colete Endereço Completo (OBRIGATÓRIO)**
@@ -1290,25 +1405,27 @@ Pergunte: "Está tudo certo? Posso finalizar?"
 Aguarde: "Sim", "pode finalizar", "perfeito", etc.
 
 **SOMENTE APÓS confirmação explícita:**
-- Chame: notify_human_support(reason="end_of_checkout", customer_context="[resumo completo]")
+- Chame: notify_human_support(reason="end_of_checkout", customer_context="[resumo completo com produto, data, endereço, pagamento]")
 - Chame: block_session()
-- Diga: "Perfeito! Já passei para o time humano. Logo eles te respondem! Obrigadaaa ❤️🥰"
+- Diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. Obrigadaaa ❤️🥰"
+
+⚠️ NUNCA mencione nomes de funcionários ao cliente. Use "nosso time" ou "nosso atendente".
 
 ---
 
 ## 🆘 ESCAPE HATCH: TRANSFERÊNCIA HUMANA
 
-⚠️ **PRIORIDADE MÁXIMA**: Se o cliente pedir para falar com um humano, atendente, "Paulo" ou demonstrar irritação, você DEVE **INTERROMPER** este protocolo IMEDIATAMENTE e transferir.
+⚠️ **PRIORIDADE MÁXIMA**: Se o cliente pedir para falar com um humano, atendente, ou demonstrar irritação, você DEVE **INTERROMPER** este protocolo IMEDIATAMENTE e transferir.
 
 **QUANDO TRANSFERIR:**
-- "Quero falar com Paulo"
-- "Me passa para um atendente"
+- "Quero falar com um atendente"
+- "Me passa para alguém"
 - "Não quero falar com robô"
 - "Preciso de ajuda com [caso complexo]"
 
 **COMO AGIR:**
 1. Informe o horário comercial: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
-2. Diga: "Vou te passar para o Paulo agora mesmo! Um momento. 💕"
+2. Diga: "Vou te passar para o nosso time agora mesmo! Um momento. 💕"
 3. Execute notify_human_support e block_session.
 
 ---
@@ -1399,16 +1516,19 @@ Se o cliente diz "boa noite", responda naturalmente! Você NÃO precisa validar 
 | "Quero comprar!" | notify_human_support | ✅ Checkout completo |
 
 ### ⚠️ REGRAS SOBRE ATENDIMENTO HUMANO:
-1. **NUNCA tente coletar dados** se o cliente pedir por um atendente ou pelo Paulo.
+1. **NUNCA tente coletar dados** se o cliente pedir por um atendente.
 2. Informe SEMPRE os horários comerciais: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
 3. Transfira e bloqueie a sessão assim que o cliente confirmar o desejo de falar com alguém.
+4. NUNCA mencione o nome de funcionários específicos. Use "nosso time" ou "nosso atendente".
 
 ### ⚠️ REGRAS SOBRE DATAS E HORÁRIOS:
-1. **NUNCA deduza uma data** se o cliente não falou nada.
+1. **⛔ NUNCA deduza, invente ou assuma uma data/horário** se o cliente não falou EXPLICITAMENTE.
 2. Pergunte: "Para qual data você gostaria da entrega?" antes de validar qualquer coisa.
 3. Se o cliente disser "para hoje", use a tool com a data atual (${dateInCampina}).
 4. Se o cliente disser "para amanhã", use a tool com a data de amanhã (${tomorrowInCampina}).
-5. Um atendente humano NUNCA assume que o cliente quer para amanhã se hoje ainda é possível.
+5. Se a tool retornar suggested_slots → APRESENTE TODOS ao cliente e PERGUNTE qual ele prefere. NÃO escolha por ele.
+6. O campo estimated_ready_time na resposta da tool é o tempo de PRODUÇÃO, NÃO é o horário de entrega escolhido pelo cliente.
+7. NÃO use validate_delivery_availability antes do cliente informar a data. PERGUNTE PRIMEIRO.
 
 ---
 
@@ -2108,6 +2228,29 @@ ${context}
     }
 
     logger.info("📝 FASE 2: Gerando resposta organizada para o cliente...");
+
+    const hasNotifyInResults = toolExecutionResults.some(
+      (r) => r.toolName === "notify_human_support" && r.success,
+    );
+    const hasBlockInResults = toolExecutionResults.some(
+      (r) => r.toolName === "block_session" && r.success,
+    );
+    if (hasNotifyInResults && !hasBlockInResults) {
+      logger.warn("⚠️ notify_human_support foi chamado mas block_session não. Forçando bloqueio.");
+      try {
+        await mcpClientService.callTool("block_session", {
+          session_id: sessionId,
+        });
+        toolExecutionResults.push({
+          toolName: "block_session",
+          input: { session_id: sessionId },
+          output: "forced_block_after_notify",
+          success: true,
+        });
+      } catch (error: any) {
+        logger.error(`❌ Falha ao forçar block após notify: ${error.message}`);
+      }
+    }
 
     if (toolExecutionResults.length > 0) {
       messages.push({

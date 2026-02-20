@@ -2083,8 +2083,42 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             continue;
           }
 
-          if (name === "notify_human_support") {
+          if (name === "notify_human_support" || name === "finalize_checkout") {
             args.session_id = sessionId;
+
+            const aiName = (args.customer_name || "").toString().trim();
+            const aiPhone = (args.customer_phone || "").toString().trim();
+            const isGenericName = !aiName || aiName === "Cliente" || aiName === "Desconhecido";
+            const isEmptyPhone = !aiPhone;
+
+            if (isGenericName || isEmptyPhone) {
+              const sessRec = await prisma.aIAgentSession.findUnique({
+                where: { id: sessionId },
+              });
+              const sessionPhone = sessRec?.customer_phone || "";
+              const extractedPhone = sessionId.match(/^session-(\d+)$/)?.[1] || "";
+              const resolvedPhone = customerPhone || sessionPhone || extractedPhone;
+
+              if (isEmptyPhone && resolvedPhone) {
+                args.customer_phone = resolvedPhone;
+              }
+
+              if (isGenericName) {
+                let resolvedName = customerName;
+                if (!resolvedName || resolvedName === "Cliente") {
+                  const phoneForLookup = args.customer_phone || resolvedPhone;
+                  if (phoneForLookup) {
+                    const cliente = await prisma.customer.findUnique({
+                      where: { number: phoneForLookup },
+                    });
+                    if (cliente?.name) resolvedName = cliente.name;
+                  }
+                }
+                if (resolvedName && resolvedName !== "Cliente") {
+                  args.customer_name = resolvedName;
+                }
+              }
+            }
           }
 
           if (name === "finalize_checkout") {
@@ -2135,7 +2169,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             }
 
             logger.info(`✅ Checkout validado com todos os dados`);
-            args.session_id = sessionId;
           }
 
           if (name === "block_session") {

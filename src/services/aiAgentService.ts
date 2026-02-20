@@ -433,6 +433,84 @@ Gere APENAS a mensagem final para o cliente.`;
     );
   }
 
+  private async curateProducts(
+    catalogResult: string,
+    userMessage: string,
+    memorySummary: string | null,
+  ): Promise<string> {
+    try {
+      let parsed = typeof catalogResult === "string" ? JSON.parse(catalogResult) : catalogResult;
+      if (!parsed || parsed.status === "error" || parsed.status === "not_found") return catalogResult;
+
+      const allProducts = [...(parsed.exatos || []), ...(parsed.fallback || [])];
+      if (allProducts.length <= 2) return catalogResult;
+
+      const isExplicitCaneca = /caneca/i.test(userMessage);
+      const wantsFullCatalog = /catálogo|catalogo|todas|todos|lista|menu|cardápio|cardapio/i.test(userMessage);
+
+      if (wantsFullCatalog) return catalogResult;
+
+      const productList = allProducts.map((p: any, i: number) =>
+        `${i + 1}. ${p.nome} - R$${p.preco} | Tipo: ${p.tipo_produto || "CESTA"} | Produção: ${p.production_time}h`
+      ).join("\n");
+
+      const curationResponse = await this.openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.1,
+        messages: [
+          {
+            role: "system",
+            content: `Você é um curador de produtos para uma loja de cestas e flores.
+Sua tarefa: dado o pedido do cliente e a lista de produtos, selecione os 2 MELHORES produtos.
+
+REGRAS DE CURADORIA:
+- Priorize cestas, quadros e flores sobre canecas (salvo se cliente pediu caneca explicitamente)
+- Prefira produtos com preço intermediário (nem o mais barato nem o mais caro)
+- Considere a ocasião/contexto do cliente
+- Variedade: escolha 2 opções DIFERENTES em tipo ou faixa de preço
+- ${isExplicitCaneca ? "Cliente PEDIU caneca, priorize canecas" : "EVITE canecas como primeira opção"}
+
+Responda APENAS com os números das 2 melhores opções, separados por vírgula. Ex: "1,4"`,
+          },
+          {
+            role: "user",
+            content: `Cliente disse: "${userMessage}"${memorySummary ? `\nContexto: ${memorySummary}` : ""}\n\nProdutos disponíveis:\n${productList}`,
+          },
+        ],
+        max_tokens: 20,
+      });
+
+      const picks = (curationResponse.choices[0]?.message?.content || "")
+        .replace(/\s/g, "")
+        .split(",")
+        .map((n: string) => parseInt(n, 10) - 1)
+        .filter((n: number) => !isNaN(n) && n >= 0 && n < allProducts.length);
+
+      if (picks.length < 2) return catalogResult;
+
+      const curated = picks.map((idx: number) => allProducts[idx]);
+      const rest = allProducts.filter((_: any, i: number) => !picks.includes(i));
+
+      parsed.exatos = curated.map((p: any, i: number) => ({
+        ...p,
+        ranking: i + 1,
+        tipo_resultado: "EXATO",
+        curated: true,
+      }));
+      parsed.fallback = rest.map((p: any, i: number) => ({
+        ...p,
+        ranking: curated.length + i + 1,
+        tipo_resultado: "FALLBACK",
+      }));
+
+      logger.info(`🎯 Curadoria: selecionados [${picks.map((i: number) => allProducts[i]?.nome).join(", ")}]`);
+      return JSON.stringify(parsed, null, 0);
+    } catch (e) {
+      logger.warn("⚠️ Falha na curadoria, retornando resultado original", e);
+      return catalogResult;
+    }
+  }
+
   private buildCheckoutContext(sourceText: string): {
     context: string;
     hasAll: boolean;
@@ -640,7 +718,95 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     return CheckoutState.READY_TO_FINALIZE;
   }
 
+  private async buildCartEventContext(sessionId: string, customerName: string): Promise<string> {
+    try {
+      const messages = await prisma.aIAgentMessage.findMany({
+        where: { session_id: sessionId },
+        orderBy: { created_at: "desc" },
+        take: 10,
+      });
+
+      const recentMessages = messages.reverse();
+      const userMessages = recentMessages
+        .filter((m) => m.role === "user")
+        .slice(-5)
+        .map((m) => m.content);
+
+      if (userMessages.length === 0) {
+        return `${customerName} adicionou um produto ao carrinho. Encaminhar para atendimento especializado.`;
+      }
+
+      const lastMessage = userMessages[userMessages.length - 1] || "";
+      const contextMessages = userMessages.slice(-3).join(" | ");
+
+      const productMatch = lastMessage.match(
+        /opção\s+\d+|caneca|cesta|buquê|quadro|chocol|pelú|rosas?|\*\*(.+?)\*\*/i,
+      );
+      const priceMatch = lastMessage.match(/R\$\s*([\d.,]+)/);
+
+      let summary = `${customerName} está na conversa com contexto: "${contextMessages}"`;
+
+      if (productMatch) {
+        summary += `. Parece estar interessado em: ${productMatch[1] || productMatch[0]}`;
+      }
+      if (priceMatch) {
+        summary += ` (R$ ${priceMatch[1]})`;
+      }
+
+      summary += ". Adicionou ao carrinho e encaminhar para atendimento.";
+
+      return summary;
+    } catch (error: any) {
+      logger.warn(
+        `⚠️ Erro ao construir contexto do carrinho: ${error.message}`,
+      );
+      return `${customerName} adicionou um produto ao carrinho. Encaminhar para atendimento especializado.`;
+    }
+  }
+
   
+
+  private buildCheckoutSummaryFromAssistantMessage(
+    assistantContent: string,
+    recentHistory: any[],
+    customerName: string,
+    customerPhone: string,
+  ): string {
+    const allText = recentHistory
+      .filter((m) => m.role === "assistant" || m.role === "user")
+      .map((m) => (m.content || "").toString())
+      .join("\n");
+
+    const combined = `${allText}\n${assistantContent}`;
+
+    const productMatch = combined.match(/\*\*(.+?)\*\*\s*[-–]\s*R\$\s*([\d.,]+)/);
+    const productName = productMatch?.[1] || combined.match(/(?:cesta|buquê|caneca|quadro|pelúcia|flores?|rosa)\s+[^,\n–-]*/i)?.[0] || "[Produto]";
+    const productPrice = productMatch?.[2] || combined.match(/R\$\s*([\d.,]+)/)?.[1] || "0,00";
+
+    const dateMatch = combined.match(/(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);
+    const deliveryDate = dateMatch?.[1] || combined.match(/(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)/i)?.[1] || "[data]";
+
+    const timeMatch = combined.match(/(?:às|as|horário:?|hora:?)\s*(\d{1,2}:\d{2}(?:\s*(?:às|a)\s*\d{1,2}:\d{2})?)/i);
+    const deliveryTime = timeMatch?.[1] || "[horário]";
+
+    const addressMatch = combined.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i);
+    const isRetirada = /retirada/i.test(combined);
+    const address = addressMatch?.[0] || (isRetirada ? "RETIRADA NA LOJA" : "[endereço]");
+
+    const paymentMatch = combined.match(/\b(pix|cart[ãa]o|crédito|cr[eé]dito)\b/i);
+    const payment = paymentMatch?.[1]?.toUpperCase() || "[pagamento]";
+
+    const lines = [
+      `Produto: ${productName} - R$ ${productPrice}`,
+      `Entrega: ${deliveryDate} às ${deliveryTime}`,
+      `Endereço: ${address}`,
+      `Pagamento: ${payment}`,
+      `Frete: A ser confirmado`,
+      `Total: R$ ${productPrice} + frete`,
+    ];
+
+    return lines.join("\n");
+  }
 
   private buildStructuredCheckoutContext(
     checkoutData: Partial<CheckoutData>,
@@ -726,15 +892,18 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     const resolvedName = customerName || "Cliente";
 
     try {
-      await mcpClientService.callTool("notify_human_support", {
-        reason: "checkout_client_confirmed",
-        customer_context: assistantContent,
+      const structuredContext = this.buildCheckoutSummaryFromAssistantMessage(
+        assistantContent,
+        recentHistory,
+        resolvedName,
+        resolvedPhone,
+      );
+      logger.info(`📋 Resumo estruturado do pedido: ${structuredContext.substring(0, 200)}...`);
+
+      await mcpClientService.callTool("finalize_checkout", {
+        customer_context: structuredContext,
         customer_name: resolvedName,
         customer_phone: resolvedPhone,
-        should_block_flow: true,
-        session_id: sessionId,
-      });
-      await mcpClientService.callTool("block_session", {
         session_id: sessionId,
       });
     } catch (error: any) {
@@ -1162,16 +1331,16 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
       const resolvedName = customerName || "Cliente";
 
       try {
+        const enrichedContext = await this.buildCartEventContext(
+          sessionId,
+          resolvedName,
+        );
+
         await mcpClientService.callTool("notify_human_support", {
           reason: "cart_added",
-          customer_context:
-            "Cliente adicionou produto ao carrinho. Encaminhar para atendimento especializado.",
+          customer_context: enrichedContext,
           customer_name: resolvedName,
           customer_phone: resolvedPhone,
-          should_block_flow: true,
-          session_id: sessionId,
-        });
-        await mcpClientService.callTool("block_session", {
           session_id: sessionId,
         });
       } catch (error: any) {
@@ -1405,8 +1574,8 @@ Pergunte: "Está tudo certo? Posso finalizar?"
 Aguarde: "Sim", "pode finalizar", "perfeito", etc.
 
 **SOMENTE APÓS confirmação explícita:**
-- Chame: notify_human_support(reason="end_of_checkout", customer_context="[resumo completo com produto, data, endereço, pagamento]")
-- Chame: block_session()
+- Chame: finalize_checkout(customer_context="[resumo completo com produto, data, endereço, pagamento]", customer_name="[nome]", customer_phone="[telefone]")
+- A sessão será bloqueada automaticamente.
 - Diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. Obrigadaaa ❤️🥰"
 
 ⚠️ NUNCA mencione nomes de funcionários ao cliente. Use "nosso time" ou "nosso atendente".
@@ -1426,7 +1595,9 @@ Aguarde: "Sim", "pode finalizar", "perfeito", etc.
 **COMO AGIR:**
 1. Informe o horário comercial: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
 2. Diga: "Vou te passar para o nosso time agora mesmo! Um momento. 💕"
-3. Execute notify_human_support e block_session.
+3. Execute notify_human_support(reason="cliente_quer_atendente", customer_context="[contexto breve]"). A sessão é bloqueada automaticamente.
+
+⚠️ notify_human_support NÃO exige dados de checkout. Transfere direto!
 
 ---
 
@@ -1434,7 +1605,8 @@ Aguarde: "Sim", "pode finalizar", "perfeito", etc.
 - ❌ NUNCA pule etapas se o cliente quer comprar
 - ❌ NUNCA insista no protocolo se o cliente quer um humano
 - ❌ NUNCA finalize sem os 5 dados (produto, data, horário, endereço, pagamento)
-- ❌ NÃO notifique equipe se faltar algo no checkout (exceto se for pedido de ajuda)
+- ❌ NÃO use finalize_checkout se faltar dados — continue coletando
+- ❌ NÃO use finalize_checkout quando cliente quer apenas falar com humano
 
 Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
 `;
@@ -1512,13 +1684,19 @@ Se o cliente diz "boa noite", responda naturalmente! Você NÃO precisa validar 
 | "Para qual data?" | validate_delivery_availability | ✅ SOMENTE se o cliente mencionar data/horário |
 | "Boa noite!" | — | ❌ Responda direto |
 | "Qual horário?" | — | ❌ Responda direto |
-| "Falar com humano" | notify_human_support | ✅ IMEDIATAMENTE |
-| "Quero comprar!" | notify_human_support | ✅ Checkout completo |
+| "Falar com humano" | notify_human_support | ✅ IMEDIATAMENTE (sem coleta de dados) |
+| "Quero comprar!" | finalize_checkout | ✅ Somente com checkout COMPLETO |
+
+### ⚠️ SEPARAÇÃO DE FERRAMENTAS (CRÍTICO):
+- **notify_human_support**: Para transferência DIRETA ao humano. NÃO exige dados de checkout. Use quando o cliente pede atendente.
+- **finalize_checkout**: Para FINALIZAR compra. EXIGE todos os dados (produto, data, endereço, pagamento). Use no fim do checkout.
+- ❌ NUNCA use finalize_checkout quando o cliente só quer falar com humano.
+- ❌ NUNCA exija dados de checkout para notify_human_support.
 
 ### ⚠️ REGRAS SOBRE ATENDIMENTO HUMANO:
 1. **NUNCA tente coletar dados** se o cliente pedir por um atendente.
 2. Informe SEMPRE os horários comerciais: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
-3. Transfira e bloqueie a sessão assim que o cliente confirmar o desejo de falar com alguém.
+3. Use notify_human_support (sem checagem de dados). A sessão é bloqueada automaticamente.
 4. NUNCA mencione o nome de funcionários específicos. Use "nosso time" ou "nosso atendente".
 
 ### ⚠️ REGRAS SOBRE DATAS E HORÁRIOS:
@@ -1906,71 +2084,57 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "notify_human_support") {
-            const reason = (args.reason || "").toString().toLowerCase();
-            const isFinalization =
-              /finaliza|finaliza[cç][aã]o|pedido|finalizar|end_of_checkout|carrinho/i.test(
-                reason,
-              );
+            args.session_id = sessionId;
+          }
+
+          if (name === "finalize_checkout") {
             const context = (
               args.customer_context ||
               args.customerContext ||
               ""
-            )
-              .toString();
+            ).toString();
 
-            if (isFinalization) {
+            const contextLower = context.toLowerCase();
+            const isRetirada = contextLower.includes("retirada") || contextLower.includes("retirar");
 
-              const contextLower = context.toLowerCase();
-              const isRetirada = contextLower.includes("retirada") || contextLower.includes("retirar");
-              
+            const checks: Record<string, RegExp> = {
+              "produto (nome e valor R$)": /(?:cesta|produto|buquê|rosa|chocolate|bar|caneca).+?(?:r\$\s*\d+[\.,]\d{2}|\d+[\.,]\d{2})/i,
+              "data de entrega": /entrega:|data:|hoje|amanh[aã]|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/i,
+              "horário da entrega": /(?:às|as|horário:|hora:)\s*\d{1,2}:\d{2}|(?:manhã|tarde|noite)/i,
+              "endereço completo": isRetirada
+                ? /(?:retirada|loja)/i
+                : /(?:rua|avenida|av\.|r\.|endereço|endereco).+?(?:bairro|cidade|cep|complemento)/i,
+              "forma de pagamento": /(?:pix|cartão|cartao|crédito|credito|débito|debito)/i,
+            };
 
-              const checks = {
-                "produto (nome e valor R$)": /(?:cesta|produto|buquê|rosa|chocolate|bar|caneca).+?(?:r\$\s*\d+[\.,]\d{2}|\d+[\.,]\d{2})/i,
-                "data de entrega": /entrega:|data:|hoje|amanh[aã]|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/i,
-                "horário da entrega": /(?:às|as|horário:|hora:)\s*\d{1,2}:\d{2}|(?:manhã|tarde|noite)/i,
-                "endereço completo": isRetirada 
-                  ? /(?:retirada|loja)/i 
-                  : /(?:rua|avenida|av\.|r\.|endereço|endereco).+?(?:bairro|cidade|cep|complemento)/i,
-                "forma de pagamento": /(?:pix|cartão|cartao|crédito|credito|débito|debito)/i,
-              };
-
-              const missing = [];
-              for (const [fieldName, pattern] of Object.entries(checks)) {
-                if (!pattern.test(context)) {
-                  missing.push(fieldName);
-                }
+            const missing: string[] = [];
+            for (const [fieldName, pattern] of Object.entries(checks)) {
+              if (!pattern.test(context)) {
+                missing.push(fieldName);
               }
-
-              if (missing.length > 0) {
-                const errorMsg = `{"status":"error","error":"incomplete_checkout","message":"❌ CHECKOUT INCOMPLETO! Faltam dados obrigatórios: ${missing.join(", ")}. \\n\\nVocê DEVE coletar na sequência:\\n1. Produto (nome + preço)\\n2. Data E Horário (valide com validate_delivery_availability)\\n3. Endereço COMPLETO (rua, número, bairro, cidade)\\n4. Forma de pagamento (PIX ou Cartão)\\n5. RESUMO FINAL e confirmação do cliente\\n\\nSomente APÓS todos os 5 passos você chama notify_human_support."}`;
-                messages.push({
-                  role: "tool",
-                  tool_call_id: toolCall.id,
-                  content: errorMsg,
-                });
-                await prisma.aIAgentMessage.create({
-                  data: {
-                    session_id: sessionId,
-                    role: "tool",
-                    content: errorMsg,
-                    tool_call_id: toolCall.id,
-                    name: name,
-                  } as any,
-                });
-                logger.warn(`⚠️ Checkout incompleto rejeitado. Faltam: ${missing.join(", ")}`);
-                continue;
-              }
-
-              logger.info(`✅ Checkout validado com todos os dados`);
-              
-
-              const structuredContext = `
-=== RESUMO DO PEDIDO ===
-${context}
-=====================
-`.trim();
-              args.customer_context = structuredContext;
             }
+
+            if (missing.length > 0) {
+              const errorMsg = `{"status":"error","error":"incomplete_checkout","message":"❌ CHECKOUT INCOMPLETO! Faltam dados obrigatórios: ${missing.join(", ")}. \\n\\nColeta obrigatória:\\n1. Produto (nome + preço)\\n2. Data E Horário\\n3. Endereço COMPLETO\\n4. Forma de pagamento (PIX ou Cartão)\\n5. RESUMO FINAL e confirmação do cliente\\n\\nSomente APÓS todos os 5 passos você chama finalize_checkout."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              logger.warn(`⚠️ Checkout incompleto rejeitado. Faltam: ${missing.join(", ")}`);
+              continue;
+            }
+
+            logger.info(`✅ Checkout validado com todos os dados`);
             args.session_id = sessionId;
           }
 
@@ -2016,7 +2180,6 @@ ${context}
 
           if (name === "consultarCatalogo") {
             try {
-
               let parsedData =
                 typeof result === "object" && result.data
                   ? result.data
@@ -2026,7 +2189,6 @@ ${context}
                 try {
                   parsedData = JSON.parse(parsedData);
                 } catch (e) {
-
                   const jsonMatch = parsedData.match(
                     /```json\n([\s\S]*?)\n```/,
                   );
@@ -2047,8 +2209,19 @@ ${context}
                   }
                 }
               }
+
+              const curatedOutput = await this.curateProducts(
+                toolOutputText,
+                currentUserMessage,
+                memorySummary,
+              );
+              if (curatedOutput !== toolOutputText) {
+                toolOutputText = curatedOutput;
+                const lastResult = toolExecutionResults[toolExecutionResults.length - 1];
+                if (lastResult) lastResult.output = curatedOutput;
+              }
             } catch (e) {
-              logger.debug("Não foi possível extrair IDs de produtos", e);
+              logger.debug("Não foi possível processar produtos", e);
             }
           }
 
@@ -2068,7 +2241,7 @@ ${context}
             } as any,
           });
 
-          if (name === "notify_human_support") {
+          if (name === "notify_human_support" || name === "finalize_checkout") {
             try {
               let customerPhone = (
                 args.customer_phone ||
@@ -2122,50 +2295,27 @@ ${context}
       );
 
       if (finalizationIntent && hasAll) {
-        const hasNotify = toolExecutionResults.some(
-          (result) => result.toolName === "notify_human_support",
-        );
-        const hasBlock = toolExecutionResults.some(
-          (result) => result.toolName === "block_session",
+        const hasFinalize = toolExecutionResults.some(
+          (result) => result.toolName === "finalize_checkout",
         );
 
-        if (!hasNotify) {
+        if (!hasFinalize) {
           try {
-            await mcpClientService.callTool("notify_human_support", {
-              reason: "end_of_checkout",
+            await mcpClientService.callTool("finalize_checkout", {
               customer_context: checkoutContext,
               customer_name: customerName,
               customer_phone: customerPhone,
-              should_block_flow: true,
               session_id: sessionId,
             });
             toolExecutionResults.push({
-              toolName: "notify_human_support",
+              toolName: "finalize_checkout",
               input: { reason: "end_of_checkout" },
-              output: "forced_checkout_notify",
+              output: "forced_checkout_finalize",
               success: true,
             });
           } catch (error: any) {
             logger.error(
-              `❌ Falha ao notificar checkout: ${error.message || error}`,
-            );
-          }
-        }
-
-        if (!hasBlock) {
-          try {
-            await mcpClientService.callTool("block_session", {
-              session_id: sessionId,
-            });
-            toolExecutionResults.push({
-              toolName: "block_session",
-              input: { session_id: sessionId },
-              output: "forced_checkout_block",
-              success: true,
-            });
-          } catch (error: any) {
-            logger.error(
-              `❌ Falha ao bloquear checkout: ${error.message || error}`,
+              `❌ Falha ao finalizar checkout: ${error.message || error}`,
             );
           }
         }
@@ -2176,11 +2326,8 @@ ${context}
       const hasNotify = toolExecutionResults.some(
         (result) => result.toolName === "notify_human_support",
       );
-      const hasBlock = toolExecutionResults.some(
-        (result) => result.toolName === "block_session",
-      );
 
-      if (!hasNotify || !hasBlock) {
+      if (!hasNotify) {
         try {
           const session = await prisma.aIAgentSession.findUnique({
             where: { id: sessionId },
@@ -2191,66 +2338,28 @@ ${context}
           const customerContext =
             "Cliente adicionou produto ao carrinho. Encaminhar para atendimento especializado.";
 
-          if (!hasNotify) {
-            await mcpClientService.callTool("notify_human_support", {
-              reason: "cart_added",
-              customer_context: customerContext,
-              customer_name: customerName,
-              customer_phone: customerPhone,
-              should_block_flow: true,
-              session_id: sessionId,
-            });
-            toolExecutionResults.push({
-              toolName: "notify_human_support",
-              input: { reason: "cart_added" },
-              output: "forced_cart_notify",
-              success: true,
-            });
-          }
-
-          if (!hasBlock) {
-            await mcpClientService.callTool("block_session", {
-              session_id: sessionId,
-            });
-            toolExecutionResults.push({
-              toolName: "block_session",
-              input: { session_id: sessionId },
-              output: "forced_cart_block",
-              success: true,
-            });
-          }
+          await mcpClientService.callTool("notify_human_support", {
+            reason: "cart_added",
+            customer_context: customerContext,
+            customer_name: customerName,
+            customer_phone: customerPhone,
+            session_id: sessionId,
+          });
+          toolExecutionResults.push({
+            toolName: "notify_human_support",
+            input: { reason: "cart_added" },
+            output: "forced_cart_notify",
+            success: true,
+          });
         } catch (error: any) {
           logger.error(
-            `❌ Falha ao forcar notify/block para cart event: ${error.message}`,
+            `❌ Falha ao forcar notify para cart event: ${error.message}`,
           );
         }
       }
     }
 
     logger.info("📝 FASE 2: Gerando resposta organizada para o cliente...");
-
-    const hasNotifyInResults = toolExecutionResults.some(
-      (r) => r.toolName === "notify_human_support" && r.success,
-    );
-    const hasBlockInResults = toolExecutionResults.some(
-      (r) => r.toolName === "block_session" && r.success,
-    );
-    if (hasNotifyInResults && !hasBlockInResults) {
-      logger.warn("⚠️ notify_human_support foi chamado mas block_session não. Forçando bloqueio.");
-      try {
-        await mcpClientService.callTool("block_session", {
-          session_id: sessionId,
-        });
-        toolExecutionResults.push({
-          toolName: "block_session",
-          input: { session_id: sessionId },
-          output: "forced_block_after_notify",
-          success: true,
-        });
-      } catch (error: any) {
-        logger.error(`❌ Falha ao forçar block após notify: ${error.message}`);
-      }
-    }
 
     if (toolExecutionResults.length > 0) {
       messages.push({

@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "cleanup:temp-uploads": "ts-node src/scripts/cleanupTempUploads.ts",
     "cleanup:test-sessions": "ts-node tests/cleanup-test-sessions.ts",
-    "test:incremental": "ts-node tests/test-incremental-chat.ts"
+    "test:incremental": "ts-node tests/test-incremental-chat.ts",
+    "test:tool-split": "ts-node tests/test-tool-split-and-curation.ts"
   },
   "author": "marrecos",
   "license": "ISC",
@@ -39,7 +40,7 @@
     "express": "^5.1.0",
     "file-type": "^16.5.4",
     "firebase-admin": "^12.7.0",
-    "geoip-lite": "^1.4.10",
+    "geoip-lite": "^1.1.7",
     "googleapis": "^159.0.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
@@ -57,7 +58,7 @@
   },
   "devDependencies": {
     "@types/geoip-lite": "^1.4.4",
-    "@types/node": "^24.10.9",
+    "@types/node": "^24.10.13",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0"

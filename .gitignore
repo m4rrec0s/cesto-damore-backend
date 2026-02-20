@@ -3,7 +3,7 @@ node_modules
 .env
 
 /src/generated/prisma
-/tests
+/tests/
 /dist
 /src/services/__tests__
 check-session.ts

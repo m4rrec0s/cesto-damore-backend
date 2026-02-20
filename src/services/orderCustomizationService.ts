@@ -1551,19 +1551,35 @@ class OrderCustomizationService {
 
   async validateOrderCustomizationsFiles(
     orderId: string,
-  ): Promise<{ files: Record<string, boolean> }> {
+  ): Promise<{ 
+    files: Record<string, boolean>;
+    hasValidContent: boolean;
+    recommendations?: string[];
+  }> {
     const orderItems = await prisma.orderItem.findMany({
       where: { order_id: orderId },
       include: { customizations: true },
     });
 
     const fileStatus: Record<string, boolean> = {};
+    const recommendations: string[] = [];
+    let hasValidContent = false;
 
     for (const item of orderItems) {
       for (const custom of item.customizations) {
         let isValid = true;
         const data = this.parseCustomizationData(custom.value);
 
+        // Check if has actual content
+        const hasContent = this.checkCustomizationHasContent(data);
+        if (!hasContent) {
+          isValid = false;
+          recommendations.push(
+            `Customização "${data.title || "sem título"}" do item está vazia`
+          );
+        }
+
+        // Check if files still exist
         const urls: string[] = [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const extractUrls = (obj: any) => {
@@ -1591,15 +1607,61 @@ class OrderCustomizationService {
 
             if (filePath && !fs.existsSync(filePath)) {
               isValid = false;
+              recommendations.push(
+                `Arquivo de customização não encontrado: ${data.title || "sem título"}`
+              );
               break;
             }
           }
         }
 
         fileStatus[custom.id] = isValid;
+        if (isValid && hasContent) {
+          hasValidContent = true;
+        }
       }
     }
-    return { files: fileStatus };
+
+    return {
+      files: fileStatus,
+      hasValidContent,
+      recommendations: recommendations.length > 0 ? recommendations : undefined,
+    };
+  }
+
+  private checkCustomizationHasContent(data: any): boolean {
+    try {
+      if (!data || typeof data !== "object") {
+        return false;
+      }
+
+      const hasTitle = data.title && String(data.title).trim().length > 0;
+      const hasData =
+        data.customizationData &&
+        Object.keys(data.customizationData).length > 0 &&
+        Object.values(data.customizationData).some(
+          (v) => v !== null && v !== undefined && v !== "",
+        );
+
+      const hasPreviewUrl =
+        data.image?.preview_url ||
+        data.previewUrl ||
+        data.preview_url ||
+        (Array.isArray(data.final_artworks) &&
+          data.final_artworks.some((a: any) => a.preview_url));
+
+      const hasPhotos =
+        (Array.isArray(data.photos) && data.photos.length > 0) ||
+        (Array.isArray(data.images) && data.images.length > 0);
+
+      const hasText =
+        (data.text && String(data.text).trim().length > 0) ||
+        (data.texts && Array.isArray(data.texts) && data.texts.length > 0);
+
+      return !!(hasTitle || hasData || hasPreviewUrl || hasPhotos || hasText);
+    } catch (error) {
+      return false;
+    }
   }
 
   private getFilePathFromUrl(url: string): string | null {

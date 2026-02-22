@@ -779,22 +779,23 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
 
     const combined = `${allText}\n${assistantContent}`;
 
+    // Extração com fallback melhorado
     const productMatch = combined.match(/\*\*(.+?)\*\*\s*[-–]\s*R\$\s*([\d.,]+)/);
-    const productName = productMatch?.[1] || combined.match(/(?:cesta|buquê|caneca|quadro|pelúcia|flores?|rosa)\s+[^,\n–-]*/i)?.[0] || "[Produto]";
-    const productPrice = productMatch?.[2] || combined.match(/R\$\s*([\d.,]+)/)?.[1] || "0,00";
+    const productName = productMatch?.[1] || combined.match(/(?:cesta|buquê|caneca|quadro|pelúcia|flores?|rosa)\s+[^,\n–-]*/i)?.[0] || "[Produto não especificado]";
+    const productPrice = productMatch?.[2] || combined.match(/R\$\s*([\d.,]+)/)?.[1] || "[Valor não especificado]";
 
     const dateMatch = combined.match(/(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);
-    const deliveryDate = dateMatch?.[1] || combined.match(/(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)/i)?.[1] || "[data]";
+    const deliveryDate = dateMatch?.[1] || combined.match(/(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)/i)?.[1] || "[Data não especificada]";
 
     const timeMatch = combined.match(/(?:às|as|horário:?|hora:?)\s*(\d{1,2}:\d{2}(?:\s*(?:às|a)\s*\d{1,2}:\d{2})?)/i);
-    const deliveryTime = timeMatch?.[1] || "[horário]";
+    const deliveryTime = timeMatch?.[1] || "[Horário não especificado]";
 
     const addressMatch = combined.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i);
     const isRetirada = /retirada/i.test(combined);
-    const address = addressMatch?.[0] || (isRetirada ? "RETIRADA NA LOJA" : "[endereço]");
+    const address = addressMatch?.[0] || (isRetirada ? "RETIRADA NA LOJA - Horário a confirmar" : "[Endereço não especificado]");
 
     const paymentMatch = combined.match(/\b(pix|cart[ãa]o|crédito|cr[eé]dito)\b/i);
-    const payment = paymentMatch?.[1]?.toUpperCase() || "[pagamento]";
+    const payment = paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
 
     const lines = [
       `Produto: ${productName} - R$ ${productPrice}`,
@@ -802,7 +803,7 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
       `Endereço: ${address}`,
       `Pagamento: ${payment}`,
       `Frete: A ser confirmado`,
-      `Total: R$ ${productPrice} + frete`,
+      `Total: R$ [A confirmar]`,
     ];
 
     return lines.join("\n");
@@ -857,6 +858,32 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     customerName: string,
     remoteJidAlt?: string,
   ): Promise<any | null> {
+    // Validação: se mensagem é muito vaga, não processe como confirmação
+    const cleanedMsg = userMessage.trim().toLowerCase().replace(/[^\w\s]/g, "");
+    if (cleanedMsg.length <= 2) {
+      // Mensagem muito vaga como ".", "ok", "sim" isolado
+      const engageResponse = await this.engageVagueUser(recentHistory, userMessage);
+      if (engageResponse === "transfer") {
+        // Só transfer após múltiplas respostas vagas
+        // Aqui poderia fazer transfer, mas vamos manter conservador
+        return null;
+      }
+      // Retorna sugestão para engajar
+      const mockStream = {
+        async *[Symbol.asyncIterator]() {
+          yield { choices: [{ delta: { content: engageResponse } }] };
+        },
+      };
+      await prisma.aIAgentMessage.create({
+        data: {
+          session_id: sessionId,
+          role: "assistant",
+          content: engageResponse,
+        },
+      });
+      return mockStream;
+    }
+
     const assistantMsgs = recentHistory.filter((m) => m.role === "assistant" && m.content);
     const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
     if (!lastAssistant) return null;
@@ -913,7 +940,7 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     await this.blockSession(sessionId);
 
     const confirmResponse =
-      "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. Obrigadaaa ❤️🥰";
+      "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. \n\n📞 *Atendimento:*\n• **Seg-Sex:** 07:30-12:00 | 14:00-17:00\n• **Sábado:** 08:00-11:00\n\nObrigadaaa ❤️🥰";
 
     await prisma.aIAgentMessage.create({
       data: {
@@ -1241,6 +1268,47 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
         },
       });
     }
+  }
+
+  private isMessageTooVague(message: string, conversationLength: number): boolean {
+    const cleaned = message.trim().toLowerCase().replace(/[^\w\s]/g, "");
+    const hasContent = cleaned.length > 2;
+    const hasWords = cleaned.split(/\s+/).length >= 2;
+    
+    // Mensagens com apenas ponto, sim, ok, etc no início de conversa
+    if (conversationLength < 10 && !hasWords) return true;
+    
+    return !hasContent || (cleaned.length <= 3 && !hasWords);
+  }
+
+  private async engageVagueUser(
+    history: any[],
+    currentMessage: string,
+  ): Promise<string> {
+    // Se cliente enviou algo muito vago, tente engajar
+    const recentUserMessages = history
+      .filter((m) => m.role === "user")
+      .map((m) => (m.content || "").toString())
+      .slice(-5);
+
+    const vagueCount = recentUserMessages.filter((msg) =>
+      this.isMessageTooVague(msg, history.length),
+    ).length;
+
+    // Se 2+ mensagens vagas, pode transferir
+    if (vagueCount >= 2) {
+      return "transfer";
+    }
+
+    // Senão, engaje o cliente
+    const suggestions = [
+      "Gostou dessa opção? 😊",
+      "Qual tipo de presente você procura? Flor, cesta ou algo personalizado? 💕",
+      "Me conta mais! O que você está procurando? 🥰",
+      "Quer que eu mostre algumas opções? 🌹",
+    ];
+
+    return suggestions[Math.floor(Math.random() * suggestions.length)];
   }
 
   async chat(

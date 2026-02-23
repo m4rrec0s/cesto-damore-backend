@@ -49,7 +49,7 @@ class AIAgentService {
     });
   }
 
-  
+
 
   private determineToolStrategy(
     userMessage: string,
@@ -186,7 +186,7 @@ class AIAgentService {
     };
   }
 
-  
+
 
   private detectContextualPrompts(userMessage: string): { prompts: string[]; wasExplicitMatch: boolean } {
     const messageLower = userMessage.toLowerCase();
@@ -320,7 +320,7 @@ class AIAgentService {
     };
   }
 
-  
+
 
   private getSynthesisPrompt(toolResults: ToolExecutionResult[]): string {
     const resultsText = toolResults
@@ -517,7 +517,7 @@ Responda APENAS com os números das 2 melhores opções, separados por vírgula.
   } {
     const text = sourceText.toLowerCase();
     const productMatch = text.match(
-      /cesta|cesto|buqu[eê]|produto|caneca|bar|quadro|pelu[cç]ia|rosa|flores/, 
+      /cesta|cesto|buqu[eê]|produto|caneca|bar|quadro|pelu[cç]ia|rosa|flores/,
     );
     const dateMatch = text.match(
       /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\b|amanh[aã]|hoje|dia\s+\d{1,2}/,
@@ -539,9 +539,9 @@ Responda APENAS com os números das 2 melhores opções, separados por vírgula.
     };
   }
 
-  
 
-  private getCheckoutIterativePrompt(checkoutState: CheckoutState, checkoutData: Partial<CheckoutData>): string {
+
+  private getCheckoutIterativePrompt(checkoutState: CheckoutState, checkoutData: Partial<CheckoutData>, sessionId: string): string {
     switch (checkoutState) {
       case CheckoutState.PRODUCT_SELECTED:
         return `ETAPA: Produto confirmado ✅
@@ -608,30 +608,34 @@ Agora você DEVE:
       case CheckoutState.READY_TO_FINALIZE:
         return `ETAPA: Cliente confirmou pedido ✅
 
-Agora você DEVE executar EXATAMENTE estas 2 ferramentas em sequência:
-1. notify_human_support (com ESTRUTURA COMPLETA)
-2. block_session
+Agora você DEVE executar EXATAMENTE esta ferramenta:
+1. finalize_checkout (com ESTRUTURA COMPLETA)
 
-Estrutura OBRIGATÓRIA para notify_human_support:
+Estrutura OBRIGATÓRIA para finalize_checkout:
 {
-  reason: "end_of_checkout",
   customer_context: "Pedido: ${checkoutData.productName} - R$ ${checkoutData.productPrice}
 Entrega: ${checkoutData.deliveryDate} às ${checkoutData.deliveryTime}
 Endereço: ${checkoutData.address}
 Pagamento: ${checkoutData.paymentMethod}
-Frete: A ser confirmado
-TOTAL: R$ ${checkoutData.totalValue}",
-  should_block_flow: true
+Frete: A ser confirmado pelo atendente
+TOTAL: R$ ${checkoutData.productPrice} (Sujeito a frete)",
+  session_id: "${sessionId}"
 }
 
-Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. Obrigadaaa ❤️🥰"`;
+Depois diga o fechamento padrão: "Como sou uma **Assistente Virtual**, já passei todos os detalhes para o nosso time! ❤️ Eles vão conferir tudo, validar o frete e te enviar os dados de pagamento no nosso horário de atendimento:
+
+⏰ **Horário de Atendimento:**
+• **Seg-Sex:** 07:30-12:00 | 14:00-17:00
+• **Sábado:** 08:00-11:00
+
+Logo te respondem! Obrigadaaa 🥰"`;
 
       default:
         return "";
     }
   }
 
-  
+
 
   private async extractCheckoutData(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[], sessionId: string): Promise<Partial<CheckoutData>> {
     const data: Partial<CheckoutData> = {};
@@ -682,7 +686,7 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
       const contentLower = content.toLowerCase();
 
       if (!data.address) {
-        const addressMatch = content.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+,?\s*\d+[^,\n]*,?\s*[^,\n]+,?\s*[^,\n]+/i);
+        const addressMatch = content.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i);
         if (addressMatch) {
           data.address = addressMatch[0];
         }
@@ -700,7 +704,7 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     return data;
   }
 
-  
+
 
   private determineCheckoutState(checkoutData: Partial<CheckoutData>): CheckoutState {
     if (!checkoutData.productName || checkoutData.productPrice === undefined) {
@@ -764,7 +768,7 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     }
   }
 
-  
+
 
   private buildCheckoutSummaryFromAssistantMessage(
     assistantContent: string,
@@ -779,31 +783,43 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
 
     const combined = `${allText}\n${assistantContent}`;
 
-    // Extração com fallback melhorado
-    const productMatch = combined.match(/\*\*(.+?)\*\*\s*[-–]\s*R\$\s*([\d.,]+)/);
-    const productName = productMatch?.[1] || combined.match(/(?:cesta|buquê|caneca|quadro|pelúcia|flores?|rosa)\s+[^,\n–-]*/i)?.[0] || "[Produto não especificado]";
-    const productPrice = productMatch?.[2] || combined.match(/R\$\s*([\d.,]+)/)?.[1] || "[Valor não especificado]";
+    // Extração com regex mais flexível
+    const productMatch = combined.match(/\*\*(.+?)\*\*\s*[-–]?\s*R\$\s*([\d.,]+)/i) ||
+      combined.match(/([Cc]esta|[Bb]uqu[eê]|[Cc]aneca|[Qq]uadro|[Pp]el[uú]cia|[Ff]lores?|[Rr]osa)\s+([^-\n]*)\s*[-–]\s*R\$\s*([\d.,]+)/i);
 
-    const dateMatch = combined.match(/(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);
+    let productName = "[Produto não especificado]";
+    let productPrice = "[Valor não especificado]";
+
+    if (productMatch) {
+      if (productMatch.length === 3) {
+        productName = productMatch[1].trim();
+        productPrice = productMatch[2].trim();
+      } else if (productMatch.length === 4) {
+        productName = `${productMatch[1]} ${productMatch[2]}`.trim();
+        productPrice = productMatch[3].trim();
+      }
+    }
+
+    const dateMatch = combined.match(/(\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b)/);
     const deliveryDate = dateMatch?.[1] || combined.match(/(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)/i)?.[1] || "[Data não especificada]";
 
     const timeMatch = combined.match(/(?:às|as|horário:?|hora:?)\s*(\d{1,2}:\d{2}(?:\s*(?:às|a)\s*\d{1,2}:\d{2})?)/i);
     const deliveryTime = timeMatch?.[1] || "[Horário não especificado]";
 
     const addressMatch = combined.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i);
-    const isRetirada = /retirada/i.test(combined);
-    const address = addressMatch?.[0] || (isRetirada ? "RETIRADA NA LOJA - Horário a confirmar" : "[Endereço não especificado]");
+    const isRetirada = /retirada|retirar/i.test(combined);
+    const address = addressMatch?.[0] || (isRetirada ? "RETIRADA NA LOJA" : "[Endereço não especificado]");
 
-    const paymentMatch = combined.match(/\b(pix|cart[ãa]o|crédito|cr[eé]dito)\b/i);
+    const paymentMatch = combined.match(/\b(pix|cart[ãa]o|crédito|cr[eé]dito|débito|debito)\b/i);
     const payment = paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
 
     const lines = [
-      `Produto: ${productName} - R$ ${productPrice}`,
+      `Pedido: ${productName} - R$ ${productPrice}`,
       `Entrega: ${deliveryDate} às ${deliveryTime}`,
       `Endereço: ${address}`,
       `Pagamento: ${payment}`,
-      `Frete: A ser confirmado`,
-      `Total: R$ [A confirmar]`,
+      `Frete: A ser confirmado pelo atendente`,
+      `TOTAL: R$ ${productPrice} (Sujeito a frete)`,
     ];
 
     return lines.join("\n");
@@ -940,7 +956,7 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     await this.blockSession(sessionId);
 
     const confirmResponse =
-      "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. \n\n📞 *Atendimento:*\n• **Seg-Sex:** 07:30-12:00 | 14:00-17:00\n• **Sábado:** 08:00-11:00\n\nObrigadaaa ❤️🥰";
+      "Como sou uma **Assistente Virtual**, já passei todos os detalhes para o nosso time! ❤️ Eles vão conferir tudo, validar o frete e te enviar os dados de pagamento no nosso horário de atendimento:\n\n⏰ **Horário de Atendimento:**\n• **Seg-Sex:** 07:30-12:00 | 14:00-17:00\n• **Sábado:** 08:00-11:00\n\nLogo te respondem! Obrigadaaa 🥰";
 
     await prisma.aIAgentMessage.create({
       data: {
@@ -1274,10 +1290,10 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     const cleaned = message.trim().toLowerCase().replace(/[^\w\s]/g, "");
     const hasContent = cleaned.length > 2;
     const hasWords = cleaned.split(/\s+/).length >= 2;
-    
+
     // Mensagens com apenas ponto, sim, ok, etc no início de conversa
     if (conversationLength < 10 && !hasWords) return true;
-    
+
     return !hasContent || (cleaned.length <= 3 && !hasWords);
   }
 
@@ -1594,59 +1610,15 @@ Depois diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vã
     const isInCheckoutFlow = this.detectCheckoutFlowFromHistory(recentHistory);
 
     if (finalizationIntent || isInCheckoutFlow) {
+      const checkoutData = await this.extractCheckoutData(recentHistory, sessionId);
+      const checkoutState = this.determineCheckoutState(checkoutData);
+      const iterativePrompt = this.getCheckoutIterativePrompt(checkoutState, checkoutData, sessionId);
+
       const closingProtocolPrompt = `
 
 --- 🚀 PROTOCOLO OBRIGATÓRIO: FECHAMENTO DE COMPRA ---
 
-⚠️ CLIENTE QUER FINALIZAR! Você DEVE seguir EXATAMENTE estas 5 etapas:
-
-**ETAPA 1: Confirme o Produto**
-- Nome exato da cesta/flor
-- Preço EXATO (ex: R$ 150,00)
-- Se cliente não mencionou, use consultarCatalogo
-
-**ETAPA 2: Colete Data e Horário (OBRIGATÓRIO)**
-- Pergunte: "Para qual data você gostaria da entrega?"
-- ⛔ **NUNCA ASSUMA, DEDUZA OU INVENTE UMA DATA/HORÁRIO.** Se o cliente não disse a data, PERGUNTE.
-- ⛔ Se a tool retornar suggested_slots, APRESENTE TODOS ao cliente e AGUARDE a escolha. NÃO escolha por ele.
-- ⛔ Se a tool retornar estimated_ready_time, isso é uma ESTIMATIVA de produção, NÃO é o horário de entrega escolhido.
-- Aguarde o cliente responder com uma data (ex: "hoje", "amanhã", "dia 20").
-- Somente após a resposta do cliente, use validate_delivery_availability(date_str, time_str)
-- Apresente TODOS os horários disponíveis retornados pela tool.
-- Cliente ESCOLHE o horário desejado.
-- ✅ CONFIRME ambos (Data e Horário) antes de passar para o endereço.
-
-**ETAPA 3: Colete Endereço Completo (OBRIGATÓRIO)**
-- Pergunte: "Qual o endereço completo? (Rua, número, bairro, cidade, complemento)"
-- Valide que tem TODOS os dados
-- Confirme antes de prosseguir
-
-**ETAPA 4: Colete Forma de Pagamento (OBRIGATÓRIO)**
-- Pergunte: "PIX ou Cartão?"
-- Resposta clara: PIX ou CARTÃO
-- ❌ NÃO mencione chave PIX
-- ❌ NÃO calcule frete
-
-**ETAPA 5: Resumo e Confirmação**
-Apresente:
-\`\`\`
-Pedido: [Nome do Produto] - R$ [Valor]
-Entrega: [Data] às [Horário]
-Endereço: [Endereço completo]
-Pagamento: [PIX/Cartão]
-Frete: Será confirmado pelo atendente
-TOTAL: R$ [Valor]
-\`\`\`
-
-Pergunte: "Está tudo certo? Posso finalizar?"
-Aguarde: "Sim", "pode finalizar", "perfeito", etc.
-
-**SOMENTE APÓS confirmação explícita:**
-- Chame: finalize_checkout(customer_context="[resumo completo com produto, data, endereço, pagamento]", customer_name="[nome]", customer_phone="[telefone]")
-- A sessão será bloqueada automaticamente.
-- Diga: "Perfeito! Já passei todos os detalhes para o nosso time. Eles vão cuidar do pagamento e de tudo mais! Logo te respondem. Obrigadaaa ❤️🥰"
-
-⚠️ NUNCA mencione nomes de funcionários ao cliente. Use "nosso time" ou "nosso atendente".
+${iterativePrompt}
 
 ---
 
@@ -1661,8 +1633,8 @@ Aguarde: "Sim", "pode finalizar", "perfeito", etc.
 - "Preciso de ajuda com [caso complexo]"
 
 **COMO AGIR:**
-1. Informe o horário comercial: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
-2. Diga: "Vou te passar para o nosso time agora mesmo! Um momento. 💕"
+1. Informe que você é uma Assistente Virtual e o horário comercial: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
+2. Diga: "Como sou uma **Assistente Virtual**, vou te passar para o nosso time agora mesmo! ❤️ Eles atendem em breve dentro do horário comercial. Um momento... 💕"
 3. Execute notify_human_support(reason="cliente_quer_atendente", customer_context="[contexto breve]"). A sessão é bloqueada automaticamente.
 
 ⚠️ notify_human_support NÃO exige dados de checkout. Transfere direto!
@@ -1679,7 +1651,7 @@ Aguarde: "Sim", "pode finalizar", "perfeito", etc.
 Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
 `;
       mcpSystemPrompts += closingProtocolPrompt;
-      logger.info("🚀 PROTOCOLO DE FECHAMENTO INJETADO - Coleta iterativa obrigatória");
+      logger.info(`🚀 PROTOCOLO DE FECHAMENTO INJETADO (Estado: ${checkoutState})`);
     }
 
     const { requiresToolCall, shouldOptimizeModel, model: selectedModel } =
@@ -1831,7 +1803,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
     const hasChosenProduct = Boolean(
       memory?.summary &&
-        /cliente (escolheu|demonstrou interesse)/i.test(memory.summary),
+      /cliente (escolheu|demonstrou interesse)/i.test(memory.summary),
     );
 
     try {

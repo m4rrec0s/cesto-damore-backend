@@ -350,7 +350,7 @@ REGRAS PARA SUA RESPOSTA:
     ═══ 📋 RESUMO DO SEU PEDIDO ═══
     (detalhes aqui...)
     ════════════════════════════
-11. ATENDIMENTO HUMANO: Se as ferramentas indicarem que o suporte foi notificado, informe ao cliente que o time já vai atender e cite o horário comercial se necessário.
+11. ATENDIMENTO HUMANO: Se as ferramentas indicarem que o suporte foi notificado, informe ao cliente que o time já vai atender e **CITE EXATAMENTE** os blocos do horário comercial disponíveis na resposta da ferramenta.
 12. ⛔ DATAS DE ENTREGA: Se a ferramenta retornou suggested_slots, APRESENTE TODOS ao cliente e PERGUNTE qual ele prefere. NUNCA escolha um horário por conta própria. O estimated_ready_time é tempo de produção, NÃO é o horário de entrega escolhido.
 13. NUNCA mencione o nome de funcionários específicos ao cliente. Use "nosso time" ou "nosso atendente".
 
@@ -447,6 +447,8 @@ Gere APENAS a mensagem final para o cliente.`;
 
       const isExplicitCaneca = /caneca/i.test(userMessage);
       const wantsFullCatalog = /catálogo|catalogo|todas|todos|lista|menu|cardápio|cardapio/i.test(userMessage);
+      const isMixedQuery = (/cesta|cesto/i.test(userMessage) && /buqu[eê]|flor/i.test(userMessage));
+      const targetCount = isMixedQuery ? 4 : 2;
 
       if (wantsFullCatalog) return catalogResult;
 
@@ -461,16 +463,16 @@ Gere APENAS a mensagem final para o cliente.`;
           {
             role: "system",
             content: `Você é um curador de produtos para uma loja de cestas e flores.
-Sua tarefa: dado o pedido do cliente e a lista de produtos, selecione os 2 MELHORES produtos.
+Sua tarefa: dado o pedido do cliente e a lista de produtos, selecione os ${targetCount} MELHORES produtos.
 
 REGRAS DE CURADORIA:
-- Priorize cestas, quadros e flores sobre canecas (salvo se cliente pediu caneca explicitamente)
+${isMixedQuery ? "- Cliente pediu cestas E buquês/flores. Sendo assim, você OBRIGATORIAMENTE deve escolher 2 cestas e 2 buquês/flores." : "- Priorize cestas, quadros e flores sobre canecas (salvo se cliente pediu caneca explicitamente)"}
 - Prefira produtos com preço intermediário (nem o mais barato nem o mais caro)
 - Considere a ocasião/contexto do cliente
-- Variedade: escolha 2 opções DIFERENTES em tipo ou faixa de preço
+- Variedade: escolha opções DIFERENTES em tipo ou faixa de preço
 - ${isExplicitCaneca ? "Cliente PEDIU caneca, priorize canecas" : "EVITE canecas como primeira opção"}
 
-Responda APENAS com os números das 2 melhores opções, separados por vírgula. Ex: "1,4"`,
+Responda APENAS com os números das ${targetCount} melhores opções, separados por vírgula. Ex: "${isMixedQuery ? "1,4,5,8" : "1,4"}"`,
           },
           {
             role: "user",
@@ -486,7 +488,7 @@ Responda APENAS com os números das 2 melhores opções, separados por vírgula.
         .map((n: string) => parseInt(n, 10) - 1)
         .filter((n: number) => !isNaN(n) && n >= 0 && n < allProducts.length);
 
-      if (picks.length < 2) return catalogResult;
+      if (picks.length < Math.min(targetCount, allProducts.length)) return catalogResult;
 
       const curated = picks.map((idx: number) => allProducts[idx]);
       const rest = allProducts.filter((_: any, i: number) => !picks.includes(i));

@@ -627,7 +627,7 @@ TOTAL: R$ ${checkoutData.productPrice} (Sujeito a frete)",
 Depois diga o fechamento padrão: "Como sou uma **Assistente Virtual**, já passei todos os detalhes para o nosso time! ❤️ Eles vão conferir tudo, validar o frete e te enviar os dados de pagamento no nosso horário de atendimento:
 
 ⏰ **Horário de Atendimento:**
-• **Seg-Sex:** 07:30-12:00 | 14:00-17:00
+• **Seg-Sex:** 08:30-12:00 | 14:00-17:00
 • **Sábado:** 08:00-11:00
 
 Logo te respondem! Obrigadaaa 🥰"`;
@@ -958,7 +958,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
     await this.blockSession(sessionId);
 
     const confirmResponse =
-      "Como sou uma **Assistente Virtual**, já passei todos os detalhes para o nosso time! ❤️ Eles vão conferir tudo, validar o frete e te enviar os dados de pagamento no nosso horário de atendimento:\n\n⏰ **Horário de Atendimento:**\n• **Seg-Sex:** 07:30-12:00 | 14:00-17:00\n• **Sábado:** 08:00-11:00\n\nLogo te respondem! Obrigadaaa 🥰";
+      "Como sou uma **Assistente Virtual**, já passei todos os detalhes para o nosso time! ❤️ Eles vão conferir tudo, validar o frete e te enviar os dados de pagamento no nosso horário de atendimento:\n\n⏰ **Horário de Atendimento:**\n• **Seg-Sex:** 08:30-12:00 | 14:00-17:00\n• **Sábado:** 08:00-11:00\n\nLogo te respondem! Obrigadaaa 🥰";
 
     await prisma.aIAgentMessage.create({
       data: {
@@ -1635,7 +1635,7 @@ ${iterativePrompt}
 - "Preciso de ajuda com [caso complexo]"
 
 **COMO AGIR:**
-1. Informe que você é uma Assistente Virtual e o horário comercial: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
+1. Informe que você é uma Assistente Virtual e o horário comercial: Seg-Sex (08:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
 2. Diga: "Como sou uma **Assistente Virtual**, vou te passar para o nosso time agora mesmo! ❤️ Eles atendem em breve dentro do horário comercial. Um momento... 💕"
 3. Execute notify_human_support(reason="cliente_quer_atendente", customer_context="[contexto breve]"). A sessão é bloqueada automaticamente.
 
@@ -1737,7 +1737,7 @@ Se o cliente diz "boa noite", responda naturalmente! Você NÃO precisa validar 
 
 ### ⚠️ REGRAS SOBRE ATENDIMENTO HUMANO:
 1. **NUNCA tente coletar dados** se o cliente pedir por um atendente.
-2. Informe SEMPRE os horários comerciais: Seg-Sex (07:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
+2. Informe SEMPRE os horários comerciais: Seg-Sex (08:30-12:00 | 14:00-17:00) e Sáb (08:00-11:00).
 3. Use notify_human_support (sem checagem de dados). A sessão é bloqueada automaticamente.
 4. NUNCA mencione o nome de funcionários específicos. Use "nosso time" ou "nosso atendente".
 

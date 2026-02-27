@@ -36,6 +36,7 @@ import elementBankController from "./controller/elementBankController";
 import customerManagementController from "./controller/customerManagementController";
 import aiProductController from "./controller/aiProductController";
 import aiAgentController from "./controller/aiAgentController";
+import * as promptOrchestrationController from "./controller/promptOrchestrationController";
 import holidayController from "./controller/holidayController";
 import followUpController from "./controller/followUpController";
 import trendStatsController from "./controller/trendStatsController";
@@ -1069,6 +1070,21 @@ router.delete(
   authenticateToken,
   requireAdmin,
   aiAgentController.clearSessionHistory,
+);
+
+router.post(
+  "/ai/orchestrate-prompt",
+  promptOrchestrationController.orchestratePrompt,
+);
+
+router.get(
+  "/ai/prompts/:promptName",
+  promptOrchestrationController.getPromptByName,
+);
+
+router.post(
+  "/ai/customer-memory",
+  promptOrchestrationController.updateCustomerMemory,
 );
 
 router.get("/ai/products/light", aiProductController.getLightweightProducts);

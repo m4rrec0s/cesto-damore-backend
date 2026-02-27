@@ -516,19 +516,40 @@ model ElementBank {
 }
 
 model TrendStat {
-  id          String           @id @default(uuid())
-  stat_type   TrendStatType
-  entity_type TrendEntityType
-  entity_key  String
-  period_type TrendPeriodType
+  id           String          @id @default(uuid())
+  stat_type    TrendStatType
+  entity_type  TrendEntityType
+  entity_key   String
+  period_type  TrendPeriodType
   period_start DateTime        @db.Date
   period_end   DateTime        @db.Date
-  count       Int              @default(0)
-  scope_key   String           @unique
-  created_at  DateTime         @default(now())
-  updated_at  DateTime         @updatedAt
+  count        Int             @default(0)
+  scope_key    String          @unique
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
 
   @@index([stat_type, entity_type, period_type, period_start])
+}
+
+model EmbeddingCache {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  embedding_type String
+  embedding_hash String
+  product_id     String?
+  text_content   String?
+  model          String
+  vector         Json
+  created_at     DateTime? @default(now()) @db.Timestamp(6)
+  updated_at     DateTime? @default(now()) @db.Timestamp(6)
+
+  @@unique([embedding_type, embedding_hash])
+  @@index([embedding_type, embedding_hash], map: "embeddingcache_type_hash_idx")
+}
+
+model n8n_chat_histories {
+  id         Int    @id @default(autoincrement())
+  session_id String @db.VarChar(255)
+  message    Json
 }
 
 enum PaymentStatus {

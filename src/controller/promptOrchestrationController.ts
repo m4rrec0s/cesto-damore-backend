@@ -16,6 +16,8 @@ interface OrchestrationResponse {
   selectedPrompts?: string[];
   intent?: string;
   session_id?: string;
+  is_first_message?: boolean;
+  should_activate_agente_contexto?: boolean;
   customer_memory?: any;
   error?: string;
 }
@@ -315,13 +317,19 @@ export async function orchestratePrompt(
     // 5. Construir prompts na ordem obrigatória (máximo 3 adicionais)
     const { finalPrompt, selectedPrompts } = buildFinalPrompts(intent, customerMemory, chatHistory);
 
-    // 6. Retornar resposta estruturada
+    // 6. Determinar se é primeira mensagem
+    const isFirstMessage = !customerMemory || chatHistory.length <= 1;
+    const shouldActivateAgenteContexto = isFirstMessage;
+
+    // 7. Retornar resposta estruturada
     return res.status(200).json({
       status: "success",
       finalPrompt,
       selectedPrompts,
       intent,
       session_id: finalSessionId,
+      is_first_message: isFirstMessage,
+      should_activate_agente_contexto: shouldActivateAgenteContexto,
       customer_memory: customerMemory ? {
         occasion: customerMemory.occasion,
         preferences: customerMemory.preferences,

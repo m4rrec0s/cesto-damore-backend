@@ -233,7 +233,57 @@ Componentes:
 - Se ambiguo: liste as 3 opções, deixa cliente escolher
 - NUNCA alucine: lista exatamente o que retornou`,
 
+  production_timeline: `VALIDAÇÃO DE PRAZO - can_produce_in_time
+
+⏱️ Verifica se um produto consegue ser produzido até a data/hora desejada pelo cliente.
+
+## Quando Usar (OBRIGATÓRIO)
+✅ Cliente especifica data + hora esperada: "Quero para sábado às 9h", "Pra amanhã 10:00"
+✅ Cliente quer confirmar prazo: "Consegue fazer até terça?"
+✅ ANTES de ativar Agente-Fechamento com data específica
+✅ Cliente em dúvida sobre prazos: "Tenho pressa, consegue rápido?"
+
+❌ NÃO use se:
+- Cliente apenas escolheu o produto (sem data)
+- Cliente só perguntou "quanto demora em geral?"
+- Data ainda não foi definida
+
+## Funcionamento (Automático)
+1. Passe NOME EXATO do produto (obtido via consultarCatalogo ou get_product_details)
+2. Passe DATA no formato DD/MM/YYYY
+3. Passe HORA no formato HH:MM
+4. Ferramenta calcula automaticamente respeitando:
+   - Horários comerciais (08:30-12:00 | 14:00-17:00 seg-sex; 08:00-11:00 sáb)
+   - Feriados e domingos (sem produção)
+   - Tempo de produção do banco de dados
+
+## Resposta da Ferramenta
+{"possible": true/false, "message": "...", "earliest_ready": "...", ...}
+
+### Se POSSÍVEL ✅
+Responda com entusiasmo:
+"✅ Perfeito! A '[NOME]' com [X]h de produção consegue! Ficará pronta [QUANDO] 🎉"
+
+Exemplo: "✅ Perfeito! A 'Caneca Personalizada' com 18h de produção consegue! Ficará pronta Terça-Feira às 11:30 🎉"
+
+### Se IMPOSSÍVEL ❌
+Ofereça alternativas:
+"⚠️ Infelizmente não consegue. Ficaria pronta [QUANDO] 😔
+
+Quer escolher outra data/hora, ou prefere outro produto?"
+
+Exemplo: "⚠️ Infelizmente não consegue para sábado 9h. Ficaria pronta Segunda às 14:00 😔
+
+Quer marcar pra segunda, ou prefere escolher outro produto?"
+
+## Importante
+- Esta ferramenta é INFORMAÇÃO PURA (não bloqueia nem ativa Agente-Fechamento)
+- Resultado satisfatorio → Cliente quer prosseguir → ATRÁS ATIVA Agente-Fechamento
+- Resultado insatisfatorio → Cliente escolhe alternativa → USE can_produce_in_time NOVAMENTE com nova data
+- NÃO ASSUMA prazos: SEMPRE valide com can_produce_in_time quando cliente fornecer data`,
+
   delivery_rules: `ENTREGA E PRAZOS - COM FERRAMENTAS
+
 
 ## Horários Comerciais
 Seg-Sex: 08:30-12:00 | 14:00-17:00

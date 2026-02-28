@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import OpenAI from "openai";
 import prisma from "../database/prisma";
 import { INTENT_TO_PROMPT, INTENT_KEYWORDS, PROMPTS } from "../config/prompts";
+import logger from "../utils/logger";
 
 interface OrchestrationRequest {
   customer_phone: string;
@@ -89,12 +90,12 @@ Qual é a intenção? Responda com UMA PALAVRA apenas (o nome da intenção).`;
     // Validar se é uma intenção conhecida
     const validIntents = Object.keys(INTENT_TO_PROMPT);
     if (validIntents.includes(detected)) {
-      console.log(`[PromptOrchestration] Intent detectada por LLM: ${detected}`);
+      logger.info(`[PromptOrchestration] Intent detectada por LLM: ${detected}`);
       return detected;
     }
 
     // Fallback para keyword matching se LLM retornar intenção desconhecida
-    console.log(`[PromptOrchestration] Intent desconhecida: ${detected}, usando fallback`);
+    logger.info(`[PromptOrchestration] Intent desconhecida: ${detected}, usando fallback`);
     return detectIntentWithKeywords(message, messageHistory);
   } catch (error) {
     console.error(`[PromptOrchestration] Erro ao detectar intent com LLM:`, error);
@@ -205,7 +206,7 @@ async function ensureAIAgentSession(
       },
     });
 
-      console.log(`[PromptOrchestration] Novo AIAgentSession criado: ${finalSessionId}`);
+      logger.info(`[PromptOrchestration] Novo AIAgentSession criado: ${finalSessionId}`);
     }
 
     return finalSessionId;
@@ -294,7 +295,7 @@ export async function orchestratePrompt(
       });
     }
 
-    console.log(`[PromptOrchestration] Processando: ${customer_phone} | ${latest_message.substring(0, 50)}...`);
+    logger.info(`[PromptOrchestration] Processando: ${customer_phone} | ${latest_message.substring(0, 50)}...`);
 
     // 1. SEGURANÇA: Criar/verificar AIAgentSession
     const finalSessionId = await ensureAIAgentSession(
@@ -312,7 +313,7 @@ export async function orchestratePrompt(
     // 4. Detectar intenção com LLM (análise inteligente)
     const intent = await detectIntentWithLLM(latest_message, chatHistory, customerMemory);
 
-    console.log(`[PromptOrchestration] Intenção detectada por LLM: ${intent}`);
+    logger.info(`[PromptOrchestration] Intenção detectada por LLM: ${intent}`);
 
     // 5. Construir prompts na ordem obrigatória (máximo 3 adicionais)
     const { finalPrompt, selectedPrompts } = buildFinalPrompts(intent, customerMemory, chatHistory);

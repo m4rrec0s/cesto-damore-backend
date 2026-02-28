@@ -13,6 +13,7 @@ import cron from "node-cron";
 import orderService from "./services/orderService";
 import { PaymentService } from "./services/paymentService";
 import { webhookNotificationService } from "./services/webhookNotificationService";
+import { chatRealtimeService } from "./services/chatRealtimeService";
 import scheduledJobsService from "./services/scheduledJobsService";
 import logger from "./utils/logger";
 import prisma from "./database/prisma";
@@ -84,6 +85,12 @@ app.get("/", async (req, res) => {
 app.use(routes);
 
 scheduledJobsService.start();
+chatRealtimeService
+  .initCursor()
+  .then(() => chatRealtimeService.startPolling())
+  .catch((error) => {
+    logger.error("❌ [ChatStream] Falha ao iniciar stream de chat:", error);
+  });
 
 cron.schedule("0 */6 * * *", async () => {
   try {
@@ -249,6 +256,7 @@ cron.schedule("0 */6 * * *", async () => {
 cron.schedule("*/10 * * * *", () => {
   try {
     webhookNotificationService.cleanupDeadConnections();
+    chatRealtimeService.cleanupDeadConnections();
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de conexões SSE:", error);
   }

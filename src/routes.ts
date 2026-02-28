@@ -41,6 +41,7 @@ import holidayController from "./controller/holidayController";
 import followUpController from "./controller/followUpController";
 import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
+import chatRealtimeController from "./controller/chatRealtimeController";
 import tempFileController from "./controller/tempFileController";
 
 import {
@@ -1019,6 +1020,16 @@ router.get(
   "/ai/agent/messages/service/:sessionId",
   validateAIAgentKey,
   aiAgentController.getHistory,
+);
+router.get(
+  "/ai/agent/messages/stream/sessions",
+  validateAIAgentKey,
+  chatRealtimeController.streamSessions,
+);
+router.get(
+  "/ai/agent/messages/stream/:sessionId",
+  validateAIAgentKey,
+  chatRealtimeController.streamSessionMessages,
 );
 
 router.post(

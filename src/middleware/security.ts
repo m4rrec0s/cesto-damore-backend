@@ -607,8 +607,14 @@ export const validateAIAgentKey = (
   res: Response,
   next: NextFunction,
 ) => {
-  const apiKey = req.headers["x-ai-api-key"] || req.headers["X-AI-API-Key"];
+  const apiKey =
+    req.headers["x-ai-api-key"] ||
+    req.headers["X-AI-API-Key"] ||
+    req.query.x_ai_api_key;
   const validKey = process.env.AI_AGENT_API_KEY;
+  const normalizedApiKey = Array.isArray(apiKey)
+    ? apiKey[0]
+    : apiKey?.toString?.() || "";
 
   if (!validKey) {
     console.error("❌ AI_AGENT_API_KEY não configurado no servidor");
@@ -618,7 +624,7 @@ export const validateAIAgentKey = (
     });
   }
 
-  if (apiKey !== validKey) {
+  if (normalizedApiKey !== validKey) {
     console.warn("🚫 [SECURITY] Tentativa de acesso à IA com chave inválida", {
       ip: req.ip,
       path: req.path,

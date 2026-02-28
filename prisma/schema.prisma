@@ -550,6 +550,7 @@ model n8n_chat_histories {
   id         Int    @id @default(autoincrement())
   session_id String @db.VarChar(255)
   message    Json
+  createdAt  DateTime @default(now())
 }
 
 enum PaymentStatus {

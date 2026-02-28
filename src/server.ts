@@ -129,6 +129,7 @@ cron.schedule("0 */6 * * *", async () => {
 cron.schedule("*/10 * * * *", async () => {
   try {
     const now = new Date();
+    const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
 
     const expiredSessionIds = await prisma.aIAgentSession.findMany({
       where: {
@@ -176,6 +177,20 @@ cron.schedule("*/10 * * * *", async () => {
     if (expiredMemories.count > 0) {
       logger.info(
         `🕒 [Cron] Deletadas ${expiredMemories.count} memórias de clientes expiradas`,
+      );
+    }
+
+    const expiredN8nMessages = await prisma.n8n_chat_histories.deleteMany({
+      where: {
+        createdAt: {
+          lt: fiveDaysAgo,
+        },
+      },
+    });
+
+    if (expiredN8nMessages.count > 0) {
+      logger.info(
+        `🕒 [Cron] Deletadas ${expiredN8nMessages.count} mensagens n8n expiradas (5 dias)`,
       );
     }
   } catch (error) {

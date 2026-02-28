@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import aiAgentService from "../services/aiAgentService";
+import n8nChatHistoryService from "../services/n8nChatHistoryService";
 import logger from "../utils/logger";
 
 class AIAgentController {
@@ -76,8 +77,13 @@ class AIAgentController {
 
   async getHistory(req: Request, res: Response) {
     const { sessionId } = req.params;
+    const { page, limit } = req.query;
     try {
-      const session = await aiAgentService.getSession(sessionId);
+      const session = await n8nChatHistoryService.getSessionMessages(
+        sessionId,
+        page,
+        limit,
+      );
       res.json(session);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -86,7 +92,7 @@ class AIAgentController {
 
   async listSessions(req: Request, res: Response) {
     try {
-      const sessions = await aiAgentService.listSessions();
+      const sessions = await n8nChatHistoryService.listSessions();
       res.json(sessions);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -96,7 +102,7 @@ class AIAgentController {
   async blockSession(req: Request, res: Response) {
     const { sessionId } = req.params;
     try {
-      const session = await aiAgentService.blockSession(sessionId);
+      const session = await n8nChatHistoryService.blockSession(sessionId);
       res.json({ success: true, session });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -106,7 +112,7 @@ class AIAgentController {
   async unblockSession(req: Request, res: Response) {
     const { sessionId } = req.params;
     try {
-      const session = await aiAgentService.unblockSession(sessionId);
+      const session = await n8nChatHistoryService.unblockSession(sessionId);
       res.json({ success: true, session });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -116,7 +122,7 @@ class AIAgentController {
   async clearSessionHistory(req: Request, res: Response) {
     const { sessionId } = req.params;
     try {
-      const result = await aiAgentService.clearSessionHistory(sessionId);
+      const result = await n8nChatHistoryService.clearSessionHistory(sessionId);
       res.json({ success: true, deletedCount: result });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

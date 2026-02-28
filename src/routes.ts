@@ -1015,6 +1015,11 @@ router.get(
   validateAIAgentKey,
   aiAgentController.getHistory,
 );
+router.get(
+  "/ai/agent/messages/service/:sessionId",
+  validateAIAgentKey,
+  aiAgentController.getHistory,
+);
 
 router.post(
   "/ai/agent/chat-incremental",
@@ -1052,6 +1057,18 @@ router.get(
   authenticateToken,
   requireAdmin,
   aiAgentController.listSessions,
+);
+router.get(
+  "/admin/ai/agent/messages/sessions",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.listSessions,
+);
+router.get(
+  "/admin/ai/agent/messages/service/:sessionId",
+  authenticateToken,
+  requireAdmin,
+  aiAgentController.getHistory,
 );
 router.post(
   "/admin/ai/agent/sessions/:sessionId/block",

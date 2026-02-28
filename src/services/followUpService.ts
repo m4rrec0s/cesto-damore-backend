@@ -2,10 +2,104 @@ import prisma from "../database/prisma";
 import logger from "../utils/logger";
 import axios from "axios";
 
+type N8nLatestCustomerMessageRow = {
+  session_id: string;
+  last_human_message_at: Date | null;
+};
+
 class FollowUpService {
   private readonly intervals = [2, 24, 48];
   private readonly n8nWebhookUrl =
     "https://n8n.cestodamore.com.br/webhook/followup";
+
+  private extractPhoneFromSessionId(sessionId: string): string | null {
+    const extracted = sessionId.match(/^session-(\d+)$/)?.[1];
+    return extracted || null;
+  }
+
+  private async syncLastMessageFromN8nHistories() {
+    const rows = await prisma.$queryRaw<N8nLatestCustomerMessageRow[]>`
+      SELECT
+        session_id,
+        MAX("createdAt") AS last_human_message_at
+      FROM n8n_chat_histories
+      WHERE LOWER(COALESCE(message->>'type', message->>'role', '')) IN ('human', 'user')
+      GROUP BY session_id
+    `;
+
+    if (rows.length === 0) {
+      return;
+    }
+
+    const sessionIds = rows.map((row) => row.session_id);
+    const sessions = await prisma.aIAgentSession.findMany({
+      where: { id: { in: sessionIds } },
+      select: { id: true, customer_phone: true },
+    });
+
+    const sessionPhoneMap = new Map(
+      sessions.map((session) => [session.id, session.customer_phone]),
+    );
+
+    const latestByPhone = new Map<string, Date>();
+
+    rows.forEach((row) => {
+      if (!row.last_human_message_at) return;
+
+      const mappedPhone =
+        sessionPhoneMap.get(row.session_id) ||
+        this.extractPhoneFromSessionId(row.session_id);
+
+      if (!mappedPhone) return;
+
+      const current = latestByPhone.get(mappedPhone);
+      if (!current || row.last_human_message_at > current) {
+        latestByPhone.set(mappedPhone, row.last_human_message_at);
+      }
+    });
+
+    if (latestByPhone.size === 0) {
+      return;
+    }
+
+    const phones = [...latestByPhone.keys()];
+    const existingCustomers = await prisma.customer.findMany({
+      where: { number: { in: phones } },
+      select: { number: true, last_message_sent: true },
+    });
+
+    const existingMap = new Map(
+      existingCustomers.map((customer) => [customer.number, customer]),
+    );
+
+    for (const [phone, latestMessageAt] of latestByPhone.entries()) {
+      const existing = existingMap.get(phone);
+
+      if (!existing) {
+        await prisma.customer.create({
+          data: {
+            number: phone,
+            follow_up: true,
+            last_message_sent: latestMessageAt,
+          },
+        });
+        continue;
+      }
+
+      if (
+        !existing.last_message_sent ||
+        latestMessageAt > existing.last_message_sent
+      ) {
+        await prisma.customer.update({
+          where: { number: phone },
+          data: {
+            follow_up: true,
+            last_message_sent: latestMessageAt,
+          },
+        });
+      }
+    }
+  }
 
   async getSentHistory() {
     return prisma.followUpSent.findMany({
@@ -25,6 +119,8 @@ class FollowUpService {
 
   async triggerFollowUpFunction() {
     try {
+      await this.syncLastMessageFromN8nHistories();
+
       const customersToProcess = await prisma.customer.findMany({
         where: {
           follow_up: true,

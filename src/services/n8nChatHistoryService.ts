@@ -22,14 +22,21 @@ function toNumber(value: bigint | number): number {
   return typeof value === "bigint" ? Number(value) : value;
 }
 
-function clampPagination(value: unknown, fallback: number, min: number, max: number): number {
+function clampPagination(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
   return Math.min(Math.max(Math.floor(num), min), max);
 }
 
 function mapRole(rawMessage: Record<string, unknown>): MappedMessageRole {
-  const rawType = (rawMessage.type ?? rawMessage.role ?? "").toString().toLowerCase();
+  const rawType = (rawMessage.type ?? rawMessage.role ?? "")
+    .toString()
+    .toLowerCase();
 
   if (rawType === "human" || rawType === "user") return "user";
   if (rawType === "ai" || rawType === "assistant") return "assistant";
@@ -72,7 +79,9 @@ function mapContent(rawMessage: Record<string, unknown>): string {
 
 class N8nChatHistoryService {
   private async ensureSessionExists(sessionId: string) {
-    const existing = await prisma.aIAgentSession.findUnique({ where: { id: sessionId } });
+    const existing = await prisma.aIAgentSession.findUnique({
+      where: { id: sessionId },
+    });
 
     if (existing) {
       return existing;
@@ -100,8 +109,17 @@ class N8nChatHistoryService {
     return customer || undefined;
   }
 
-  async getSessionMessages(sessionId: string, pageInput?: unknown, limitInput?: unknown) {
-    const page = clampPagination(pageInput, DEFAULT_PAGE, 1, Number.MAX_SAFE_INTEGER);
+  async getSessionMessages(
+    sessionId: string,
+    pageInput?: unknown,
+    limitInput?: unknown,
+  ) {
+    const page = clampPagination(
+      pageInput,
+      DEFAULT_PAGE,
+      1,
+      Number.MAX_SAFE_INTEGER,
+    );
     const limit = clampPagination(limitInput, DEFAULT_LIMIT, 1, MAX_LIMIT);
     const skip = (page - 1) * limit;
 
@@ -181,7 +199,9 @@ class N8nChatHistoryService {
 
     const groupedSessionIds = [...groupedMap.keys()];
     const existingSessions = await prisma.aIAgentSession.findMany();
-    const existingById = new Map(existingSessions.map((session) => [session.id, session]));
+    const existingById = new Map(
+      existingSessions.map((session) => [session.id, session]),
+    );
 
     const missingIds = groupedSessionIds.filter((id) => !existingById.has(id));
 
@@ -197,7 +217,42 @@ class N8nChatHistoryService {
     const sessionsWithCustomer = await Promise.all(
       allSessions.map(async (session) => {
         const grouped = groupedMap.get(session.id);
-        const customer = await this.getSessionCustomerName(session.customer_phone);
+        const customer = await this.getSessionCustomerName(
+          session.customer_phone,
+        );
+
+        // Buscar última mensagem
+        let lastMessage = undefined;
+        if (grouped && grouped.messageCount > 0) {
+          const lastMsg = await prisma.n8n_chat_histories.findFirst({
+            where: { session_id: session.id },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            take: 1,
+          });
+
+          if (lastMsg) {
+            const parsed = lastMsg.message;
+            const messageObject =
+              parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                ? (parsed as Record<string, unknown>)
+                : ({ content: String(parsed ?? ""), type: "ai" } as Record<
+                    string,
+                    unknown
+                  >);
+
+            const rawType = (messageObject.type ?? messageObject.role ?? "")
+              .toString()
+              .toLowerCase();
+            const type =
+              rawType === "human" || rawType === "user" ? "human" : "ai";
+
+            lastMessage = {
+              content: mapContent(messageObject),
+              type,
+              created_at: toSafeDate(lastMsg.createdAt),
+            };
+          }
+        }
 
         return {
           id: session.id,
@@ -209,6 +264,7 @@ class N8nChatHistoryService {
           _count: {
             messages: grouped?.messageCount ?? 0,
           },
+          lastMessage,
           _last_message_at: grouped?.lastMessageAt ?? null,
         };
       }),

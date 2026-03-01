@@ -32,10 +32,46 @@ interface ArtworkAsset {
   fileName?: string;
 }
 
+interface RequiredCustomizationDescriptor {
+  id: string;
+  name: string;
+  type: string;
+  componentId: string;
+  itemName: string;
+  productName: string;
+  orderItemId: string;
+}
+
+interface CheckoutValidationIssue {
+  orderItemId: string;
+  productName: string;
+  itemName?: string;
+  componentId?: string;
+  customizationId?: string;
+  customizationName?: string;
+  reason: string;
+}
+
+interface CheckoutValidationResult {
+  valid: boolean;
+  files: Record<string, boolean>;
+  hasValidContent: boolean;
+  missingRequired: CheckoutValidationIssue[];
+  invalidCustomizations: CheckoutValidationIssue[];
+  recommendations: string[];
+}
+
 class OrderCustomizationService {
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
     const ruleId = input.customizationRuleId || "default";
-    const componentId = input.customizationData.componentId || null;
+    const componentIdRaw =
+      input.customizationData.componentId ||
+      input.customizationData.component_id ||
+      null;
+    const componentId =
+      typeof componentIdRaw === "string" && componentIdRaw.trim().length > 0
+        ? componentIdRaw
+        : null;
 
     const allCustomizations = await prisma.orderItemCustomization.findMany({
       where: {
@@ -43,28 +79,58 @@ class OrderCustomizationService {
       },
     });
 
-    const existing = allCustomizations.find((c) => {
-      try {
-        const val = this.parseCustomizationData(c.value);
+    const targetRuleId = this.normalizeRuleId(ruleId);
+    const mappedCustomizations = allCustomizations.map((c) => {
+      const val = this.parseCustomizationData(c.value);
+      const parsedComponentRaw = val.componentId || val.component_id || null;
+      const parsedComponent =
+        typeof parsedComponentRaw === "string" &&
+        parsedComponentRaw.trim().length > 0
+          ? parsedComponentRaw
+          : null;
+      const rawRuleId =
+        c.customization_id ||
+        val.customizationRuleId ||
+        val.customization_id ||
+        val.ruleId;
 
-        const dbRuleId = c.customization_id;
-        const jsonRuleId =
-          val.customizationRuleId || val.customization_id || val.ruleId;
-        const currentComponentId = val.componentId || null;
-
-        const matchesRule =
-          ruleId === dbRuleId ||
-          ruleId === jsonRuleId ||
-          (dbRuleId && ruleId.startsWith(dbRuleId)) ||
-          (jsonRuleId && ruleId.startsWith(jsonRuleId));
-
-        const matchesComponent = currentComponentId === componentId;
-
-        return matchesRule && matchesComponent;
-      } catch {
-        return false;
-      }
+      return {
+        record: c,
+        data: val,
+        componentId: parsedComponent,
+        normalizedRuleId: this.normalizeRuleId(rawRuleId as string | undefined),
+        title:
+          typeof val.title === "string" ? val.title.trim().toLowerCase() : "",
+      };
     });
+
+    const sameRuleCandidates = mappedCustomizations.filter(
+      (c) => c.normalizedRuleId && c.normalizedRuleId === targetRuleId,
+    );
+
+    let existing = sameRuleCandidates.find((c) => c.componentId === componentId)
+      ?.record;
+
+    // Backward compatibility: older rows may not have componentId persisted.
+    if (!existing && componentId) {
+      existing = sameRuleCandidates.find((c) => !c.componentId)?.record;
+    }
+
+    if (!existing && !componentId && sameRuleCandidates.length === 1) {
+      existing = sameRuleCandidates[0].record;
+    }
+
+    // Final fallback by title to avoid duplicated rows when rule id is missing/legacy.
+    if (!existing) {
+      const targetTitle =
+        typeof input.title === "string" ? input.title.trim().toLowerCase() : "";
+
+      existing = mappedCustomizations.find((c) => {
+        if (!targetTitle || c.title !== targetTitle) return false;
+        if (!componentId || !c.componentId) return true;
+        return c.componentId === componentId;
+      })?.record;
+    }
 
     const customizationValue: any = {
       ...input.customizationData,
@@ -1551,155 +1617,343 @@ class OrderCustomizationService {
 
   async validateOrderCustomizationsFiles(
     orderId: string,
-  ): Promise<{ 
+  ): Promise<{
     files: Record<string, boolean>;
     hasValidContent: boolean;
     recommendations?: string[];
+    valid?: boolean;
+    missingRequired?: CheckoutValidationIssue[];
+    invalidCustomizations?: CheckoutValidationIssue[];
   }> {
+    const result = await this.validateOrderForCheckout(orderId);
+    return {
+      files: result.files,
+      hasValidContent: result.hasValidContent,
+      recommendations:
+        result.recommendations.length > 0 ? result.recommendations : undefined,
+      valid: result.valid,
+      missingRequired: result.missingRequired,
+      invalidCustomizations: result.invalidCustomizations,
+    };
+  }
+
+  async validateOrderForCheckout(orderId: string): Promise<CheckoutValidationResult> {
     const orderItems = await prisma.orderItem.findMany({
       where: { order_id: orderId },
-      include: { customizations: true },
+      include: {
+        product: {
+          include: {
+            components: {
+              include: {
+                item: {
+                  include: {
+                    customizations: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        additionals: {
+          include: {
+            additional: {
+              include: {
+                customizations: true,
+              },
+            },
+          },
+        },
+        customizations: true,
+      },
     });
 
-    const fileStatus: Record<string, boolean> = {};
+    const files: Record<string, boolean> = {};
+    const missingRequired: CheckoutValidationIssue[] = [];
+    const invalidCustomizations: CheckoutValidationIssue[] = [];
     const recommendations: string[] = [];
     let hasValidContent = false;
 
     for (const item of orderItems) {
-      for (const custom of item.customizations) {
-        let isValid = true;
-        const data = this.parseCustomizationData(custom.value);
-
-        // Check if has actual content
-        const hasContent = this.checkCustomizationHasContent(data);
-        if (!hasContent) {
-          isValid = false;
-          recommendations.push(
-            `Customização "${data.title || "sem título"}" do item está vazia`
+      const requiredRules = this.getRequiredCustomizationDescriptors(item);
+      const parsedCustomizations = await Promise.all(
+        item.customizations.map(async (custom) => {
+          const parsed = this.parseCustomizationData(custom.value);
+          const customType = String(
+            parsed.customization_type || parsed.customizationType || "TEXT",
           );
-        }
+          const hasMeaningful = this.hasMeaningfulCustomizationData(parsed);
+          const dataValid = this.isCustomizationValid(customType, parsed);
+          const fileCheck = await this.validateCustomizationFiles(parsed);
+          const isValid = dataValid && fileCheck.valid;
+          files[custom.id] = isValid;
 
-        // Check if files still exist
-        const urls: string[] = [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const extractUrls = (obj: any) => {
-          if (!obj) return;
-          if (typeof obj === "object") {
-            if (obj.preview_url) urls.push(obj.preview_url);
-            if (obj.url) urls.push(obj.url);
-
-            if (Array.isArray(obj)) {
-              obj.forEach(extractUrls);
-            } else {
-              Object.values(obj).forEach(extractUrls);
-            }
+          if (isValid && hasMeaningful) {
+            hasValidContent = true;
           }
-        };
-        extractUrls(data);
 
-        for (const url of urls) {
-          if (
-            url &&
-            (url.includes("/uploads/temp/") ||
-              url.includes("/images/customizations/"))
-          ) {
-            const filePath = this.getFilePathFromUrl(url);
-
-            if (filePath && !fs.existsSync(filePath)) {
-              isValid = false;
-              recommendations.push(
-                `Arquivo de customização não encontrado: ${data.title || "sem título"}`
-              );
-              break;
-            }
+          if (!isValid && hasMeaningful) {
+            invalidCustomizations.push({
+              orderItemId: item.id,
+              productName: item.product?.name || "Produto",
+              componentId: (parsed.componentId as string) || undefined,
+              customizationId: custom.id,
+              customizationName:
+                String(parsed.title || parsed._customizationName || "Personalização"),
+              reason: fileCheck.reason || "Customização inválida ou incompleta",
+            });
           }
-        }
 
-        fileStatus[custom.id] = isValid;
-        if (isValid && hasContent) {
-          hasValidContent = true;
+          return {
+            id: custom.id,
+            dbCustomizationId: custom.customization_id || undefined,
+            componentId: (parsed.componentId as string) || undefined,
+            title: String(parsed.title || parsed._customizationName || ""),
+            label: String(
+              parsed.label_selected ||
+                parsed.selected_item_label ||
+                parsed.selected_option_label ||
+                "",
+            ),
+            data: parsed,
+            dataValid,
+            fileValid: fileCheck.valid,
+          };
+        }),
+      );
+
+      for (const required of requiredRules) {
+        const found = parsedCustomizations.find((filled) =>
+          this.matchesRequiredCustomization(required, filled),
+        );
+
+        const isFoundAndValid =
+          !!found && found.dataValid && found.fileValid;
+
+        if (!isFoundAndValid) {
+          missingRequired.push({
+            orderItemId: required.orderItemId,
+            productName: required.productName,
+            itemName: required.itemName,
+            componentId: required.componentId,
+            customizationName: required.name,
+            reason: `Customização obrigatória pendente: ${required.name}`,
+          });
         }
       }
     }
 
+    missingRequired.forEach((issue) => recommendations.push(issue.reason));
+    invalidCustomizations.forEach((issue) =>
+      recommendations.push(
+        `Customização inválida "${issue.customizationName || "sem título"}": ${
+          issue.reason
+        }`,
+      ),
+    );
+
+    const valid = missingRequired.length === 0 && invalidCustomizations.length === 0;
     return {
-      files: fileStatus,
+      valid,
+      files,
       hasValidContent,
-      recommendations: recommendations.length > 0 ? recommendations : undefined,
+      missingRequired,
+      invalidCustomizations,
+      recommendations,
     };
   }
 
-  private checkCustomizationHasContent(data: any): boolean {
-    try {
-      if (!data || typeof data !== "object") {
-        return false;
+  private getRequiredCustomizationDescriptors(item: any): RequiredCustomizationDescriptor[] {
+    const required: RequiredCustomizationDescriptor[] = [];
+
+    if (item.product?.components) {
+      for (const component of item.product.components) {
+        const rules = component.item?.customizations || [];
+        for (const rule of rules) {
+          if (!rule.isRequired) continue;
+          required.push({
+            id: rule.id,
+            name: rule.name,
+            type: rule.type,
+            componentId: component.id || component.item_id,
+            itemName: component.item?.name || "Item",
+            productName: item.product?.name || "Produto",
+            orderItemId: item.id,
+          });
+        }
       }
-
-      const hasTitle = data.title && String(data.title).trim().length > 0;
-      const hasData =
-        data.customizationData &&
-        Object.keys(data.customizationData).length > 0 &&
-        Object.values(data.customizationData).some(
-          (v) => v !== null && v !== undefined && v !== "",
-        );
-
-      const hasPreviewUrl =
-        data.image?.preview_url ||
-        data.previewUrl ||
-        data.preview_url ||
-        (Array.isArray(data.final_artworks) &&
-          data.final_artworks.some((a: any) => a.preview_url));
-
-      const hasPhotos =
-        (Array.isArray(data.photos) && data.photos.length > 0) ||
-        (Array.isArray(data.images) && data.images.length > 0);
-
-      const hasText =
-        (data.text && String(data.text).trim().length > 0) ||
-        (data.texts && Array.isArray(data.texts) && data.texts.length > 0);
-
-      return !!(hasTitle || hasData || hasPreviewUrl || hasPhotos || hasText);
-    } catch (error) {
-      return false;
     }
+
+    if (item.additionals) {
+      for (const add of item.additionals) {
+        const rules = add.additional?.customizations || [];
+        for (const rule of rules) {
+          if (!rule.isRequired) continue;
+          required.push({
+            id: rule.id,
+            name: rule.name,
+            type: rule.type,
+            componentId: add.additional_id,
+            itemName: `${add.additional?.name || "Adicional"} (adicional)`,
+            productName: item.product?.name || "Produto",
+            orderItemId: item.id,
+          });
+        }
+      }
+    }
+
+    return required;
   }
 
-  private getFilePathFromUrl(url: string): string | null {
-    try {
+  private normalizeRuleId(raw?: string | null): string {
+    if (!raw) return "";
+    return String(raw).split(":")[0];
+  }
 
-      const urlPath = url.replace(/^https?:\/\/[^\/]+/, "");
+  private matchesRequiredCustomization(
+    required: RequiredCustomizationDescriptor,
+    filled: {
+      dbCustomizationId?: string;
+      componentId?: string;
+      title: string;
+      label: string;
+      data: Record<string, any>;
+    },
+  ): boolean {
+    const requiredId = this.normalizeRuleId(required.id);
+    const data = filled.data || {};
+    const rawRuleId =
+      filled.dbCustomizationId ||
+      data.customizationRuleId ||
+      data.customization_id ||
+      data.ruleId;
+    const filledRuleId = this.normalizeRuleId(rawRuleId as string | undefined);
 
-      if (urlPath.includes("/uploads/temp/")) {
-        const filename = urlPath.split("/uploads/temp/").pop();
-        if (!filename) return null;
+    const componentMatches =
+      !required.componentId ||
+      !filled.componentId ||
+      required.componentId === filled.componentId;
 
-        const path1 = path.join(process.cwd(), "uploads", "temp", filename);
-        const path2 = path.join(process.cwd(), "storage", "temp", filename);
+    const byId = !!filledRuleId && filledRuleId === requiredId;
+    const byName =
+      filled.title.toLowerCase() === required.name.toLowerCase() ||
+      filled.label.toLowerCase() === required.name.toLowerCase();
 
-        if (fs.existsSync(path1)) return path1;
-        if (fs.existsSync(path2)) return path2;
+    return componentMatches && (byId || byName);
+  }
 
-        return path1;
+  private hasMeaningfulCustomizationData(data: Record<string, any>): boolean {
+    if (!data || typeof data !== "object") return false;
+
+    const hasText =
+      typeof data.text === "string" && data.text.trim().length > 0;
+    const hasPhotos = Array.isArray(data.photos) && data.photos.length > 0;
+    const hasImages = Array.isArray(data.images) && data.images.length > 0;
+    const hasSelection =
+      !!data.selected_option ||
+      !!data.selected_item_label ||
+      !!data.selected_option_label ||
+      !!data.label_selected;
+    const hasPreview =
+      !!data.image?.preview_url ||
+      !!data.final_artwork?.preview_url ||
+      !!data.finalArtwork?.preview_url ||
+      !!data.previewUrl;
+
+    return hasText || hasPhotos || hasImages || hasSelection || hasPreview;
+  }
+
+  private collectCandidateUrls(data: Record<string, any>): string[] {
+    const urls = new Set<string>();
+
+    const walk = (obj: any) => {
+      if (!obj) return;
+      if (Array.isArray(obj)) {
+        obj.forEach(walk);
+        return;
+      }
+      if (typeof obj !== "object") return;
+
+      if (typeof obj.preview_url === "string") urls.add(obj.preview_url);
+      if (typeof obj.url === "string") urls.add(obj.url);
+      if (typeof obj.text === "string" && obj.text.startsWith("/uploads/")) {
+        urls.add(obj.text);
       }
 
-      if (urlPath.includes("/images/customizations/")) {
-        const parts = urlPath.split("/images/customizations/");
-        const relativePath = parts[1];
-        if (!relativePath) return null;
+      Object.values(obj).forEach(walk);
+    };
 
-        const safeRelative = decodeURIComponent(relativePath);
+    walk(data);
+    return Array.from(urls);
+  }
 
-        return path.join(
-          process.cwd(),
-          "images",
-          "customizations",
-          safeRelative,
-        );
+  private async validateCustomizationFiles(
+    data: Record<string, any>,
+  ): Promise<{ valid: boolean; reason?: string }> {
+    const urls = this.collectCandidateUrls(data);
+    for (const rawUrl of urls) {
+      if (!rawUrl || rawUrl.startsWith("blob:") || rawUrl.startsWith("data:")) {
+        return { valid: false, reason: "Arquivo ainda está local (blob/base64)" };
       }
-      return null;
-    } catch {
-      return null;
+
+      const exists = await this.checkUrlExistsOnStorage(rawUrl);
+      if (!exists) {
+        return {
+          valid: false,
+          reason: `Arquivo não encontrado no armazenamento: ${rawUrl}`,
+        };
+      }
     }
+    return { valid: true };
+  }
+
+  private async checkUrlExistsOnStorage(url: string): Promise<boolean> {
+    const normalizedPath = url.replace(/^https?:\/\/[^\/]+/, "");
+
+    if (normalizedPath.includes("/uploads/temp/")) {
+      const filename = normalizedPath.split("/uploads/temp/").pop();
+      if (!filename) return false;
+
+      const uploadRecord = await prisma.tempUpload.findFirst({
+        where: {
+          filename,
+          deletedAt: null,
+        },
+        orderBy: { uploadedAt: "desc" },
+      });
+
+      if (uploadRecord) {
+        const isExpired = uploadRecord.expiresAt < new Date();
+        if (!isExpired && fs.existsSync(uploadRecord.filePath)) {
+          return true;
+        }
+      }
+
+      const candidates = [
+        path.join(process.cwd(), "uploads", "temp", filename),
+        path.join(process.cwd(), "storage", "temp", filename),
+        path.join(
+          path.resolve(process.env.TEMP_UPLOADS_DIR || path.join(process.cwd(), "storage", "temp")),
+          filename,
+        ),
+      ];
+      return candidates.some((candidate) => fs.existsSync(candidate));
+    }
+
+    if (normalizedPath.includes("/images/customizations/")) {
+      const parts = normalizedPath.split("/images/customizations/");
+      const relativePath = parts[1];
+      if (!relativePath) return false;
+      const safeRelative = decodeURIComponent(relativePath);
+      const fullPath = path.join(
+        process.cwd(),
+        "images",
+        "customizations",
+        safeRelative,
+      );
+      return fs.existsSync(fullPath);
+    }
+
+    return true;
   }
 }
 

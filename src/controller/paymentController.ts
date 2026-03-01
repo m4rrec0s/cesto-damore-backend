@@ -82,7 +82,9 @@ export class PaymentController {
       message.includes("obrigatório") ||
       message.includes("inválid") ||
       message.includes("inválido") ||
-      message.includes("errado")
+      message.includes("errado") ||
+      message.includes("pendente") ||
+      message.includes("customiza")
     ) {
       return 400;
     }

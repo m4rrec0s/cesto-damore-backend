@@ -188,6 +188,28 @@ export class PaymentService {
     }
   }
 
+  private static async ensureOrderCustomizationsReady(orderId: string) {
+    const validation =
+      await orderCustomizationService.validateOrderForCheckout(orderId);
+
+    if (!validation.valid) {
+      const missing = validation.missingRequired.slice(0, 3).map((m) => m.reason);
+      const invalid = validation.invalidCustomizations
+        .slice(0, 3)
+        .map((m) => m.reason);
+
+      const details = [...missing, ...invalid].filter(Boolean);
+      const detailText =
+        details.length > 0
+          ? ` Detalhes: ${details.join(" | ")}`
+          : "";
+
+      throw new Error(
+        `Customizações pendentes ou inválidas para este pedido.${detailText}`,
+      );
+    }
+  }
+
   static async createPreference(data: CreatePreferenceData) {
     try {
       if (!data.orderId || !data.userId || !data.payerEmail) {
@@ -241,6 +263,7 @@ export class PaymentService {
 
       const summary = this.calculateOrderSummary(order);
       await this.ensureOrderTotalsUpToDate(order, summary);
+      await this.ensureOrderCustomizationsReady(data.orderId);
 
       const externalReference =
         data.externalReference || `ORDER_${data.orderId}_${Date.now()}`;
@@ -471,6 +494,7 @@ export class PaymentService {
 
       const summary = this.calculateOrderSummary(order);
       await this.ensureOrderTotalsUpToDate(order, summary);
+      await this.ensureOrderCustomizationsReady(data.orderId);
 
       const nameParts = (data.payerName || "")
         .split(/\s+/)
@@ -797,6 +821,7 @@ export class PaymentService {
 
       const summary = this.calculateOrderSummary(order);
       await this.ensureOrderTotalsUpToDate(order, summary);
+      await this.ensureOrderCustomizationsReady(orderId);
 
       const amount = roundCurrency(data.amount ?? summary.grandTotal);
       if (amount <= 0) {

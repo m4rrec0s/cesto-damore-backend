@@ -1,5 +1,4 @@
 export const PROMPTS = {
-  
   core_ana_identity: `ANA - ASSISTENTE ORQUESTRADORA DA CESTO D'AMORE
 
 ## Quem você é
@@ -122,8 +121,8 @@ SEMPRE USE "vou dar prosseguimento ao seu atendimento" para passar confiança e 
 Qualquer resposta que envolva produto, cesta, nome, preço ou opções → OBRIGATORIAMENTE chame Agente-Catalogo.
 NUNCA responda sobre produtos por conta própria, mesmo que pareça óbvio.
 ISTO INCLUI: "outras opções", "tem algo com X?", "mostra mais", "tem diferente?", refinamentos e filtros.`,
-  
-core_critical_rules: `⛔ REGRAS CRÍTICAS (SEGURANÇA + PRIVACY)
+
+  core_critical_rules: `⛔ REGRAS CRÍTICAS (SEGURANÇA + PRIVACY)
 
 ## 🚨 PROIBIÇÃO ABSOLUTA - PRODUTOS
 ⛔ JAMAIS apresente, liste, cite, descreva ou mencione qualquer produto, cesta, nome, preço ou composição diretamente.
@@ -638,14 +637,13 @@ Ferramentas:
 3. Se memória_cliente existe → Use direto
 4. ANA não decide quando chamar: backend decide via flag
 5. Agente-Contexto preenchido 1x = contexto para toda sessão`,
-
 };
 
 /**
  * Mapeamento de intenções para prompts completos
  */
 export const INTENT_TO_PROMPT: Record<string, string> = {
-  greeting: PROMPTS.core_ana_identity,
+  greeting: PROMPTS.greeting,
   product_search: PROMPTS.product_search,
   delivery_check: PROMPTS.delivery_rules,
   customization: PROMPTS.customization,
@@ -662,14 +660,131 @@ export const INTENT_TO_PROMPT: Record<string, string> = {
  * Keywords para detecção de intenção (fallback)
  */
 export const INTENT_KEYWORDS: Record<string, string[]> = {
-  greeting: ["oi", "ola", "olá", "e ai", "eae", "bom dia", "boa tarde", "boa noite", "tudo bem", "opa", "hey", "oii"],
-  product_search: ["quero", "procuro", "tem", "cadê", "cesta", "buquê", "caneca", "quadro", "flor", "rosa", "chocolate", "tem de", "qual", "mostre", "mostra"],
-  delivery_check: ["entrega", "quando", "quanto custa o frete", "frete", "horario", "horário", "data", "amanha", "amanhã", "hoje", "pra quando", "qual data"],
-  customization: ["personalizar", "foto", "nome", "frase", "mudar", "trocar", "customizar", "personaliza", "adicionar foto"],
-  checkout: ["como compro", "vou levar", "confirma", "finaliza", "como pago", "quero esse", "quero essa", "vou ficar com", "fechar pedido", "finalizar", "vou comprar"],
-  human_transfer: ["atendente", "atendimento", "humano", "pessoa", "suporte", "falar com", "manda", "chama", "chama o", "fala", "conversar"],
-  indecision: ["nao sei", "não sei", "qual colocar", "qual escolher", "mostra mais", "qualquer", "surpresa", "ajuda", "recomenda", "qual combina", "qual diferenca"],
-  mass_order: ["pedido grande", "lote", "quantidade", "100", "50", "muitas", "para evento", "para empresa", "em massa"],
-  location_info: ["onde", "endereco", "endereço", "rua", "bairro", "campina", "retirada", "loja", "localizacao", "localização"],
-  inexistent_product: ["vinho", "cerveja", "fruta", "frutas", "fone", "eletronico", "eletrônico"],
+  greeting: [
+    "oi",
+    "ola",
+    "olá",
+    "e ai",
+    "eae",
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+    "tudo bem",
+    "opa",
+    "hey",
+    "oii",
+  ],
+  product_search: [
+    "quero",
+    "procuro",
+    "tem",
+    "cadê",
+    "cesta",
+    "buquê",
+    "caneca",
+    "quadro",
+    "flor",
+    "rosa",
+    "chocolate",
+    "tem de",
+    "qual",
+    "mostre",
+    "mostra",
+  ],
+  delivery_check: [
+    "entrega",
+    "quando",
+    "quanto custa o frete",
+    "frete",
+    "horario",
+    "horário",
+    "data",
+    "amanha",
+    "amanhã",
+    "hoje",
+    "pra quando",
+    "qual data",
+  ],
+  customization: [
+    "personalizar",
+    "foto",
+    "nome",
+    "frase",
+    "mudar",
+    "trocar",
+    "customizar",
+    "personaliza",
+    "adicionar foto",
+  ],
+  checkout: [
+    "como compro",
+    "vou levar",
+    "confirma",
+    "finaliza",
+    "como pago",
+    "quero esse",
+    "quero essa",
+    "vou ficar com",
+    "fechar pedido",
+    "finalizar",
+    "vou comprar",
+  ],
+  human_transfer: [
+    "atendente",
+    "atendimento",
+    "humano",
+    "pessoa",
+    "suporte",
+    "falar com",
+    "manda",
+    "chama",
+    "chama o",
+    "fala",
+    "conversar",
+  ],
+  indecision: [
+    "nao sei",
+    "não sei",
+    "qual colocar",
+    "qual escolher",
+    "mostra mais",
+    "qualquer",
+    "surpresa",
+    "ajuda",
+    "recomenda",
+    "qual combina",
+    "qual diferenca",
+  ],
+  mass_order: [
+    "pedido grande",
+    "lote",
+    "quantidade",
+    "100",
+    "50",
+    "muitas",
+    "para evento",
+    "para empresa",
+    "em massa",
+  ],
+  location_info: [
+    "onde",
+    "endereco",
+    "endereço",
+    "rua",
+    "bairro",
+    "campina",
+    "retirada",
+    "loja",
+    "localizacao",
+    "localização",
+  ],
+  inexistent_product: [
+    "vinho",
+    "cerveja",
+    "fruta",
+    "frutas",
+    "fone",
+    "eletronico",
+    "eletrônico",
+  ],
 };

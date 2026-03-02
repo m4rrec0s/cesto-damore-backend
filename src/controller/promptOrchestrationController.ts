@@ -33,7 +33,7 @@ const openai = new OpenAI({
 async function detectIntentWithLLM(
   message: string,
   messageHistory: any[] = [],
-  customerMemory: any = null
+  customerMemory: any = null,
 ): Promise<string> {
   try {
     const historyContext = messageHistory
@@ -61,6 +61,12 @@ Intenções possíveis:
 - inexistent_product: Pergunta por produto que não temos
 - production_faq: Perguntas sobre tempo de produção/prazo
 
+Regras de desambiguação (CRÍTICO):
+- Se cliente pede valores, opções, catálogo, "o que tem", "quais cestas" => product_search
+- "Quero" sozinho NÃO significa checkout. Sem confirmação explícita de compra, permaneça em product_search
+- checkout só quando houver intenção explícita de fechar pedido ("vou levar", "quero comprar", "como faço pedido", "fecha")
+- Se pedir atendente/pessoa humana em qualquer contexto => human_transfer
+
 Retorne APENAS o nome da intenção, sem aspas ou explicação.`;
 
     const userPrompt = `
@@ -85,33 +91,109 @@ Qual é a intenção? Responda com UMA PALAVRA apenas (o nome da intenção).`;
       max_tokens: 20,
     });
 
-    const detected = response.choices[0]?.message?.content?.trim().toLowerCase() || "greeting";
+    const detected =
+      response.choices[0]?.message?.content?.trim().toLowerCase() || "greeting";
 
     // Validar se é uma intenção conhecida
     const validIntents = Object.keys(INTENT_TO_PROMPT);
     if (validIntents.includes(detected)) {
-      logger.info(`[PromptOrchestration] Intent detectada por LLM: ${detected}`);
+      logger.info(
+        `[PromptOrchestration] Intent detectada por LLM: ${detected}`,
+      );
       return detected;
     }
 
     // Fallback para keyword matching se LLM retornar intenção desconhecida
-    logger.info(`[PromptOrchestration] Intent desconhecida: ${detected}, usando fallback`);
+    logger.info(
+      `[PromptOrchestration] Intent desconhecida: ${detected}, usando fallback`,
+    );
     return detectIntentWithKeywords(message, messageHistory);
   } catch (error) {
-    console.error(`[PromptOrchestration] Erro ao detectar intent com LLM:`, error);
+    console.error(
+      `[PromptOrchestration] Erro ao detectar intent com LLM:`,
+      error,
+    );
     // Fallback para keyword matching
     return detectIntentWithKeywords(message, messageHistory);
   }
 }
- 
+
+function hasActiveCustomerMemory(customerMemory: any): boolean {
+  if (!customerMemory) {
+    return false;
+  }
+
+  if (!customerMemory.expires_at) {
+    return true;
+  }
+
+  const expiresAt = new Date(customerMemory.expires_at).getTime();
+  if (Number.isNaN(expiresAt)) {
+    return true;
+  }
+
+  return expiresAt > Date.now();
+}
+
+function shouldActivateAgenteContexto(
+  intent: string,
+  isFirstMessage: boolean,
+  hasActiveMemory: boolean,
+): boolean {
+  if (hasActiveMemory) {
+    return false;
+  }
+
+  if (!isFirstMessage) {
+    return false;
+  }
+
+  return intent === "greeting";
+}
+
+function buildSessionOrchestrationDirective(
+  intent: string,
+  isFirstMessage: boolean,
+  shouldActivateContextAgent: boolean,
+  hasActiveMemory: boolean,
+): string {
+  return `[CONTRATO DE ORQUESTRAÇÃO DA SESSÃO]
+INTENT_DETECTADA=${intent}
+IS_FIRST_MESSAGE=${isFirstMessage ? "true" : "false"}
+HAS_ACTIVE_MEMORY=${hasActiveMemory ? "true" : "false"}
+SHOULD_ACTIVATE_AGENTE_CONTEXTO=${shouldActivateContextAgent ? "true" : "false"}
+
+Regras invioláveis:
+1) Se SHOULD_ACTIVATE_AGENTE_CONTEXTO=false => PROIBIDO chamar Agente-Contexto nesta mensagem.
+2) Se SHOULD_ACTIVATE_AGENTE_CONTEXTO=true => Chame Agente-Contexto no máximo 1 vez e continue o atendimento sem devolver mensagem técnica.
+3) Se intenção envolver produto/opções/preço/refinamento => usar Agente-Catalogo.
+4) Se intenção for fechamento explícito => usar Agente-Fechamento.
+5) Agente-Customizacao só após decisão de compra no fluxo de fechamento.
+
+Matriz de delegação:
+- greeting => resposta curta (e Agente-Contexto apenas se flag=true)
+- product_search|indecision|inexistent_product => Agente-Catalogo
+- checkout => Agente-Fechamento
+- customization => Agente-Customizacao
+- delivery_check|production_faq|location_info => responder direto com regras e tools gerais
+- human_transfer|mass_order => notify_human_support + block_session`;
+}
+
 /**
  * Fallback: Detectar intenção usando keywords (método rápido)
  */
-function detectIntentWithKeywords(message: string, messageHistory: any[] = []): string {
+function detectIntentWithKeywords(
+  message: string,
+  messageHistory: any[] = [],
+): string {
   const messageLower = message.toLowerCase().trim();
 
   // Priority: human_transfer
-  if (INTENT_KEYWORDS.human_transfer.some((kw: string) => messageLower.includes(kw))) {
+  if (
+    INTENT_KEYWORDS.human_transfer.some((kw: string) =>
+      messageLower.includes(kw),
+    )
+  ) {
     return "human_transfer";
   }
 
@@ -120,7 +202,9 @@ function detectIntentWithKeywords(message: string, messageHistory: any[] = []): 
   let maxMatches = 0;
 
   for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
-    const matches = (keywords as string[]).filter((kw: string) => messageLower.includes(kw)).length;
+    const matches = (keywords as string[]).filter((kw: string) =>
+      messageLower.includes(kw),
+    ).length;
     if (matches > maxMatches) {
       maxMatches = matches;
       bestMatch = intent;
@@ -130,10 +214,11 @@ function detectIntentWithKeywords(message: string, messageHistory: any[] = []): 
   // Contexto do histórico se nenhuma keyword
   if (maxMatches === 0 && messageHistory.length > 0) {
     const recentMessages = messageHistory.slice(-5);
-    const hasCheckoutContext = recentMessages.some((msg: any) =>
-      (msg.content || msg.message)?.toLowerCase().includes("data") ||
-      (msg.content || msg.message)?.toLowerCase().includes("endereco") ||
-      (msg.content || msg.message)?.toLowerCase().includes("pagamento")
+    const hasCheckoutContext = recentMessages.some(
+      (msg: any) =>
+        (msg.content || msg.message)?.toLowerCase().includes("data") ||
+        (msg.content || msg.message)?.toLowerCase().includes("endereco") ||
+        (msg.content || msg.message)?.toLowerCase().includes("pagamento"),
     );
 
     if (hasCheckoutContext) {
@@ -184,11 +269,13 @@ async function loadCustomerMemory(customerPhone: string): Promise<any> {
 async function ensureAIAgentSession(
   customerPhone: string,
   sessionId?: string,
-  customerName: string = "Cliente"
+  customerName: string = "Cliente",
 ): Promise<string> {
   try {
     // Se session_id não for fornecido, gerar um novo
-    const finalSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const finalSessionId =
+      sessionId ||
+      `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Verificar se session já existe
     let session = await prisma.aIAgentSession.findUnique({
@@ -197,21 +284,25 @@ async function ensureAIAgentSession(
 
     // Se não existe, criar nova
     if (!session) {
-    session = await prisma.aIAgentSession.create({
-      data: {
-        id: finalSessionId,
-        customer_phone: customerPhone,
-        expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days expiry
-        is_blocked: false,
-      },
-    });
+      session = await prisma.aIAgentSession.create({
+        data: {
+          id: finalSessionId,
+          customer_phone: customerPhone,
+          expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days expiry
+          is_blocked: false,
+        },
+      });
 
-      logger.info(`[PromptOrchestration] Novo AIAgentSession criado: ${finalSessionId}`);
+      logger.info(
+        `[PromptOrchestration] Novo AIAgentSession criado: ${finalSessionId}`,
+      );
     }
 
     return finalSessionId;
   } catch (error) {
-    console.error(`[PromptOrchestration] Erro ao criar/verificar session: ${error}`);
+    console.error(
+      `[PromptOrchestration] Erro ao criar/verificar session: ${error}`,
+    );
     throw error;
   }
 }
@@ -222,13 +313,14 @@ async function ensureAIAgentSession(
  * 1. core_ana_identity (sempre primeiro)
  * 2. Prompts específicos da intenção (máximo 3 adicionais)
  * 3. core_critical_rules (sempre último)
- * 
+ *
  * Retorna: { finalPrompt: string, selectedPrompts: string[] }
  */
 function buildFinalPrompts(
   intent: string,
   customerMemory: any,
-  messageHistory: any[]
+  messageHistory: any[],
+  orchestrationDirective: string,
 ): { finalPrompt: string; selectedPrompts: string[] } {
   const prompts: string[] = [];
   const selectedPrompts: string[] = [];
@@ -246,8 +338,19 @@ function buildFinalPrompts(
   selectedPrompts.push(intent || "greeting");
   additionalPromptCount++;
 
+  if (additionalPromptCount < MAX_ADDITIONAL_PROMPTS) {
+    prompts.push("\n---\n");
+    prompts.push(orchestrationDirective);
+    selectedPrompts.push("session_orchestration_contract");
+    additionalPromptCount++;
+  }
+
   // 2.1 Adicionar contexto de memória se disponível (conta como 1 adicional)
-  if (customerMemory && customerMemory.summary && additionalPromptCount < MAX_ADDITIONAL_PROMPTS) {
+  if (
+    customerMemory &&
+    customerMemory.summary &&
+    additionalPromptCount < MAX_ADDITIONAL_PROMPTS
+  ) {
     prompts.push("\n---\n");
     prompts.push(`[CONTEXTO DO CLIENTE]\n${customerMemory.summary}`);
     selectedPrompts.push("customer_memory_context");
@@ -270,7 +373,7 @@ function buildFinalPrompts(
  */
 export async function orchestratePrompt(
   req: Request<{}, {}, OrchestrationRequest>,
-  res: Response<OrchestrationResponse>
+  res: Response<OrchestrationResponse>,
 ): Promise<Response<OrchestrationResponse> | undefined> {
   try {
     const {
@@ -295,13 +398,15 @@ export async function orchestratePrompt(
       });
     }
 
-    logger.info(`[PromptOrchestration] Processando: ${customer_phone} | ${latest_message.substring(0, 50)}...`);
+    logger.info(
+      `[PromptOrchestration] Processando: ${customer_phone} | ${latest_message.substring(0, 50)}...`,
+    );
 
     // 1. SEGURANÇA: Criar/verificar AIAgentSession
     const finalSessionId = await ensureAIAgentSession(
       customer_phone,
       session_id,
-      customer_name
+      customer_name,
     );
 
     // 2. Carregar histórico de chat
@@ -311,16 +416,35 @@ export async function orchestratePrompt(
     const customerMemory = await loadCustomerMemory(customer_phone);
 
     // 4. Detectar intenção com LLM (análise inteligente)
-    const intent = await detectIntentWithLLM(latest_message, chatHistory, customerMemory);
+    const intent = await detectIntentWithLLM(
+      latest_message,
+      chatHistory,
+      customerMemory,
+    );
 
     logger.info(`[PromptOrchestration] Intenção detectada por LLM: ${intent}`);
 
-    // 5. Construir prompts na ordem obrigatória (máximo 3 adicionais)
-    const { finalPrompt, selectedPrompts } = buildFinalPrompts(intent, customerMemory, chatHistory);
+    const hasMemory = hasActiveCustomerMemory(customerMemory);
+    const isFirstMessage = chatHistory.length <= 1;
+    const shouldActivateContextAgent = shouldActivateAgenteContexto(
+      intent,
+      isFirstMessage,
+      hasMemory,
+    );
+    const orchestrationDirective = buildSessionOrchestrationDirective(
+      intent,
+      isFirstMessage,
+      shouldActivateContextAgent,
+      hasMemory,
+    );
 
-    // 6. Determinar se é primeira mensagem
-    const isFirstMessage = !customerMemory || chatHistory.length <= 1;
-    const shouldActivateAgenteContexto = isFirstMessage;
+    // 5. Construir prompts na ordem obrigatória (máximo 3 adicionais)
+    const { finalPrompt, selectedPrompts } = buildFinalPrompts(
+      intent,
+      customerMemory,
+      chatHistory,
+      orchestrationDirective,
+    );
 
     // 7. Retornar resposta estruturada
     return res.status(200).json({
@@ -330,14 +454,15 @@ export async function orchestratePrompt(
       intent,
       session_id: finalSessionId,
       is_first_message: isFirstMessage,
-      should_activate_agente_contexto: shouldActivateAgenteContexto,
-      customer_memory: customerMemory ? {
-        occasion: customerMemory.occasion,
-        preferences: customerMemory.preferences,
-        conversation_stage: customerMemory.conversation_stage,
-      } : null,
+      should_activate_agente_contexto: shouldActivateContextAgent,
+      customer_memory: customerMemory
+        ? {
+            occasion: customerMemory.occasion,
+            preferences: customerMemory.preferences,
+            conversation_stage: customerMemory.conversation_stage,
+          }
+        : null,
     });
-
   } catch (error) {
     console.error(`[PromptOrchestration] Erro fatal:`, error);
     return res.status(500).json({
@@ -352,12 +477,14 @@ export async function orchestratePrompt(
  */
 export async function getPromptByName(
   req: Request<{ promptName: string }, any, any>,
-  res: Response<any>
+  res: Response<any>,
 ): Promise<Response<any> | undefined> {
   try {
     const { promptName } = req.params;
 
-    const prompt = INTENT_TO_PROMPT[promptName as string] || PROMPTS[promptName as keyof typeof PROMPTS];
+    const prompt =
+      INTENT_TO_PROMPT[promptName as string] ||
+      PROMPTS[promptName as keyof typeof PROMPTS];
 
     if (!prompt) {
       return res.status(404).json({
@@ -371,7 +498,6 @@ export async function getPromptByName(
       promptName,
       content: prompt,
     });
-
   } catch (error) {
     console.error(`[GetPrompt] Erro:`, error);
     return res.status(500).json({
@@ -385,17 +511,22 @@ export async function getPromptByName(
  * Handler para atualizar memória do cliente
  */
 export async function updateCustomerMemory(
-  req: Request<{}, {}, { customer_phone: string; occasion?: string; preferences?: any; conversation_stage?: string; notes?: string }>,
-  res: Response<any>
+  req: Request<
+    {},
+    {},
+    {
+      customer_phone: string;
+      occasion?: string;
+      preferences?: any;
+      conversation_stage?: string;
+      notes?: string;
+    }
+  >,
+  res: Response<any>,
 ): Promise<Response<any> | undefined> {
   try {
-    const {
-      customer_phone,
-      occasion,
-      preferences,
-      conversation_stage,
-      notes,
-    } = req.body;
+    const { customer_phone, occasion, preferences, conversation_stage, notes } =
+      req.body;
 
     if (!customer_phone) {
       return res.status(400).json({
@@ -424,7 +555,6 @@ export async function updateCustomerMemory(
       message: "Memória do cliente atualizada",
       customer_memory: memory,
     });
-
   } catch (error) {
     console.error(`[UpdateMemory] Erro:`, error);
     return res.status(500).json({
@@ -440,9 +570,11 @@ export async function updateCustomerMemory(
 export {
   detectIntentWithLLM,
   detectIntentWithKeywords,
+  hasActiveCustomerMemory,
+  shouldActivateAgenteContexto,
+  buildSessionOrchestrationDirective,
   loadChatHistory,
   loadCustomerMemory,
   ensureAIAgentSession,
   buildFinalPrompts,
 };
-

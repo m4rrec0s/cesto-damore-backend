@@ -263,8 +263,50 @@ async function loadCustomerMemory(customerPhone: string): Promise<any> {
   }
 }
 
+function normalizeCustomerName(customerName?: string | null): string | null {
+  const normalized = customerName?.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.toLowerCase() === "cliente") {
+    return null;
+  }
+
+  return normalized;
+}
+
+async function ensureCustomerRecord(
+  customerPhone: string,
+  customerName?: string,
+): Promise<void> {
+  const phone = customerPhone?.trim();
+  if (!phone) {
+    return;
+  }
+
+  const normalizedName = normalizeCustomerName(customerName);
+  const now = new Date();
+
+  await prisma.customer.upsert({
+    where: { number: phone },
+    update: {
+      ...(normalizedName ? { name: normalizedName } : {}),
+      last_message_sent: now,
+      follow_up: true,
+    },
+    create: {
+      number: phone,
+      name: normalizedName,
+      last_message_sent: now,
+      follow_up: true,
+    },
+  });
+}
+
 /**
- * Criar ou verificar AIAgentSession (camada de segurança)
+ * Criar ou verificar AIAgentSession + Customer (camada de segurança)
  */
 async function ensureAIAgentSession(
   customerPhone: string,
@@ -272,6 +314,8 @@ async function ensureAIAgentSession(
   customerName: string = "Cliente",
 ): Promise<string> {
   try {
+    await ensureCustomerRecord(customerPhone, customerName);
+
     // Se session_id não for fornecido, gerar um novo
     const finalSessionId =
       sessionId ||
@@ -575,6 +619,7 @@ export {
   buildSessionOrchestrationDirective,
   loadChatHistory,
   loadCustomerMemory,
+  ensureCustomerRecord,
   ensureAIAgentSession,
   buildFinalPrompts,
 };

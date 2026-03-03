@@ -1115,6 +1115,20 @@ router.post(
   promptOrchestrationController.updateCustomerMemory,
 );
 
+router.get(
+  "/admin/ai/prompt-override",
+  authenticateToken,
+  requireAdmin,
+  promptOrchestrationController.getPromptPriorityOverride,
+);
+
+router.put(
+  "/admin/ai/prompt-override",
+  authenticateToken,
+  requireAdmin,
+  promptOrchestrationController.upsertPromptPriorityOverride,
+);
+
 router.get("/ai/products/light", aiProductController.getLightweightProducts);
 router.get("/ai/products/detail/:id", aiProductController.getProductDetail);
 

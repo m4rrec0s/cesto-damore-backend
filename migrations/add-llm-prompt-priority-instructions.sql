@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS llm_prompt_priority_instructions (
+  id SERIAL PRIMARY KEY,
+  prompt_text TEXT NOT NULL DEFAULT '',
+  is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  is_permanent BOOLEAN NOT NULL DEFAULT FALSE,
+  starts_at TIMESTAMPTZ NULL,
+  expires_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

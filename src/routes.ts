@@ -1116,17 +1116,31 @@ router.post(
 );
 
 router.get(
-  "/admin/ai/prompt-override",
+  "/admin/ai/prompt-overrides",
   authenticateToken,
   requireAdmin,
-  promptOrchestrationController.getPromptPriorityOverride,
+  promptOrchestrationController.listPromptPriorityOverrides,
+);
+
+router.post(
+  "/admin/ai/prompt-overrides",
+  authenticateToken,
+  requireAdmin,
+  promptOrchestrationController.createPromptPriorityOverrideHandler,
 );
 
 router.put(
-  "/admin/ai/prompt-override",
+  "/admin/ai/prompt-overrides/:id",
   authenticateToken,
   requireAdmin,
-  promptOrchestrationController.upsertPromptPriorityOverride,
+  promptOrchestrationController.updatePromptPriorityOverrideHandler,
+);
+
+router.delete(
+  "/admin/ai/prompt-overrides/:id",
+  authenticateToken,
+  requireAdmin,
+  promptOrchestrationController.deletePromptPriorityOverrideHandler,
 );
 
 router.get("/ai/products/light", aiProductController.getLightweightProducts);

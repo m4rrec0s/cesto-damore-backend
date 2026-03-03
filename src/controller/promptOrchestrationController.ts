@@ -25,22 +25,26 @@ interface OrchestrationResponse {
 
 type PromptOverrideMode = "permanent" | "temporary";
 
-interface PromptOverrideConfig {
+interface PromptPriorityInstructionConfig {
+  id: number;
   prompt_text: string;
   is_enabled: boolean;
   mode: PromptOverrideMode;
   starts_at: string | null;
   expires_at: string | null;
+  created_at: string;
   updated_at: string;
   is_active_now: boolean;
 }
 
-interface PromptOverrideRow {
+interface PromptPriorityInstructionRow {
+  id: number;
   prompt_text: string;
   is_enabled: boolean;
   is_permanent: boolean;
   starts_at: Date | null;
   expires_at: Date | null;
+  created_at: Date;
   updated_at: Date;
 }
 
@@ -48,14 +52,17 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-let promptOverrideTableReadyPromise: Promise<void> | null = null;
+let promptPriorityInstructionsTableReadyPromise: Promise<void> | null = null;
 
 function toIsoOrNull(value: Date | null): string | null {
   if (!value) return null;
   return value.toISOString();
 }
 
-function isPromptOverrideActive(row: PromptOverrideRow, referenceDate = new Date()): boolean {
+function isPromptOverrideActive(
+  row: PromptPriorityInstructionRow,
+  referenceDate = new Date(),
+): boolean {
   if (!row.is_enabled) return false;
 
   const text = row.prompt_text?.trim();
@@ -76,15 +83,15 @@ function isPromptOverrideActive(row: PromptOverrideRow, referenceDate = new Date
   return row.expires_at.getTime() >= referenceDate.getTime();
 }
 
-async function ensurePromptOverrideTable(): Promise<void> {
-  if (promptOverrideTableReadyPromise) {
-    return promptOverrideTableReadyPromise;
+async function ensurePromptPriorityInstructionsTable(): Promise<void> {
+  if (promptPriorityInstructionsTableReadyPromise) {
+    return promptPriorityInstructionsTableReadyPromise;
   }
 
-  promptOverrideTableReadyPromise = prisma
+  promptPriorityInstructionsTableReadyPromise = prisma
     .$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS llm_prompt_overrides (
-        id INTEGER PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS llm_prompt_priority_instructions (
+        id SERIAL PRIMARY KEY,
         prompt_text TEXT NOT NULL DEFAULT '',
         is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         is_permanent BOOLEAN NOT NULL DEFAULT FALSE,
@@ -96,78 +103,120 @@ async function ensurePromptOverrideTable(): Promise<void> {
     `)
     .then(() => undefined)
     .catch((error) => {
-      promptOverrideTableReadyPromise = null;
+      promptPriorityInstructionsTableReadyPromise = null;
       throw error;
     });
 
-  return promptOverrideTableReadyPromise;
+  return promptPriorityInstructionsTableReadyPromise;
 }
 
-async function loadPromptOverride(): Promise<PromptOverrideRow | null> {
-  await ensurePromptOverrideTable();
+async function loadPromptPriorityOverrides(): Promise<PromptPriorityInstructionRow[]> {
+  await ensurePromptPriorityInstructionsTable();
 
-  const rows = await prisma.$queryRaw<PromptOverrideRow[]>`
-    SELECT prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at
-    FROM llm_prompt_overrides
-    WHERE id = 1
-    LIMIT 1
+  return prisma.$queryRaw<PromptPriorityInstructionRow[]>`
+    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
+    FROM llm_prompt_priority_instructions
+    ORDER BY created_at ASC, id ASC
   `;
-
-  return rows[0] || null;
 }
 
-async function savePromptOverride(input: {
+async function loadActivePromptPriorityOverrides(): Promise<
+  PromptPriorityInstructionRow[]
+> {
+  await ensurePromptPriorityInstructionsTable();
+
+  return prisma.$queryRaw<PromptPriorityInstructionRow[]>`
+    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
+    FROM llm_prompt_priority_instructions
+    WHERE
+      is_enabled = TRUE
+      AND BTRIM(prompt_text) <> ''
+      AND (starts_at IS NULL OR starts_at <= NOW())
+      AND (
+        is_permanent = TRUE
+        OR (expires_at IS NOT NULL AND expires_at >= NOW())
+      )
+    ORDER BY created_at ASC, id ASC
+  `;
+}
+
+async function createPromptPriorityOverride(input: {
   prompt_text: string;
   is_enabled: boolean;
   mode: PromptOverrideMode;
   starts_at: Date | null;
   expires_at: Date | null;
-}): Promise<PromptOverrideRow> {
-  await ensurePromptOverrideTable();
+}): Promise<PromptPriorityInstructionRow> {
+  await ensurePromptPriorityInstructionsTable();
 
   const isPermanent = input.mode === "permanent";
   const now = new Date();
-  const rows = await prisma.$queryRaw<PromptOverrideRow[]>`
-    INSERT INTO llm_prompt_overrides (
-      id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at
+  const rows = await prisma.$queryRaw<PromptPriorityInstructionRow[]>`
+    INSERT INTO llm_prompt_priority_instructions (
+      prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at
     )
     VALUES (
-      1, ${input.prompt_text}, ${input.is_enabled}, ${isPermanent},
+      ${input.prompt_text}, ${input.is_enabled}, ${isPermanent},
       ${input.starts_at}, ${isPermanent ? null : input.expires_at}, ${now}
     )
-    ON CONFLICT (id)
-    DO UPDATE SET
-      prompt_text = EXCLUDED.prompt_text,
-      is_enabled = EXCLUDED.is_enabled,
-      is_permanent = EXCLUDED.is_permanent,
-      starts_at = EXCLUDED.starts_at,
-      expires_at = EXCLUDED.expires_at,
-      updated_at = EXCLUDED.updated_at
-    RETURNING prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at
+    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
   `;
 
   return rows[0];
 }
 
-function serializePromptOverride(row: PromptOverrideRow | null): PromptOverrideConfig {
-  if (!row) {
-    return {
-      prompt_text: "",
-      is_enabled: false,
-      mode: "temporary",
-      starts_at: null,
-      expires_at: null,
-      updated_at: new Date(0).toISOString(),
-      is_active_now: false,
-    };
-  }
+async function updatePromptPriorityOverrideById(
+  id: number,
+  input: {
+    prompt_text: string;
+    is_enabled: boolean;
+    mode: PromptOverrideMode;
+    starts_at: Date | null;
+    expires_at: Date | null;
+  },
+): Promise<PromptPriorityInstructionRow | null> {
+  await ensurePromptPriorityInstructionsTable();
 
+  const isPermanent = input.mode === "permanent";
+  const now = new Date();
+  const rows = await prisma.$queryRaw<PromptPriorityInstructionRow[]>`
+    UPDATE llm_prompt_priority_instructions
+    SET
+      prompt_text = ${input.prompt_text},
+      is_enabled = ${input.is_enabled},
+      is_permanent = ${isPermanent},
+      starts_at = ${input.starts_at},
+      expires_at = ${isPermanent ? null : input.expires_at},
+      updated_at = ${now}
+    WHERE id = ${id}
+    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
+  `;
+
+  return rows[0] || null;
+}
+
+async function deletePromptPriorityOverrideById(id: number): Promise<boolean> {
+  await ensurePromptPriorityInstructionsTable();
+
+  const result = await prisma.$executeRaw`
+    DELETE FROM llm_prompt_priority_instructions
+    WHERE id = ${id}
+  `;
+
+  return result > 0;
+}
+
+function serializePromptOverride(
+  row: PromptPriorityInstructionRow,
+): PromptPriorityInstructionConfig {
   return {
+    id: row.id,
     prompt_text: row.prompt_text,
     is_enabled: row.is_enabled,
     mode: row.is_permanent ? "permanent" : "temporary",
     starts_at: toIsoOrNull(row.starts_at),
     expires_at: row.is_permanent ? null : toIsoOrNull(row.expires_at),
+    created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
     is_active_now: isPromptOverrideActive(row),
   };
@@ -505,15 +554,22 @@ function buildFinalPrompts(
   customerMemory: any,
   messageHistory: any[],
   orchestrationDirective: string,
-  highPriorityInstruction?: string | null,
+  highPriorityInstructions: string[] = [],
 ): { finalPrompt: string; selectedPrompts: string[] } {
   const prompts: string[] = [];
   const selectedPrompts: string[] = [];
 
-  if (highPriorityInstruction?.trim()) {
-    prompts.push(`[DIRETRIZ PRIORITÁRIA TEMPORÁRIA DO MANAGER]\n${highPriorityInstruction.trim()}`);
-    selectedPrompts.push("manager_high_priority_override");
-    prompts.push("\n---\n");
+  if (highPriorityInstructions.length > 0) {
+    const normalized = highPriorityInstructions
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    if (normalized.length > 0) {
+      const list = normalized.map((text, index) => `${index + 1}. ${text}`).join("\n");
+      prompts.push(`[LISTA DE DIRETRIZES PRIORITÁRIAS DO MANAGER]\n${list}`);
+      selectedPrompts.push("manager_high_priority_overrides_list");
+      prompts.push("\n---\n");
+    }
   }
 
   prompts.push(PROMPTS.core_identity);
@@ -617,10 +673,10 @@ export async function orchestratePrompt(
     logger.info(`[PromptOrchestration] Intenção detectada por LLM: ${intent}`);
 
     const hasMemory = hasActiveCustomerMemory(customerMemory);
-    const promptOverride = await loadPromptOverride();
-    const highPriorityInstruction = promptOverride && isPromptOverrideActive(promptOverride)
-      ? promptOverride.prompt_text
-      : null;
+    const activePromptOverrides = await loadActivePromptPriorityOverrides();
+    const highPriorityInstructions = activePromptOverrides
+      .map((row) => row.prompt_text?.trim() || "")
+      .filter(Boolean);
     const isFirstMessage = chatHistory.length <= 1;
     const shouldActivateContextAgent = shouldActivateAgenteContexto(
       intent,
@@ -640,7 +696,7 @@ export async function orchestratePrompt(
       customerMemory,
       chatHistory,
       orchestrationDirective,
-      highPriorityInstruction,
+      highPriorityInstructions,
     );
 
     // 7. Retornar resposta estruturada
@@ -669,27 +725,90 @@ export async function orchestratePrompt(
   }
 }
 
-async function getPromptPriorityOverride(
+function parsePromptOverridePayload(body: {
+  prompt_text?: string;
+  is_enabled?: boolean;
+  mode?: PromptOverrideMode;
+  starts_at?: string | null;
+  expires_at?: string | null;
+}): {
+  data?: {
+    prompt_text: string;
+    is_enabled: boolean;
+    mode: PromptOverrideMode;
+    starts_at: Date | null;
+    expires_at: Date | null;
+  };
+  error?: string;
+} {
+  const {
+    prompt_text = "",
+    is_enabled = false,
+    mode = "temporary",
+    starts_at = null,
+    expires_at = null,
+  } = body || {};
+
+  if (mode !== "temporary" && mode !== "permanent") {
+    return { error: "mode deve ser 'temporary' ou 'permanent'" };
+  }
+
+  const normalizedPromptText = String(prompt_text || "").trim();
+  if (!normalizedPromptText) {
+    return { error: "prompt_text é obrigatório" };
+  }
+
+  const parsedStartsAt = starts_at ? new Date(starts_at) : null;
+  if (starts_at && Number.isNaN(parsedStartsAt?.getTime())) {
+    return { error: "starts_at inválido (use formato ISO-8601)" };
+  }
+
+  const parsedExpiresAt = expires_at ? new Date(expires_at) : null;
+  if (mode === "temporary") {
+    if (!expires_at) {
+      return { error: "expires_at é obrigatório para mode=temporary" };
+    }
+
+    if (Number.isNaN(parsedExpiresAt?.getTime())) {
+      return { error: "expires_at inválido (use formato ISO-8601)" };
+    }
+
+    if (parsedStartsAt && parsedExpiresAt && parsedStartsAt >= parsedExpiresAt) {
+      return { error: "expires_at deve ser maior que starts_at" };
+    }
+  }
+
+  return {
+    data: {
+      prompt_text: normalizedPromptText,
+      is_enabled: Boolean(is_enabled),
+      mode,
+      starts_at: parsedStartsAt,
+      expires_at: mode === "temporary" ? parsedExpiresAt : null,
+    },
+  };
+}
+
+async function listPromptPriorityOverrides(
   req: Request,
   res: Response<any>,
 ): Promise<Response<any> | undefined> {
   try {
-    const row = await loadPromptOverride();
-
+    const rows = await loadPromptPriorityOverrides();
     return res.status(200).json({
       status: "success",
-      config: serializePromptOverride(row),
+      prompts: rows.map(serializePromptOverride),
     });
   } catch (error) {
-    logger.error("[PromptOrchestration] Erro ao carregar prompt override", error);
+    logger.error("[PromptOrchestration] Erro ao listar prompt overrides", error);
     return res.status(500).json({
       status: "error",
-      error: `Erro ao carregar configuração: ${error instanceof Error ? error.message : "Desconhecido"}`,
+      error: `Erro ao listar prompts: ${error instanceof Error ? error.message : "Desconhecido"}`,
     });
   }
 }
 
-async function upsertPromptPriorityOverride(
+async function createPromptPriorityOverrideHandler(
   req: Request<
     {},
     {},
@@ -704,78 +823,98 @@ async function upsertPromptPriorityOverride(
   res: Response<any>,
 ): Promise<Response<any> | undefined> {
   try {
-    const {
-      prompt_text = "",
-      is_enabled = false,
-      mode = "temporary",
-      starts_at = null,
-      expires_at = null,
-    } = req.body || {};
-
-    if (mode !== "temporary" && mode !== "permanent") {
-      return res.status(400).json({
-        status: "error",
-        error: "mode deve ser 'temporary' ou 'permanent'",
-      });
+    const parsed = parsePromptOverridePayload(req.body || {});
+    if (!parsed.data) {
+      return res.status(400).json({ status: "error", error: parsed.error });
     }
 
-    const normalizedPromptText = String(prompt_text || "").trim();
-    if (is_enabled && !normalizedPromptText) {
-      return res.status(400).json({
-        status: "error",
-        error: "prompt_text é obrigatório quando is_enabled=true",
-      });
-    }
-
-    const parsedStartsAt = starts_at ? new Date(starts_at) : null;
-    if (starts_at && Number.isNaN(parsedStartsAt?.getTime())) {
-      return res.status(400).json({
-        status: "error",
-        error: "starts_at inválido (use formato ISO-8601)",
-      });
-    }
-
-    const parsedExpiresAt = expires_at ? new Date(expires_at) : null;
-    if (mode === "temporary") {
-      if (!expires_at) {
-        return res.status(400).json({
-          status: "error",
-          error: "expires_at é obrigatório para mode=temporary",
-        });
-      }
-
-      if (Number.isNaN(parsedExpiresAt?.getTime())) {
-        return res.status(400).json({
-          status: "error",
-          error: "expires_at inválido (use formato ISO-8601)",
-        });
-      }
-
-      if (parsedStartsAt && parsedExpiresAt && parsedStartsAt >= parsedExpiresAt) {
-        return res.status(400).json({
-          status: "error",
-          error: "expires_at deve ser maior que starts_at",
-        });
-      }
-    }
-
-    const saved = await savePromptOverride({
-      prompt_text: normalizedPromptText,
-      is_enabled: Boolean(is_enabled),
-      mode,
-      starts_at: parsedStartsAt,
-      expires_at: mode === "temporary" ? parsedExpiresAt : null,
+    const saved = await createPromptPriorityOverride(parsed.data);
+    return res.status(201).json({
+      status: "success",
+      prompt: serializePromptOverride(saved),
     });
+  } catch (error) {
+    logger.error("[PromptOrchestration] Erro ao criar prompt override", error);
+    return res.status(500).json({
+      status: "error",
+      error: `Erro ao criar prompt: ${error instanceof Error ? error.message : "Desconhecido"}`,
+    });
+  }
+}
+
+async function updatePromptPriorityOverrideHandler(
+  req: Request<
+    { id: string },
+    {},
+    {
+      prompt_text?: string;
+      is_enabled?: boolean;
+      mode?: PromptOverrideMode;
+      starts_at?: string | null;
+      expires_at?: string | null;
+    }
+  >,
+  res: Response<any>,
+): Promise<Response<any> | undefined> {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ status: "error", error: "id inválido" });
+    }
+
+    const parsed = parsePromptOverridePayload(req.body || {});
+    if (!parsed.data) {
+      return res.status(400).json({ status: "error", error: parsed.error });
+    }
+
+    const updated = await updatePromptPriorityOverrideById(id, parsed.data);
+    if (!updated) {
+      return res.status(404).json({
+        status: "error",
+        error: "Prompt prioritário não encontrado",
+      });
+    }
 
     return res.status(200).json({
       status: "success",
-      config: serializePromptOverride(saved),
+      prompt: serializePromptOverride(updated),
     });
   } catch (error) {
-    logger.error("[PromptOrchestration] Erro ao salvar prompt override", error);
+    logger.error("[PromptOrchestration] Erro ao atualizar prompt override", error);
     return res.status(500).json({
       status: "error",
-      error: `Erro ao salvar configuração: ${error instanceof Error ? error.message : "Desconhecido"}`,
+      error: `Erro ao atualizar prompt: ${error instanceof Error ? error.message : "Desconhecido"}`,
+    });
+  }
+}
+
+async function deletePromptPriorityOverrideHandler(
+  req: Request<{ id: string }>,
+  res: Response<any>,
+): Promise<Response<any> | undefined> {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ status: "error", error: "id inválido" });
+    }
+
+    const removed = await deletePromptPriorityOverrideById(id);
+    if (!removed) {
+      return res.status(404).json({
+        status: "error",
+        error: "Prompt prioritário não encontrado",
+      });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      message: "Prompt prioritário removido",
+    });
+  } catch (error) {
+    logger.error("[PromptOrchestration] Erro ao remover prompt override", error);
+    return res.status(500).json({
+      status: "error",
+      error: `Erro ao remover prompt: ${error instanceof Error ? error.message : "Desconhecido"}`,
     });
   }
 }
@@ -886,6 +1025,8 @@ export {
   ensureCustomerRecord,
   ensureAIAgentSession,
   buildFinalPrompts,
-  getPromptPriorityOverride,
-  upsertPromptPriorityOverride,
+  listPromptPriorityOverrides,
+  createPromptPriorityOverrideHandler,
+  updatePromptPriorityOverrideHandler,
+  deletePromptPriorityOverrideHandler,
 };

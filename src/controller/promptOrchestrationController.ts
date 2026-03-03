@@ -157,26 +157,20 @@ function buildSessionOrchestrationDirective(
   shouldActivateContextAgent: boolean,
   hasActiveMemory: boolean,
 ): string {
-  return `[CONTRATO DE ORQUESTRAÇÃO DA SESSÃO]
+  return `[CONTRATO DE ORQUESTRAÇÃO]
 INTENT_DETECTADA=${intent}
 IS_FIRST_MESSAGE=${isFirstMessage ? "true" : "false"}
 HAS_ACTIVE_MEMORY=${hasActiveMemory ? "true" : "false"}
-SHOULD_ACTIVATE_AGENTE_CONTEXTO=${shouldActivateContextAgent ? "true" : "false"}
 
-Regras invioláveis:
-1) Se SHOULD_ACTIVATE_AGENTE_CONTEXTO=false => PROIBIDO chamar Agente-Contexto nesta mensagem.
-2) Se SHOULD_ACTIVATE_AGENTE_CONTEXTO=true => Chame Agente-Contexto no máximo 1 vez e continue o atendimento sem devolver mensagem técnica.
-3) Se intenção envolver produto/opções/preço/refinamento => usar Agente-Catalogo.
-4) Se intenção for fechamento explícito => usar Agente-Fechamento.
-5) Agente-Customizacao só após decisão de compra no fluxo de fechamento.
-
-Matriz de delegação:
-- greeting => resposta curta (e Agente-Contexto apenas se flag=true)
+Matriz de ação:
+- greeting => saudação curta + colher interesse
 - product_search|indecision|inexistent_product => Agente-Catalogo
-- checkout => Agente-Fechamento
-- customization => Agente-Customizacao
-- delivery_check|production_faq|location_info => responder direto com regras e tools gerais
-- human_transfer|mass_order => notify_human_support + block_session`;
+- checkout => ANA conduz fechamento direto (get_product_details → validate → calculate_freight → finalize_checkout)
+- customization => ANA responde com prazos + can_produce_in_time se tiver dados
+- delivery_check|production_faq|location_info => ANA responde direto com tools
+- human_transfer|mass_order => notify_human_support + block_session
+
+EXECUÇÃO SILENCIOSA: execute tools diretamente, NUNCA anuncie antes de executar.`;
 }
 
 /**
@@ -368,43 +362,44 @@ function buildFinalPrompts(
 ): { finalPrompt: string; selectedPrompts: string[] } {
   const prompts: string[] = [];
   const selectedPrompts: string[] = [];
-  let additionalPromptCount = 0;
-  const MAX_ADDITIONAL_PROMPTS = 3;
 
-  // 1. SEMPRE PRIMEIRO - core_ana_identity (obrigatório)
-  prompts.push(PROMPTS.core_ana_identity);
+  prompts.push(PROMPTS.core_identity);
+  selectedPrompts.push("core_identity");
+
   prompts.push("\n---\n");
-  selectedPrompts.push("core_ana_identity");
+  prompts.push(PROMPTS.tools_usage);
+  selectedPrompts.push("tools_usage");
 
-  // 2. Prompt específico da intenção (conta como 1 adicional)
+  prompts.push("\n---\n");
+  prompts.push(PROMPTS.formatting_rules);
+  selectedPrompts.push("formatting_rules");
+
+  prompts.push("\n---\n");
+  prompts.push(PROMPTS.execution_rules);
+  selectedPrompts.push("execution_rules");
+
+  prompts.push("\n---\n");
+  prompts.push(PROMPTS.product_rules);
+  selectedPrompts.push("product_rules");
+
   const intentPrompt = INTENT_TO_PROMPT[intent] || PROMPTS.greeting;
+  prompts.push("\n---\n");
   prompts.push(intentPrompt);
   selectedPrompts.push(intent || "greeting");
-  additionalPromptCount++;
 
-  if (additionalPromptCount < MAX_ADDITIONAL_PROMPTS) {
-    prompts.push("\n---\n");
-    prompts.push(orchestrationDirective);
-    selectedPrompts.push("session_orchestration_contract");
-    additionalPromptCount++;
-  }
+  prompts.push("\n---\n");
+  prompts.push(orchestrationDirective);
+  selectedPrompts.push("orchestration_directive");
 
-  // 2.1 Adicionar contexto de memória se disponível (conta como 1 adicional)
-  if (
-    customerMemory &&
-    customerMemory.summary &&
-    additionalPromptCount < MAX_ADDITIONAL_PROMPTS
-  ) {
+  if (customerMemory?.summary) {
     prompts.push("\n---\n");
     prompts.push(`[CONTEXTO DO CLIENTE]\n${customerMemory.summary}`);
     selectedPrompts.push("customer_memory_context");
-    additionalPromptCount++;
   }
 
-  // 3. SEMPRE ÚLTIMO - core_critical_rules (obrigatório, não conta como adicional)
   prompts.push("\n---\n");
-  prompts.push(PROMPTS.core_critical_rules);
-  selectedPrompts.push("core_critical_rules");
+  prompts.push(PROMPTS.security_rules);
+  selectedPrompts.push("security_rules");
 
   return {
     finalPrompt: prompts.join("\n"),

@@ -1,4 +1,5 @@
 import { addDays } from "date-fns";
+import { Prisma } from "@prisma/client";
 import prisma from "../database/prisma";
 
 const DEFAULT_PAGE = 1;
@@ -88,14 +89,31 @@ class N8nChatHistoryService {
     }
 
     const extractedPhone = sessionId.match(/^session-(\d+)$/)?.[1] ?? null;
+    try {
+      return await prisma.aIAgentSession.create({
+        data: {
+          id: sessionId,
+          customer_phone: extractedPhone,
+          expires_at: addDays(new Date(), 5),
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        // Evita quebrar listagem quando o telefone já estiver associado a outra sessão.
+        return prisma.aIAgentSession.create({
+          data: {
+            id: sessionId,
+            customer_phone: null,
+            expires_at: addDays(new Date(), 5),
+          },
+        });
+      }
 
-    return prisma.aIAgentSession.create({
-      data: {
-        id: sessionId,
-        customer_phone: extractedPhone,
-        expires_at: addDays(new Date(), 5),
-      },
-    });
+      throw error;
+    }
   }
 
   private async getSessionCustomerName(phone: string | null | undefined) {

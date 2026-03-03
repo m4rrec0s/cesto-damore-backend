@@ -17,18 +17,19 @@ class FollowUpService {
     return extracted || null;
   }
 
-  private async syncLastMessageFromN8nHistories() {
+  private async syncLastMessageFromN8nHistories(): Promise<Set<string>> {
     const rows = await prisma.$queryRaw<N8nLatestCustomerMessageRow[]>`
       SELECT
         session_id,
         MAX("createdAt") AS last_human_message_at
       FROM n8n_chat_histories
       WHERE LOWER(COALESCE(message->>'type', message->>'role', '')) IN ('human', 'user')
+        AND session_id NOT LIKE 'session-lab-%'
       GROUP BY session_id
     `;
 
     if (rows.length === 0) {
-      return;
+      return new Set<string>();
     }
 
     const sessionIds = rows.map((row) => row.session_id);
@@ -59,7 +60,7 @@ class FollowUpService {
     });
 
     if (latestByPhone.size === 0) {
-      return;
+      return new Set<string>();
     }
 
     const phones = [...latestByPhone.keys()];
@@ -99,6 +100,8 @@ class FollowUpService {
         });
       }
     }
+
+    return new Set(phones);
   }
 
   async getSentHistory() {
@@ -119,10 +122,18 @@ class FollowUpService {
 
   async triggerFollowUpFunction() {
     try {
-      await this.syncLastMessageFromN8nHistories();
+      const eligiblePhones = await this.syncLastMessageFromN8nHistories();
+
+      if (eligiblePhones.size === 0) {
+        logger.info(
+          "📊 [FollowUp] Nenhum telefone elegível (sessões LAB são ignoradas)",
+        );
+        return;
+      }
 
       const customersToProcess = await prisma.customer.findMany({
         where: {
+          number: { in: [...eligiblePhones] },
           follow_up: true,
           last_message_sent: { not: null },
         },

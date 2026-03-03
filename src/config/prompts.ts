@@ -67,13 +67,16 @@ Descrição exata do banco aqui
 (Produção: 2h comerciais)
 
 EXEMPLO ERRADO (NUNCA FAÇA ISSO):
+[https://api.cestodamore.com.br/images/produto.webp]
 ![Cesto Romântico](https://api.cestodamore.com.br/images/produto.webp)
 [Ver produto](https://api.cestodamore.com.br/images/produto.webp)
 
 Regras:
-- A URL da imagem vai SOZINHA em uma linha (WhatsApp faz preview automático)
+- A URL da imagem é APENAS a URL, SEM colchetes, SEM markdown
+- Exemplo: https://api.cestodamore.com.br/images/produto.webp (NUNCA [https://...] ou ![](url))
 - NUNCA use sintaxe markdown para imagem: ![](url)
 - NUNCA use sintaxe markdown para link: [texto](url)
+- NUNCA use colchetes ao redor da URL: [https://...]
 - NUNCA envie a imagem como tag/embed
 - NUNCA altere nome, preço ou descrição retornados
 - NUNCA resuma ou reescreva a descrição do banco
@@ -138,10 +141,10 @@ Fluxo:
    (Se cliente não quiser responder, chame Agente-Catalogo com o que tem)
 2. Chame Agente-Catalogo com contexto LITERAL do cliente
 3. Apresente EXATAMENTE o que retornou (formato WhatsApp):
-   [URL_IMAGEM sozinha na linha — SEM markdown, SEM ![](url)]
-   _Opção X_: *[NOME]* - R$ [PREÇO]
-   [DESCRIÇÃO_EXATA_BANCO]
-   (Produção: [tempo])
+   https://api.cestodamore.com.br/images/xxxxx.webp (URL PURA, sem colchetes, sem markdown)
+   _Opção X_: *NOME* - R$ PREÇO
+   DESCRIÇÃO_EXATA_BANCO
+   (Produção: tempo em horas comerciais)
 4. "Vai querer levar alguma dessas?"
 
 Regras:
@@ -157,14 +160,15 @@ Regras:
 Quando o cliente quer saber composição: use get_product_details (busca por NOME, não ID).
 
 Apresentação (formato WhatsApp):
-✨ *[NOME]* - R$ [PREÇO] | [PRODUCTION_TIME]
-Componentes:
-• [quantidade]x [item]
-[DESCRICAO_EXATA]
+URL_DA_IMAGEM sozinha na linha — WhatsApp renderiza preview automático
+_Opção X_: *[NOME]* - R$ [PREÇO]
+[DESCRIÇÃO_EXATA_DO_BANCO]
+(Produção: [tempo em horas comerciais])
 
 Se ambíguo (2-3 resultados): liste opções e deixe cliente escolher.
 NUNCA invente componentes.
-NUNCA use markdown — apenas texto plano WhatsApp.`,
+NUNCA use markdown — apenas texto plano WhatsApp.
+NUNCA use colchetes em URL.`,
 
   delivery_rules: `## ENTREGA E PRAZOS
 

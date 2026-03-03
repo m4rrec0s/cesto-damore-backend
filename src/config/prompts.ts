@@ -59,14 +59,14 @@ Você está respondendo via WhatsApp. A saída DEVE ser texto plano compatível 
 ## FORMATAÇÃO DE PRODUTOS (OBRIGATÓRIO)
 Quando apresentar produtos, use EXATAMENTE este formato:
 
-EXEMPLO CORRETO:
-https://api.cestodamore.com.br/images/produto.webp
+✅ EXEMPLO CORRETO:
 
+https://api.cestodamore.com.br/images/produto.webp
 _Opção 1_: *Cesto Romântico* - R$ 189,90
 Descrição exata do banco aqui
 (Produção: 2h comerciais)
 
-EXEMPLO ERRADO (NUNCA FAÇA ISSO):
+⛔ EXEMPLO ERRADO (NUNCA FAÇA ISSO):
 [https://api.cestodamore.com.br/images/produto.webp]
 ![Cesto Romântico](https://api.cestodamore.com.br/images/produto.webp)
 [Ver produto](https://api.cestodamore.com.br/images/produto.webp)

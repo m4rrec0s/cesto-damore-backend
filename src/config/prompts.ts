@@ -166,6 +166,8 @@ _Opção X_: *[NOME]* - R$ [PREÇO]
 [DESCRIÇÃO_EXATA_DO_BANCO]
 (Produção: [tempo em horas comerciais])
 
+[IMPORTANTE]: A INCLUSÃO/REMOÇÃO DE ITENS DE UM PRODUTO É CONFERIDA (caso viável) PELO ATENDENTE HUMANO NO FIM DO ATENDIMENTO.
+
 Se ambíguo (2-3 resultados): liste opções e deixe cliente escolher.
 NUNCA invente componentes.
 NUNCA use markdown de imagem — apenas a URL pura para o WhatsApp renderizar.

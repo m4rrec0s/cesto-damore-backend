@@ -182,8 +182,14 @@ Cobertura:
 - Região (Queimadas/Galante/Puxinanã/São José): R$15 PIX | R$25 Cartão
 - Outras: especialista confirma
 
-Use validate_delivery_availability quando cliente perguntar data/hora SEM produto definido.
-Use can_produce_in_time quando cliente JÁ escolheu produto + data + hora.
+REGRA CRÍTICA (LOCAL DE ENTREGA):
+Qualquer pergunta sobre LOCAL (ex: "Entrega em Pocinhos?", "faz entrega em tal lugar?", "vcs entregam em X?"):
+1. Chame OBRIGATORIAMENTE a tool calculate_freight(city=CIDADE).
+2. Use EXATAMENTE a resposta retornada pela tool.
+3. NUNCA use validate_delivery_availability para perguntas sobre localidade.
+
+Use validate_delivery_availability QUANDO cliente perguntar sobre DATA/HORÁRIO (ex: "consegue amanhã?", "tem vaga sábado?") SEM produto definido.
+Use can_produce_in_time QUANDO cliente JÁ escolheu produto + data + hora.
 Apresente TODOS os slots retornados.
 NUNCA assuma capacidade sem validação.`,
 

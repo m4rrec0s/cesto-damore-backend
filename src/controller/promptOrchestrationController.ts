@@ -9,6 +9,14 @@ interface OrchestrationRequest {
   customer_name?: string;
   session_id?: string;
   latest_message: string;
+  [key: string]: unknown;
+}
+
+interface PromptInjectionMetadata {
+  syntax: string;
+  available_fields: string[];
+  default_fields: string[];
+  dynamic_rule: string;
 }
 
 interface OrchestrationResponse {
@@ -20,6 +28,7 @@ interface OrchestrationResponse {
   is_first_message?: boolean;
   should_activate_agente_contexto?: boolean;
   customer_memory?: any;
+  prompt_injection?: PromptInjectionMetadata;
   error?: string;
 }
 
@@ -51,6 +60,79 @@ interface PromptPriorityInstructionRow {
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const PROMPT_VARIABLE_SYNTAX = "{{field_name}}";
+const DEFAULT_PROMPT_VARIABLE_FIELDS = [
+  "customer_phone",
+  "customer_name",
+  "session_id",
+  "latest_message",
+] as const;
+
+function stringifyPromptVariable(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+
+  return "";
+}
+
+function extractPromptVariablesFromBody(
+  body: Record<string, unknown>,
+): Record<string, string> {
+  const variables: Record<string, string> = {};
+
+  Object.entries(body || {}).forEach(([key, value]) => {
+    if (!key || typeof key !== "string") return;
+    variables[key] = stringifyPromptVariable(value);
+  });
+
+  return variables;
+}
+
+function renderPromptWithVariables(
+  promptText: string,
+  variables: Record<string, string>,
+): string {
+  return promptText.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
+    if (Object.prototype.hasOwnProperty.call(variables, key)) {
+      return variables[key] ?? "";
+    }
+
+    return match;
+  });
+}
+
+function buildPromptInjectionMetadata(
+  body: Record<string, unknown>,
+): PromptInjectionMetadata {
+  const dynamicFields = Object.keys(body || {}).filter(Boolean);
+  const uniqueFields = Array.from(
+    new Set([...DEFAULT_PROMPT_VARIABLE_FIELDS, ...dynamicFields]),
+  ).sort();
+
+  return {
+    syntax: PROMPT_VARIABLE_SYNTAX,
+    available_fields: uniqueFields,
+    default_fields: [...DEFAULT_PROMPT_VARIABLE_FIELDS],
+    dynamic_rule:
+      "Qualquer chave de primeiro nivel enviada no body de /ai/orchestrate-prompt vira variavel injetavel no formato {{chave}}.",
+  };
+}
 
 let promptPriorityInstructionsTableReadyPromise: Promise<void> | null = null;
 
@@ -624,6 +706,7 @@ export async function orchestratePrompt(
   res: Response<OrchestrationResponse>,
 ): Promise<Response<OrchestrationResponse> | undefined> {
   try {
+    const requestBody = (req.body || {}) as Record<string, unknown>;
     const {
       customer_phone,
       customer_name = "Cliente",
@@ -649,6 +732,8 @@ export async function orchestratePrompt(
     logger.info(
       `[PromptOrchestration] Processando: ${customer_phone} | ${latest_message.substring(0, 50)}...`,
     );
+    const promptVariables = extractPromptVariablesFromBody(requestBody);
+    const promptInjection = buildPromptInjectionMetadata(requestBody);
 
     // 1. SEGURANÇA: Criar/verificar AIAgentSession
     const finalSessionId = await ensureAIAgentSession(
@@ -676,6 +761,7 @@ export async function orchestratePrompt(
     const activePromptOverrides = await loadActivePromptPriorityOverrides();
     const highPriorityInstructions = activePromptOverrides
       .map((row) => row.prompt_text?.trim() || "")
+      .map((row) => renderPromptWithVariables(row, promptVariables))
       .filter(Boolean);
     const isFirstMessage = chatHistory.length <= 1;
     const shouldActivateContextAgent = shouldActivateAgenteContexto(
@@ -715,6 +801,7 @@ export async function orchestratePrompt(
             conversation_stage: customerMemory.conversation_stage,
           }
         : null,
+      prompt_injection: promptInjection,
     });
   } catch (error) {
     console.error(`[PromptOrchestration] Erro fatal:`, error);
@@ -795,9 +882,11 @@ async function listPromptPriorityOverrides(
 ): Promise<Response<any> | undefined> {
   try {
     const rows = await loadPromptPriorityOverrides();
+    const promptInjection = buildPromptInjectionMetadata({});
     return res.status(200).json({
       status: "success",
       prompts: rows.map(serializePromptOverride),
+      prompt_injection: promptInjection,
     });
   } catch (error) {
     logger.error("[PromptOrchestration] Erro ao listar prompt overrides", error);

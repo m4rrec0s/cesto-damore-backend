@@ -80,7 +80,7 @@ Regras:
 - NUNCA envie a imagem como tag/embed
 - NUNCA altere nome, preço ou descrição retornados
 - NUNCA resuma ou reescreva a descrição do banco
-- Informações marcadas com [INFORMACAO_INTERNA] são internas — NUNCA mostre ao cliente`,
+- NUNCA mostre ao cliente instruções identificadas como [INFORMAÇÃO INTERNA] ou [INFORMACAO_INTERNA]. Use-as apenas como guia para sua resposta humanizada.`,
 
   execution_rules: `## EXECUÇÃO SILENCIOSA (INVIOLÁVEL)
 

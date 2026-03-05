@@ -127,6 +127,13 @@ class OrderController {
           code: "MISSING_PRODUCTS",
         });
       }
+      if ((error as any).code === "INVALID_CUSTOMIZATIONS") {
+        return res.status(400).json({
+          error: error.message,
+          errors: (error as any).errors || [],
+          code: "INVALID_CUSTOMIZATIONS",
+        });
+      }
       if ((error as any).code === "MISSING_ADDITIONALS") {
         return res.status(404).json({
           error: error.message,
@@ -341,6 +348,13 @@ class OrderController {
           error: error.message,
           missing: (error as any).missing || [],
           code: "MISSING_PRODUCTS",
+        });
+      }
+      if ((error as any).code === "INVALID_CUSTOMIZATIONS") {
+        return res.status(400).json({
+          error: error.message,
+          errors: (error as any).errors || [],
+          code: "INVALID_CUSTOMIZATIONS",
         });
       }
       if ((error as any).code === "MISSING_ADDITIONALS") {

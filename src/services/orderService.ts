@@ -84,6 +84,19 @@ const ACCEPTED_CITIES: Record<string, { pix: number; card: number }> = {
   "sao jose da mata": { pix: 15, card: 25 },
 };
 
+const ORDER_PRODUCT_SELECT = {
+  id: true,
+  name: true,
+  description: true,
+  price: true,
+  discount: true,
+  image_url: true,
+  type_id: true,
+  production_time: true,
+  created_at: true,
+  updated_at: true,
+} as const;
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -237,6 +250,40 @@ class OrderService {
     }));
   }
 
+  private async validateRequiredCustomizations(items: CreateOrderItem[]) {
+    const itemsForValidation = items.map((item) => ({
+      product_id: item.product_id,
+      customizations: (item.customizations || []).map((customization) => ({
+        customization_id: customization.customization_id || "",
+        customization_type: customization.customization_type as any,
+        value: customization.customization_data || customization.title || {},
+      })),
+    }));
+
+    const customizationValidation =
+      await validateOrderCustomizations(itemsForValidation);
+
+    if (!customizationValidation.isValid) {
+      logger.error(
+        "❌ [OrderService] Customizações inválidas:",
+        customizationValidation.errors,
+      );
+      const error = new Error(
+        `Customizações obrigatórias não preenchidas:\n${customizationValidation.errors.join("\n")}`,
+      );
+      (error as any).code = "INVALID_CUSTOMIZATIONS";
+      (error as any).errors = customizationValidation.errors;
+      throw error;
+    }
+
+    if (customizationValidation.warnings.length > 0) {
+      logger.warn(
+        "⚠️ [OrderService] Avisos de customização:",
+        customizationValidation.warnings,
+      );
+    }
+  }
+
   private normalizeStatus(status: string): OrderStatus {
     const normalized = status?.trim().toUpperCase();
     if (!ORDER_STATUSES.includes(normalized as OrderStatus)) {
@@ -287,7 +334,9 @@ class OrderService {
                     additional: true,
                   },
                 },
-                product: true,
+                product: {
+                  select: ORDER_PRODUCT_SELECT,
+                },
                 customizations: true,
               },
             },
@@ -347,7 +396,9 @@ class OrderService {
                 additional: true,
               },
             },
-            product: true,
+            product: {
+              select: ORDER_PRODUCT_SELECT,
+            },
             customizations: {
               include: {
                 customization: true,
@@ -385,7 +436,9 @@ class OrderService {
                 additional: true,
               },
             },
-            product: true,
+            product: {
+              select: ORDER_PRODUCT_SELECT,
+            },
             customizations: {
               include: {
                 customization: true,
@@ -426,7 +479,9 @@ class OrderService {
                   additional: true,
                 },
               },
-              product: true,
+              product: {
+                select: ORDER_PRODUCT_SELECT,
+              },
               customizations: {
                 include: {
                   customization: true,
@@ -584,18 +639,6 @@ class OrderService {
     }
 
     try {
-      try {
-        await this.cancelPreviousPendingOrders(data.user_id);
-        logger.info(
-          `✅ [OrderService] Pedidos PENDING anteriores cancelados para usuário ${data.user_id}`,
-        );
-      } catch (error) {
-        logger.error(
-          "⚠️ Erro ao cancelar pedidos anteriores (continuando):",
-          error instanceof Error ? error.message : error,
-        );
-      }
-
       const user = await prisma.user.findUnique({
         where: { id: data.user_id },
       });
@@ -723,39 +766,7 @@ class OrderService {
         logger.info(
           "🔍 [OrderService] Validando customizações obrigatórias...",
         );
-
-        const itemsForValidation = data.items.map((item) => ({
-          product_id: item.product_id,
-          customizations: (item.customizations || []).map((customization) => ({
-            customization_id: customization.customization_id || "",
-            customization_type: customization.customization_type as any,
-            value:
-              customization.customization_data || customization.title || {},
-          })),
-        }));
-
-        const customizationValidation =
-          await validateOrderCustomizations(itemsForValidation);
-
-        if (!customizationValidation.isValid) {
-          logger.error(
-            "❌ [OrderService] Customizações inválidas:",
-            customizationValidation.errors,
-          );
-          const error = new Error(
-            `Customizações obrigatórias não preenchidas:\n${customizationValidation.errors.join("\n")}`,
-          );
-          (error as any).code = "INVALID_CUSTOMIZATIONS";
-          (error as any).errors = customizationValidation.errors;
-          throw error;
-        }
-
-        if (customizationValidation.warnings.length > 0) {
-          logger.warn(
-            "⚠️ [OrderService] Avisos de customização:",
-            customizationValidation.warnings,
-          );
-        }
+        await this.validateRequiredCustomizations(data.items);
 
         logger.info("✅ [OrderService] Customizações válidas");
       }
@@ -825,9 +836,47 @@ class OrderService {
         }
       }
 
+      const existingPending = await prisma.order.findFirst({
+        where: {
+          user_id: orderData.user_id,
+          status: "PENDING",
+        },
+        select: { id: true },
+        orderBy: { created_at: "desc" },
+      });
+
+      if (existingPending?.id) {
+        logger.info(
+          `♻️ [OrderService] Reutilizando pedido pendente existente ${existingPending.id} para usuário ${orderData.user_id}`,
+        );
+
+        await this.updateOrderMetadata(existingPending.id, {
+          send_anonymously: data.send_anonymously || false,
+          complement: orderData.complement,
+          delivery_address: orderData.delivery_address,
+          delivery_city: orderData.delivery_city,
+          delivery_state: orderData.delivery_state,
+          recipient_phone:
+            phoneDigits.length >= 10 ? phoneDigits : undefined,
+          delivery_date: orderData.delivery_date || null,
+          shipping_price,
+          payment_method:
+            paymentMethod === "pix" || paymentMethod === "card"
+              ? (paymentMethod as "pix" | "card")
+              : undefined,
+          discount,
+          delivery_method: orderData.delivery_method || "delivery",
+        });
+
+        await this.updateOrderItems(existingPending.id, items);
+
+        return await this.getOrderById(existingPending.id);
+      }
+
       const created = await prisma.order.create({
         data: {
           user_id: orderData.user_id,
+          pending_owner_key: orderData.user_id,
           discount,
           total,
           delivery_address: orderData.delivery_address,
@@ -943,6 +992,45 @@ class OrderService {
 
       return await this.getOrderById(created.id);
     } catch (error: any) {
+      if (error?.code === "P2002") {
+        logger.warn(
+          `⚠️ [OrderService] Conflito de unicidade ao criar pedido pendente para usuário ${data.user_id}. Reutilizando pedido existente.`,
+        );
+
+        const existingPending = await prisma.order.findFirst({
+          where: { user_id: data.user_id, status: "PENDING" },
+          select: { id: true },
+          orderBy: { created_at: "desc" },
+        });
+
+        if (existingPending?.id) {
+          const recipientDigits = (data.recipient_phone || "").replace(/\D/g, "");
+          const normalizedRecipient =
+            recipientDigits.length >= 10 && !recipientDigits.startsWith("55")
+              ? `55${recipientDigits}`
+              : recipientDigits;
+
+          await this.updateOrderMetadata(existingPending.id, {
+            send_anonymously: data.send_anonymously || false,
+            complement: data.complement,
+            delivery_address: data.delivery_address,
+            delivery_city: data.delivery_city,
+            delivery_state: data.delivery_state,
+            recipient_phone:
+              normalizedRecipient.length >= 12 ? normalizedRecipient : undefined,
+            delivery_date: data.delivery_date || null,
+            payment_method:
+              data.payment_method === "pix" || data.payment_method === "card"
+                ? data.payment_method
+                : undefined,
+            discount: data.discount || 0,
+            delivery_method: data.delivery_method || "delivery",
+          });
+          await this.updateOrderItems(existingPending.id, data.items);
+          return await this.getOrderById(existingPending.id);
+        }
+      }
+
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("não encontrado") ||
@@ -1296,6 +1384,11 @@ class OrderService {
     };
 
     if (order.payment_method) {
+      logger.info(
+        "🔍 [OrderService] Validando customizações obrigatórias na atualização do pedido...",
+      );
+      await this.validateRequiredCustomizations(items);
+
       const stockValidation = await stockService.validateOrderStock(items);
       if (!stockValidation.valid) {
         throw new Error(
@@ -1451,7 +1544,11 @@ class OrderService {
 
           await tx.order.update({
             where: { id: orderId },
-            data: { total, grand_total },
+            data: {
+              total,
+              grand_total,
+              pending_owner_key: order.user_id,
+            },
           });
           const txDuration = Date.now() - txStart;
           console.log(
@@ -1649,6 +1746,8 @@ class OrderService {
       updateData.grand_total = newGrandTotal;
     }
 
+    updateData.pending_owner_key = order.user_id;
+
     await prisma.order.update({ where: { id: orderId }, data: updateData });
 
     return await this.getOrderById(orderId);
@@ -1671,7 +1770,7 @@ class OrderService {
 
     const current = await prisma.order.findUnique({
       where: { id },
-      select: { status: true },
+      select: { status: true, user_id: true },
     });
 
     if (!current) {
@@ -1686,6 +1785,8 @@ class OrderService {
       where: { id },
       data: {
         status: normalizedStatus,
+        pending_owner_key:
+          normalizedStatus === "PENDING" ? current.user_id : null,
       },
       include: {
         items: {
@@ -1695,7 +1796,9 @@ class OrderService {
                 additional: true,
               },
             },
-            product: true,
+            product: {
+              select: ORDER_PRODUCT_SELECT,
+            },
             customizations: true,
           },
         },
@@ -1927,7 +2030,9 @@ class OrderService {
       include: {
         items: {
           include: {
-            product: true,
+            product: {
+              select: ORDER_PRODUCT_SELECT,
+            },
             additionals: {
               include: { additional: true },
             },
@@ -2005,11 +2110,14 @@ class OrderService {
       where: { id: orderId },
       data: {
         status: "CANCELED",
+        pending_owner_key: null,
       },
       include: {
         items: {
           include: {
-            product: true,
+            product: {
+              select: ORDER_PRODUCT_SELECT,
+            },
             additionals: {
               include: { additional: true },
             },

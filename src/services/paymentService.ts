@@ -923,6 +923,8 @@ export class PaymentService {
           payment_method: resolvedMethod === "pix" ? "pix" : "card",
           status:
             mercadoPagoResult.status === "approved" ? "PAID" : order.status,
+          pending_owner_key:
+            mercadoPagoResult.status === "approved" ? null : undefined,
           grand_total: amount,
         },
       });
@@ -1858,7 +1860,7 @@ export class PaymentService {
       if (["cancelled", "rejected"].includes(paymentInfo.status as string)) {
         await prisma.order.update({
           where: { id: dbPayment.order_id },
-          data: { status: "CANCELED" },
+          data: { status: "CANCELED", pending_owner_key: null },
         });
       }
       return true;

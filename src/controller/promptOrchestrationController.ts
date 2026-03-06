@@ -45,6 +45,7 @@ interface PromptPriorityInstructionConfig {
   updated_at: string;
   is_active_now: boolean;
   trigger_keywords?: string | null;
+  display_order: number;
 }
 
 interface PromptPriorityInstructionRow {
@@ -57,6 +58,7 @@ interface PromptPriorityInstructionRow {
   created_at: Date;
   updated_at: Date;
   trigger_keywords: string | null;
+  display_order: number;
 }
 
 const openai = new OpenAI({
@@ -184,7 +186,8 @@ async function ensurePromptPriorityInstructionsTable(): Promise<void> {
         expires_at TIMESTAMPTZ NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        trigger_keywords TEXT NULL
+        trigger_keywords TEXT NULL,
+        display_order INTEGER NOT NULL DEFAULT 0
       );
     `,
     )
@@ -203,9 +206,9 @@ async function loadPromptPriorityOverrides(): Promise<
   await ensurePromptPriorityInstructionsTable();
 
   return prisma.$queryRaw<PromptPriorityInstructionRow[]>`
-    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
+    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords, display_order
     FROM llm_prompt_priority_instructions
-    ORDER BY created_at ASC, id ASC
+    ORDER BY display_order ASC, created_at ASC, id ASC
   `;
 }
 
@@ -215,7 +218,7 @@ async function loadActivePromptPriorityOverrides(): Promise<
   await ensurePromptPriorityInstructionsTable();
 
   return prisma.$queryRaw<PromptPriorityInstructionRow[]>`
-    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
+    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords, display_order
     FROM llm_prompt_priority_instructions
     WHERE
       is_enabled = TRUE
@@ -225,7 +228,7 @@ async function loadActivePromptPriorityOverrides(): Promise<
         is_permanent = TRUE
         OR (expires_at IS NOT NULL AND expires_at >= NOW())
       )
-    ORDER BY created_at ASC, id ASC
+    ORDER BY display_order ASC, created_at ASC, id ASC
   `;
 }
 
@@ -243,14 +246,15 @@ async function createPromptPriorityOverride(input: {
   const now = new Date();
   const rows = await prisma.$queryRaw<PromptPriorityInstructionRow[]>`
     INSERT INTO llm_prompt_priority_instructions (
-      prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at, trigger_keywords
+      prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at, trigger_keywords, display_order
     )
     VALUES (
       ${input.prompt_text}, ${input.is_enabled}, ${isPermanent},
       ${input.starts_at}, ${isPermanent ? null : input.expires_at}, ${now},
-      ${input.trigger_keywords || null}
+      ${input.trigger_keywords || null},
+      (SELECT COALESCE(MAX(display_order), -1) + 1 FROM llm_prompt_priority_instructions)
     )
-    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
+    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords, display_order
   `;
 
   return rows[0];
@@ -282,7 +286,7 @@ async function updatePromptPriorityOverrideById(
       updated_at = ${now},
       trigger_keywords = ${input.trigger_keywords || null}
     WHERE id = ${id}
-    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
+    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords, display_order
   `;
 
   return rows[0] || null;
@@ -313,7 +317,36 @@ function serializePromptOverride(
     updated_at: row.updated_at.toISOString(),
     is_active_now: isPromptOverrideActive(row),
     trigger_keywords: row.trigger_keywords,
+    display_order: row.display_order || 0,
   };
+}
+
+async function reorderPromptPriorityOverrides(
+  req: Request<{}, {}, { ids: number[] }>,
+  res: Response,
+): Promise<Response> {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids)) {
+      return res
+        .status(400)
+        .json({ status: "error", error: "ids deve ser um array" });
+    }
+
+    await prisma.$transaction(
+      ids.map(
+        (id, index) =>
+          prisma.$executeRaw`UPDATE llm_prompt_priority_instructions SET display_order = ${index} WHERE id = ${id}`,
+      ),
+    );
+
+    return res.status(200).json({ status: "success" });
+  } catch (error) {
+    logger.error("[PromptOrchestration] Erro ao reordenar prompts", error);
+    return res
+      .status(500)
+      .json({ status: "error", error: "Erro ao reordenar" });
+  }
 }
 
 /**
@@ -1181,4 +1214,5 @@ export {
   createPromptPriorityOverrideHandler,
   updatePromptPriorityOverrideHandler,
   deletePromptPriorityOverrideHandler,
+  reorderPromptPriorityOverrides,
 };

@@ -1136,6 +1136,13 @@ router.put(
   promptOrchestrationController.updatePromptPriorityOverrideHandler,
 );
 
+router.post(
+  "/admin/ai/prompt-overrides/reorder",
+  authenticateToken,
+  requireAdmin,
+  promptOrchestrationController.reorderPromptPriorityOverrides,
+);
+
 router.delete(
   "/admin/ai/prompt-overrides/:id",
   authenticateToken,

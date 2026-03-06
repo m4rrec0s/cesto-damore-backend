@@ -4,13 +4,16 @@ import orderService from "../services/orderService";
 class OrderController {
   async index(req: Request, res: Response) {
     try {
-      const { status, page = "1", limit = "8" } = req.query;
+      const { status, page = "1", limit = "8", summary } = req.query;
       const pageNum = Math.max(1, parseInt(String(page), 10));
       const limitNum = Math.max(1, Math.min(100, parseInt(String(limit), 10)));
+      const summaryMode =
+        String(summary).toLowerCase() === "true" || String(summary) === "1";
 
       const orders = await orderService.getAllOrders(
         status ? { status: String(status) } : undefined,
         { page: pageNum, limit: limitNum },
+        { summary: summaryMode },
       );
       res.json(orders);
     } catch (error: any) {

@@ -28,6 +28,10 @@ interface PaginationParams {
   limit?: number;
 }
 
+interface OrdersListOptions {
+  summary?: boolean;
+}
+
 interface PaginatedResponse<T> {
   data: T[];
   pagination: {
@@ -318,56 +322,96 @@ class OrderService {
     };
   }
 
-  async getAllOrders(filter?: OrderFilter, pagination?: PaginationParams) {
+  async getAllOrders(
+    filter?: OrderFilter,
+    pagination?: PaginationParams,
+    options?: OrdersListOptions,
+  ) {
     try {
       const page = pagination?.page || 1;
       const limit = pagination?.limit || 50;
       const skip = (page - 1) * limit;
+      const summaryMode = options?.summary === true;
+
+      const where = {
+        status: this.buildStatusWhere(filter),
+      };
 
       const [orders, total] = await Promise.all([
-        prisma.order.findMany({
-          include: {
-            items: {
-              include: {
-                additionals: {
-                  include: {
-                    additional: true,
+        summaryMode
+          ? prisma.order.findMany({
+              where,
+              orderBy: {
+                created_at: "desc",
+              },
+              skip,
+              take: limit,
+              select: {
+                id: true,
+                status: true,
+                total: true,
+                grand_total: true,
+                created_at: true,
+                recipient_phone: true,
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    phone: true,
                   },
                 },
-                product: {
-                  select: ORDER_PRODUCT_SELECT,
+                _count: {
+                  select: {
+                    items: true,
+                  },
                 },
-                customizations: true,
               },
-            },
-            user: true,
-            payment: true,
-          },
-          where: {
-            status: this.buildStatusWhere(filter),
-          },
-          orderBy: {
-            created_at: "desc",
-          },
-          skip,
-          take: limit,
-        }),
-        prisma.order.count({
-          where: {
-            status: this.buildStatusWhere(filter),
-          },
-        }),
+            })
+          : prisma.order.findMany({
+              include: {
+                items: {
+                  include: {
+                    additionals: {
+                      include: {
+                        additional: true,
+                      },
+                    },
+                    product: {
+                      select: ORDER_PRODUCT_SELECT,
+                    },
+                    customizations: true,
+                  },
+                },
+                user: true,
+                payment: true,
+              },
+              where,
+              orderBy: {
+                created_at: "desc",
+              },
+              skip,
+              take: limit,
+            }),
+        prisma.order.count({ where }),
       ]);
 
-      const enriched = this.enrichCustomizations(orders);
-
-      const sanitized = this.sanitizeBase64FromCustomizations(enriched);
+      const data = summaryMode
+        ? (orders as Array<
+            Record<string, unknown> & { _count?: { items?: number } }
+          >).map((order) => ({
+            ...order,
+            items_count: order._count?.items || 0,
+            _count: undefined,
+          }))
+        : this.sanitizeBase64FromCustomizations(
+            this.enrichCustomizations(orders as any[]),
+          );
 
       const totalPages = Math.ceil(total / limit);
       const hasMore = page < totalPages;
 
       return {
-        data: sanitized,
+        data,
         pagination: {
           page,
           limit,

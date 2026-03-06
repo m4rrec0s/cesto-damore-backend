@@ -566,14 +566,15 @@ model llm_prompt_overrides {
 }
 
 model llm_prompt_priority_instructions {
-  id           Int       @id @default(autoincrement())
-  prompt_text  String    @default("")
-  is_enabled   Boolean   @default(false)
-  is_permanent Boolean   @default(false)
-  starts_at    DateTime? @db.Timestamptz(6)
-  expires_at   DateTime? @db.Timestamptz(6)
-  created_at   DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  id               Int       @id @default(autoincrement())
+  prompt_text      String    @default("")
+  is_enabled       Boolean   @default(false)
+  is_permanent     Boolean   @default(false)
+  starts_at        DateTime? @db.Timestamptz(6)
+  expires_at       DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  trigger_keywords String?
 }
 
 enum PaymentStatus {

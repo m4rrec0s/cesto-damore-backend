@@ -44,6 +44,7 @@ interface PromptPriorityInstructionConfig {
   created_at: string;
   updated_at: string;
   is_active_now: boolean;
+  trigger_keywords?: string | null;
 }
 
 interface PromptPriorityInstructionRow {
@@ -55,6 +56,7 @@ interface PromptPriorityInstructionRow {
   expires_at: Date | null;
   created_at: Date;
   updated_at: Date;
+  trigger_keywords: string | null;
 }
 
 const openai = new OpenAI({
@@ -171,7 +173,8 @@ async function ensurePromptPriorityInstructionsTable(): Promise<void> {
   }
 
   promptPriorityInstructionsTableReadyPromise = prisma
-    .$executeRawUnsafe(`
+    .$executeRawUnsafe(
+      `
       CREATE TABLE IF NOT EXISTS llm_prompt_priority_instructions (
         id SERIAL PRIMARY KEY,
         prompt_text TEXT NOT NULL DEFAULT '',
@@ -180,9 +183,11 @@ async function ensurePromptPriorityInstructionsTable(): Promise<void> {
         starts_at TIMESTAMPTZ NULL,
         expires_at TIMESTAMPTZ NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        trigger_keywords TEXT NULL
       );
-    `)
+    `,
+    )
     .then(() => undefined)
     .catch((error) => {
       promptPriorityInstructionsTableReadyPromise = null;
@@ -192,11 +197,13 @@ async function ensurePromptPriorityInstructionsTable(): Promise<void> {
   return promptPriorityInstructionsTableReadyPromise;
 }
 
-async function loadPromptPriorityOverrides(): Promise<PromptPriorityInstructionRow[]> {
+async function loadPromptPriorityOverrides(): Promise<
+  PromptPriorityInstructionRow[]
+> {
   await ensurePromptPriorityInstructionsTable();
 
   return prisma.$queryRaw<PromptPriorityInstructionRow[]>`
-    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
+    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
     FROM llm_prompt_priority_instructions
     ORDER BY created_at ASC, id ASC
   `;
@@ -208,7 +215,7 @@ async function loadActivePromptPriorityOverrides(): Promise<
   await ensurePromptPriorityInstructionsTable();
 
   return prisma.$queryRaw<PromptPriorityInstructionRow[]>`
-    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
+    SELECT id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
     FROM llm_prompt_priority_instructions
     WHERE
       is_enabled = TRUE
@@ -228,6 +235,7 @@ async function createPromptPriorityOverride(input: {
   mode: PromptOverrideMode;
   starts_at: Date | null;
   expires_at: Date | null;
+  trigger_keywords?: string | null;
 }): Promise<PromptPriorityInstructionRow> {
   await ensurePromptPriorityInstructionsTable();
 
@@ -235,13 +243,14 @@ async function createPromptPriorityOverride(input: {
   const now = new Date();
   const rows = await prisma.$queryRaw<PromptPriorityInstructionRow[]>`
     INSERT INTO llm_prompt_priority_instructions (
-      prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at
+      prompt_text, is_enabled, is_permanent, starts_at, expires_at, updated_at, trigger_keywords
     )
     VALUES (
       ${input.prompt_text}, ${input.is_enabled}, ${isPermanent},
-      ${input.starts_at}, ${isPermanent ? null : input.expires_at}, ${now}
+      ${input.starts_at}, ${isPermanent ? null : input.expires_at}, ${now},
+      ${input.trigger_keywords || null}
     )
-    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
+    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
   `;
 
   return rows[0];
@@ -255,6 +264,7 @@ async function updatePromptPriorityOverrideById(
     mode: PromptOverrideMode;
     starts_at: Date | null;
     expires_at: Date | null;
+    trigger_keywords?: string | null;
   },
 ): Promise<PromptPriorityInstructionRow | null> {
   await ensurePromptPriorityInstructionsTable();
@@ -269,9 +279,10 @@ async function updatePromptPriorityOverrideById(
       is_permanent = ${isPermanent},
       starts_at = ${input.starts_at},
       expires_at = ${isPermanent ? null : input.expires_at},
-      updated_at = ${now}
+      updated_at = ${now},
+      trigger_keywords = ${input.trigger_keywords || null}
     WHERE id = ${id}
-    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at
+    RETURNING id, prompt_text, is_enabled, is_permanent, starts_at, expires_at, created_at, updated_at, trigger_keywords
   `;
 
   return rows[0] || null;
@@ -301,6 +312,7 @@ function serializePromptOverride(
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
     is_active_now: isPromptOverrideActive(row),
+    trigger_keywords: row.trigger_keywords,
   };
 }
 
@@ -637,9 +649,13 @@ function buildFinalPrompts(
   messageHistory: any[],
   orchestrationDirective: string,
   highPriorityInstructions: string[] = [],
+  activeOverridesCountMatchingKeywords: number = 0,
 ): { finalPrompt: string; selectedPrompts: string[] } {
   const prompts: string[] = [];
   const selectedPrompts: string[] = [];
+
+  // Se houver instruções prioritárias que combinam com palavras-chave, enviamos o mínimo possível
+  const isHighPriorityEvent = activeOverridesCountMatchingKeywords > 0;
 
   if (highPriorityInstructions.length > 0) {
     const normalized = highPriorityInstructions
@@ -647,7 +663,9 @@ function buildFinalPrompts(
       .filter(Boolean);
 
     if (normalized.length > 0) {
-      const list = normalized.map((text, index) => `${index + 1}. ${text}`).join("\n");
+      const list = normalized
+        .map((text, index) => `${index + 1}. ${text}`)
+        .join("\n");
       prompts.push(`[LISTA DE DIRETRIZES PRIORITÁRIAS DO MANAGER]\n${list}`);
       selectedPrompts.push("manager_high_priority_overrides_list");
       prompts.push("\n---\n");
@@ -657,21 +675,31 @@ function buildFinalPrompts(
   prompts.push(PROMPTS.core_identity);
   selectedPrompts.push("core_identity");
 
-  prompts.push("\n---\n");
-  prompts.push(PROMPTS.tools_usage);
-  selectedPrompts.push("tools_usage");
+  // Prompts bloqueados em eventos de alta prioridade para economizar contexto e focar na diretriz
+  if (!isHighPriorityEvent) {
+    prompts.push("\n---\n");
+    prompts.push(PROMPTS.tools_usage);
+    selectedPrompts.push("tools_usage");
 
-  prompts.push("\n---\n");
-  prompts.push(PROMPTS.formatting_rules);
-  selectedPrompts.push("formatting_rules");
+    prompts.push("\n---\n");
+    prompts.push(PROMPTS.formatting_rules);
+    selectedPrompts.push("formatting_rules");
 
-  prompts.push("\n---\n");
-  prompts.push(PROMPTS.execution_rules);
-  selectedPrompts.push("execution_rules");
+    prompts.push("\n---\n");
+    prompts.push(PROMPTS.execution_rules);
+    selectedPrompts.push("execution_rules");
 
-  prompts.push("\n---\n");
-  prompts.push(PROMPTS.product_rules);
-  selectedPrompts.push("product_rules");
+    prompts.push("\n---\n");
+    prompts.push(PROMPTS.product_rules);
+    selectedPrompts.push("product_rules");
+  } else {
+    // Versão minimalista de regras apenas para garantir o funcionamento básico
+    prompts.push("\n---\n");
+    prompts.push(
+      "## REGRAS DE EXECUÇÃO (MODO EVENTO)\nExecute tools diretamente. Formate para WhatsApp (URL de imagem primeiro).",
+    );
+    selectedPrompts.push("minimal_execution_rules");
+  }
 
   const intentPrompt = INTENT_TO_PROMPT[intent] || PROMPTS.greeting;
   prompts.push("\n---\n");
@@ -759,10 +787,25 @@ export async function orchestratePrompt(
 
     const hasMemory = hasActiveCustomerMemory(customerMemory);
     const activePromptOverrides = await loadActivePromptPriorityOverrides();
+
+    const lowMessage = latest_message.toLowerCase();
+    let matchingKeywordsCount = 0;
+
     const highPriorityInstructions = activePromptOverrides
+      .filter((row) => {
+        if (!row.trigger_keywords) return true;
+        const keywords = row.trigger_keywords
+          .split(",")
+          .map((k) => k.trim().toLowerCase())
+          .filter(Boolean);
+        const matches = keywords.some((k) => lowMessage.includes(k));
+        if (matches) matchingKeywordsCount++;
+        return matches;
+      })
       .map((row) => row.prompt_text?.trim() || "")
       .map((row) => renderPromptWithVariables(row, promptVariables))
       .filter(Boolean);
+
     const isFirstMessage = chatHistory.length <= 1;
     const shouldActivateContextAgent = shouldActivateAgenteContexto(
       intent,
@@ -783,6 +826,7 @@ export async function orchestratePrompt(
       chatHistory,
       orchestrationDirective,
       highPriorityInstructions,
+      matchingKeywordsCount,
     );
 
     // 7. Retornar resposta estruturada
@@ -818,6 +862,7 @@ function parsePromptOverridePayload(body: {
   mode?: PromptOverrideMode;
   starts_at?: string | null;
   expires_at?: string | null;
+  trigger_keywords?: string | null;
 }): {
   data?: {
     prompt_text: string;
@@ -825,6 +870,7 @@ function parsePromptOverridePayload(body: {
     mode: PromptOverrideMode;
     starts_at: Date | null;
     expires_at: Date | null;
+    trigger_keywords: string | null;
   };
   error?: string;
 } {
@@ -834,6 +880,7 @@ function parsePromptOverridePayload(body: {
     mode = "temporary",
     starts_at = null,
     expires_at = null,
+    trigger_keywords = null,
   } = body || {};
 
   if (mode !== "temporary" && mode !== "permanent") {
@@ -860,7 +907,11 @@ function parsePromptOverridePayload(body: {
       return { error: "expires_at inválido (use formato ISO-8601)" };
     }
 
-    if (parsedStartsAt && parsedExpiresAt && parsedStartsAt >= parsedExpiresAt) {
+    if (
+      parsedStartsAt &&
+      parsedExpiresAt &&
+      parsedStartsAt >= parsedExpiresAt
+    ) {
       return { error: "expires_at deve ser maior que starts_at" };
     }
   }
@@ -872,6 +923,9 @@ function parsePromptOverridePayload(body: {
       mode,
       starts_at: parsedStartsAt,
       expires_at: mode === "temporary" ? parsedExpiresAt : null,
+      trigger_keywords: trigger_keywords
+        ? String(trigger_keywords).trim()
+        : null,
     },
   };
 }
@@ -889,7 +943,10 @@ async function listPromptPriorityOverrides(
       prompt_injection: promptInjection,
     });
   } catch (error) {
-    logger.error("[PromptOrchestration] Erro ao listar prompt overrides", error);
+    logger.error(
+      "[PromptOrchestration] Erro ao listar prompt overrides",
+      error,
+    );
     return res.status(500).json({
       status: "error",
       error: `Erro ao listar prompts: ${error instanceof Error ? error.message : "Desconhecido"}`,
@@ -969,7 +1026,10 @@ async function updatePromptPriorityOverrideHandler(
       prompt: serializePromptOverride(updated),
     });
   } catch (error) {
-    logger.error("[PromptOrchestration] Erro ao atualizar prompt override", error);
+    logger.error(
+      "[PromptOrchestration] Erro ao atualizar prompt override",
+      error,
+    );
     return res.status(500).json({
       status: "error",
       error: `Erro ao atualizar prompt: ${error instanceof Error ? error.message : "Desconhecido"}`,
@@ -1000,7 +1060,10 @@ async function deletePromptPriorityOverrideHandler(
       message: "Prompt prioritário removido",
     });
   } catch (error) {
-    logger.error("[PromptOrchestration] Erro ao remover prompt override", error);
+    logger.error(
+      "[PromptOrchestration] Erro ao remover prompt override",
+      error,
+    );
     return res.status(500).json({
       status: "error",
       error: `Erro ao remover prompt: ${error instanceof Error ? error.message : "Desconhecido"}`,

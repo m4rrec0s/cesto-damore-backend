@@ -37,28 +37,32 @@ const allowedOrigins = [
   "https://cestodamore.com.br",
   "http://185.205.246.213",
   "http://localhost:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
   "http://localhost:3333",
   "http://localhost:5173",
 ];
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
 
       if (!origin) return callback(null, true);
 
       const isMainDomain = origin === "https://cestodamore.com.br";
       const isSubdomain = origin.endsWith(".cestodamore.com.br");
 
-      if (isMainDomain || isSubdomain || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Origem ${origin} não permitida por CORS`));
-      }
-    },
-    credentials: true,
-  }),
-);
+    if (isMainDomain || isSubdomain || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Origem ${origin} não permitida por CORS`));
+    }
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));

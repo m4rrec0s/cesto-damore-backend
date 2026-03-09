@@ -635,8 +635,35 @@ class CustomizationService {
         break;
 
       case "IMAGES":
-        if (!data.DYNAMIC_LAYOUT) {
-          throw new Error("IMAGES requer DYNAMIC_LAYOUT");
+        if (!data || typeof data !== "object") {
+          throw new Error("IMAGES requer objeto de configuração");
+        }
+
+        const dynamicLayoutConfig = data.dynamic_layout || data.DYNAMIC_LAYOUT;
+        if (
+          dynamicLayoutConfig &&
+          typeof dynamicLayoutConfig === "object" &&
+          dynamicLayoutConfig.max_images !== undefined
+        ) {
+          const maxImages = Number(dynamicLayoutConfig.max_images);
+          if (!Number.isFinite(maxImages) || maxImages <= 0) {
+            throw new Error("max_images deve ser maior que 0");
+          }
+        }
+
+        const imageCrop = data.image_crop;
+        if (imageCrop !== undefined) {
+          if (typeof imageCrop !== "object" || Array.isArray(imageCrop)) {
+            throw new Error("image_crop deve ser um objeto");
+          }
+
+          if (
+            imageCrop.aspect_ratio !== undefined &&
+            (!Number.isFinite(Number(imageCrop.aspect_ratio)) ||
+              Number(imageCrop.aspect_ratio) <= 0)
+          ) {
+            throw new Error("aspect_ratio deve ser maior que 0");
+          }
         }
         break;
 

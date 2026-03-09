@@ -12,17 +12,18 @@ const customizationInputSchema: z.ZodType<CustomizationInput> = z.object({
   data: z.record(z.any()),
 });
 
-class CustomizationController {
-  private isCustomizationValidationError(message?: string): boolean {
-    if (!message) return false;
+const isCustomizationValidationError = (message?: string): boolean => {
+  if (!message) return false;
 
-    return (
-      message.includes("requer array") ||
-      message.includes("não pode ser maior") ||
-      message.includes("não suportado")
-    );
-  }
-  
+  return (
+    message.includes("requer array") ||
+    message.includes("não pode ser maior") ||
+    message.includes("não suportado")
+  );
+};
+
+class CustomizationController {
+
 
   async getItemCustomizations(req: Request, res: Response) {
     try {
@@ -242,7 +243,7 @@ class CustomizationController {
         });
       }
 
-      if (this.isCustomizationValidationError(error?.message)) {
+      if (isCustomizationValidationError(error?.message)) {
         return res.status(400).json({
           error: "Dados inválidos para customização",
           details: error.message,
@@ -330,7 +331,7 @@ class CustomizationController {
         });
       }
 
-      if (this.isCustomizationValidationError(error?.message)) {
+      if (isCustomizationValidationError(error?.message)) {
         return res.status(400).json({
           error: "Dados inválidos para customização",
           details: error.message,

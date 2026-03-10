@@ -25,7 +25,69 @@ const customizationPayloadSchema = z.object({
 });
 
 class OrderCustomizationController {
-  
+  private normalizeImagesCustomizationData(data: Record<string, any>) {
+    const normalized = { ...data };
+    const previews = Array.isArray(normalized.previews)
+      ? normalized.previews
+      : [];
+    const tempFileIds = Array.isArray(normalized.temp_file_ids)
+      ? normalized.temp_file_ids
+      : [];
+    const existingPhotos = Array.isArray(normalized.photos)
+      ? normalized.photos
+      : [];
+
+    const photosFromPayload = existingPhotos
+      .map((photo: any, index: number) => {
+        if (!photo || typeof photo !== "object") return null;
+
+        const previewUrl =
+          photo.preview_url ||
+          photo.preview ||
+          photo.url ||
+          (typeof previews[index] === "string" ? previews[index] : undefined);
+
+        if (!previewUrl || typeof previewUrl !== "string") return null;
+
+        return {
+          ...photo,
+          preview_url: previewUrl,
+          temp_file_id:
+            photo.temp_file_id ||
+            photo.temp_filename ||
+            (typeof tempFileIds[index] === "string"
+              ? tempFileIds[index]
+              : undefined),
+        };
+      })
+      .filter(Boolean);
+
+    const photosFromPreviews = previews
+      .map((preview: unknown, index: number) => {
+        if (typeof preview !== "string" || preview.trim().length === 0) {
+          return null;
+        }
+
+        return {
+          preview_url: preview,
+          original_name: `image-${index + 1}`,
+          position: index,
+          temp_file_id:
+            typeof tempFileIds[index] === "string"
+              ? tempFileIds[index]
+              : undefined,
+        };
+      })
+      .filter(Boolean);
+
+    normalized.photos =
+      photosFromPayload.length > 0 ? photosFromPayload : photosFromPreviews;
+    normalized.count = normalized.photos.length;
+
+    delete normalized.files;
+
+    return normalized;
+  }
 
   private async convertBase64ToFile(
     base64String: string,
@@ -47,7 +109,6 @@ class OrderCustomizationController {
         buffer = Buffer.from(matches[1], "base64");
         logger.info(`   ✅ Base64 decodificado: ${buffer.length} bytes`);
       } else {
-
         logger.debug(`   Raw base64, decodificando...`);
         buffer = Buffer.from(base64String, "base64");
         logger.info(`   ✅ Base64 raw decodificado: ${buffer.length} bytes`);
@@ -65,8 +126,6 @@ class OrderCustomizationController {
       return null;
     }
   }
-
-  
 
   private async processBase64InData(data: any): Promise<any> {
     if (!data) return data;
@@ -108,7 +167,6 @@ class OrderCustomizationController {
       }
 
       for (const [key, value] of Object.entries(data)) {
-
         if (key === "previewUrl" || key === "highQualityUrl") {
           continue;
         }
@@ -182,19 +240,16 @@ class OrderCustomizationController {
               processed[key] = { ...objSemBase64, preview_url: url };
               logger.debug(`✅ Convertido "${key}" para URL: ${url}`);
             } else {
-
               logger.warn(
                 `⚠️ Falha ao converter base64 em "${key}", retornando sem base64`,
               );
               processed[key] = objSemBase64;
             }
           } else {
-
             const processedObj = await this.processBase64InData(objSemBase64);
             processed[key] = processedObj;
           }
         } else if (typeof value === "object" && value !== null) {
-
           const processedValue = await this.processBase64InData(value);
 
           if (
@@ -279,7 +334,8 @@ class OrderCustomizationController {
       logger.debug(`   finalArtwork? ${!!payload.finalArtwork}`);
       logger.debug(`   finalArtworks? ${!!payload.finalArtworks}`);
       logger.debug(
-        `   finalArtwork.base64? ${payload.finalArtwork ? !!payload.finalArtwork.base64 : "N/A"
+        `   finalArtwork.base64? ${
+          payload.finalArtwork ? !!payload.finalArtwork.base64 : "N/A"
         }`,
       );
 
@@ -300,6 +356,13 @@ class OrderCustomizationController {
         ...payload.data,
       };
 
+      if (payload.customizationType === "IMAGES") {
+        Object.assign(
+          customizationData,
+          this.normalizeImagesCustomizationData(customizationData),
+        );
+      }
+
       if (payload.finalArtwork && payload.finalArtwork.base64) {
         logger.info(
           `🔄 Detectado finalArtwork com base64! Convertendo... fileName=${payload.finalArtwork.fileName}`,
@@ -309,7 +372,6 @@ class OrderCustomizationController {
           payload.finalArtwork.fileName || "artwork",
         );
         if (url) {
-
           const { base64, ...artworkSemBase64 } = payload.finalArtwork;
           const finalArtworkData = {
             ...artworkSemBase64,
@@ -393,7 +455,6 @@ class OrderCustomizationController {
           customizationData.image = imageSemBase64;
         }
       } else if (payload.customizationType === "DYNAMIC_LAYOUT") {
-
         logger.warn(
           `⚠️ [DYNAMIC_LAYOUT] Sem image.base64! customizationData:`,
           JSON.stringify(customizationData).substring(0, 300),

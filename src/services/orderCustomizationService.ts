@@ -63,6 +63,11 @@ interface CheckoutValidationResult {
 
 class OrderCustomizationService {
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
+    const orderItem = await prisma.orderItem.findUnique({
+      where: { id: input.orderItemId },
+      select: { order_id: true },
+    });
+
     const ruleId = input.customizationRuleId || "default";
     const componentIdRaw =
       input.customizationData.componentId ||
@@ -108,8 +113,9 @@ class OrderCustomizationService {
       (c) => c.normalizedRuleId && c.normalizedRuleId === targetRuleId,
     );
 
-    let existing = sameRuleCandidates.find((c) => c.componentId === componentId)
-      ?.record;
+    let existing = sameRuleCandidates.find(
+      (c) => c.componentId === componentId,
+    )?.record;
 
     // Backward compatibility: older rows may not have componentId persisted.
     if (!existing && componentId) {
@@ -237,7 +243,6 @@ class OrderCustomizationService {
 
     let record;
     if (existing) {
-
       logger.info(
         `📝 [saveOrderItemCustomization] Atualizando customização existente ID: ${existing.id}`,
       );
@@ -250,7 +255,6 @@ class OrderCustomizationService {
         },
       });
     } else {
-
       logger.info(
         `🆕 [saveOrderItemCustomization] Criando nova customização para regra: ${ruleId}`,
       );
@@ -270,10 +274,25 @@ class OrderCustomizationService {
       }
     }
 
+    if (orderItem?.order_id) {
+      const deletedPendingPayments = await prisma.payment.deleteMany({
+        where: {
+          order_id: orderItem.order_id,
+          status: {
+            in: ["PENDING", "IN_PROCESS", "REJECTED", "CANCELLED"],
+          },
+        },
+      });
+
+      if (deletedPendingPayments.count > 0) {
+        logger.info(
+          `🧾 [saveOrderItemCustomization] Pagamentos pendentes invalidados: ${deletedPendingPayments.count}`,
+        );
+      }
+    }
+
     return record;
   }
-
-  
 
   private isCustomizationValid(type: string, data: any): boolean {
     if (!data) return false;
@@ -289,7 +308,6 @@ class OrderCustomizationService {
         return typeof data.text === "string" && data.text.trim().length > 0;
 
       case "MULTIPLE_CHOICE":
-
         const hasOption = !!(
           data.selected_option ||
           data.id ||
@@ -313,7 +331,6 @@ class OrderCustomizationService {
         });
 
       case "DYNAMIC_LAYOUT":
-
         const artworkUrl =
           data.image?.preview_url ||
           data.previewUrl ||
@@ -331,12 +348,9 @@ class OrderCustomizationService {
         return !!hasArtwork || !!data.fabricState || hasLabelDL;
 
       default:
-
         return data && Object.keys(data).length > 0;
     }
   }
-
-  
 
   async getOrderReviewData(orderId: string) {
     const orderItems = await prisma.orderItem.findMany({
@@ -492,7 +506,6 @@ class OrderCustomizationService {
       input.customizationData.image.preview_url !==
         existingData.image.preview_url
     ) {
-
       if (existingData.image.preview_url.includes("/uploads/temp/")) {
         const oldFilename = existingData.image.preview_url
           .split("/uploads/temp/")
@@ -541,7 +554,6 @@ class OrderCustomizationService {
         mergedCustomizationData.selected_item_label = updatedLabel;
       }
     } else {
-
       delete mergedCustomizationData.label_selected;
       delete mergedCustomizationData.selected_option_label;
       delete mergedCustomizationData.selected_item_label;
@@ -559,9 +571,7 @@ class OrderCustomizationService {
           input.customizationType
         }, ruleId=${input.customizationRuleId ?? existing.customization_id}`,
       );
-    } catch (err) {
-      
-    }
+    } catch (err) {}
 
     const result = await prisma.orderItemCustomization.update({
       where: { id: customizationId },
@@ -578,16 +588,11 @@ class OrderCustomizationService {
         logger.warn(
           `⚠️ Erro ao deletar arquivos antigos na atualização: ${error.message}`,
         );
-
       }
     }
 
     return result;
   }
-
-  
-
-  
 
   private async backupTempFilesBeforeDelete(
     files: string[],
@@ -643,7 +648,6 @@ class OrderCustomizationService {
       const tempFilesToDelete: string[] = [];
 
       for (const asset of assets) {
-
         if (asset.url && asset.url.includes("/uploads/temp/")) {
           const filename = asset.url.split("/uploads/temp/").pop();
           if (filename && filename.length > 0) {
@@ -653,7 +657,6 @@ class OrderCustomizationService {
       }
 
       if (tempFilesToDelete.length > 0) {
-
         logger.info(
           `🔄 [finalizeOrderCustomizations] Criando backup de ${tempFilesToDelete.length} arquivos antes de deletar...`,
         );
@@ -671,7 +674,6 @@ class OrderCustomizationService {
       logger.warn(
         `⚠️ Erro ao deletar temp files após upload: ${error.message}`,
       );
-
     }
   }
 
@@ -791,9 +793,7 @@ class OrderCustomizationService {
       );
       await googleDriveService.makeFolderPublic(subfolderId);
       subfolderMap[folderName] = subfolderId;
-      logger.info(
-        `📁 Subpasta criada para ${folderName}: ${subfolderId}`,
-      );
+      logger.info(`📁 Subpasta criada para ${folderName}: ${subfolderId}`);
       return subfolderId;
     };
 
@@ -991,7 +991,6 @@ class OrderCustomizationService {
       }
     } catch (error: any) {
       logger.warn(`⚠️ Erro ao limpar temp files: ${error.message}`);
-
     }
 
     base64Detected = base64AffectedIds.length > 0;
@@ -1054,7 +1053,6 @@ class OrderCustomizationService {
             value: JSON.stringify(parsed),
           };
         } catch (err) {
-
           logger.warn("Erro ao sanitizar customização ao listar:", c.id, err);
           return c;
         }
@@ -1110,7 +1108,6 @@ class OrderCustomizationService {
           );
           if (match) return match.label || match.name || match.title;
         } catch (error) {
-
           console.warn(
             "computeLabelSelected: erro ao buscar customization rule",
             error,
@@ -1122,7 +1119,6 @@ class OrderCustomizationService {
     }
 
     if (customizationType === "DYNAMIC_LAYOUT") {
-
       const layoutId =
         selectedLayoutId ||
         customizationData.layout_id ||
@@ -1131,7 +1127,6 @@ class OrderCustomizationService {
       if (!layoutId) return undefined;
 
       try {
-
         const layout = await prisma.dynamicLayout.findUnique({
           where: { id: layoutId },
         });
@@ -1259,8 +1254,6 @@ class OrderCustomizationService {
     return assets;
   }
 
-  
-
   private async uploadArtworkFromUrl(
     asset: { url: string; filename: string; mimeType: string },
     customization: { id: string },
@@ -1293,9 +1286,7 @@ class OrderCustomizationService {
         logger.debug(
           `✅ Arquivo lido do temp: ${tempFileName} (${fileBuffer.length} bytes)`,
         );
-      }
-
-      else if (url.startsWith("http")) {
+      } else if (url.startsWith("http")) {
         logger.debug(`📥 Baixando arquivo de URL: ${url}`);
         const response = await axios.get(url, {
           responseType: "arraybuffer",
@@ -1303,9 +1294,7 @@ class OrderCustomizationService {
         });
         fileBuffer = Buffer.from(response.data);
         logger.debug(`✅ Arquivo baixado: ${fileBuffer.length} bytes`);
-      }
-
-      else if (url.startsWith("data:")) {
+      } else if (url.startsWith("data:")) {
         logger.warn(
           `⚠️ Asset ainda contém base64 (devia ter sido migrado): ${filename}`,
         );
@@ -1464,7 +1453,6 @@ class OrderCustomizationService {
       const isImagesType = sanitized.customization_type === "IMAGES";
 
       sanitized.photos = sanitized.photos.map((photo: any, idx: number) => {
-
         const upload = isImagesType ? uploads[uploadIndex + idx] : undefined;
 
         const newPhoto = {
@@ -1482,7 +1470,6 @@ class OrderCustomizationService {
             `✅ Photo sanitized and uploaded: ${newPhoto.fileName} (driveId=${upload.id})`,
           );
         } else if (isImagesType) {
-
           logger.warn(
             `⚠️ Photo sanitized but no upload info found for index ${idx}`,
           );
@@ -1500,7 +1487,6 @@ class OrderCustomizationService {
       const isDynamic = sanitized.customization_type === "DYNAMIC_LAYOUT";
 
       sanitized.images = sanitized.images.map((image: any, idx: number) => {
-
         const upload = !isDynamic ? uploads[uploadIndex + idx] : undefined;
 
         const newImage = {
@@ -1523,7 +1509,6 @@ class OrderCustomizationService {
             })`,
           );
         } else if (!isDynamic) {
-
           logger.warn(
             `⚠️ LAYOUT_BASE image[${idx}] sanitized but no upload info found`,
           );
@@ -1613,11 +1598,7 @@ class OrderCustomizationService {
       .toLowerCase();
   }
 
-  
-
-  async validateOrderCustomizationsFiles(
-    orderId: string,
-  ): Promise<{
+  async validateOrderCustomizationsFiles(orderId: string): Promise<{
     files: Record<string, boolean>;
     hasValidContent: boolean;
     recommendations?: string[];
@@ -1637,7 +1618,9 @@ class OrderCustomizationService {
     };
   }
 
-  async validateOrderForCheckout(orderId: string): Promise<CheckoutValidationResult> {
+  async validateOrderForCheckout(
+    orderId: string,
+  ): Promise<CheckoutValidationResult> {
     const orderItems = await prisma.orderItem.findMany({
       where: { order_id: orderId },
       include: {
@@ -1697,8 +1680,9 @@ class OrderCustomizationService {
               productName: item.product?.name || "Produto",
               componentId: (parsed.componentId as string) || undefined,
               customizationId: custom.id,
-              customizationName:
-                String(parsed.title || parsed._customizationName || "Personalização"),
+              customizationName: String(
+                parsed.title || parsed._customizationName || "Personalização",
+              ),
               reason: fileCheck.reason || "Customização inválida ou incompleta",
             });
           }
@@ -1726,8 +1710,7 @@ class OrderCustomizationService {
           this.matchesRequiredCustomization(required, filled),
         );
 
-        const isFoundAndValid =
-          !!found && found.dataValid && found.fileValid;
+        const isFoundAndValid = !!found && found.dataValid && found.fileValid;
 
         if (!isFoundAndValid) {
           missingRequired.push({
@@ -1751,7 +1734,8 @@ class OrderCustomizationService {
       ),
     );
 
-    const valid = missingRequired.length === 0 && invalidCustomizations.length === 0;
+    const valid =
+      missingRequired.length === 0 && invalidCustomizations.length === 0;
     return {
       valid,
       files,
@@ -1762,7 +1746,9 @@ class OrderCustomizationService {
     };
   }
 
-  private getRequiredCustomizationDescriptors(item: any): RequiredCustomizationDescriptor[] {
+  private getRequiredCustomizationDescriptors(
+    item: any,
+  ): RequiredCustomizationDescriptor[] {
     const required: RequiredCustomizationDescriptor[] = [];
 
     if (item.product?.components) {
@@ -1892,7 +1878,10 @@ class OrderCustomizationService {
     const urls = this.collectCandidateUrls(data);
     for (const rawUrl of urls) {
       if (!rawUrl || rawUrl.startsWith("blob:") || rawUrl.startsWith("data:")) {
-        return { valid: false, reason: "Arquivo ainda está local (blob/base64)" };
+        return {
+          valid: false,
+          reason: "Arquivo ainda está local (blob/base64)",
+        };
       }
 
       const exists = await this.checkUrlExistsOnStorage(rawUrl);
@@ -1932,7 +1921,10 @@ class OrderCustomizationService {
         path.join(process.cwd(), "uploads", "temp", filename),
         path.join(process.cwd(), "storage", "temp", filename),
         path.join(
-          path.resolve(process.env.TEMP_UPLOADS_DIR || path.join(process.cwd(), "storage", "temp")),
+          path.resolve(
+            process.env.TEMP_UPLOADS_DIR ||
+              path.join(process.cwd(), "storage", "temp"),
+          ),
           filename,
         ),
       ];

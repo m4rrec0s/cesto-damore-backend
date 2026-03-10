@@ -195,8 +195,6 @@ class OrderService {
     }));
   }
 
-  
-
   private removeBase64Recursive(obj: any) {
     if (!obj || typeof obj !== "object") return;
 
@@ -223,8 +221,6 @@ class OrderService {
       }
     }
   }
-
-  
 
   private sanitizeBase64FromCustomizations(orders: any[]) {
     return orders.map((order) => ({
@@ -396,9 +392,11 @@ class OrderService {
       ]);
 
       const data = summaryMode
-        ? (orders as Array<
-            Record<string, unknown> & { _count?: { items?: number } }
-          >).map((order) => ({
+        ? (
+            orders as Array<
+              Record<string, unknown> & { _count?: { items?: number } }
+            >
+          ).map((order) => ({
             ...order,
             items_count: order._count?.items || 0,
             _count: undefined,
@@ -900,8 +898,7 @@ class OrderService {
           delivery_address: orderData.delivery_address,
           delivery_city: orderData.delivery_city,
           delivery_state: orderData.delivery_state,
-          recipient_phone:
-            phoneDigits.length >= 10 ? phoneDigits : undefined,
+          recipient_phone: phoneDigits.length >= 10 ? phoneDigits : undefined,
           delivery_date: orderData.delivery_date || null,
           shipping_price,
           payment_method:
@@ -1031,7 +1028,6 @@ class OrderService {
           "⚠️ Erro ao sincronizar cliente com n8n:",
           syncError.message,
         );
-
       }
 
       return await this.getOrderById(created.id);
@@ -1048,7 +1044,10 @@ class OrderService {
         });
 
         if (existingPending?.id) {
-          const recipientDigits = (data.recipient_phone || "").replace(/\D/g, "");
+          const recipientDigits = (data.recipient_phone || "").replace(
+            /\D/g,
+            "",
+          );
           const normalizedRecipient =
             recipientDigits.length >= 10 && !recipientDigits.startsWith("55")
               ? `55${recipientDigits}`
@@ -1061,7 +1060,9 @@ class OrderService {
             delivery_city: data.delivery_city,
             delivery_state: data.delivery_state,
             recipient_phone:
-              normalizedRecipient.length >= 12 ? normalizedRecipient : undefined,
+              normalizedRecipient.length >= 12
+                ? normalizedRecipient
+                : undefined,
             delivery_date: data.delivery_date || null,
             payment_method:
               data.payment_method === "pix" || data.payment_method === "card"
@@ -1088,8 +1089,6 @@ class OrderService {
     }
   }
 
-  
-
   private async deleteOrderGoogleDriveFolders(orderId: string): Promise<void> {
     try {
       const order = await prisma.order.findUnique({
@@ -1111,7 +1110,6 @@ class OrderService {
         `⚠️ Erro ao deletar pasta Google Drive do pedido ${orderId}:`,
         err,
       );
-
     }
   }
 
@@ -1204,7 +1202,6 @@ class OrderService {
         const itemIds = items.map((item) => item.id);
 
         if (itemIds.length > 0) {
-
           const deletedCustomizations =
             await tx.orderItemCustomization.deleteMany({
               where: { order_item_id: { in: itemIds } },
@@ -1442,17 +1439,14 @@ class OrderService {
     }
 
     const itemsTotal = items.reduce((sum, item) => {
-      const additionalTotal = (item.additionals || []).reduce(
-        (acc, add) => {
-          const resolvedPrice = resolveAdditionalPrice(
-            item.product_id,
-            add.additional_id,
-            add.price,
-          );
-          return acc + resolvedPrice * (add.quantity || 0);
-        },
-        0,
-      );
+      const additionalTotal = (item.additionals || []).reduce((acc, add) => {
+        const resolvedPrice = resolveAdditionalPrice(
+          item.product_id,
+          add.additional_id,
+          add.price,
+        );
+        return acc + resolvedPrice * (add.quantity || 0);
+      }, 0);
       return sum + item.price * item.quantity + additionalTotal;
     }, 0);
 
@@ -1489,7 +1483,6 @@ class OrderService {
     try {
       await prisma.$transaction(
         async (tx) => {
-
           const existingItems = await tx.orderItem.findMany({
             where: { order_id: orderId },
             select: { id: true },
@@ -1586,6 +1579,21 @@ class OrderService {
             });
           }
 
+          const deletedPendingPayments = await tx.payment.deleteMany({
+            where: {
+              order_id: orderId,
+              status: {
+                in: ["PENDING", "IN_PROCESS", "REJECTED", "CANCELLED"],
+              },
+            },
+          });
+
+          if (deletedPendingPayments.count > 0) {
+            logger.info(
+              `  ✓ Pagamentos pendentes invalidados: ${deletedPendingPayments.count}`,
+            );
+          }
+
           await tx.order.update({
             where: { id: orderId },
             data: {
@@ -1671,7 +1679,6 @@ class OrderService {
       updateData.delivery_state = data.delivery_state || null;
     }
     if (typeof data.recipient_phone === "string") {
-
       const digits = data.recipient_phone.replace(/\D/g, "");
       let normalized = digits;
       if (!digits.startsWith("55")) {
@@ -1755,7 +1762,10 @@ class OrderService {
           (updateData.delivery_city as string) || order.delivery_city || "";
         const normalizedCity = normalizeText(city);
         const rule = ACCEPTED_CITIES[normalizedCity as string];
-        if (rule && (normalizedMethod === "pix" || normalizedMethod === "card")) {
+        if (
+          rule &&
+          (normalizedMethod === "pix" || normalizedMethod === "card")
+        ) {
           updateData.shipping_price = rule[normalizedMethod as "pix" | "card"];
         }
       }
@@ -1873,7 +1883,6 @@ class OrderService {
           `❌ Erro crítico ao decrementar estoque do pedido ${id}:`,
           stockError,
         );
-
       }
     }
 
@@ -1985,13 +1994,11 @@ class OrderService {
           `⚠️ Erro na limpeza de recursos do pedido entregue ${id}:`,
           err,
         );
-
       }
     }
 
     if (options.notifyCustomer !== false) {
       try {
-
         let driveLink: string | undefined =
           updated.google_drive_folder_url || undefined;
         if (!driveLink) {
@@ -2011,9 +2018,7 @@ class OrderService {
                 },
               });
             driveLink = customizationWithDrive?.google_drive_url || undefined;
-          } catch (error) {
-
-          }
+          } catch (error) {}
         }
 
         const totalAmount =
@@ -2275,7 +2280,6 @@ class OrderService {
                 `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
                 err,
               );
-
             }),
         );
       await Promise.all(driveDeletePromises);
@@ -2362,7 +2366,6 @@ class OrderService {
                 `⚠️ Erro ao deletar pasta Drive ${order.google_drive_folder_id}:`,
                 err,
               );
-
             }),
         );
       await Promise.all(driveDeletePromises);

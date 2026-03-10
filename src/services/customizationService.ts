@@ -43,10 +43,8 @@ interface ItemCustomizationResponse {
 }
 
 class CustomizationService {
-  
-
   async getItemCustomizations(
-    itemId: string
+    itemId: string,
   ): Promise<ItemCustomizationResponse> {
     const item = await prisma.item.findUnique({
       where: { id: itemId },
@@ -81,8 +79,6 @@ class CustomizationService {
     };
   }
 
-  
-
   async validateCustomizations(options: {
     itemId: string;
     inputs: CustomizationInput[];
@@ -115,19 +111,19 @@ class CustomizationService {
     }
 
     const customizationMap = new Map(
-      item.customizations.map((c: any) => [c.id, c])
+      item.customizations.map((c: any) => [c.id, c]),
     );
 
     item.customizations
       .filter((c: any) => c.isRequired)
       .forEach((customization: any) => {
         const hasCustomization = inputs.some(
-          (input) => input.customization_id === customization.id
+          (input) => input.customization_id === customization.id,
         );
 
         if (!hasCustomization) {
           errors.push(
-            `Customização obrigatória não preenchida: ${customization.name}`
+            `Customização obrigatória não preenchida: ${customization.name}`,
           );
         }
       });
@@ -150,12 +146,10 @@ class CustomizationService {
     };
   }
 
-  
-
   private validateByType(
     customization: any,
     input: CustomizationInput,
-    errors: string[]
+    errors: string[],
   ) {
     const data = customization.customization_data;
 
@@ -178,18 +172,16 @@ class CustomizationService {
 
       default:
         errors.push(
-          `Tipo de customização não suportado: ${customization.type}`
+          `Tipo de customização não suportado: ${customization.type}`,
         );
     }
   }
-
-  
 
   private validateBaseLayout(
     customization: any,
     input: CustomizationInput,
     data: any,
-    errors: string[]
+    errors: string[],
   ) {
     if (!input.data.layout_id) {
       errors.push(`${customization.name}: Layout não selecionado`);
@@ -198,7 +190,7 @@ class CustomizationService {
 
     const layouts = data?.layouts || [];
     const layoutExists = layouts.some(
-      (l: any) => l.id === input.data.layout_id
+      (l: any) => l.id === input.data.layout_id,
     );
 
     if (!layoutExists) {
@@ -206,13 +198,11 @@ class CustomizationService {
     }
   }
 
-  
-
   private validateText(
     customization: any,
     input: CustomizationInput,
     data: any,
-    errors: string[]
+    errors: string[],
   ) {
     const fields = data?.fields || [];
     const providedFields = input.data.fields || [];
@@ -221,12 +211,12 @@ class CustomizationService {
       .filter((f: any) => f.required)
       .forEach((field: any) => {
         const providedField = providedFields.find(
-          (pf: any) => pf.field_id === field.id
+          (pf: any) => pf.field_id === field.id,
         );
 
         if (!providedField || !providedField.value) {
           errors.push(
-            `${customization.name}: Campo "${field.label}" é obrigatório`
+            `${customization.name}: Campo "${field.label}" é obrigatório`,
           );
         }
       });
@@ -240,38 +230,26 @@ class CustomizationService {
           providedField.value.length > field.max_length
         ) {
           errors.push(
-            `${customization.name}: Campo "${field.label}" excede limite de ${field.max_length} caracteres`
+            `${customization.name}: Campo "${field.label}" excede limite de ${field.max_length} caracteres`,
           );
         }
       }
     });
   }
 
-  
-
   private validateImages(
     customization: any,
     input: CustomizationInput,
     data: any,
-    errors: string[]
+    errors: string[],
   ) {
-    if (!input.data.DYNAMIC_LAYOUT_id) {
-      errors.push(`${customization.name}: Layout base não selecionado`);
-      return;
-    }
-
-    const baseLayout = data?.DYNAMIC_LAYOUT;
-    if (!baseLayout) {
-      errors.push(`${customization.name}: Layout base não configurado`);
-      return;
-    }
-
     const images = input.data.images || [];
-    const maxImages = baseLayout.max_images || 10;
+    const imageConfig = data?.dynamic_layout || data?.DYNAMIC_LAYOUT || {};
+    const maxImages = Number(imageConfig.max_images) || 10;
 
     if (images.length > maxImages) {
       errors.push(
-        `${customization.name}: Máximo de ${maxImages} imagens permitidas`
+        `${customization.name}: Máximo de ${maxImages} imagens permitidas`,
       );
     }
 
@@ -279,22 +257,14 @@ class CustomizationService {
       if (!image.source) {
         errors.push(`${customization.name}: Imagem ${index + 1} sem fonte`);
       }
-
-      if (image.slot === undefined) {
-        errors.push(
-          `${customization.name}: Imagem ${index + 1} sem slot definido`
-        );
-      }
     });
   }
-
-  
 
   private validateMultipleChoice(
     customization: any,
     input: CustomizationInput,
     data: any,
-    errors: string[]
+    errors: string[],
   ) {
     const options = data?.options || [];
     const selectedOptions = input.data.selected_options || [];
@@ -309,13 +279,13 @@ class CustomizationService {
 
     if (selectedOptions.length < minSelection) {
       errors.push(
-        `${customization.name}: Selecione ao menos ${minSelection} opção(ões)`
+        `${customization.name}: Selecione ao menos ${minSelection} opção(ões)`,
       );
     }
 
     if (selectedOptions.length > maxSelection) {
       errors.push(
-        `${customization.name}: Selecione no máximo ${maxSelection} opção(ões)`
+        `${customization.name}: Selecione no máximo ${maxSelection} opção(ões)`,
       );
     }
 
@@ -327,8 +297,6 @@ class CustomizationService {
       }
     });
   }
-
-  
 
   async buildPreviewPayload(params: {
     itemId: string;
@@ -399,7 +367,6 @@ class CustomizationService {
         const selectedOptions = customization.data.selected_options || [];
 
         if (selectedOptions.length > 0) {
-
           const options =
             (customizationRecord.customization_data as any)?.options || [];
 
@@ -409,7 +376,6 @@ class CustomizationService {
               const imageSource =
                 option.image_url || option.image || option.src;
               if (imageSource) {
-
                 photos.push({
                   source: imageSource,
                   position: option.position || undefined,
@@ -432,8 +398,6 @@ class CustomizationService {
     };
   }
 
-  
-
   private mapLayoutResponse(layout: any) {
     return {
       id: layout.id,
@@ -449,8 +413,6 @@ class CustomizationService {
       },
     };
   }
-
-  
 
   async listAll(itemId?: string): Promise<CustomizationDTO[]> {
     const customizations = await prisma.customization.findMany({
@@ -477,8 +439,6 @@ class CustomizationService {
       price: c.price,
     }));
   }
-
-  
 
   async getById(id: string): Promise<CustomizationDTO> {
     const customization = await prisma.customization.findUnique({
@@ -509,8 +469,6 @@ class CustomizationService {
     };
   }
 
-  
-
   async create(data: {
     item_id: string;
     type: CustomizationType;
@@ -520,7 +478,6 @@ class CustomizationService {
     customization_data: any;
     price: number;
   }): Promise<CustomizationDTO> {
-
     const item = await prisma.item.findUnique({
       where: { id: data.item_id },
     });
@@ -555,8 +512,6 @@ class CustomizationService {
     };
   }
 
-  
-
   async update(
     id: string,
     data: {
@@ -565,7 +520,7 @@ class CustomizationService {
       isRequired?: boolean;
       customization_data?: any;
       price?: number;
-    }
+    },
   ): Promise<CustomizationDTO> {
     const existing = await prisma.customization.findUnique({
       where: { id },
@@ -602,8 +557,6 @@ class CustomizationService {
     };
   }
 
-  
-
   async delete(id: string): Promise<void> {
     const customization = await prisma.customization.findUnique({
       where: { id },
@@ -617,8 +570,6 @@ class CustomizationService {
       where: { id },
     });
   }
-
-  
 
   private validateCustomizationData(type: CustomizationType, data: any): void {
     switch (type) {
@@ -677,7 +628,7 @@ class CustomizationService {
         ) {
           if (data.min_selection > data.max_selection) {
             throw new Error(
-              "min_selection não pode ser maior que max_selection"
+              "min_selection não pode ser maior que max_selection",
             );
           }
         }

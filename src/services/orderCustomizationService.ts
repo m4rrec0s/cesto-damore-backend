@@ -1,4 +1,4 @@
-import { CustomizationType } from "@prisma/client";
+import { CustomizationType, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import prisma from "../database/prisma";
 import googleDriveService from "./googleDriveService";
@@ -258,9 +258,44 @@ class OrderCustomizationService {
       logger.info(
         `🆕 [saveOrderItemCustomization] Criando nova customização para regra: ${ruleId}`,
       );
-      record = await prisma.orderItemCustomization.create({
-        data: payload,
-      });
+      try {
+        record = await prisma.orderItemCustomization.create({
+          data: payload,
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002" &&
+          payload.customization_id
+        ) {
+          logger.warn(
+            `⚠️ [saveOrderItemCustomization] Conflito de unicidade para order_item_id=${input.orderItemId} customization_id=${payload.customization_id}. Reutilizando registro existente.`,
+          );
+
+          const conflicted = await prisma.orderItemCustomization.findFirst({
+            where: {
+              order_item_id: input.orderItemId,
+              customization_id: payload.customization_id,
+            },
+            orderBy: { updated_at: "desc" },
+          });
+
+          if (!conflicted) {
+            throw error;
+          }
+
+          record = await prisma.orderItemCustomization.update({
+            where: { id: conflicted.id },
+            data: {
+              value: valueStr,
+              customization_id: payload.customization_id,
+              updated_at: new Date(),
+            },
+          });
+        } else {
+          throw error;
+        }
+      }
     }
 
     if (oldTempFiles.length > 0) {

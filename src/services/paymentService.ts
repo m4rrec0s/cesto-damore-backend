@@ -106,6 +106,68 @@ export interface ProcessTransparentCheckoutData {
 export class PaymentService {
   private static notificationSentOrders: Set<string> = new Set();
 
+  private static runApprovedOrderPostProcessingInBackground(params: {
+    orderId: string;
+    paymentId: string;
+    mercadoPagoId: string;
+    paymentMethod?: string;
+  }) {
+    const { orderId, paymentId, mercadoPagoId, paymentMethod } = params;
+
+    void (async () => {
+      try {
+        const finalizeRes =
+          await orderCustomizationService.finalizeOrderCustomizations(orderId);
+
+        logger.info(
+          `✅ finalizeOrderCustomizations result (background): ${JSON.stringify(
+            finalizeRes,
+          )}`,
+        );
+
+        const willNotify =
+          !!finalizeRes.folderUrl ||
+          (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
+
+        webhookNotificationService.notifyPaymentUpdate(orderId, {
+          status: "approved",
+          paymentId,
+          mercadoPagoId,
+          approvedAt: new Date().toLocaleString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+          }),
+          paymentMethod,
+        });
+
+        if (willNotify) {
+          await this.sendOrderConfirmationNotificationOnce(
+            orderId,
+            finalizeRes.folderUrl,
+          );
+        } else {
+          logger.warn(
+            `⚠️ Finalização sem link pronto para ${orderId}; SSE enviado e WhatsApp adiado`,
+          );
+        }
+      } catch (error) {
+        logger.error(
+          `⚠️ Erro no pós-processamento assíncrono do pedido ${orderId}:`,
+          error,
+        );
+
+        webhookNotificationService.notifyPaymentUpdate(orderId, {
+          status: "approved",
+          paymentId,
+          mercadoPagoId,
+          approvedAt: new Date().toLocaleString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+          }),
+          paymentMethod,
+        });
+      }
+    })();
+  }
+
   private static scheduleNotificationCacheRelease(orderId: string) {
     setTimeout(
       () => PaymentService.notificationSentOrders.delete(orderId),
@@ -682,56 +744,12 @@ export class PaymentService {
       if (paymentResponse.status === "approved") {
         await orderService.updateOrderStatus(data.orderId, "PAID");
 
-        try {
-          const finalizeRes =
-            await orderCustomizationService.finalizeOrderCustomizations(
-              data.orderId,
-            );
-          logger.info(
-            `✅ finalizeOrderCustomizations result (transparent checkout): ${JSON.stringify(
-              finalizeRes,
-            )}`,
-          );
-
-          const willNotify =
-            !!finalizeRes.folderUrl ||
-            (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
-
-          webhookNotificationService.notifyPaymentUpdate(data.orderId, {
-            status: "approved",
-            paymentId: paymentRecord.id,
-            mercadoPagoId: String(paymentResponse.id),
-            approvedAt: new Date().toLocaleString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
-            }),
-            paymentMethod: paymentData.payment_method_id || undefined,
-          });
-
-          if (willNotify) {
-            await this.sendOrderConfirmationNotificationOnce(
-              data.orderId,
-              finalizeRes.folderUrl,
-            );
-          } else {
-            logger.warn(
-              `⚠️ Finalize não ready (transparent checkout) for order ${data.orderId}, skipping WhatsApp send`,
-            );
-          }
-        } catch (err) {
-          console.error(
-            "⚠️ Erro na finalização das customizações (transparent checkout):",
-            err,
-          );
-          webhookNotificationService.notifyPaymentUpdate(data.orderId, {
-            status: "approved",
-            paymentId: paymentRecord.id,
-            mercadoPagoId: String(paymentResponse.id),
-            approvedAt: new Date().toLocaleString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
-            }),
-            paymentMethod: paymentData.payment_method_id || undefined,
-          });
-        }
+        this.runApprovedOrderPostProcessingInBackground({
+          orderId: data.orderId,
+          paymentId: paymentRecord.id,
+          mercadoPagoId: String(paymentResponse.id),
+          paymentMethod: paymentData.payment_method_id || undefined,
+        });
       } else {
         webhookNotificationService.notifyPaymentUpdate(data.orderId, {
           status: this.mapPaymentStatus(paymentResponse.status || "pending"),

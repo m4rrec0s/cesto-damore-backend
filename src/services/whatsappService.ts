@@ -201,7 +201,6 @@ class WhatsAppService {
           let sent = false;
 
           if (item.current_stock === 0) {
-
             sent = await this.sendCriticalStockAlert(
               item.id,
               item.name,
@@ -215,7 +214,6 @@ class WhatsAppService {
                 : undefined,
             );
           } else {
-
             sent = await this.sendLowStockAlert(
               item.id,
               item.name,
@@ -328,6 +326,7 @@ class WhatsAppService {
         date?: Date;
       };
       googleDriveUrl?: string;
+      hasImageCustomizations?: boolean;
       recipientPhone?: string;
       deliveryMethod?: string;
     },
@@ -361,7 +360,6 @@ class WhatsAppService {
       }
 
       if (notifyCustomer) {
-
         const targetPhone =
           orderData.recipientPhone ?? orderData.customer.phone;
         if (targetPhone) {
@@ -404,6 +402,7 @@ class WhatsAppService {
       date?: Date;
     };
     googleDriveUrl?: string;
+    hasImageCustomizations?: boolean;
     recipientPhone?: string;
     send_anonymously?: boolean;
     complement?: string;
@@ -474,7 +473,7 @@ class WhatsAppService {
       teamMessage += `Endereço: https://maps.app.goo.gl/YwimXyog4pTBeEjP8?g_st=aw\n`;
     }
 
-    if (orderData.googleDriveUrl) {
+    if (orderData.hasImageCustomizations && orderData.googleDriveUrl) {
       teamMessage += `\n🎨 *Customizações:*\n`;
       teamMessage += `📸 ${orderData.googleDriveUrl}\n`;
     }
@@ -539,10 +538,10 @@ class WhatsAppService {
       orderData.paymentMethod || "Não especificado",
     )}\n\n`;
 
-    if (orderData.googleDriveUrl) {
+    if (orderData.hasImageCustomizations && orderData.googleDriveUrl) {
       customerMessage += `🎨 *Suas Personalizações:*\n`;
       customerMessage += `📁 ${orderData.googleDriveUrl}\n\n`;
-    } else {
+    } else if (orderData.hasImageCustomizations) {
       customerMessage += `⏳ *Personalizações sendo processadas...*\n`;
       customerMessage += `_Enviaremos o link das suas fotos em breve!_\n\n`;
     }
@@ -554,10 +553,7 @@ class WhatsAppService {
     return { teamMessage, customerMessage };
   }
 
-  
-
   private normalizePhoneForWhatsApp(phone: string): string {
-
     let digits = phone.replace(/\D/g, "");
 
     if (
@@ -574,16 +570,11 @@ class WhatsAppService {
     return `55${digits}`;
   }
 
-  
-
-  
-
   public async sendDirectMessage(
     phoneNumber: string,
     message: string,
   ): Promise<boolean> {
     try {
-
       const normalizedPhone = this.normalizePhoneForWhatsApp(phoneNumber);
 
       const url = `${this.config.apiUrl}/message/sendText/${this.config.instanceName}`;
@@ -612,8 +603,6 @@ class WhatsAppService {
       return false;
     }
   }
-
-  
 
   private formatPaymentMethod(method: string): string {
     const methods: Record<string, string> = {
@@ -774,7 +763,6 @@ class WhatsAppService {
         message += `${statusInfo.customerHint}\n`;
 
         if (orderData.googleDriveUrl) {
-
         }
 
         if (orderData.delivery) {
@@ -809,8 +797,6 @@ class WhatsAppService {
     }
   }
 
-  
-
   async sendOrderConfirmation(data: {
     phone: string;
     orderNumber: string;
@@ -819,6 +805,7 @@ class WhatsAppService {
     deliveryDate?: string | Date;
     createdAt: string | Date;
     googleDriveUrl?: string;
+    hasImageCustomizations?: boolean;
     items: Array<{ name: string; quantity: number; price: number }>;
     total: number;
   }): Promise<boolean> {
@@ -867,10 +854,10 @@ class WhatsAppService {
         message += `• ${item.quantity}x ${item.name}\n`;
       });
 
-      if (data.googleDriveUrl) {
+      if (data.hasImageCustomizations && data.googleDriveUrl) {
         message += `\n🎨 *Suas Personalizações:*\n`;
         message += `📁 ${data.googleDriveUrl}\n`;
-      } else {
+      } else if (data.hasImageCustomizations) {
         message += `\n⏳ *Personalizações sendo processadas...*\n`;
         message += `_Enviaremos o link das suas fotos em breve!_\n`;
       }

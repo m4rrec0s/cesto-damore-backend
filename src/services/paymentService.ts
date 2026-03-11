@@ -106,6 +106,30 @@ export interface ProcessTransparentCheckoutData {
 export class PaymentService {
   private static notificationSentOrders: Set<string> = new Set();
 
+  private static customizationValueHasImageAssets(value?: string | null) {
+    if (!value) return false;
+
+    try {
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+
+      if (Array.isArray(parsed.photos) && parsed.photos.length > 0) return true;
+      if (Array.isArray(parsed.previews) && parsed.previews.length > 0)
+        return true;
+      if (
+        Array.isArray(parsed.temp_file_ids) &&
+        parsed.temp_file_ids.length > 0
+      )
+        return true;
+      if (typeof parsed.temp_file_id === "string" && parsed.temp_file_id)
+        return true;
+      if (Array.isArray(parsed.files) && parsed.files.length > 0) return true;
+
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   private static runApprovedOrderPostProcessingInBackground(params: {
     orderId: string;
     paymentId: string;
@@ -742,7 +766,9 @@ export class PaymentService {
       });
 
       if (paymentResponse.status === "approved") {
-        await orderService.updateOrderStatus(data.orderId, "PAID");
+        await orderService.updateOrderStatus(data.orderId, "PAID", {
+          notifyCustomer: false,
+        });
 
         this.runApprovedOrderPostProcessingInBackground({
           orderId: data.orderId,
@@ -1703,7 +1729,9 @@ export class PaymentService {
       console.log(`💾 DB updated payment ${dbPayment.id} -> ${newStatus}`);
 
       if (paymentInfo.status === "approved") {
-        await orderService.updateOrderStatus(dbPayment.order_id, "PAID");
+        await orderService.updateOrderStatus(dbPayment.order_id, "PAID", {
+          notifyCustomer: false,
+        });
 
         const existingFinalized = await prisma.webhookLog.findFirst({
           where: {
@@ -1872,6 +1900,11 @@ export class PaymentService {
         items: {
           include: {
             product: true,
+            customizations: {
+              include: {
+                customization: true,
+              },
+            },
             additionals: {
               include: {
                 additional: true,
@@ -1891,6 +1924,14 @@ export class PaymentService {
 
     const finalGoogleDriveUrl =
       googleDriveUrl || order.google_drive_folder_url || undefined;
+
+    const hasImageCustomizations = order.items.some((item) =>
+      item.customizations.some(
+        (customization) =>
+          customization.customization?.type === "IMAGES" ||
+          PaymentService.customizationValueHasImageAssets(customization.value),
+      ),
+    );
 
     order.items.forEach((item) => {
       items.push({
@@ -1914,7 +1955,8 @@ export class PaymentService {
       totalAmount: Number(order.grand_total || order.total || 0),
       paymentMethod: order.payment_method || "Não informado",
       items,
-      googleDriveUrl: finalGoogleDriveUrl,
+      googleDriveUrl: hasImageCustomizations ? finalGoogleDriveUrl : undefined,
+      hasImageCustomizations,
       recipientPhone: order.recipient_phone || undefined,
       customer: {
         name: order.user.name,
@@ -1947,7 +1989,10 @@ export class PaymentService {
         recipientPhone: order.recipient_phone || undefined,
         deliveryDate: order.delivery_date || undefined,
         createdAt: order.created_at,
-        googleDriveUrl: finalGoogleDriveUrl,
+        googleDriveUrl: hasImageCustomizations
+          ? finalGoogleDriveUrl
+          : undefined,
+        hasImageCustomizations,
         items,
         total: Number(order.grand_total || order.total || 0),
       });

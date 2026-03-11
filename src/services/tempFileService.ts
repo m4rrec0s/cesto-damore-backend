@@ -16,8 +16,6 @@ class TempFileService {
     this.ensureDirectory();
   }
 
-  
-
   private ensureDirectory(): void {
     if (!fs.existsSync(this.basePath)) {
       try {
@@ -45,8 +43,6 @@ class TempFileService {
     }
   }
 
-  
-
   async saveFile(
     buffer: Buffer,
     originalName: string,
@@ -56,7 +52,6 @@ class TempFileService {
     url: string;
   }> {
     try {
-
       this.ensureDirectory();
 
       const sanitized = originalName
@@ -134,13 +129,10 @@ class TempFileService {
     }
   }
 
-  
-
   deleteFile(filename: string): boolean {
     if (!filename) return false;
 
     try {
-
       let filepath = path.join(this.basePath, filename);
 
       const isInsideTemp = filepath.startsWith(this.basePath);
@@ -185,8 +177,6 @@ class TempFileService {
     }
   }
 
-  
-
   deleteFiles(filenames: string[]): { deleted: number; failed: number } {
     let deleted = 0;
     let failed = 0;
@@ -204,8 +194,6 @@ class TempFileService {
     );
     return { deleted, failed };
   }
-
-  
 
   cleanupOldFiles(hoursThreshold: number = 48): {
     deleted: number;
@@ -257,20 +245,73 @@ class TempFileService {
     }
   }
 
-  
-
   getFilePath(filename: string): string {
     return path.join(this.basePath, filename);
   }
 
-  
+  getExistingFilePath(filename: string): string | null {
+    if (!filename) return null;
+
+    const candidates = [
+      path.join(this.basePath, filename),
+      path.join(process.cwd(), "storage", "temp", filename),
+    ];
+
+    for (const candidate of candidates) {
+      const resolved = path.resolve(candidate);
+      const allowedRoots = [
+        path.resolve(this.basePath),
+        path.resolve(path.join(process.cwd(), "storage", "temp")),
+      ];
+
+      const isAllowed = allowedRoots.some(
+        (root) =>
+          resolved === root || resolved.startsWith(`${root}${path.sep}`),
+      );
+
+      if (isAllowed && fs.existsSync(resolved)) {
+        return resolved;
+      }
+    }
+
+    return null;
+  }
+
+  getTempFilenameFromUrl(url: string): string | null {
+    if (!url) return null;
+
+    const extractFromPath = (pathname: string) => {
+      const marker = "/uploads/temp/";
+      const index = pathname.indexOf(marker);
+      if (index === -1) return null;
+
+      const rawName = pathname.slice(index + marker.length).split("/")[0];
+      if (!rawName) return null;
+
+      const decoded = decodeURIComponent(rawName);
+      if (decoded.includes("..") || decoded.includes(path.sep)) {
+        return null;
+      }
+
+      return decoded;
+    };
+
+    if (url.startsWith("/uploads/temp/")) {
+      return extractFromPath(url);
+    }
+
+    try {
+      const parsed = new URL(url);
+      return extractFromPath(parsed.pathname);
+    } catch {
+      return null;
+    }
+  }
 
   fileExists(filename: string): boolean {
     const filepath = path.join(this.basePath, filename);
     return fs.existsSync(filepath);
   }
-
-  
 
   getFileInfo(filename: string): { size: number; createdAt: Date } | null {
     try {

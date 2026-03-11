@@ -8,6 +8,7 @@ import logger from "../utils/logger";
 import fs from "fs";
 import path from "path";
 import { validateOrderCustomizations } from "../utils/customizationValidator";
+import customizationAssetPersistenceService from "./customizationAssetPersistenceService";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -985,12 +986,13 @@ class OrderService {
             const isValidUUID =
               customization_id && uuidRegex.test(customization_id);
 
-            const customizationDataToSave = {
-              customization_type,
-              title,
-              ...(customization_data || {}),
-              ...otherFields,
-            };
+            const customizationDataToSave =
+              await customizationAssetPersistenceService.processBase64InData({
+                customization_type,
+                title,
+                ...(customization_data || {}),
+                ...otherFields,
+              });
             this.removeBase64Recursive(customizationDataToSave);
 
             customizationsBatch.push({
@@ -1553,12 +1555,15 @@ class OrderService {
                 const isValidUUID =
                   customization_id && uuidRegex.test(customization_id);
 
-                const customizationDataToSave = {
-                  customization_type,
-                  title,
-                  ...(customization_data || {}),
-                  ...otherFields,
-                };
+                const customizationDataToSave =
+                  await customizationAssetPersistenceService.processBase64InData(
+                    {
+                      customization_type,
+                      title,
+                      ...(customization_data || {}),
+                      ...otherFields,
+                    },
+                  );
                 this.removeBase64Recursive(customizationDataToSave);
 
                 customizationsBatch.push({

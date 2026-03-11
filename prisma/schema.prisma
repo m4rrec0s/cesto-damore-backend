@@ -115,6 +115,7 @@ model Order {
   delivery_state                    String?
   customizations_drive_processed    Boolean     @default(false)
   customizations_drive_processed_at DateTime?
+  confirmation_whatsapp_sent_at     DateTime?
   google_drive_folder_id            String?
   google_drive_folder_url           String?
   delivery_method                   String?     @default("delivery")

@@ -104,8 +104,67 @@ export interface ProcessTransparentCheckoutData {
 }
 
 export class PaymentService {
-
   private static notificationSentOrders: Set<string> = new Set();
+
+  private static scheduleNotificationCacheRelease(orderId: string) {
+    setTimeout(
+      () => PaymentService.notificationSentOrders.delete(orderId),
+      1000 * 60 * 15,
+    );
+  }
+
+  private static async sendOrderConfirmationNotificationOnce(
+    orderId: string,
+    googleDriveUrl?: string,
+  ) {
+    if (PaymentService.notificationSentOrders.has(orderId)) {
+      logger.info(
+        `🟡 Notificação de pedido já enviada (cache) para ${orderId}, pulando.`,
+      );
+      return false;
+    }
+
+    const claimedAt = new Date();
+    const claimResult = await prisma.order.updateMany({
+      where: {
+        id: orderId,
+        confirmation_whatsapp_sent_at: null,
+      },
+      data: {
+        confirmation_whatsapp_sent_at: claimedAt,
+      },
+    });
+
+    if (claimResult.count === 0) {
+      logger.info(
+        `🟡 Notificação de pedido já foi reivindicada/enviada para ${orderId}, pulando.`,
+      );
+      PaymentService.notificationSentOrders.add(orderId);
+      this.scheduleNotificationCacheRelease(orderId);
+      return false;
+    }
+
+    try {
+      await this.performSendOrderConfirmationNotification(
+        orderId,
+        googleDriveUrl,
+      );
+      PaymentService.notificationSentOrders.add(orderId);
+      this.scheduleNotificationCacheRelease(orderId);
+      return true;
+    } catch (error) {
+      await prisma.order.updateMany({
+        where: {
+          id: orderId,
+          confirmation_whatsapp_sent_at: claimedAt,
+        },
+        data: {
+          confirmation_whatsapp_sent_at: null,
+        },
+      });
+      throw error;
+    }
+  }
   private static resolveShippingPrice(
     order: OrderWithPaymentDetails,
     method: "pix" | "card",
@@ -193,16 +252,16 @@ export class PaymentService {
       await orderCustomizationService.validateOrderForCheckout(orderId);
 
     if (!validation.valid) {
-      const missing = validation.missingRequired.slice(0, 3).map((m) => m.reason);
+      const missing = validation.missingRequired
+        .slice(0, 3)
+        .map((m) => m.reason);
       const invalid = validation.invalidCustomizations
         .slice(0, 3)
         .map((m) => m.reason);
 
       const details = [...missing, ...invalid].filter(Boolean);
       const detailText =
-        details.length > 0
-          ? ` Detalhes: ${details.join(" | ")}`
-          : "";
+        details.length > 0 ? ` Detalhes: ${details.join(" | ")}` : "";
 
       throw new Error(
         `Customizações pendentes ou inválidas para este pedido.${detailText}`,
@@ -447,7 +506,10 @@ export class PaymentService {
           });
           order.shipping_price = resolvedShipping;
         } catch (shippingErr) {
-          logger.warn("⚠️ Não foi possível atualizar frete do pedido:", shippingErr);
+          logger.warn(
+            "⚠️ Não foi possível atualizar frete do pedido:",
+            shippingErr,
+          );
         }
       }
 
@@ -462,7 +524,6 @@ export class PaymentService {
           order.payment.status === "REJECTED" ||
           order.payment.status === "CANCELLED"
         ) {
-
           if (
             order.payment.mercado_pago_id &&
             order.payment.status !== "REJECTED" &&
@@ -478,7 +539,6 @@ export class PaymentService {
                 "⚠️ Não foi possível cancelar pagamento anterior:",
                 cancelError,
               );
-
             }
           }
 
@@ -648,22 +708,10 @@ export class PaymentService {
           });
 
           if (willNotify) {
-            if (!PaymentService.notificationSentOrders.has(data.orderId)) {
-              await this.sendOrderConfirmationNotification(
-                data.orderId,
-                finalizeRes.folderUrl,
-              );
-              PaymentService.notificationSentOrders.add(data.orderId);
-              setTimeout(
-                () =>
-                  PaymentService.notificationSentOrders.delete(data.orderId),
-                1000 * 60 * 15,
-              );
-            } else {
-              logger.info(
-                `🟡 Notificação de pedido já enviada (cache) para ${data.orderId}, pulando.`,
-              );
-            }
+            await this.sendOrderConfirmationNotificationOnce(
+              data.orderId,
+              finalizeRes.folderUrl,
+            );
           } else {
             logger.warn(
               `⚠️ Finalize não ready (transparent checkout) for order ${data.orderId}, skipping WhatsApp send`,
@@ -685,7 +733,6 @@ export class PaymentService {
           });
         }
       } else {
-
         webhookNotificationService.notifyPaymentUpdate(data.orderId, {
           status: this.mapPaymentStatus(paymentResponse.status || "pending"),
           paymentId: paymentRecord.id,
@@ -930,7 +977,6 @@ export class PaymentService {
       });
 
       if (mercadoPagoResult.status === "approved") {
-
         orderCustomizationService
           .finalizeOrderCustomizations(order.id)
           .then(async (customizationResult) => {
@@ -941,7 +987,6 @@ export class PaymentService {
 
             if (customizationResult.folderId) {
               try {
-
                 const orderWithUser = await prisma.order.findUnique({
                   where: { id: order.id },
                   include: {
@@ -970,39 +1015,10 @@ export class PaymentService {
                   `📁 Ordem ${order.id} atualizada com Drive folder: ${customizationResult.folderId}`,
                 );
 
-                if (orderWithUser.user?.phone) {
-                  try {
-                    const items = orderWithUser.items.map((item) => ({
-                      name: item.product?.name || "Produto",
-                      quantity: item.quantity || 1,
-                      price: item.product?.price || 0,
-                    }));
-
-                    await whatsappService.sendOrderConfirmation({
-                      orderNumber: orderWithUser.id
-                        .substring(0, 8)
-                        .toUpperCase(),
-                      phone: orderWithUser.user.phone,
-                      customerName: orderWithUser.user.name || "Cliente",
-                      deliveryDate: orderWithUser.delivery_date || new Date(),
-                      createdAt: orderWithUser.created_at,
-                      recipientPhone:
-                        orderWithUser.recipient_phone || undefined,
-                      items,
-                      total:
-                        orderWithUser.grand_total || orderWithUser.total || 0,
-                      googleDriveUrl: customizationResult.folderUrl,
-                    });
-                    logger.info(
-                      `📱 WhatsApp enviado para ${orderWithUser.user.phone} com link do Drive`,
-                    );
-                  } catch (whatsappErr) {
-                    logger.warn(
-                      `⚠️ Erro ao enviar WhatsApp para ${orderWithUser.user?.phone}:`,
-                      whatsappErr,
-                    );
-                  }
-                }
+                await this.sendOrderConfirmationNotificationOnce(
+                  order.id,
+                  customizationResult.folderUrl,
+                );
               } catch (updateErr) {
                 logger.error(
                   `⚠️ Erro ao atualizar ordem com Drive folder:`,
@@ -1140,15 +1156,12 @@ export class PaymentService {
     }
   }
 
-  
-
   static async getInstallmentOptions(
     amount: number,
     paymentMethodId: string,
     bin?: string,
   ) {
     try {
-
       const params = new URLSearchParams({
         amount: amount.toString(),
         payment_method_id: paymentMethodId,
@@ -1203,8 +1216,6 @@ export class PaymentService {
     }
   }
 
-  
-
   private static getDefaultInstallmentOptions(amount: number) {
     const installments = [];
 
@@ -1249,8 +1260,6 @@ export class PaymentService {
       );
     }
   }
-
-  
 
   static async reprocessFailedFinalizations(maxAttempts = 5) {
     try {
@@ -1327,8 +1336,6 @@ export class PaymentService {
       console.error("Erro ao buscar logs para reprocessamento:", err);
     }
   }
-
-  
 
   static async reprocessFinalizationForOrder(orderId: string) {
     try {
@@ -1437,7 +1444,6 @@ export class PaymentService {
       });
 
       if (existingLog) {
-
         try {
           const paymentInfo = await this.getPayment(resourceId);
           const dbPayment = await prisma.payment.findFirst({
@@ -1523,7 +1529,6 @@ export class PaymentService {
           },
         });
       } else {
-
         console.warn(
           "⚠️ Webhook processing completed but payment was NOT processed (not updating webhookLog.processed)",
           { resourceId, topic: webhookType },
@@ -1587,8 +1592,6 @@ export class PaymentService {
     }
   }
 
-  
-
   static async replayStoredWebhooks() {
     const filePath =
       process.env.WEBHOOK_OFFLINE_LOG_FILE || "./webhook_offline_log.ndjson";
@@ -1610,7 +1613,6 @@ export class PaymentService {
       if (failed.length > 0) {
         await fs.writeFile(filePath, failed.join("\n") + "\n", "utf-8");
       } else {
-
         await fs.unlink(filePath);
       }
     } catch (error: any) {
@@ -1671,7 +1673,6 @@ export class PaymentService {
       });
 
       if (updateResult.count === 0) {
-
         console.log(
           `⚠️ Pagamento ${dbPayment.id} já atualizado para ${newStatus} por outro processo - pulando notificações e finalização`,
         );
@@ -1684,7 +1685,6 @@ export class PaymentService {
       console.log(`💾 DB updated payment ${dbPayment.id} -> ${newStatus}`);
 
       if (paymentInfo.status === "approved") {
-
         await orderService.updateOrderStatus(dbPayment.order_id, "PAID");
 
         const existingFinalized = await prisma.webhookLog.findFirst({
@@ -1700,31 +1700,20 @@ export class PaymentService {
             `🟢 Customizações já finalizadas para ${dbPayment.order_id} (via webhookLog), pulando finalização.`,
           );
 
-          if (!PaymentService.notificationSentOrders.has(dbPayment.order_id)) {
-            try {
-              const finalGoogleDriveUrl = await this.getOrderGoogleDriveUrl(
-                dbPayment.order_id,
-              );
-              await this.sendOrderConfirmationNotification(
-                dbPayment.order_id,
-                finalGoogleDriveUrl,
-              );
-              PaymentService.notificationSentOrders.add(dbPayment.order_id);
-              setTimeout(
-                () =>
-                  PaymentService.notificationSentOrders.delete(
-                    dbPayment.order_id,
-                  ),
-                1000 * 60 * 15,
-              );
-            } catch (err) {
-              logger.warn(
-                `⚠️ Erro ao enviar notificação após finalização anterior: ${err}`,
-              );
-            }
+          try {
+            const finalGoogleDriveUrl = await this.getOrderGoogleDriveUrl(
+              dbPayment.order_id,
+            );
+            await this.sendOrderConfirmationNotificationOnce(
+              dbPayment.order_id,
+              finalGoogleDriveUrl,
+            );
+          } catch (err) {
+            logger.warn(
+              `⚠️ Erro ao enviar notificação após finalização anterior: ${err}`,
+            );
           }
         } else {
-
           let googleDriveUrl: string | undefined;
           try {
             const finalizeRes =
@@ -1767,7 +1756,6 @@ export class PaymentService {
               (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
 
             if (willNotify) {
-
               webhookNotificationService.notifyPaymentUpdate(
                 dbPayment.order_id,
                 {
@@ -1785,26 +1773,10 @@ export class PaymentService {
                 `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`,
               );
 
-              if (
-                !PaymentService.notificationSentOrders.has(dbPayment.order_id)
-              ) {
-                await this.sendOrderConfirmationNotification(
-                  dbPayment.order_id,
-                  googleDriveUrl,
-                );
-                PaymentService.notificationSentOrders.add(dbPayment.order_id);
-                setTimeout(
-                  () =>
-                    PaymentService.notificationSentOrders.delete(
-                      dbPayment.order_id,
-                    ),
-                  1000 * 60 * 15,
-                );
-              } else {
-                logger.info(
-                  `🟡 Notificação de pedido já enviada (cache) para ${dbPayment.order_id}, pulando.`,
-                );
-              }
+              await this.sendOrderConfirmationNotificationOnce(
+                dbPayment.order_id,
+                googleDriveUrl,
+              );
             } else {
               logger.warn(
                 `⚠️ Finalização não retornou link do Drive; pulando envio de notificações para order ${dbPayment.order_id}`,
@@ -1844,7 +1816,6 @@ export class PaymentService {
           }
         }
       } else {
-
         webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
           status: newStatus,
           paymentId: dbPayment.id,
@@ -1872,104 +1843,112 @@ export class PaymentService {
 
   static async processMerchantOrderNotification(merchantOrderId: string) {}
 
+  private static async performSendOrderConfirmationNotification(
+    orderId: string,
+    googleDriveUrl?: string,
+  ) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        user: true,
+        items: {
+          include: {
+            product: true,
+            additionals: {
+              include: {
+                additional: true,
+              },
+            },
+          },
+        },
+        payment: true,
+      },
+    });
+
+    if (!order) {
+      throw new Error(`Pedido não encontrado: ${orderId}`);
+    }
+
+    const items: Array<{ name: string; quantity: number; price: number }> = [];
+
+    const finalGoogleDriveUrl =
+      googleDriveUrl || order.google_drive_folder_url || undefined;
+
+    order.items.forEach((item) => {
+      items.push({
+        name: item.product.name,
+        quantity: item.quantity,
+        price: Number(item.price),
+      });
+
+      item.additionals.forEach((additional) => {
+        items.push({
+          name: additional.additional.name,
+          quantity: additional.quantity,
+          price: Number(additional.price),
+        });
+      });
+    });
+
+    const orderData = {
+      orderId: order.id,
+      orderNumber: order.id.substring(0, 8).toUpperCase(),
+      totalAmount: Number(order.grand_total || order.total || 0),
+      paymentMethod: order.payment_method || "Não informado",
+      items,
+      googleDriveUrl: finalGoogleDriveUrl,
+      recipientPhone: order.recipient_phone || undefined,
+      customer: {
+        name: order.user.name,
+        email: order.user.email,
+        phone: order.user.phone || undefined,
+      },
+      delivery: order.delivery_address
+        ? {
+            address: order.delivery_address,
+            city: order.user.city || "",
+            state: order.user.state || "",
+            zipCode: order.user.zip_code || "",
+            date: order.delivery_date || undefined,
+          }
+        : undefined,
+    };
+
+    (orderData as any).send_anonymously = order.send_anonymously || false;
+    (orderData as any).complement = order.complement || undefined;
+    await whatsappService.sendOrderConfirmationNotification(orderData, {
+      notifyTeam: true,
+      notifyCustomer: false,
+    });
+
+    if (order.user.phone) {
+      await whatsappService.sendOrderConfirmation({
+        phone: order.user.phone,
+        orderNumber: order.id.substring(0, 8).toUpperCase(),
+        customerName: order.user.name,
+        recipientPhone: order.recipient_phone || undefined,
+        deliveryDate: order.delivery_date || undefined,
+        createdAt: order.created_at,
+        googleDriveUrl: finalGoogleDriveUrl,
+        items,
+        total: Number(order.grand_total || order.total || 0),
+      });
+    } else {
+      console.warn(
+        "Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp.",
+      );
+    }
+  }
+
   static async sendOrderConfirmationNotification(
     orderId: string,
     googleDriveUrl?: string,
   ) {
     try {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          user: true,
-          items: {
-            include: {
-              product: true,
-              additionals: {
-                include: {
-                  additional: true,
-                },
-              },
-            },
-          },
-          payment: true,
-        },
-      });
-
-      if (!order) {
-        console.error("Pedido não encontrado:", orderId);
-        return;
-      }
-
-      const items: Array<{ name: string; quantity: number; price: number }> =
-        [];
-
-      const finalGoogleDriveUrl =
-        googleDriveUrl || order.google_drive_folder_url || undefined;
-
-      order.items.forEach((item) => {
-        items.push({
-          name: item.product.name,
-          quantity: item.quantity,
-          price: Number(item.price),
-        });
-
-        item.additionals.forEach((additional) => {
-          items.push({
-            name: additional.additional.name,
-            quantity: additional.quantity,
-            price: Number(additional.price),
-          });
-        });
-      });
-
-      const orderData = {
-        orderId: order.id,
-        orderNumber: order.id.substring(0, 8).toUpperCase(),
-        totalAmount: Number(order.grand_total || order.total || 0),
-        paymentMethod: order.payment_method || "Não informado",
-        items,
-        googleDriveUrl: finalGoogleDriveUrl,
-        recipientPhone: order.recipient_phone || undefined,
-        customer: {
-          name: order.user.name,
-          email: order.user.email,
-          phone: order.user.phone || undefined,
-        },
-        delivery: order.delivery_address
-          ? {
-              address: order.delivery_address,
-              city: order.user.city || "",
-              state: order.user.state || "",
-              zipCode: order.user.zip_code || "",
-              date: order.delivery_date || undefined,
-            }
-          : undefined,
-      };
-
-      (orderData as any).send_anonymously = order.send_anonymously || false;
-      (orderData as any).complement = order.complement || undefined;
-      await whatsappService.sendOrderConfirmationNotification(orderData, {
-        notifyTeam: true,
-        notifyCustomer: false,
-      });
-
-      if (order.user.phone) {
-        await whatsappService.sendOrderConfirmation({
-          phone: order.user.phone,
-          orderNumber: order.id.substring(0, 8).toUpperCase(),
-          customerName: order.user.name,
-          recipientPhone: order.recipient_phone || undefined,
-          deliveryDate: order.delivery_date || undefined,
-          createdAt: order.created_at,
-          googleDriveUrl: finalGoogleDriveUrl,
-          items,
-          total: Number(order.grand_total || order.total || 0),
-        });
-      } else {
-        console.warn(
-          "Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp.",
-        );
-      }
+      await this.performSendOrderConfirmationNotification(
+        orderId,
+        googleDriveUrl,
+      );
     } catch (error: any) {
       console.error(
         "Erro ao enviar notificação de pedido confirmado:",
@@ -2023,13 +2002,10 @@ export class PaymentService {
     }
   }
 
-  
-
   private static async getOrderGoogleDriveUrl(
     orderId: string,
   ): Promise<string | undefined> {
     try {
-
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         select: { google_drive_folder_url: true },

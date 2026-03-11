@@ -772,6 +772,10 @@ class OrderCustomizationService {
       throw new Error("Pedido não encontrado");
     }
 
+    const hasAnyCustomizations = order.items.some(
+      (item) => item.customizations.length > 0,
+    );
+
     let mainFolderId: string | null = null;
     let uploadedFiles = 0;
     let base64Detected = false;
@@ -980,6 +984,10 @@ class OrderCustomizationService {
           );
         }
       }
+    }
+
+    if (!mainFolderId && hasAnyCustomizations) {
+      await ensureMainFolder();
     }
 
     if (!mainFolderId) {
@@ -1303,17 +1311,15 @@ class OrderCustomizationService {
 
       let fileBuffer: Buffer | null = null;
 
-      if (url.startsWith("/uploads/temp/")) {
-        const tempFileName = url.replace("/uploads/temp/", "");
-        const baseStorageDir = path.join(process.cwd(), "storage");
-        const filePath = path.join(baseStorageDir, "temp", tempFileName);
+      const tempFileName = tempFileService.getTempFilenameFromUrl(url);
 
-        if (!filePath.startsWith(path.join(baseStorageDir, "temp"))) {
-          throw new Error(`Invalid file path: ${filePath}`);
-        }
+      if (tempFileName) {
+        const filePath = tempFileService.getExistingFilePath(tempFileName);
 
-        if (!fs.existsSync(filePath)) {
-          logger.error(`❌ Arquivo temporário não encontrado: ${filePath}`);
+        if (!filePath) {
+          logger.error(
+            `❌ Arquivo temporário não encontrado no diretório configurado: ${tempFileName}`,
+          );
           throw new Error(`Temporary file not found: ${tempFileName}`);
         }
 

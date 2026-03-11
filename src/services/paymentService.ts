@@ -138,6 +138,10 @@ export class PaymentService {
   }) {
     const { orderId, paymentId, mercadoPagoId, paymentMethod } = params;
 
+    logger.info(
+      `🚀 Agendando pós-processamento assíncrono do pedido ${orderId}`,
+    );
+
     void (async () => {
       try {
         const finalizeRes =
@@ -190,6 +194,73 @@ export class PaymentService {
         });
       }
     })();
+  }
+
+  private static async recoverApprovedOrderPostProcessingIfNeeded(params: {
+    orderId: string;
+    paymentId: string;
+    mercadoPagoId: string;
+    paymentMethod?: string;
+  }) {
+    const { orderId, paymentId, mercadoPagoId, paymentMethod } = params;
+
+    const orderState = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        customizations_drive_processed: true,
+        confirmation_whatsapp_sent_at: true,
+        google_drive_folder_url: true,
+      },
+    });
+
+    if (!orderState) {
+      logger.warn(
+        `⚠️ Pedido ${orderId} não encontrado ao tentar recuperar pós-processamento aprovado`,
+      );
+      return;
+    }
+
+    if (
+      orderState.customizations_drive_processed &&
+      orderState.confirmation_whatsapp_sent_at
+    ) {
+      logger.info(
+        `🟢 Pós-processamento já concluído para ${orderId}; nenhuma recuperação necessária`,
+      );
+      return;
+    }
+
+    logger.warn(
+      `🛟 Recuperando pós-processamento pendente do pedido ${orderId} via webhook fallback`,
+    );
+
+    const finalizeRes =
+      await orderCustomizationService.finalizeOrderCustomizations(orderId);
+
+    const finalDriveUrl =
+      finalizeRes.folderUrl || orderState.google_drive_folder_url || undefined;
+
+    webhookNotificationService.notifyPaymentUpdate(orderId, {
+      status: "approved",
+      paymentId,
+      mercadoPagoId,
+      approvedAt: new Date().toLocaleString("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+      }),
+      paymentMethod,
+    });
+
+    const willNotify =
+      !!finalDriveUrl ||
+      (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
+
+    if (willNotify) {
+      await this.sendOrderConfirmationNotificationOnce(orderId, finalDriveUrl);
+    } else {
+      logger.warn(
+        `⚠️ Recuperação concluída sem link/notificação para ${orderId}; aguardando próxima tentativa`,
+      );
+    }
   }
 
   private static scheduleNotificationCacheRelease(orderId: string) {
@@ -1720,6 +1791,16 @@ export class PaymentService {
         console.log(
           `⚠️ Pagamento ${dbPayment.id} já atualizado para ${newStatus} por outro processo - pulando notificações e finalização`,
         );
+
+        if (paymentInfo.status === "approved") {
+          await this.recoverApprovedOrderPostProcessingIfNeeded({
+            orderId: dbPayment.order_id,
+            paymentId: dbPayment.id,
+            mercadoPagoId: paymentId,
+            paymentMethod: paymentInfo.payment_method_id || undefined,
+          });
+        }
+
         return true;
       }
 

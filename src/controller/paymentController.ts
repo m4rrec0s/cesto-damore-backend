@@ -5,7 +5,6 @@ import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
 export class PaymentController {
-
   private static mercadoPagoErrorMessages: Record<string, string> = {
     cc_rejected_bad_filled_card_number:
       "Número do cartão incorreto. Verifique e tente novamente.",
@@ -35,7 +34,7 @@ export class PaymentController {
     "invalid-token":
       "Token do cartão inválido ou já utilizado. Por favor, preencha os dados do cartão novamente.",
     "Card Token not found":
-      "Token do cartão não encontrado. Certifique-se de que as chaves do Mercado Pago estão configuradas corretamente no frontend e backend.",
+      "Token do cartão não encontrado. Isso normalmente acontece quando a chave pública do frontend e o access token do backend não pertencem ao mesmo app/conta do Mercado Pago, quando há chave antiga em cache no frontend ou quando o formulário precisa ser recarregado.",
     invalid_parameter:
       "Algum dado enviado ao Mercado Pago está incorreto. Verifique os dados do cartão.",
   };
@@ -57,7 +56,6 @@ export class PaymentController {
     } else if (err.response?.status_detail) {
       statusDetail = err.response.status_detail;
     } else if (Array.isArray(err.cause)) {
-
       const firstCause = err.cause[0];
       if (firstCause?.code) {
         statusDetail = firstCause.code;
@@ -96,7 +94,6 @@ export class PaymentController {
     }
     return 500;
   }
-  
 
   static async createPreference(req: Request, res: Response) {
     try {
@@ -131,8 +128,6 @@ export class PaymentController {
       });
     }
   }
-
-  
 
   static async createPayment(req: Request, res: Response) {
     try {
@@ -187,8 +182,6 @@ export class PaymentController {
       });
     }
   }
-
-  
 
   static async processTransparentCheckout(req: Request, res: Response) {
     try {
@@ -302,8 +295,6 @@ export class PaymentController {
       });
     }
   }
-
-  
 
   static async getPaymentStatus(req: Request, res: Response) {
     try {
@@ -547,8 +538,6 @@ export class PaymentController {
     }
   }
 
-  
-
   static async getFinancialSummary(req: Request, res: Response) {
     try {
       const { startDate, endDate } = req.query;
@@ -592,8 +581,6 @@ export class PaymentController {
       });
     }
   }
-
-  
 
   static async paymentSuccess(req: Request, res: Response) {
     try {
@@ -678,8 +665,6 @@ export class PaymentController {
       res.status(500).send("Erro ao processar retorno do pagamento");
     }
   }
-
-  
 
   static async healthCheck(req: Request, res: Response) {
     try {

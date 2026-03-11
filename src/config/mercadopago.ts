@@ -7,6 +7,12 @@ const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 const publicKey = process.env.MERCADO_PAGO_PUBLIC_KEY;
 const webhookSecret = process.env.MERCADO_PAGO_WEBHOOK_SECRET;
 
+const getMercadoPagoCredentialEnvironment = (value: string) => {
+  if (value.startsWith("TEST-")) return "test";
+  if (value.startsWith("APP_USR-")) return "production";
+  return "unknown";
+};
+
 if (!accessToken) {
   throw new Error("MERCADO_PAGO_ACCESS_TOKEN é obrigatório");
 }
@@ -17,6 +23,19 @@ if (!publicKey) {
 
 if (!webhookSecret) {
   throw new Error("MERCADO_PAGO_WEBHOOK_SECRET é obrigatório");
+}
+
+const accessTokenEnvironment = getMercadoPagoCredentialEnvironment(accessToken);
+const publicKeyEnvironment = getMercadoPagoCredentialEnvironment(publicKey);
+
+if (
+  accessTokenEnvironment !== "unknown" &&
+  publicKeyEnvironment !== "unknown" &&
+  accessTokenEnvironment !== publicKeyEnvironment
+) {
+  throw new Error(
+    "Credenciais do Mercado Pago incompatíveis: a chave pública e o access token precisam pertencer ao mesmo ambiente e, idealmente, ao mesmo app/conta do Mercado Pago.",
+  );
 }
 
 const client = new MercadoPagoConfig({
@@ -54,6 +73,8 @@ export const mercadoPagoConfig = {
 export const environmentConfig = {
   isProduction: process.env.NODE_ENV === "production",
   isTestAccount: accessToken.startsWith("TEST"),
+  publicKeyEnvironment,
+  accessTokenEnvironment,
   integrator_id: process.env.MERCADO_PAGO_INTEGRATOR_ID,
   corporation_id: process.env.MERCADO_PAGO_CORPORATION_ID,
   platform_id: process.env.MERCADO_PAGO_PLATFORM_ID,

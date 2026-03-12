@@ -101,6 +101,8 @@ export interface ProcessTransparentCheckoutData {
   installments?: number;
   issuer_id?: string;
   payment_method_id?: string;
+  frontendPublicKeyFingerprint?: string;
+  frontendPublicKeyPrefix?: string;
 }
 
 export class PaymentService {
@@ -592,6 +594,27 @@ export class PaymentService {
 
       if (!data.payerDocument || !data.payerDocumentType) {
         throw new Error("Documento do pagador é obrigatório");
+      }
+
+      if (
+        (data.paymentMethodId === "credit_card" ||
+          data.paymentMethodId === "debit_card") &&
+        data.frontendPublicKeyFingerprint &&
+        data.frontendPublicKeyFingerprint !==
+          mercadoPagoConfig.publicKeyFingerprint
+      ) {
+        logger.error("❌ Chave pública do frontend não confere com o backend", {
+          orderId: data.orderId,
+          userId: data.userId,
+          backendPublicKeyPrefix: mercadoPagoConfig.publicKeyPrefix,
+          backendPublicKeyFingerprint: mercadoPagoConfig.publicKeyFingerprint,
+          frontendPublicKeyPrefix: data.frontendPublicKeyPrefix || null,
+          frontendPublicKeyFingerprint: data.frontendPublicKeyFingerprint,
+        });
+
+        throw new Error(
+          "A chave pública do Mercado Pago carregada no navegador não corresponde à configuração atual do servidor. Recarregue a página para atualizar o checkout e tente novamente.",
+        );
       }
 
       const order = await this.loadOrderWithDetails(data.orderId);

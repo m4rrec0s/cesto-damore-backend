@@ -197,6 +197,8 @@ export class PaymentController {
         installments,
         issuer_id,
         payment_method_id,
+        frontendPublicKeyFingerprint,
+        frontendPublicKeyPrefix,
       } = req.body;
 
       const userId = (req as any).user?.id;
@@ -263,6 +265,8 @@ export class PaymentController {
         installments: installments ? Number(installments) : 1,
         issuer_id,
         payment_method_id,
+        frontendPublicKeyFingerprint,
+        frontendPublicKeyPrefix,
       });
 
       res.status(201).json({

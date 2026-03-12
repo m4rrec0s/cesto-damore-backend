@@ -1,5 +1,6 @@
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
 import { config } from "dotenv";
+import { createHash } from "crypto";
 
 config();
 
@@ -12,6 +13,11 @@ const getMercadoPagoCredentialEnvironment = (value: string) => {
   if (value.startsWith("APP_USR-")) return "production";
   return "unknown";
 };
+
+const buildCredentialFingerprint = (value: string) =>
+  createHash("sha256").update(value).digest("hex").slice(0, 12);
+
+const buildCredentialPrefix = (value: string) => value.slice(0, 16);
 
 if (!accessToken) {
   throw new Error("MERCADO_PAGO_ACCESS_TOKEN é obrigatório");
@@ -27,6 +33,8 @@ if (!webhookSecret) {
 
 const accessTokenEnvironment = getMercadoPagoCredentialEnvironment(accessToken);
 const publicKeyEnvironment = getMercadoPagoCredentialEnvironment(publicKey);
+const publicKeyFingerprint = buildCredentialFingerprint(publicKey);
+const publicKeyPrefix = buildCredentialPrefix(publicKey);
 
 if (
   accessTokenEnvironment !== "unknown" &&
@@ -51,6 +59,8 @@ export const preference = new Preference(client);
 export const mercadoPagoConfig = {
   accessToken,
   publicKey,
+  publicKeyFingerprint,
+  publicKeyPrefix,
   webhookSecret,
   client,
   baseUrl: process.env.BASE_URL || "",
@@ -75,6 +85,8 @@ export const environmentConfig = {
   isTestAccount: accessToken.startsWith("TEST"),
   publicKeyEnvironment,
   accessTokenEnvironment,
+  publicKeyFingerprint,
+  publicKeyPrefix,
   integrator_id: process.env.MERCADO_PAGO_INTEGRATOR_ID,
   corporation_id: process.env.MERCADO_PAGO_CORPORATION_ID,
   platform_id: process.env.MERCADO_PAGO_PLATFORM_ID,

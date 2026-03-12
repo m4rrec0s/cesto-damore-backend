@@ -731,6 +731,11 @@ router.post(
   validateMercadoPagoWebhook,
   PaymentController.handleWebhook,
 );
+router.get("/mercadopago/public-config", async (req, res) => {
+  const { getPublicConfig } =
+    await import("./controller/mercadopagoController");
+  return getPublicConfig(req, res);
+});
 router.get(
   "/webhooks/notifications/:orderId",
   webhookNotificationController.streamNotifications,

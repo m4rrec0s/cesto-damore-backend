@@ -1,6 +1,31 @@
 import type { Request, Response } from "express";
 import { CardToken, MercadoPagoConfig } from "mercadopago";
 import axios from "axios";
+import { environmentConfig, mercadoPagoConfig } from "../config/mercadopago";
+
+export async function getPublicConfig(_req: Request, res: Response) {
+  try {
+    return res.status(200).json({
+      success: true,
+      data: {
+        publicKey: mercadoPagoConfig.publicKey,
+        publicKeyEnvironment: environmentConfig.publicKeyEnvironment,
+        publicKeyFingerprint: environmentConfig.publicKeyFingerprint,
+        publicKeyPrefix: environmentConfig.publicKeyPrefix,
+      },
+    });
+  } catch (error: unknown) {
+    const errorMessage =
+      error && typeof error === "object" && "message" in error
+        ? (error as { message: string }).message
+        : "Erro desconhecido ao carregar configuração pública";
+
+    return res.status(500).json({
+      success: false,
+      message: errorMessage,
+    });
+  }
+}
 
 export async function getCardIssuers(req: Request, res: Response) {
   try {
@@ -40,7 +65,7 @@ export async function getCardIssuers(req: Request, res: Response) {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
-      }
+      },
     );
 
     const issuers = issuersResponse.data;
@@ -194,13 +219,12 @@ export async function getInstallments(req: Request, res: Response) {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
-      }
+      },
     );
 
     const data = response.data;
 
     if (data && Array.isArray(data) && data.length > 0) {
-
       return res.status(200).json({
         success: true,
         payer_costs: data[0].payer_costs,

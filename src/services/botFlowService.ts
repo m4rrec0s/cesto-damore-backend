@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import whatsappService from "./whatsappService";
 const prisma = new PrismaClient();
 
 interface BotMessageRequest {
@@ -54,6 +55,9 @@ export const botFlowService = {
     let session = await prisma.botSession.findUnique({
       where: { phone },
     });
+    
+    // Default state building
+    let sessionState = {};
 
     const flow = await this.getActiveFlow();
     const nodes = (flow.nodes as any[]) || [];
@@ -66,12 +70,23 @@ export const botFlowService = {
           flow_id: flow.id,
           current_node_id: null,
           is_human: false,
-          state: {},
+          state: { contactName },
         },
       });
     }
 
-    if (session.is_human) {
+    if (session) {
+      sessionState = (session.state as any) || {};
+      if (contactName && sessionState.contactName !== contactName) {
+        sessionState.contactName = contactName;
+        await prisma.botSession.update({
+          where: { id: session.id },
+          data: { state: sessionState }
+        });
+      }
+    }
+
+    if (session && session.is_human) {
       return []; // Return empty if human is handling
     }
 
@@ -225,11 +240,25 @@ export const botFlowService = {
             text: currentNode.data?.message || "Vou chamar um atendente.",
             delay: 1000,
           });
+          
           await prisma.botSession.update({
             where: { id: session.id },
             data: { is_human: true, current_node_id: null },
           });
-          // Parar chat
+          
+          // Envia notificação para a equipe via WhatsApp
+          const cName = ((session.state as any)?.contactName) || contactName || "Cliente";
+          let alertMsg = `🚨 *ATENDIMENTO HUMANO SOLICITADO* 🚨\n\n`;
+          alertMsg += `*Nome:* ${cName}\n`;
+          alertMsg += `*WhatsApp:* https://wa.me/${phone}\n`;
+          alertMsg += `*Ação:* O bot foi pausado para este cliente.`;
+          
+          try {
+             await whatsappService.sendMessage(alertMsg);
+          } catch (e) {
+             console.error("[BotFlow] Erro ao notificar atendente de handoff:", e);
+          }
+          
           return responseMessages;
 
         default:

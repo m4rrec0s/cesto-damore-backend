@@ -11,6 +11,7 @@ interface BotMessageRequest {
 interface MessageResponse {
   text: string;
   delay?: number;
+  type?: string;
 }
 
 export const botFlowService = {
@@ -49,7 +50,8 @@ export const botFlowService = {
     message,
     contactName,
   }: BotMessageRequest): Promise<MessageResponse[]> {
-    const text = (message || "").toString().trim().toLowerCase();
+    const rawText = (message || "").toString().trim();
+    const text = rawText.toLowerCase();
 
     // Find or create session
     let session = await prisma.botSession.findUnique({
@@ -57,7 +59,9 @@ export const botFlowService = {
     });
     
     // Default state building
-    let sessionState: any = {};
+    let sessionState: Record<string, any> = {};
+    
+    let history: any[] = [];
 
     const flow = await this.getActiveFlow();
     const nodes = (flow.nodes as any[]) || [];
@@ -71,11 +75,17 @@ export const botFlowService = {
           current_node_id: null,
           is_human: false,
           state: { contactName },
+          history: []
         },
       });
     }
 
     if (session) {
+      history = (Array.isArray(session.history) ? session.history : []) as any[];
+      if (rawText) {
+         history.push({ role: "user", text: message, created_at: new Date().toISOString() });
+      }
+
       sessionState = (session.state as any) || {};
       if (contactName && sessionState.contactName !== contactName) {
         sessionState.contactName = contactName;
@@ -109,19 +119,46 @@ export const botFlowService = {
       // Process input based on node type
       if (node.type === "menuNode") {
         // Tenta achar a opcao escolhida
-        const optionMatched = parseInt(text);
-        let nextNodeId = null;
+        const digitsMatch = text.match(/\d+/);
+        const optionMatched = digitsMatch ? parseInt(digitsMatch[0], 10) : NaN;
+        let nextNodeId: string | null = null;
 
         // As edges que saem deste nó:
         const outEdges = edges.filter((e) => e.source === currentNodeId);
 
         if (!isNaN(optionMatched)) {
-          // Find edge with sourceHandle matching the option (e.g. `option-1`)
-          const edge = outEdges.find(
-            (e) => e.sourceHandle === `option-${optionMatched}`,
+          const candidateHandles: string[] = [];
+
+          // Prioriza index baseado em 1 -> handle 0 (UI atual)
+          if (optionMatched > 0) {
+            candidateHandles.push(String(optionMatched - 1));
+            candidateHandles.push(`option-${optionMatched - 1}`);
+          }
+
+          // Compatibilidade com fluxos antigos (1-based)
+          candidateHandles.push(String(optionMatched));
+          candidateHandles.push(`option-${optionMatched}`);
+
+          const edge = outEdges.find((e) =>
+            candidateHandles.includes(String(e.sourceHandle)),
           );
           if (edge) {
             nextNodeId = edge.target;
+          }
+        } else if (Array.isArray(node.data?.options)) {
+          const normalizedText = text.trim();
+          const optionIndex = node.data.options.findIndex((opt: any) => {
+            const label =
+              typeof opt === "string" ? opt : opt?.label || opt?.value || "";
+            return String(label).trim().toLowerCase() === normalizedText;
+          });
+          if (optionIndex >= 0) {
+            const edge = outEdges.find(
+              (e) => String(e.sourceHandle) === String(optionIndex),
+            );
+            if (edge) {
+              nextNodeId = edge.target;
+            }
           }
         }
 
@@ -149,11 +186,32 @@ export const botFlowService = {
     let responseMessages: MessageResponse[] = [];
 
     let currentNode = node;
+    
+    const saveSessionState = async (cNodeId: string | null, stateObj: any, msgs: any[]) => {
+      const finalHistory = [...history];
+      msgs.forEach(m => finalHistory.push({ role: "bot", text: m.text, type: m.type || "text", delay: m.delay, created_at: new Date().toISOString() }));
+      await prisma.botSession.update({
+        where: { id: session!.id },
+        data: { 
+          current_node_id: cNodeId, 
+          state: stateObj,
+          history: finalHistory as any,
+          updated_at: new Date()
+        }
+      });
+    };
+
     while (currentNode) {
-      const state = (session.state as any) || {};
+      const state = sessionState || {};
 
       switch (currentNode.type) {
         case "startNode":
+          if (currentNode.data?.message) {
+            responseMessages.push({
+              text: currentNode.data.message,
+              delay: 1500,
+            });
+          }
           // Move to next node immediately
           const startEdge = edges.find((e) => e.source === currentNode?.id);
           currentNode = startEdge
@@ -173,17 +231,30 @@ export const botFlowService = {
             : null;
           continue;
 
-        case "menuNode":
+        case "menuNode": {
+          const options = Array.isArray(currentNode.data?.options)
+            ? currentNode.data.options
+            : [];
+          const baseMessage = currentNode.data?.message || "";
+          let menuText = baseMessage;
+          if (options.length > 0) {
+            const optionLines = options.map((opt: any, index: number) => {
+              const label =
+                typeof opt === "string" ? opt : opt?.label || opt?.value || `Opção ${index + 1}`;
+              return `${index + 1}. ${String(label).trim()}`;
+            });
+            menuText = `${baseMessage}\n\n${optionLines.join("\n")}`.trim();
+          }
+
           responseMessages.push({
-            text: currentNode.data?.message || "",
+            text: menuText,
             delay: 1500,
+            type: "menu",
           });
           // Stops here, waiting for user input
-          await prisma.botSession.update({
-            where: { id: session.id },
-            data: { current_node_id: currentNode.id, state },
-          });
+          await saveSessionState(currentNode.id, state, responseMessages);
           return responseMessages;
+        }
 
         case "productSearchNode":
           // Perform search
@@ -241,10 +312,8 @@ export const botFlowService = {
             delay: 1000,
           });
           
-          await prisma.botSession.update({
-            where: { id: session.id },
-            data: { is_human: true, current_node_id: null },
-          });
+          await saveSessionState(null, { ...state, is_human: true }, responseMessages);
+          await prisma.botSession.update({ where: { id: session.id }, data: { is_human: true }});
           
           // Envia notificação para a equipe via WhatsApp
           const cName = ((session.state as any)?.contactName) || contactName || "Cliente";
@@ -266,6 +335,10 @@ export const botFlowService = {
       }
     }
 
+    if (responseMessages.length > 0) {
+      const finalNodeId = currentNode ? currentNode.id : null;
+      await saveSessionState(finalNodeId, sessionState, responseMessages);
+    }
     return responseMessages;
   },
 };

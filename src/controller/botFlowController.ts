@@ -16,7 +16,7 @@ export const botFlowController = {
         contactName
       });
 
-      return res.json({ messages: responseMessages });
+      return res.json({ messages: responseMessages, responses: responseMessages });
     } catch (error) {
       console.error("[BotFlowController] Error:", error);
       return res.status(500).json({ error: "Internal server error" });

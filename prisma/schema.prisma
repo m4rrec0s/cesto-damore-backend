@@ -634,3 +634,29 @@ enum TrendPeriodType {
   DAILY
   ROLLING_30D
 }
+
+model BotFlow {
+  id          String   @id @default(uuid())
+  name        String
+  is_active   Boolean  @default(false)
+  nodes       Json     @default("[]")
+  edges       Json     @default("[]")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  
+  BotSession  BotSession[]
+}
+
+model BotSession {
+  id              String   @id @default(uuid())
+  phone           String   @unique
+  flow_id         String
+  current_node_id String?
+  is_human        Boolean  @default(false)
+  state           Json?    
+  history         Json?    @default("[]")
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  flow            BotFlow  @relation(fields: [flow_id], references: [id])
+}

@@ -22,6 +22,8 @@ import customizationUploadController from "./controller/customizationUploadContr
 import customizationReviewController from "./controller/customizationReviewController";
 import tempUploadController from "./controller/tempUploadController";
 import oauthController from "./controller/oauthController";
+import { botFlowController } from "./controller/botFlowController";
+
 import statusController from "./controller/statusController";
 import aiSummaryService from "./services/aiSummaryService";
 import { PaymentService } from "./services/paymentService";
@@ -1304,5 +1306,10 @@ router.post(
     }
   },
 );
+
+
+router.post("/bot/chat", botFlowController.handleWebhook);
+router.get("/bot/flow", botFlowController.getFlow);
+router.post("/bot/flow", authenticateToken, requireAdmin, botFlowController.saveFlow);
 
 export default router;

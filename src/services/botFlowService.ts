@@ -57,7 +57,7 @@ export const botFlowService = {
     });
     
     // Default state building
-    let sessionState = {};
+    let sessionState: any = {};
 
     const flow = await this.getActiveFlow();
     const nodes = (flow.nodes as any[]) || [];

@@ -54,11 +54,52 @@ class AIAgentService {
     return trimmed ? trimmed : "Escolha uma opção:";
   }
 
+  private normalizeFallbackText(value: string) {
+    return value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private responseAlreadyHasMenu(content: string, menuText: string) {
+    const normalizedContent = this.normalizeFallbackText(content);
+    const normalizedMenu = this.normalizeFallbackText(menuText);
+    if (!normalizedMenu) return true;
+    if (normalizedContent.includes(normalizedMenu)) return true;
+
+    const optionLabels = menuText
+      .split("\n")
+      .map((line) => line.trim())
+      .map((line) => {
+        const match = line.match(/^\d+\.\s+(.+)$/);
+        return match ? match[1].trim() : "";
+      })
+      .filter(Boolean)
+      .map((label) => this.normalizeFallbackText(label));
+
+    if (optionLabels.length === 0) return false;
+
+    let hits = 0;
+    optionLabels.forEach((label) => {
+      if (label && normalizedContent.includes(label)) hits += 1;
+    });
+
+    if (optionLabels.length <= 2) {
+      return hits === optionLabels.length;
+    }
+
+    return hits >= Math.ceil(optionLabels.length * 0.6);
+  }
+
   private ensureMenuInResponse(content: string, menuText: string) {
     const trimmedContent = content.trim();
     const trimmedMenu = this.formatFallbackMenuText(menuText);
     if (!trimmedMenu) return trimmedContent;
-    if (trimmedContent.includes(trimmedMenu)) return trimmedContent;
+    if (this.responseAlreadyHasMenu(trimmedContent, trimmedMenu)) {
+      return trimmedContent;
+    }
     return `${trimmedContent}\n\n${trimmedMenu}`.trim();
   }
 

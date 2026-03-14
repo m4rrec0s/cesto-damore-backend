@@ -52,6 +52,16 @@ const normalizeText = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+const normalizeSearchTokens = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s,]+/g, " ")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const isYesOption = (value: string, option: string) => {
   const normalized = normalizeText(value);
   return normalized.includes(option);
@@ -316,11 +326,15 @@ export const botFlowService = {
           candidateHandles.push(String(optionMatched));
           candidateHandles.push(`option-${optionMatched}`);
 
-          const edge = outEdges.find((e) =>
-            candidateHandles.includes(String(e.sourceHandle)),
+          const edgeByHandle = new Map(
+            outEdges.map((e) => [String(e.sourceHandle), e]),
           );
-          if (edge) {
-            nextNodeId = edge.target;
+          for (const handle of candidateHandles) {
+            const edge = edgeByHandle.get(String(handle));
+            if (edge) {
+              nextNodeId = edge.target;
+              break;
+            }
           }
         } else if (Array.isArray(node.data?.options)) {
           const normalizedText = text.trim();
@@ -533,10 +547,45 @@ export const botFlowService = {
             where.is_active = true;
           }
           if (searchTerm) {
-            where.OR = [
-              { name: { contains: searchTerm, mode: "insensitive" } },
-              { description: { contains: searchTerm, mode: "insensitive" } },
-            ];
+            const normalized = normalizeSearchTokens(searchTerm);
+            const groups = normalized
+              .split(",")
+              .map((g) => g.trim())
+              .filter(Boolean);
+
+            const buildTokenFilters = (group: string) => {
+              const tokens = group
+                .split(" ")
+                .map((t) => t.trim())
+                .filter(Boolean);
+              if (tokens.length === 0) return null;
+              if (tokens.length === 1) {
+                return {
+                  OR: [
+                    { name: { contains: tokens[0], mode: "insensitive" } },
+                    { description: { contains: tokens[0], mode: "insensitive" } },
+                  ],
+                };
+              }
+              return {
+                AND: tokens.map((token) => ({
+                  OR: [
+                    { name: { contains: token, mode: "insensitive" } },
+                    {
+                      description: { contains: token, mode: "insensitive" },
+                    },
+                  ],
+                })),
+              };
+            };
+
+            const groupFilters = groups
+              .map(buildTokenFilters)
+              .filter(Boolean) as any[];
+
+            if (groupFilters.length > 0) {
+              where.OR = groupFilters;
+            }
           }
           if (data.categoryId) {
             where.categories = {

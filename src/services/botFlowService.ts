@@ -27,8 +27,7 @@ const BASE_URL = process.env.BASE_URL || "https://api.cestodamore.com.br";
 const stripHtmlTags = (value: string) =>
   value.replace(/<[^>]*>/g, "").replace(/\\[.*?\\]/g, "");
 
-const formatPrice = (price: number) =>
-  price.toFixed(2).replace(".", ",");
+const formatPrice = (price: number) => price.toFixed(2).replace(".", ",");
 
 const resolvePreviewUrl = (imageUrl?: string | null) => {
   if (!imageUrl) return null;
@@ -63,8 +62,7 @@ const classifyMessage = (message: string): Partial<MessageResponse> => {
       /https:\/\/api\.cestodamore\.com\.br\/preview\?img=[^\s]+/;
     const opcaoPattern = /_Opção \d+:_/;
     const precoPattern = /\*R\$\s+[\d.,]+\*/;
-    const nomePrecoPattern =
-      /\*[^*]+\*\s*-\s*VALOR\s*-\s*R\$\s*[\d.,]+/i;
+    const nomePrecoPattern = /\*[^*]+\*\s*-\s*VALOR\s*-\s*R\$\s*[\d.,]+/i;
     const precoPlainPattern = /R\$\s*[\d.,]+/;
 
     const temPreviewUrl = produtoPattern.test(message);
@@ -73,7 +71,11 @@ const classifyMessage = (message: string): Partial<MessageResponse> => {
     const temNomePreco = nomePrecoPattern.test(message);
     const temPrecoPlain = precoPlainPattern.test(message);
 
-    if (temPreviewUrl && (temOpcao || temNomePreco) && (temPreco || temPrecoPlain)) {
+    if (
+      temPreviewUrl &&
+      (temOpcao || temNomePreco) &&
+      (temPreco || temPrecoPlain)
+    ) {
       return {
         isProduct: true,
         isProdutoMessage: true,
@@ -82,7 +84,10 @@ const classifyMessage = (message: string): Partial<MessageResponse> => {
       };
     }
 
-    if (message.includes("www.instagram.com") || message.includes("instagram.com")) {
+    if (
+      message.includes("www.instagram.com") ||
+      message.includes("instagram.com")
+    ) {
       return {
         isProduct: false,
         isInstagramLink: true,
@@ -163,10 +168,10 @@ export const botFlowService = {
     let session = await prisma.botSession.findUnique({
       where: { phone },
     });
-    
+
     // Default state building
     let sessionState: Record<string, any> = {};
-    
+
     let history: any[] = [];
 
     const flow = await this.getActiveFlow();
@@ -181,15 +186,21 @@ export const botFlowService = {
           current_node_id: null,
           is_human: false,
           state: { contactName },
-          history: []
+          history: [],
         },
       });
     }
 
     if (session) {
-      history = (Array.isArray(session.history) ? session.history : []) as any[];
+      history = (
+        Array.isArray(session.history) ? session.history : []
+      ) as any[];
       if (rawText) {
-         history.push({ role: "user", text: message, created_at: new Date().toISOString() });
+        history.push({
+          role: "user",
+          text: message,
+          created_at: new Date().toISOString(),
+        });
       }
 
       sessionState = (session.state as any) || {};
@@ -197,7 +208,7 @@ export const botFlowService = {
         sessionState.contactName = contactName;
         await prisma.botSession.update({
           where: { id: session.id },
-          data: { state: sessionState }
+          data: { state: sessionState },
         });
       }
     }
@@ -285,20 +296,37 @@ export const botFlowService = {
         if (ctx?.nodeId === currentNodeId) {
           const normalized = normalizeText(text);
           const digitsMatch = normalized.match(/\d+/);
-          const optionMatched = digitsMatch ? parseInt(digitsMatch[0], 10) : NaN;
-          const wantsMore =
-            optionMatched === 1 ||
-            isYesOption(normalized, "ver mais") ||
-            isYesOption(normalized, "mais opcoes") ||
-            isYesOption(normalized, "mais opcoes dessa sessao") ||
-            isYesOption(normalized, "mais opcoes dessa sessão");
-          const wantsDone =
-            optionMatched === 2 ||
-            isYesOption(normalized, "ja escolhi") ||
-            isYesOption(normalized, "já escolhi") ||
-            isYesOption(normalized, "seguir para proxima etapa") ||
-            isYesOption(normalized, "seguir para próxima etapa") ||
-            isYesOption(normalized, "seguir");
+          const optionMatched = digitsMatch
+            ? parseInt(digitsMatch[0], 10)
+            : NaN;
+          const hasMorePages = (ctx.page || 1) < (ctx.totalPages || 1);
+
+          let wantsMore = false;
+          let wantsDone = false;
+
+          if (hasMorePages) {
+            wantsMore =
+              optionMatched === 1 ||
+              isYesOption(normalized, "ver mais") ||
+              isYesOption(normalized, "mais opcoes") ||
+              isYesOption(normalized, "mais opcoes dessa sessao") ||
+              isYesOption(normalized, "mais opcoes dessa sessão");
+            wantsDone =
+              optionMatched === 2 ||
+              isYesOption(normalized, "ja escolhi") ||
+              isYesOption(normalized, "já escolhi") ||
+              isYesOption(normalized, "seguir para proxima etapa") ||
+              isYesOption(normalized, "seguir para próxima etapa") ||
+              isYesOption(normalized, "seguir");
+          } else {
+            wantsDone =
+              optionMatched === 1 ||
+              isYesOption(normalized, "ja escolhi") ||
+              isYesOption(normalized, "já escolhi") ||
+              isYesOption(normalized, "seguir para proxima etapa") ||
+              isYesOption(normalized, "seguir para próxima etapa") ||
+              isYesOption(normalized, "seguir");
+          }
 
           if (wantsMore) {
             const totalPages =
@@ -310,8 +338,7 @@ export const botFlowService = {
             if (nextPage > totalPages) {
               return [
                 {
-                  text:
-                    "Não tenho mais opções nessa sessão. Se já escolheu, envie: \"Já escolhi, seguir para próxima etapa\".",
+                  text: 'Não tenho mais opções nessa sessão. Se já escolheu, envie: "Já escolhi, seguir para próxima etapa".',
                 },
               ];
             }
@@ -333,8 +360,7 @@ export const botFlowService = {
           } else {
             return [
               {
-                text:
-                  "Opção inválida. Responda com:\n\n- Ver mais opções dessa sessão\n- Já escolhi, seguir para próxima etapa",
+                text: "Opção inválida. Responda com:\n\n- Ver mais opções dessa sessão\n- Já escolhi, seguir para próxima etapa",
               },
             ];
           }
@@ -364,18 +390,30 @@ export const botFlowService = {
     };
 
     let currentNode = node;
-    
-    const saveSessionState = async (cNodeId: string | null, stateObj: any, msgs: any[]) => {
+
+    const saveSessionState = async (
+      cNodeId: string | null,
+      stateObj: any,
+      msgs: any[],
+    ) => {
       const finalHistory = [...history];
-      msgs.forEach(m => finalHistory.push({ role: "bot", text: m.text, type: m.type || "text", delay: m.delay, created_at: new Date().toISOString() }));
+      msgs.forEach((m) =>
+        finalHistory.push({
+          role: "bot",
+          text: m.text,
+          type: m.type || "text",
+          delay: m.delay,
+          created_at: new Date().toISOString(),
+        }),
+      );
       await prisma.botSession.update({
         where: { id: session!.id },
-        data: { 
-          current_node_id: cNodeId, 
+        data: {
+          current_node_id: cNodeId,
           state: stateObj,
           history: finalHistory as any,
-          updated_at: new Date()
-        }
+          updated_at: new Date(),
+        },
       });
     };
 
@@ -415,7 +453,9 @@ export const botFlowService = {
           if (options.length > 0) {
             const optionLines = options.map((opt: any, index: number) => {
               const label =
-                typeof opt === "string" ? opt : opt?.label || opt?.value || `Opção ${index + 1}`;
+                typeof opt === "string"
+                  ? opt
+                  : opt?.label || opt?.value || `Opção ${index + 1}`;
               return `${index + 1}. ${String(label).trim()}`;
             });
             menuText = `${baseMessage}\n\n${optionLines.join("\n")}`.trim();
@@ -432,7 +472,11 @@ export const botFlowService = {
           appendMessage("🔍 Buscando opções para você...", 1000);
 
           const data = currentNode.data || {};
-          const searchTerm = (data.searchQuery || data.searchPrefix || "").trim();
+          const searchTerm = (
+            data.searchQuery ||
+            data.searchPrefix ||
+            ""
+          ).trim();
           const maxResults =
             typeof data.maxResults === "number" && data.maxResults > 0
               ? Math.round(data.maxResults)
@@ -475,7 +519,9 @@ export const botFlowService = {
               : 1;
           const count = await prisma.product.count({ where });
           const total =
-            typeof maxResults === "number" ? Math.min(count, maxResults) : count;
+            typeof maxResults === "number"
+              ? Math.min(count, maxResults)
+              : count;
           const totalPages = Math.max(1, Math.ceil(total / perPage));
           const safePage = Math.min(Math.max(page, 1), totalPages);
           const effectiveSkip = (safePage - 1) * perPage;
@@ -489,20 +535,23 @@ export const botFlowService = {
             }
           }
 
-          const products = take === 0 ? [] : await prisma.product.findMany({
-            where,
-            take,
-            skip: effectiveSkip,
-            orderBy: { price: "desc" },
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              price: true,
-              image_url: true,
-              production_time: true,
-            },
-          });
+          const products =
+            take === 0
+              ? []
+              : await prisma.product.findMany({
+                  where,
+                  take,
+                  skip: effectiveSkip,
+                  orderBy: { price: "desc" },
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    price: true,
+                    image_url: true,
+                    production_time: true,
+                  },
+                });
 
           if (products.length === 0) {
             appendMessage("Hmm, não encontrei produtos agora 😔", 1500);
@@ -512,7 +561,9 @@ export const botFlowService = {
                 e.source === currentNode?.id &&
                 String(e.sourceHandle) === "not_found",
             );
-            const fallbackEdge = edges.find((e) => e.source === currentNode?.id);
+            const fallbackEdge = edges.find(
+              (e) => e.source === currentNode?.id,
+            );
             currentNode = notFoundEdge
               ? nodes.find((n) => n.id === notFoundEdge.target)
               : fallbackEdge
@@ -565,7 +616,11 @@ export const botFlowService = {
               },
             };
 
-            await saveSessionState(currentNode.id, sessionState, responseMessages);
+            await saveSessionState(
+              currentNode.id,
+              sessionState,
+              responseMessages,
+            );
             return responseMessages;
           }
 
@@ -576,23 +631,34 @@ export const botFlowService = {
             currentNode.data?.message || "Vou chamar um atendente.",
             1000,
           );
-          
-          await saveSessionState(null, { ...state, is_human: true }, responseMessages);
-          await prisma.botSession.update({ where: { id: session.id }, data: { is_human: true }});
-          
+
+          await saveSessionState(
+            null,
+            { ...state, is_human: true },
+            responseMessages,
+          );
+          await prisma.botSession.update({
+            where: { id: session.id },
+            data: { is_human: true },
+          });
+
           // Envia notificação para a equipe via WhatsApp
-          const cName = ((session.state as any)?.contactName) || contactName || "Cliente";
+          const cName =
+            (session.state as any)?.contactName || contactName || "Cliente";
           let alertMsg = `🚨 *ATENDIMENTO HUMANO SOLICITADO* 🚨\n\n`;
           alertMsg += `*Nome:* ${cName}\n`;
           alertMsg += `*WhatsApp:* https://wa.me/${phone}\n`;
           alertMsg += `*Ação:* O bot foi pausado para este cliente.`;
-          
+
           try {
-             await whatsappService.sendMessage(alertMsg);
+            await whatsappService.sendMessage(alertMsg);
           } catch (e) {
-             console.error("[BotFlow] Erro ao notificar atendente de handoff:", e);
+            console.error(
+              "[BotFlow] Erro ao notificar atendente de handoff:",
+              e,
+            );
           }
-          
+
           return responseMessages;
 
         default:

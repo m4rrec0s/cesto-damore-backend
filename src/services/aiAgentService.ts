@@ -100,13 +100,65 @@ class AIAgentService {
   }
 
   private ensureMenuInResponse(content: string, menuText: string) {
-    const trimmedContent = content.trim();
+    const trimmedContent = this.stripGeneratedMenuBlocks(content);
     const trimmedMenu = this.formatFallbackMenuText(menuText);
     if (!trimmedMenu) return trimmedContent;
-    if (this.responseAlreadyHasMenu(trimmedContent, trimmedMenu)) {
-      return trimmedContent;
-    }
     return `${trimmedContent}\n\n${trimmedMenu}`.trim();
+  }
+
+  private stripGeneratedMenuBlocks(content: string) {
+    const lines = content.split("\n").map((line) => line.trimEnd());
+
+    const menuTriggerIndex = lines.findIndex((line) => {
+      const normalized = this.normalizeFallbackText(line);
+      if (!normalized) return false;
+      return (
+        normalized.startsWith("escolha uma opcao") ||
+        normalized.startsWith("escolha a ocasiao") ||
+        normalized.startsWith("você gostaria de seguir") ||
+        normalized.startsWith("voce gostaria de seguir")
+      );
+    });
+
+    const body =
+      menuTriggerIndex >= 0 ? lines.slice(0, menuTriggerIndex) : lines;
+
+    return body.join("\n").trim();
+  }
+
+  private getSaoPauloContext() {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+    const parts = formatter.formatToParts(now);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value || "";
+
+    const weekday = get("weekday");
+    const date = `${get("day")}/${get("month")}/${get("year")}`;
+    const time = `${get("hour")}:${get("minute")}:${get("second")}`;
+
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const tomorrowWeekday = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long",
+    }).format(tomorrow);
+
+    return {
+      weekday,
+      date,
+      time,
+      tomorrowWeekday,
+    };
   }
 
   private isFallbackToolAllowed(toolName: string) {
@@ -126,13 +178,18 @@ class AIAgentService {
     customerName?: string;
   }): Promise<string> {
     const safeMenuText = this.formatFallbackMenuText(menuText);
+    const spContext = this.getSaoPauloContext();
     const systemPrompt = [
       "Você é a assistente virtual da Cesto dAmore.",
       "Responda de forma direta, educada e assertiva.",
       "O cliente saiu do fluxo esperado. Ajude rapidamente, sem inventar informações.",
       "Use ferramentas disponíveis quando necessário (ex.: horários, pedidos, atendimento humano).",
       "NÃO avance o fluxo e NÃO altere o menu.",
+      "Não escreva seu próprio menu, opções ou botões.",
       "Finalize obrigatoriamente com o menu exatamente como fornecido.",
+      `Data/hora atual (America/Sao_Paulo): ${spContext.weekday}, ${spContext.date} ${spContext.time}.`,
+      `Amanhã em America/Sao_Paulo será: ${spContext.tomorrowWeekday}.`,
+      "Regra operacional: aos domingos a loja não abre. Não confirme produção/entrega para domingo.",
       "",
       "Menu atual (não altere):",
       safeMenuText,

@@ -375,10 +375,46 @@ export const botFlowService = {
           const optionMatched = digitsMatch
             ? parseInt(digitsMatch[0], 10)
             : NaN;
+          if (ctx?.emptyResults) {
+            const wantsBack =
+              optionMatched === 1 ||
+              isYesOption(normalized, "voltar ao menu") ||
+              isYesOption(normalized, "voltar") ||
+              isYesOption(normalized, "menu");
+
+            if (wantsBack) {
+              sessionState = { ...sessionState, productSearch: undefined };
+              const backEdge = edges.find(
+                (e) =>
+                  e.source === currentNodeId &&
+                  String(e.sourceHandle) === "back_to_menu",
+              );
+              const notFoundEdge = edges.find(
+                (e) =>
+                  e.source === currentNodeId &&
+                  String(e.sourceHandle) === "not_found",
+              );
+              const fallbackEdge = edges.find(
+                (e) => e.source === currentNodeId,
+              );
+              const targetId = (backEdge || notFoundEdge || fallbackEdge)
+                ?.target;
+              node = targetId ? nodes.find((n) => n.id === targetId) : null;
+            } else {
+              const menuText = "Escolha uma opção:\n1. Voltar ao menu";
+              return await sendFallbackResponse(
+                menuText,
+                currentNodeId!,
+                sessionState,
+              );
+            }
+          }
+
           const hasMorePages = (ctx.page || 1) < (ctx.totalPages || 1);
 
           let wantsMore = false;
           let wantsDone = false;
+          let wantsBack = false;
 
           if (hasMorePages) {
             wantsMore =
@@ -394,6 +430,11 @@ export const botFlowService = {
               isYesOption(normalized, "seguir para proxima etapa") ||
               isYesOption(normalized, "seguir para próxima etapa") ||
               isYesOption(normalized, "seguir");
+            wantsBack =
+              optionMatched === 3 ||
+              isYesOption(normalized, "voltar ao menu") ||
+              isYesOption(normalized, "voltar") ||
+              isYesOption(normalized, "menu");
           } else {
             wantsDone =
               optionMatched === 1 ||
@@ -401,7 +442,13 @@ export const botFlowService = {
               isYesOption(normalized, "já escolhi") ||
               isYesOption(normalized, "seguir para proxima etapa") ||
               isYesOption(normalized, "seguir para próxima etapa") ||
+              isYesOption(normalized, "quero essa") ||
               isYesOption(normalized, "seguir");
+            wantsBack =
+              optionMatched === 2 ||
+              isYesOption(normalized, "voltar ao menu") ||
+              isYesOption(normalized, "voltar") ||
+              isYesOption(normalized, "menu");
           }
 
           if (wantsMore) {
@@ -433,13 +480,29 @@ export const botFlowService = {
             const fallbackEdge = edges.find((e) => e.source === currentNodeId);
             const targetId = (foundEdge || fallbackEdge)?.target;
             node = targetId ? nodes.find((n) => n.id === targetId) : null;
+          } else if (wantsBack) {
+            sessionState = { ...sessionState, productSearch: undefined };
+            const backEdge = edges.find(
+              (e) =>
+                e.source === currentNodeId &&
+                String(e.sourceHandle) === "back_to_menu",
+            );
+            const notFoundEdge = edges.find(
+              (e) =>
+                e.source === currentNodeId &&
+                String(e.sourceHandle) === "not_found",
+            );
+            const fallbackEdge = edges.find((e) => e.source === currentNodeId);
+            const targetId = (backEdge || notFoundEdge || fallbackEdge)?.target;
+            node = targetId ? nodes.find((n) => n.id === targetId) : null;
           } else {
             const options = hasMorePages
               ? [
                   "Ver mais opções dessa sessão",
                   "Já escolhi, seguir para próxima etapa",
+                  "Voltar ao menu",
                 ]
-              : ["Já escolhi, seguir para próxima etapa"];
+              : ["Já escolhi, seguir para próxima etapa", "Voltar ao menu"];
             const menuText = `Escolha uma opção:\n${options
               .map((opt, index) => `${index + 1}. ${opt}`)
               .join("\n")}`.trim();
@@ -563,7 +626,9 @@ export const botFlowService = {
                 return {
                   OR: [
                     { name: { contains: tokens[0], mode: "insensitive" } },
-                    { description: { contains: tokens[0], mode: "insensitive" } },
+                    {
+                      description: { contains: tokens[0], mode: "insensitive" },
+                    },
                   ],
                 };
               }
@@ -648,22 +713,22 @@ export const botFlowService = {
                 });
 
           if (products.length === 0) {
-            appendMessage("Hmm, não encontrei produtos agora 😔", 1500);
-            sessionState = { ...sessionState, productSearch: undefined };
-            const notFoundEdge = edges.find(
-              (e) =>
-                e.source === currentNode?.id &&
-                String(e.sourceHandle) === "not_found",
+            appendMessage("Escolha uma opção:\n1. Voltar ao menu", 800, {
+              type: "menu",
+            });
+            sessionState = {
+              ...sessionState,
+              productSearch: {
+                nodeId: currentNode.id,
+                emptyResults: true,
+              },
+            };
+            await saveSessionState(
+              currentNode.id,
+              sessionState,
+              responseMessages,
             );
-            const fallbackEdge = edges.find(
-              (e) => e.source === currentNode?.id,
-            );
-            currentNode = notFoundEdge
-              ? nodes.find((n) => n.id === notFoundEdge.target)
-              : fallbackEdge
-                ? nodes.find((n) => n.id === fallbackEdge.target)
-                : null;
-            continue;
+            return responseMessages;
           } else {
             for (let i = 0; i < products.length; i++) {
               const p = products[i];
@@ -691,8 +756,10 @@ export const botFlowService = {
             if (hasMore) {
               options.push("1. Ver mais opções dessa sessão");
               options.push("2. Já escolhi, seguir para próxima etapa");
+              options.push("3. Voltar ao menu");
             } else {
               options.push("1. Já escolhi, seguir para próxima etapa");
+              options.push("2. Voltar ao menu");
             }
             appendMessage(`Escolha uma opção:\n${options.join("\n")}`, 800, {
               type: "menu",

@@ -45,6 +45,18 @@ const resolvePreviewUrl = (imageUrl?: string | null) => {
   }
 };
 
+const normalizeText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+const isYesOption = (value: string, option: string) => {
+  const normalized = normalizeText(value);
+  return normalized.includes(option);
+};
+
 const classifyMessage = (message: string): Partial<MessageResponse> => {
   try {
     const produtoPattern =
@@ -268,6 +280,66 @@ export const botFlowService = {
           ];
         }
       }
+      if (node.type === "productSearchNode") {
+        const ctx = (sessionState?.productSearch || {}) as any;
+        if (ctx?.nodeId === currentNodeId) {
+          const normalized = normalizeText(text);
+          const digitsMatch = normalized.match(/\d+/);
+          const optionMatched = digitsMatch ? parseInt(digitsMatch[0], 10) : NaN;
+          const wantsMore =
+            optionMatched === 1 ||
+            isYesOption(normalized, "ver mais") ||
+            isYesOption(normalized, "mais opcoes") ||
+            isYesOption(normalized, "mais opcoes dessa sessao") ||
+            isYesOption(normalized, "mais opcoes dessa sessão");
+          const wantsDone =
+            optionMatched === 2 ||
+            isYesOption(normalized, "ja escolhi") ||
+            isYesOption(normalized, "já escolhi") ||
+            isYesOption(normalized, "seguir para proxima etapa") ||
+            isYesOption(normalized, "seguir para próxima etapa") ||
+            isYesOption(normalized, "seguir");
+
+          if (wantsMore) {
+            const totalPages =
+              typeof ctx.totalPages === "number" && ctx.totalPages > 0
+                ? ctx.totalPages
+                : 1;
+            const nextPage =
+              typeof ctx.page === "number" && ctx.page > 0 ? ctx.page + 1 : 2;
+            if (nextPage > totalPages) {
+              return [
+                {
+                  text:
+                    "Não tenho mais opções nessa sessão. Se já escolheu, envie: \"Já escolhi, seguir para próxima etapa\".",
+                },
+              ];
+            }
+            sessionState = {
+              ...sessionState,
+              productSearch: { ...ctx, page: nextPage },
+            };
+            node = nodes.find((n) => n.id === currentNodeId);
+          } else if (wantsDone) {
+            sessionState = { ...sessionState, productSearch: undefined };
+            const foundEdge = edges.find(
+              (e) =>
+                e.source === currentNodeId &&
+                String(e.sourceHandle) === "found",
+            );
+            const fallbackEdge = edges.find((e) => e.source === currentNodeId);
+            const targetId = (foundEdge || fallbackEdge)?.target;
+            node = targetId ? nodes.find((n) => n.id === targetId) : null;
+          } else {
+            return [
+              {
+                text:
+                  "Opção inválida. Responda com:\n\n- Ver mais opções dessa sessão\n- Já escolhi, seguir para próxima etapa",
+              },
+            ];
+          }
+        }
+      }
     }
 
     // At this point we are at the target node to be processed
@@ -364,7 +436,8 @@ export const botFlowService = {
           const maxResults =
             typeof data.maxResults === "number" && data.maxResults > 0
               ? Math.round(data.maxResults)
-              : 6;
+              : null;
+          const perPage = 6;
 
           const where: any = {};
           if (data.onlyActive) {
@@ -391,9 +464,35 @@ export const botFlowService = {
             where.price = { ...(where.price || {}), lte: data.maxPrice };
           }
 
-          const products = await prisma.product.findMany({
+          const requestedPage =
+            sessionState?.productSearch?.nodeId === currentNode.id &&
+            typeof sessionState.productSearch.page === "number"
+              ? sessionState.productSearch.page
+              : data.page;
+          const page =
+            typeof requestedPage === "number" && requestedPage > 0
+              ? Math.round(requestedPage)
+              : 1;
+          const count = await prisma.product.count({ where });
+          const total =
+            typeof maxResults === "number" ? Math.min(count, maxResults) : count;
+          const totalPages = Math.max(1, Math.ceil(total / perPage));
+          const safePage = Math.min(Math.max(page, 1), totalPages);
+          const effectiveSkip = (safePage - 1) * perPage;
+
+          let take = perPage;
+          if (typeof maxResults === "number") {
+            if (effectiveSkip >= maxResults) {
+              take = 0;
+            } else {
+              take = Math.min(perPage, maxResults - effectiveSkip);
+            }
+          }
+
+          const products = take === 0 ? [] : await prisma.product.findMany({
             where,
-            take: maxResults,
+            take,
+            skip: effectiveSkip,
             orderBy: { price: "desc" },
             select: {
               id: true,
@@ -407,6 +506,19 @@ export const botFlowService = {
 
           if (products.length === 0) {
             appendMessage("Hmm, não encontrei produtos agora 😔", 1500);
+            sessionState = { ...sessionState, productSearch: undefined };
+            const notFoundEdge = edges.find(
+              (e) =>
+                e.source === currentNode?.id &&
+                String(e.sourceHandle) === "not_found",
+            );
+            const fallbackEdge = edges.find((e) => e.source === currentNode?.id);
+            currentNode = notFoundEdge
+              ? nodes.find((n) => n.id === notFoundEdge.target)
+              : fallbackEdge
+                ? nodes.find((n) => n.id === fallbackEdge.target)
+                : null;
+            continue;
           } else {
             for (let i = 0; i < products.length; i++) {
               const p = products[i];
@@ -428,13 +540,35 @@ export const botFlowService = {
 
               appendMessage(parts.join("\n"), 1000);
             }
+
+            const hasMore = safePage < totalPages;
+            const options = [];
+            if (hasMore) {
+              options.push("1. Ver mais opções dessa sessão");
+              options.push("2. Já escolhi, seguir para próxima etapa");
+            } else {
+              options.push("1. Já escolhi, seguir para próxima etapa");
+            }
+            appendMessage(`Escolha uma opção:\n${options.join("\n")}`, 800, {
+              type: "menu",
+            });
+
+            sessionState = {
+              ...sessionState,
+              productSearch: {
+                nodeId: currentNode.id,
+                page: safePage,
+                perPage,
+                total,
+                totalPages,
+                maxResults,
+              },
+            };
+
+            await saveSessionState(currentNode.id, sessionState, responseMessages);
+            return responseMessages;
           }
 
-          // Move to next node immediately
-          const searchEdge = edges.find((e) => e.source === currentNode?.id);
-          currentNode = searchEdge
-            ? nodes.find((n) => n.id === searchEdge.target)
-            : null;
           continue;
 
         case "handoffNode":

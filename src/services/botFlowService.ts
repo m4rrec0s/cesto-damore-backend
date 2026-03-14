@@ -297,6 +297,66 @@ export const botFlowService = {
       return fallbackMessages;
     };
 
+    const normalizedRawText = normalizeText(rawText);
+    const isCartAddedInternalEvent =
+      normalizedRawText.includes("[interno]") &&
+      normalizedRawText.includes("evento=cart_added");
+    const isInternalImageInstruction =
+      normalizedRawText.includes("[informacoes internas]") &&
+      normalizedRawText.includes("o cliente mandou uma imagem");
+
+    const forceHumanHandoff = async (reason: string) => {
+      const handoffMessages: MessageResponse[] = [
+        {
+          text: "Perfeito! Vou te encaminhar para atendimento humano agora.",
+          delay: 600,
+          ...classifyMessage(
+            "Perfeito! Vou te encaminhar para atendimento humano agora.",
+          ),
+        },
+      ];
+
+      const handoffState = {
+        ...sessionState,
+        is_human: true,
+        forced_handoff_reason: reason,
+      };
+
+      await saveSessionState(null, handoffState, handoffMessages);
+      await prisma.botSession.update({
+        where: { id: session.id },
+        data: { is_human: true },
+      });
+
+      const cName =
+        (session.state as any)?.contactName || contactName || "Cliente";
+      let alertMsg = `🚨 *ATENDIMENTO HUMANO FORÇADO (BOT)* 🚨\n\n`;
+      alertMsg += `*Motivo:* ${reason}\n`;
+      alertMsg += `*Nome:* ${cName}\n`;
+      alertMsg += `*WhatsApp:* https://wa.me/${phone}\n`;
+      alertMsg += `*Entrada:* ${rawText.slice(0, 700)}\n`;
+      alertMsg += `*Ação:* O bot foi pausado e o cliente deve ser atendido por humano.`;
+
+      try {
+        await whatsappService.sendMessage(alertMsg, BOT_HANDOFF_GROUP_ID);
+      } catch (e) {
+        console.error(
+          "[BotFlow] Erro ao notificar atendente de handoff forçado:",
+          e,
+        );
+      }
+
+      return handoffMessages;
+    };
+
+    if (isCartAddedInternalEvent) {
+      return await forceHumanHandoff("Evento interno CART_ADDED");
+    }
+
+    if (isInternalImageInstruction) {
+      return await forceHumanHandoff("Mensagem interna de imagem recebida");
+    }
+
     // Se nao tem node, acha o node inicial (tipo 'start' ou o primeiro sem source edge)
     if (!node) {
       node = nodes.find((n) => n.type === "startNode") || nodes[0];

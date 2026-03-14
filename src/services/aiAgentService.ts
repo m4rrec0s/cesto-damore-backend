@@ -42,6 +42,12 @@ class AIAgentService {
   private openai: OpenAI;
   private model: string = "gpt-4o-mini";
   private advancedModel: string = "gpt-4-turbo";
+  private fallbackAllowedTools = new Set(
+    (process.env.FALLBACK_ALLOWED_MCP_TOOLS || "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
 
   constructor() {
     this.openai = new OpenAI({
@@ -103,6 +109,11 @@ class AIAgentService {
     return `${trimmedContent}\n\n${trimmedMenu}`.trim();
   }
 
+  private isFallbackToolAllowed(toolName: string) {
+    if (this.fallbackAllowedTools.size === 0) return false;
+    return this.fallbackAllowedTools.has(toolName);
+  }
+
   async processFallback({
     userMessage,
     menuText,
@@ -151,23 +162,32 @@ class AIAgentService {
 
     try {
       const tools = await mcpClientService.listTools();
-      const formattedTools = tools.map((t) => ({
-        type: "function" as const,
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.inputSchema,
-        },
-      }));
+      const formattedTools = tools
+        .filter((t) => this.isFallbackToolAllowed(t.name))
+        .map((t) => ({
+          type: "function" as const,
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: t.inputSchema,
+          },
+        }));
 
       const maxIterations = 6;
       for (let iteration = 0; iteration < maxIterations; iteration++) {
-        const response = await this.openai.chat.completions.create({
-          model: this.model,
-          messages,
-          tools: formattedTools,
-          stream: false,
-        });
+        const completionInput: OpenAI.Chat.Completions.ChatCompletionCreateParams =
+          {
+            model: this.model,
+            messages,
+            stream: false,
+          };
+
+        if (formattedTools.length > 0) {
+          completionInput.tools = formattedTools;
+        }
+
+        const response =
+          await this.openai.chat.completions.create(completionInput);
 
         const responseMessage = response.choices[0].message;
         const toolCalls = (responseMessage.tool_calls || []) as any[];
@@ -178,6 +198,16 @@ class AIAgentService {
             const toolName = call.function?.name;
             if (!toolName) continue;
             let toolResultText = "";
+            if (!this.isFallbackToolAllowed(toolName)) {
+              toolResultText =
+                "Não posso executar essa ação neste momento. Posso seguir com orientações diretas.";
+              messages.push({
+                role: "tool",
+                tool_call_id: call.id,
+                content: toolResultText,
+              });
+              continue;
+            }
             try {
               const toolArgs = call.function?.arguments
                 ? JSON.parse(call.function.arguments)
@@ -223,8 +253,6 @@ class AIAgentService {
     return this.ensureMenuInResponse(fallbackText, safeMenuText);
   }
 
-
-
   private determineToolStrategy(
     userMessage: string,
     wasExplicitMatch: boolean,
@@ -238,12 +266,14 @@ class AIAgentService {
     const messageLength = userMessage.trim().length;
 
     const hardRequirements = {
-      cartEvent: /\[interno\].*carrinho|evento\s*=\s*cart_added|cart_added|adicionou.*carrinho/i.test(
-        userMessage,
-      ),
-      finalCheckout: /finaliza|confirma|fecha pedido|vou levar|como compro|como pago/i.test(
-        messageLower,
-      ),
+      cartEvent:
+        /\[interno\].*carrinho|evento\s*=\s*cart_added|cart_added|adicionou.*carrinho/i.test(
+          userMessage,
+        ),
+      finalCheckout:
+        /finaliza|confirma|fecha pedido|vou levar|como compro|como pago/i.test(
+          messageLower,
+        ),
     };
 
     if (hardRequirements.cartEvent || hardRequirements.finalCheckout) {
@@ -315,9 +345,7 @@ class AIAgentService {
       /como é|me explica|qual é|o que é/i,
     ];
 
-    const isGenericQuestion = genericPatterns.some((p) =>
-      p.test(messageLower),
-    );
+    const isGenericQuestion = genericPatterns.some((p) => p.test(messageLower));
     if (isGenericQuestion) {
       toolNecessityScore -= 20;
     }
@@ -360,9 +388,10 @@ class AIAgentService {
     };
   }
 
-
-
-  private detectContextualPrompts(userMessage: string): { prompts: string[]; wasExplicitMatch: boolean } {
+  private detectContextualPrompts(userMessage: string): {
+    prompts: string[];
+    wasExplicitMatch: boolean;
+  } {
     const messageLower = userMessage.toLowerCase();
 
     const isGreetingOnly = (() => {
@@ -382,7 +411,10 @@ class AIAgentService {
         "e aí",
       ];
       if (greetings.some((g) => cleaned === g)) return true;
-      if (cleaned.length <= 12 && greetings.some((g) => cleaned.startsWith(g))) {
+      if (
+        cleaned.length <= 12 &&
+        greetings.some((g) => cleaned.startsWith(g))
+      ) {
         return true;
       }
       return false;
@@ -414,7 +446,9 @@ class AIAgentService {
         priority: 1,
       },
       {
-        patterns: [/horário|que horas|quando|amanhã|hoje|noite|tarde|manhã|prazo|demora|tempo de produção/i],
+        patterns: [
+          /horário|que horas|quando|amanhã|hoje|noite|tarde|manhã|prazo|demora|tempo de produção/i,
+        ],
         prompt: "delivery_rules_guideline",
         priority: 1,
       },
@@ -433,7 +467,9 @@ class AIAgentService {
         priority: 1,
       },
       {
-        patterns: [/produto|cesta|flor|caneca|chocolate|presente|buquê|rosa|cone|quadro|quebra|pelúcia|urso/i],
+        patterns: [
+          /produto|cesta|flor|caneca|chocolate|presente|buquê|rosa|cone|quadro|quebra|pelúcia|urso/i,
+        ],
         prompt: "product_selection_guideline",
         priority: 2,
       },
@@ -443,7 +479,9 @@ class AIAgentService {
         priority: 2,
       },
       {
-        patterns: [/mais opçõ|outro|diferente|parecido|similar|dúvida|indecis/i],
+        patterns: [
+          /mais opçõ|outro|diferente|parecido|similar|dúvida|indecis/i,
+        ],
         prompt: "indecision_guideline",
         priority: 2,
       },
@@ -453,7 +491,9 @@ class AIAgentService {
         priority: 2,
       },
       {
-        patterns: [/quanto tempo|prazo|produção|pronta entrega|personalizado|demora quanto/i],
+        patterns: [
+          /quanto tempo|prazo|produção|pronta entrega|personalizado|demora quanto/i,
+        ],
         prompt: "faq_production_guideline",
         priority: 2,
       },
@@ -493,8 +533,6 @@ class AIAgentService {
       wasExplicitMatch,
     };
   }
-
-
 
   private getSynthesisPrompt(toolResults: ToolExecutionResult[]): string {
     const resultsText = toolResults
@@ -613,22 +651,36 @@ Gere APENAS a mensagem final para o cliente.`;
     memorySummary: string | null,
   ): Promise<string> {
     try {
-      let parsed = typeof catalogResult === "string" ? JSON.parse(catalogResult) : catalogResult;
-      if (!parsed || parsed.status === "error" || parsed.status === "not_found") return catalogResult;
+      let parsed =
+        typeof catalogResult === "string"
+          ? JSON.parse(catalogResult)
+          : catalogResult;
+      if (!parsed || parsed.status === "error" || parsed.status === "not_found")
+        return catalogResult;
 
-      const allProducts = [...(parsed.exatos || []), ...(parsed.fallback || [])];
+      const allProducts = [
+        ...(parsed.exatos || []),
+        ...(parsed.fallback || []),
+      ];
       if (allProducts.length <= 2) return catalogResult;
 
       const isExplicitCaneca = /caneca/i.test(userMessage);
-      const wantsFullCatalog = /catálogo|catalogo|todas|todos|lista|menu|cardápio|cardapio/i.test(userMessage);
-      const isMixedQuery = (/cesta|cesto/i.test(userMessage) && /buqu[eê]|flor/i.test(userMessage));
+      const wantsFullCatalog =
+        /catálogo|catalogo|todas|todos|lista|menu|cardápio|cardapio/i.test(
+          userMessage,
+        );
+      const isMixedQuery =
+        /cesta|cesto/i.test(userMessage) && /buqu[eê]|flor/i.test(userMessage);
       const targetCount = isMixedQuery ? 4 : 2;
 
       if (wantsFullCatalog) return catalogResult;
 
-      const productList = allProducts.map((p: any, i: number) =>
-        `${i + 1}. ${p.nome} - R$${p.preco} | Tipo: ${p.tipo_produto || "CESTA"} | Produção: ${p.production_time}h`
-      ).join("\n");
+      const productList = allProducts
+        .map(
+          (p: any, i: number) =>
+            `${i + 1}. ${p.nome} - R$${p.preco} | Tipo: ${p.tipo_produto || "CESTA"} | Produção: ${p.production_time}h`,
+        )
+        .join("\n");
 
       const curationResponse = await this.openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -662,10 +714,13 @@ Responda APENAS com os números das ${targetCount} melhores opções, separados 
         .map((n: string) => parseInt(n, 10) - 1)
         .filter((n: number) => !isNaN(n) && n >= 0 && n < allProducts.length);
 
-      if (picks.length < Math.min(targetCount, allProducts.length)) return catalogResult;
+      if (picks.length < Math.min(targetCount, allProducts.length))
+        return catalogResult;
 
       const curated = picks.map((idx: number) => allProducts[idx]);
-      const rest = allProducts.filter((_: any, i: number) => !picks.includes(i));
+      const rest = allProducts.filter(
+        (_: any, i: number) => !picks.includes(i),
+      );
 
       parsed.exatos = curated.map((p: any, i: number) => ({
         ...p,
@@ -679,7 +734,9 @@ Responda APENAS com os números das ${targetCount} melhores opções, separados 
         tipo_resultado: "FALLBACK",
       }));
 
-      logger.info(`🎯 Curadoria: selecionados [${picks.map((i: number) => allProducts[i]?.nome).join(", ")}]`);
+      logger.info(
+        `🎯 Curadoria: selecionados [${picks.map((i: number) => allProducts[i]?.nome).join(", ")}]`,
+      );
       return JSON.stringify(parsed, null, 0);
     } catch (e) {
       logger.warn("⚠️ Falha na curadoria, retornando resultado original", e);
@@ -711,13 +768,17 @@ Responda APENAS com os números das ${targetCount} melhores opções, separados 
 
     return {
       context: contextParts.join(" | "),
-      hasAll: Boolean(productMatch && dateMatch && addressMatch && paymentMatch),
+      hasAll: Boolean(
+        productMatch && dateMatch && addressMatch && paymentMatch,
+      ),
     };
   }
 
-
-
-  private getCheckoutIterativePrompt(checkoutState: CheckoutState, checkoutData: Partial<CheckoutData>, sessionId: string): string {
+  private getCheckoutIterativePrompt(
+    checkoutState: CheckoutState,
+    checkoutData: Partial<CheckoutData>,
+    sessionId: string,
+  ): string {
     switch (checkoutState) {
       case CheckoutState.PRODUCT_SELECTED:
         return `ETAPA: Produto confirmado ✅
@@ -811,9 +872,10 @@ Logo te respondem! Obrigadaaa 🥰"`;
     }
   }
 
-
-
-  private async extractCheckoutData(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[], sessionId: string): Promise<Partial<CheckoutData>> {
+  private async extractCheckoutData(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    sessionId: string,
+  ): Promise<Partial<CheckoutData>> {
     const data: Partial<CheckoutData> = {};
 
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -830,7 +892,8 @@ Logo te respondem! Obrigadaaa 🥰"`;
             const firstProduct = parsed.exatos?.[0] || parsed.produtos?.[0];
             if (firstProduct) {
               data.productName = firstProduct.name || firstProduct.nome;
-              data.productPrice = Number(firstProduct.price || firstProduct.preco) || 0;
+              data.productPrice =
+                Number(firstProduct.price || firstProduct.preco) || 0;
             }
           }
         } catch (e) {
@@ -862,7 +925,9 @@ Logo te respondem! Obrigadaaa 🥰"`;
       const contentLower = content.toLowerCase();
 
       if (!data.address) {
-        const addressMatch = content.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i);
+        const addressMatch = content.match(
+          /(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i,
+        );
         if (addressMatch) {
           data.address = addressMatch[0];
         }
@@ -871,7 +936,11 @@ Logo te respondem! Obrigadaaa 🥰"`;
       if (!data.paymentMethod) {
         if (contentLower.includes("pix")) {
           data.paymentMethod = "PIX";
-        } else if (contentLower.includes("cartão") || contentLower.includes("cartao") || contentLower.includes("crédito")) {
+        } else if (
+          contentLower.includes("cartão") ||
+          contentLower.includes("cartao") ||
+          contentLower.includes("crédito")
+        ) {
           data.paymentMethod = "CARTAO";
         }
       }
@@ -880,9 +949,9 @@ Logo te respondem! Obrigadaaa 🥰"`;
     return data;
   }
 
-
-
-  private determineCheckoutState(checkoutData: Partial<CheckoutData>): CheckoutState {
+  private determineCheckoutState(
+    checkoutData: Partial<CheckoutData>,
+  ): CheckoutState {
     if (!checkoutData.productName || checkoutData.productPrice === undefined) {
       return CheckoutState.PRODUCT_SELECTED;
     }
@@ -898,7 +967,10 @@ Logo te respondem! Obrigadaaa 🥰"`;
     return CheckoutState.READY_TO_FINALIZE;
   }
 
-  private async buildCartEventContext(sessionId: string, customerName: string): Promise<string> {
+  private async buildCartEventContext(
+    sessionId: string,
+    customerName: string,
+  ): Promise<string> {
     try {
       const messages = await prisma.aIAgentMessage.findMany({
         where: { session_id: sessionId },
@@ -944,8 +1016,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
     }
   }
 
-
-
   private buildCheckoutSummaryFromAssistantMessage(
     assistantContent: string,
     recentHistory: any[],
@@ -960,8 +1030,11 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const combined = `${allText}\n${assistantContent}`;
 
     // Extração com regex mais flexível
-    const productMatch = combined.match(/\*\*(.+?)\*\*\s*[-–]?\s*R\$\s*([\d.,]+)/i) ||
-      combined.match(/([Cc]esta|[Bb]uqu[eê]|[Cc]aneca|[Qq]uadro|[Pp]el[uú]cia|[Ff]lores?|[Rr]osa)\s+([^-\n]*)\s*[-–]\s*R\$\s*([\d.,]+)/i);
+    const productMatch =
+      combined.match(/\*\*(.+?)\*\*\s*[-–]?\s*R\$\s*([\d.,]+)/i) ||
+      combined.match(
+        /([Cc]esta|[Bb]uqu[eê]|[Cc]aneca|[Qq]uadro|[Pp]el[uú]cia|[Ff]lores?|[Rr]osa)\s+([^-\n]*)\s*[-–]\s*R\$\s*([\d.,]+)/i,
+      );
 
     let productName = "[Produto não especificado]";
     let productPrice = "[Valor não especificado]";
@@ -977,17 +1050,31 @@ Logo te respondem! Obrigadaaa 🥰"`;
     }
 
     const dateMatch = combined.match(/(\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b)/);
-    const deliveryDate = dateMatch?.[1] || combined.match(/(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)/i)?.[1] || "[Data não especificada]";
+    const deliveryDate =
+      dateMatch?.[1] ||
+      combined.match(
+        /(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)/i,
+      )?.[1] ||
+      "[Data não especificada]";
 
-    const timeMatch = combined.match(/(?:às|as|horário:?|hora:?)\s*(\d{1,2}:\d{2}(?:\s*(?:às|a)\s*\d{1,2}:\d{2})?)/i);
+    const timeMatch = combined.match(
+      /(?:às|as|horário:?|hora:?)\s*(\d{1,2}:\d{2}(?:\s*(?:às|a)\s*\d{1,2}:\d{2})?)/i,
+    );
     const deliveryTime = timeMatch?.[1] || "[Horário não especificado]";
 
-    const addressMatch = combined.match(/(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i);
+    const addressMatch = combined.match(
+      /(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i,
+    );
     const isRetirada = /retirada|retirar/i.test(combined);
-    const address = addressMatch?.[0] || (isRetirada ? "RETIRADA NA LOJA" : "[Endereço não especificado]");
+    const address =
+      addressMatch?.[0] ||
+      (isRetirada ? "RETIRADA NA LOJA" : "[Endereço não especificado]");
 
-    const paymentMatch = combined.match(/\b(pix|cart[ãa]o|crédito|cr[eé]dito|débito|debito)\b/i);
-    const payment = paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
+    const paymentMatch = combined.match(
+      /\b(pix|cart[ãa]o|crédito|cr[eé]dito|débito|debito)\b/i,
+    );
+    const payment =
+      paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
 
     const lines = [
       `Pedido: ${productName} - R$ ${productPrice}`,
@@ -1004,7 +1091,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
   private buildStructuredCheckoutContext(
     checkoutData: Partial<CheckoutData>,
     customerName: string,
-    customerPhone: string
+    customerPhone: string,
   ): string {
     const lines = [
       "═══════════════════════════════════════════",
@@ -1051,10 +1138,16 @@ Logo te respondem! Obrigadaaa 🥰"`;
     remoteJidAlt?: string,
   ): Promise<any | null> {
     // Validação: se mensagem é muito vaga, não processe como confirmação
-    const cleanedMsg = userMessage.trim().toLowerCase().replace(/[^\w\s]/g, "");
+    const cleanedMsg = userMessage
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "");
     if (cleanedMsg.length <= 2) {
       // Mensagem muito vaga como ".", "ok", "sim" isolado
-      const engageResponse = await this.engageVagueUser(recentHistory, userMessage);
+      const engageResponse = await this.engageVagueUser(
+        recentHistory,
+        userMessage,
+      );
       if (engageResponse === "transfer") {
         // Só transfer após múltiplas respostas vagas
         // Aqui poderia fazer transfer, mas vamos manter conservador
@@ -1076,7 +1169,9 @@ Logo te respondem! Obrigadaaa 🥰"`;
       return mockStream;
     }
 
-    const assistantMsgs = recentHistory.filter((m) => m.role === "assistant" && m.content);
+    const assistantMsgs = recentHistory.filter(
+      (m) => m.role === "assistant" && m.content,
+    );
     const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
     if (!lastAssistant) return null;
 
@@ -1117,7 +1212,9 @@ Logo te respondem! Obrigadaaa 🥰"`;
         resolvedName,
         resolvedPhone,
       );
-      logger.info(`📋 Resumo estruturado do pedido: ${structuredContext.substring(0, 200)}...`);
+      logger.info(
+        `📋 Resumo estruturado do pedido: ${structuredContext.substring(0, 200)}...`,
+      );
 
       await mcpClientService.callTool("finalize_checkout", {
         customer_context: structuredContext,
@@ -1126,7 +1223,9 @@ Logo te respondem! Obrigadaaa 🥰"`;
         session_id: sessionId,
       });
     } catch (error: any) {
-      logger.error(`❌ Falha no checkout confirmation garantido: ${error.message}`);
+      logger.error(
+        `❌ Falha no checkout confirmation garantido: ${error.message}`,
+      );
     }
 
     await this.blockSession(sessionId);
@@ -1169,7 +1268,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
   }
 
   private filterHistoryForContext(history: any[]): any[] {
-
     if (history.length <= 15) {
       return history;
     }
@@ -1195,7 +1293,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
       const msg = filtered[i];
 
       if (msg.role === "tool") {
-
         const toolCallId = msg.tool_call_id;
         let foundAssistant = false;
 
@@ -1207,9 +1304,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
                 foundAssistant = true;
                 break;
               }
-            } catch (e) {
-
-            }
+            } catch (e) {}
           }
         }
 
@@ -1255,7 +1350,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
     }
 
     if (!session) {
-
       const extractedPhoneMatch = sessionId.match(/^session-(\d+)$/);
       const extractedPhone = extractedPhoneMatch
         ? extractedPhoneMatch[1]
@@ -1313,7 +1407,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
         `✨ [AIAgent] Nova sessão criada: ${sessionId} (phone: ${identifyingPhone || "null"}, remoteJid: ${identifyingRemoteJid || "null"})`,
       );
     } else if (customerPhone || remoteJidAlt) {
-
       if (customerPhone && !session.customer_phone) {
         logger.info(
           `📱 [AIAgent] Atualizando sessão com phone real: ${sessionId} (${customerPhone})`,
@@ -1462,8 +1555,14 @@ Logo te respondem! Obrigadaaa 🥰"`;
     }
   }
 
-  private isMessageTooVague(message: string, conversationLength: number): boolean {
-    const cleaned = message.trim().toLowerCase().replace(/[^\w\s]/g, "");
+  private isMessageTooVague(
+    message: string,
+    conversationLength: number,
+  ): boolean {
+    const cleaned = message
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "");
     const hasContent = cleaned.length > 2;
     const hasWords = cleaned.split(/\s+/).length >= 2;
 
@@ -1585,9 +1684,14 @@ Logo te respondem! Obrigadaaa 🥰"`;
       }
 
       const extractedPhone = sessionId.match(/^session-(\d+)$/)?.[1] || "";
-      const phoneFromRemote = remoteJidAlt ? remoteJidAlt.replace(/\D/g, "") : "";
+      const phoneFromRemote = remoteJidAlt
+        ? remoteJidAlt.replace(/\D/g, "")
+        : "";
       const resolvedPhone =
-        customerPhone || session.customer_phone || extractedPhone || phoneFromRemote;
+        customerPhone ||
+        session.customer_phone ||
+        extractedPhone ||
+        phoneFromRemote;
       const resolvedName = customerName || "Cliente";
 
       try {
@@ -1646,7 +1750,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
     }
 
     if (session.is_blocked) {
-
       const mockStream = {
         async *[Symbol.asyncIterator]() {
           yield {
@@ -1744,8 +1847,11 @@ Logo te respondem! Obrigadaaa 🥰"`;
       return checkoutConfirmationResult;
     }
 
-    const { prompts: relevantPrompts, wasExplicitMatch } = this.detectContextualPrompts(userMessage);
-    logger.info(`📚 RAG: Carregando ${relevantPrompts.length} prompts (match=${wasExplicitMatch}): ${relevantPrompts.join(', ')}`);
+    const { prompts: relevantPrompts, wasExplicitMatch } =
+      this.detectContextualPrompts(userMessage);
+    logger.info(
+      `📚 RAG: Carregando ${relevantPrompts.length} prompts (match=${wasExplicitMatch}): ${relevantPrompts.join(", ")}`,
+    );
 
     const toolsInMCP = await mcpClientService.listTools();
 
@@ -1779,16 +1885,24 @@ Logo te respondem! Obrigadaaa 🥰"`;
       mcpSystemPrompts = "";
     }
 
-    const finalizationIntent = /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento|vou confirmar/i.test(
-      userMessage.toLowerCase(),
-    );
+    const finalizationIntent =
+      /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento|vou confirmar/i.test(
+        userMessage.toLowerCase(),
+      );
 
     const isInCheckoutFlow = this.detectCheckoutFlowFromHistory(recentHistory);
 
     if (finalizationIntent || isInCheckoutFlow) {
-      const checkoutData = await this.extractCheckoutData(recentHistory, sessionId);
+      const checkoutData = await this.extractCheckoutData(
+        recentHistory,
+        sessionId,
+      );
       const checkoutState = this.determineCheckoutState(checkoutData);
-      const iterativePrompt = this.getCheckoutIterativePrompt(checkoutState, checkoutData, sessionId);
+      const iterativePrompt = this.getCheckoutIterativePrompt(
+        checkoutState,
+        checkoutData,
+        sessionId,
+      );
 
       const closingProtocolPrompt = `
 
@@ -1827,11 +1941,20 @@ ${iterativePrompt}
 Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
 `;
       mcpSystemPrompts += closingProtocolPrompt;
-      logger.info(`🚀 PROTOCOLO DE FECHAMENTO INJETADO (Estado: ${checkoutState})`);
+      logger.info(
+        `🚀 PROTOCOLO DE FECHAMENTO INJETADO (Estado: ${checkoutState})`,
+      );
     }
 
-    const { requiresToolCall, shouldOptimizeModel, model: selectedModel } =
-      this.determineToolStrategy(userMessage, wasExplicitMatch, relevantPrompts);
+    const {
+      requiresToolCall,
+      shouldOptimizeModel,
+      model: selectedModel,
+    } = this.determineToolStrategy(
+      userMessage,
+      wasExplicitMatch,
+      relevantPrompts,
+    );
 
     logger.info(
       `🎯 Estratégia: toolRequired=${requiresToolCall}, optimizeModel=${shouldOptimizeModel}, model=${selectedModel}`,
@@ -1958,7 +2081,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 1. Cliente quer dados reais ou conversa?
 2. Tenho informação confiável?
 3. Minha resposta será natural?
-4. Preço/prazo = sempre ferramenta?`},
+4. Preço/prazo = sempre ferramenta?`,
+      },
       ...recentHistory.map((msg) => {
         const message: any = {
           role: msg.role,
@@ -1995,7 +2119,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         phone || "",
       );
     } finally {
-
       this.model = originalModel;
     }
   }
@@ -2015,7 +2138,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     let currentState = ProcessingState.ANALYZING;
     let toolExecutionResults: ToolExecutionResult[] = [];
 
-    const shouldExcludeProducts = this.shouldExcludeProducts(currentUserMessage);
+    const shouldExcludeProducts =
+      this.shouldExcludeProducts(currentUserMessage);
 
     const tools = await mcpClientService.listTools();
     const formattedTools = tools.map((t) => ({
@@ -2130,13 +2254,21 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             const termoOriginal = args.termo.toString();
             let termoNormalizado = this.normalizarTermoBusca(termoOriginal);
 
-            if (!args.contexto || args.contexto.toString().trim().split(/\s+/).length < 3) {
-              const extraContext = (args.contexto || "") + " " + currentUserMessage;
+            if (
+              !args.contexto ||
+              args.contexto.toString().trim().split(/\s+/).length < 3
+            ) {
+              const extraContext =
+                (args.contexto || "") + " " + currentUserMessage;
               args.contexto = extraContext.trim();
-              logger.info(`🧠 Enriquecendo contexto da busca: "${args.contexto}"`);
+              logger.info(
+                `🧠 Enriquecendo contexto da busca: "${args.contexto}"`,
+              );
             }
 
-            const wordCount = termoNormalizado.split(/\s+/).filter(Boolean).length;
+            const wordCount = termoNormalizado
+              .split(/\s+/)
+              .filter(Boolean).length;
             const needsReduction =
               termoNormalizado.length > 40 ||
               wordCount > 6 ||
@@ -2165,8 +2297,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
           if (name === "consultarCatalogo") {
             if (!args.termo || !args.termo.toString().trim()) {
-              const errorMsg =
-                `{"status":"error","error":"missing_params","message":"Parâmetro ausente: termo. Pergunte: 'Qual tipo de produto ou ocasião você procura?'"}`;
+              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: termo. Pergunte: 'Qual tipo de produto ou ocasião você procura?'"}`;
               messages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
@@ -2184,8 +2315,10 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               continue;
             }
 
-            if (args.preco_maximo !== undefined && args.precoMaximo === undefined) {
-
+            if (
+              args.preco_maximo !== undefined &&
+              args.precoMaximo === undefined
+            ) {
             }
             if (args.precoMaximo !== undefined) {
               args.preco_maximo = args.precoMaximo;
@@ -2198,12 +2331,13 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
             if (shouldExcludeProducts) {
               try {
-                const sessionProducts = await this.getSentProductsInSession(
-                  sessionId,
-                );
+                const sessionProducts =
+                  await this.getSentProductsInSession(sessionId);
                 if (sessionProducts.length > 0) {
                   const existing = args.exclude_product_ids || [];
-                  const merged = [...new Set([...existing, ...sessionProducts])];
+                  const merged = [
+                    ...new Set([...existing, ...sessionProducts]),
+                  ];
                   args.exclude_product_ids = merged;
                   logger.info(
                     `📦 Auto-excluindo ${merged.length} produtos ja apresentados`,
@@ -2259,8 +2393,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           if (name === "validate_delivery_availability") {
             const dateStr = args.date_str || args.dateStr || args.date;
             if (!dateStr) {
-              const errorMsg =
-                `{"status":"error","error":"missing_params","message":"Parâmetro ausente: data. Pergunte: 'Para qual data você gostaria da entrega?'"}`;
+              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: data. Pergunte: 'Para qual data você gostaria da entrega?'"}`;
               messages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
@@ -2280,8 +2413,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "get_adicionais" && !hasChosenProduct) {
-            const errorMsg =
-              `{"status":"error","error":"missing_product","message":"Adicionais nao podem ser vendidos separados. Antes, confirme qual cesta ou flor o cliente escolheu e o preco. Depois, ofereca adicionais vinculados a esse produto."}`;
+            const errorMsg = `{"status":"error","error":"missing_product","message":"Adicionais nao podem ser vendidos separados. Antes, confirme qual cesta ou flor o cliente escolheu e o preco. Depois, ofereca adicionais vinculados a esse produto."}`;
             messages.push({
               role: "tool",
               tool_call_id: toolCall.id,
@@ -2304,7 +2436,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
             const aiName = (args.customer_name || "").toString().trim();
             const aiPhone = (args.customer_phone || "").toString().trim();
-            const isGenericName = !aiName || aiName === "Cliente" || aiName === "Desconhecido";
+            const isGenericName =
+              !aiName || aiName === "Cliente" || aiName === "Desconhecido";
             const isEmptyPhone = !aiPhone;
 
             if (isGenericName || isEmptyPhone) {
@@ -2312,8 +2445,10 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 where: { id: sessionId },
               });
               const sessionPhone = sessRec?.customer_phone || "";
-              const extractedPhone = sessionId.match(/^session-(\d+)$/)?.[1] || "";
-              const resolvedPhone = customerPhone || sessionPhone || extractedPhone;
+              const extractedPhone =
+                sessionId.match(/^session-(\d+)$/)?.[1] || "";
+              const resolvedPhone =
+                customerPhone || sessionPhone || extractedPhone;
 
               if (isEmptyPhone && resolvedPhone) {
                 args.customer_phone = resolvedPhone;
@@ -2345,16 +2480,22 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             ).toString();
 
             const contextLower = context.toLowerCase();
-            const isRetirada = contextLower.includes("retirada") || contextLower.includes("retirar");
+            const isRetirada =
+              contextLower.includes("retirada") ||
+              contextLower.includes("retirar");
 
             const checks: Record<string, RegExp> = {
-              "produto (nome e valor R$)": /(?:cesta|produto|buquê|rosa|chocolate|bar|caneca).+?(?:r\$\s*\d+[\.,]\d{2}|\d+[\.,]\d{2})/i,
-              "data de entrega": /entrega:|data:|hoje|amanh[aã]|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/i,
-              "horário da entrega": /(?:às|as|horário:|hora:)\s*\d{1,2}:\d{2}|(?:manhã|tarde|noite)/i,
+              "produto (nome e valor R$)":
+                /(?:cesta|produto|buquê|rosa|chocolate|bar|caneca).+?(?:r\$\s*\d+[\.,]\d{2}|\d+[\.,]\d{2})/i,
+              "data de entrega":
+                /entrega:|data:|hoje|amanh[aã]|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/i,
+              "horário da entrega":
+                /(?:às|as|horário:|hora:)\s*\d{1,2}:\d{2}|(?:manhã|tarde|noite)/i,
               "endereço completo": isRetirada
                 ? /(?:retirada|loja)/i
                 : /(?:rua|avenida|av\.|r\.|endereço|endereco).+?(?:bairro|cidade|cep|complemento)/i,
-              "forma de pagamento": /(?:pix|cartão|cartao|crédito|credito|débito|debito)/i,
+              "forma de pagamento":
+                /(?:pix|cartão|cartao|crédito|credito|débito|debito)/i,
             };
 
             const missing: string[] = [];
@@ -2380,7 +2521,9 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                   name: name,
                 } as any,
               });
-              logger.warn(`⚠️ Checkout incompleto rejeitado. Faltam: ${missing.join(", ")}`);
+              logger.warn(
+                `⚠️ Checkout incompleto rejeitado. Faltam: ${missing.join(", ")}`,
+              );
               continue;
             }
 
@@ -2466,7 +2609,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               );
               if (curatedOutput !== toolOutputText) {
                 toolOutputText = curatedOutput;
-                const lastResult = toolExecutionResults[toolExecutionResults.length - 1];
+                const lastResult =
+                  toolExecutionResults[toolExecutionResults.length - 1];
                 if (lastResult) lastResult.output = curatedOutput;
               }
             } catch (e) {
@@ -2535,13 +2679,13 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         .filter((msg) => msg.role === "user")
         .map((msg) => (typeof msg.content === "string" ? msg.content : ""))
         .join(" ");
-      const finalizationIntent = /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento/i.test(
-        currentUserMessage.toLowerCase(),
-      );
+      const finalizationIntent =
+        /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento/i.test(
+          currentUserMessage.toLowerCase(),
+        );
       const sourceText = `${memorySummary || ""} ${recentUserText}`.trim();
-      const { context: checkoutContext, hasAll } = this.buildCheckoutContext(
-        sourceText,
-      );
+      const { context: checkoutContext, hasAll } =
+        this.buildCheckoutContext(sourceText);
 
       if (finalizationIntent && hasAll) {
         const hasFinalize = toolExecutionResults.some(
@@ -2625,7 +2769,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
   }
 
   async saveResponse(sessionId: string, content: string) {
-
     const session = await prisma.aIAgentSession.findUnique({
       where: { id: sessionId },
       select: { customer_phone: true, remote_jid_alt: true },
@@ -2637,7 +2780,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       });
 
       if (!existingCustomer) {
-
         await prisma.customer.create({
           data: {
             number: session.customer_phone,
@@ -2648,7 +2790,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           `✨ [Customer] Novo cliente criado: ${session.customer_phone}`,
         );
       } else if (session.remote_jid_alt && !existingCustomer.remote_jid_alt) {
-
         await prisma.customer.update({
           where: { number: session.customer_phone },
           data: { remote_jid_alt: session.remote_jid_alt },

@@ -229,9 +229,7 @@ export const botFlowService = {
     }
 
     // Reset se pedir menu
-    if (
-      ["oi", "ola", "olá", "menu", "início", "inicio", "voltar"].includes(text)
-    ) {
+    if (["oi", "ola", "olá", "menu", "início", "inicio"].includes(text)) {
       session.current_node_id = null;
     }
 
@@ -375,41 +373,6 @@ export const botFlowService = {
           const optionMatched = digitsMatch
             ? parseInt(digitsMatch[0], 10)
             : NaN;
-          if (ctx?.emptyResults) {
-            const wantsBack =
-              optionMatched === 1 ||
-              isYesOption(normalized, "voltar ao menu") ||
-              isYesOption(normalized, "voltar") ||
-              isYesOption(normalized, "menu");
-
-            if (wantsBack) {
-              sessionState = { ...sessionState, productSearch: undefined };
-              const backEdge = edges.find(
-                (e) =>
-                  e.source === currentNodeId &&
-                  String(e.sourceHandle) === "back_to_menu",
-              );
-              const notFoundEdge = edges.find(
-                (e) =>
-                  e.source === currentNodeId &&
-                  String(e.sourceHandle) === "not_found",
-              );
-              const fallbackEdge = edges.find(
-                (e) => e.source === currentNodeId,
-              );
-              const targetId = (backEdge || notFoundEdge || fallbackEdge)
-                ?.target;
-              node = targetId ? nodes.find((n) => n.id === targetId) : null;
-            } else {
-              const menuText = "Escolha uma opção:\n1. Voltar ao menu";
-              return await sendFallbackResponse(
-                menuText,
-                currentNodeId!,
-                sessionState,
-              );
-            }
-          }
-
           const hasMorePages = (ctx.page || 1) < (ctx.totalPages || 1);
 
           let wantsMore = false;
@@ -477,8 +440,17 @@ export const botFlowService = {
                 e.source === currentNodeId &&
                 String(e.sourceHandle) === "found",
             );
-            const fallbackEdge = edges.find((e) => e.source === currentNodeId);
-            const targetId = (foundEdge || fallbackEdge)?.target;
+            const targetId = foundEdge?.target;
+            if (!targetId) {
+              const menuText = hasMorePages
+                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi, seguir para próxima etapa\n3. Voltar ao menu"
+                : "Escolha uma opção:\n1. Já escolhi, seguir para próxima etapa\n2. Voltar ao menu";
+              return await sendFallbackResponse(
+                menuText,
+                currentNodeId!,
+                sessionState,
+              );
+            }
             node = targetId ? nodes.find((n) => n.id === targetId) : null;
           } else if (wantsBack) {
             sessionState = { ...sessionState, productSearch: undefined };
@@ -487,14 +459,17 @@ export const botFlowService = {
                 e.source === currentNodeId &&
                 String(e.sourceHandle) === "back_to_menu",
             );
-            const notFoundEdge = edges.find(
-              (e) =>
-                e.source === currentNodeId &&
-                String(e.sourceHandle) === "not_found",
-            );
-            const fallbackEdge = edges.find((e) => e.source === currentNodeId);
-            const targetId = (backEdge || notFoundEdge || fallbackEdge)?.target;
-            node = targetId ? nodes.find((n) => n.id === targetId) : null;
+            if (!backEdge) {
+              const menuText = hasMorePages
+                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi, seguir para próxima etapa\n3. Voltar ao menu"
+                : "Escolha uma opção:\n1. Já escolhi, seguir para próxima etapa\n2. Voltar ao menu";
+              return await sendFallbackResponse(
+                menuText,
+                currentNodeId!,
+                sessionState,
+              );
+            }
+            node = nodes.find((n) => n.id === backEdge.target) || null;
           } else {
             const options = hasMorePages
               ? [
@@ -713,22 +688,28 @@ export const botFlowService = {
                 });
 
           if (products.length === 0) {
-            appendMessage("Escolha uma opção:\n1. Voltar ao menu", 800, {
-              type: "menu",
-            });
-            sessionState = {
-              ...sessionState,
-              productSearch: {
-                nodeId: currentNode.id,
-                emptyResults: true,
-              },
-            };
-            await saveSessionState(
-              currentNode.id,
-              sessionState,
-              responseMessages,
+            appendMessage("Hmm, não encontrei produtos agora 😔", 1500);
+            sessionState = { ...sessionState, productSearch: undefined };
+            const notFoundEdge = edges.find(
+              (e) =>
+                e.source === currentNode?.id &&
+                String(e.sourceHandle) === "not_found",
             );
-            return responseMessages;
+            if (!notFoundEdge) {
+              appendMessage(
+                "No momento não encontrei opções para esse filtro. Digite menu para continuar.",
+                1000,
+              );
+              await saveSessionState(
+                currentNode.id,
+                sessionState,
+                responseMessages,
+              );
+              return responseMessages;
+            }
+            currentNode =
+              nodes.find((n) => n.id === notFoundEdge.target) || null;
+            continue;
           } else {
             for (let i = 0; i < products.length; i++) {
               const p = products[i];

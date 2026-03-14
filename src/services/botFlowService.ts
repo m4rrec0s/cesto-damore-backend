@@ -12,7 +12,101 @@ interface MessageResponse {
   text: string;
   delay?: number;
   type?: string;
+  messageType?: string;
+  isProduct?: boolean;
+  isProdutoMessage?: boolean;
+  isInstagramLink?: boolean;
+  isPreviewImage?: boolean;
+  isGeneralLink?: boolean;
+  isTextMessage?: boolean;
+  originalMessage?: string;
 }
+
+const BASE_URL = process.env.BASE_URL || "https://api.cestodamore.com.br";
+
+const stripHtmlTags = (value: string) =>
+  value.replace(/<[^>]*>/g, "").replace(/\\[.*?\\]/g, "");
+
+const formatPrice = (price: number) =>
+  price.toFixed(2).replace(".", ",");
+
+const resolvePreviewUrl = (imageUrl?: string | null) => {
+  if (!imageUrl) return null;
+  if (imageUrl.includes("/preview?img=")) return imageUrl;
+  try {
+    const url = new URL(imageUrl, BASE_URL);
+    const filename = url.pathname.split("/").filter(Boolean).pop();
+    if (!filename) return imageUrl;
+    return `${BASE_URL}/preview?img=${filename}`;
+  } catch (error) {
+    const filename = imageUrl.split("/").filter(Boolean).pop();
+    if (!filename) return imageUrl;
+    return `${BASE_URL}/preview?img=${filename}`;
+  }
+};
+
+const classifyMessage = (message: string): Partial<MessageResponse> => {
+  try {
+    const produtoPattern =
+      /https:\/\/api\.cestodamore\.com\.br\/preview\?img=[^\s]+/;
+    const opcaoPattern = /_Opção \d+:_/;
+    const precoPattern = /\*R\$\s+[\d.,]+\*/;
+    const nomePrecoPattern =
+      /\*[^*]+\*\s*-\s*VALOR\s*-\s*R\$\s*[\d.,]+/i;
+    const precoPlainPattern = /R\$\s*[\d.,]+/;
+
+    const temPreviewUrl = produtoPattern.test(message);
+    const temOpcao = opcaoPattern.test(message);
+    const temPreco = precoPattern.test(message);
+    const temNomePreco = nomePrecoPattern.test(message);
+    const temPrecoPlain = precoPlainPattern.test(message);
+
+    if (temPreviewUrl && (temOpcao || temNomePreco) && (temPreco || temPrecoPlain)) {
+      return {
+        isProduct: true,
+        isProdutoMessage: true,
+        messageType: "produto",
+        originalMessage: message,
+      };
+    }
+
+    if (message.includes("www.instagram.com") || message.includes("instagram.com")) {
+      return {
+        isProduct: false,
+        isInstagramLink: true,
+        messageType: "instagram",
+        originalMessage: message,
+      };
+    }
+
+    if (message.includes("https://api.cestodamore.com.br/preview?img=")) {
+      return {
+        isProduct: false,
+        isPreviewImage: true,
+        messageType: "preview_link",
+        originalMessage: message,
+      };
+    }
+
+    if (message.startsWith("http://") || message.startsWith("https://")) {
+      return {
+        isProduct: false,
+        isGeneralLink: true,
+        messageType: "link",
+        originalMessage: message,
+      };
+    }
+  } catch (error) {
+    // Fallback to text
+  }
+
+  return {
+    isProduct: false,
+    isTextMessage: true,
+    messageType: "texto",
+    originalMessage: message,
+  };
+};
 
 export const botFlowService = {
   async getActiveFlow() {
@@ -184,6 +278,18 @@ export const botFlowService = {
     // Vamos processar uma série de nós que talvez sejam atravessados automaticamente,
     // até parar num nó interativo ou finalizar as mensagens.
     let responseMessages: MessageResponse[] = [];
+    const appendMessage = (
+      text: string,
+      delay?: number,
+      extra?: Partial<MessageResponse>,
+    ) => {
+      responseMessages.push({
+        text,
+        delay,
+        ...classifyMessage(text),
+        ...extra,
+      });
+    };
 
     let currentNode = node;
     
@@ -220,10 +326,7 @@ export const botFlowService = {
           continue;
 
         case "messageNode":
-          responseMessages.push({
-            text: currentNode.data?.message || "",
-            delay: 1500,
-          });
+          appendMessage(currentNode.data?.message || "", 1500);
           // Move to next node immediately
           const msgEdge = edges.find((e) => e.source === currentNode?.id);
           currentNode = msgEdge
@@ -246,11 +349,7 @@ export const botFlowService = {
             menuText = `${baseMessage}\n\n${optionLines.join("\n")}`.trim();
           }
 
-          responseMessages.push({
-            text: menuText,
-            delay: 1500,
-            type: "menu",
-          });
+          appendMessage(menuText, 1500, { type: "menu" });
           // Stops here, waiting for user input
           await saveSessionState(currentNode.id, state, responseMessages);
           return responseMessages;
@@ -258,44 +357,76 @@ export const botFlowService = {
 
         case "productSearchNode":
           // Perform search
-          responseMessages.push({
-            text: "🔍 Buscando opções para você...",
-            delay: 1000,
-          });
+          appendMessage("🔍 Buscando opções para você...", 1000);
 
-          let products: any[] = [];
-          const sq = currentNode.data?.searchQuery || "";
+          const data = currentNode.data || {};
+          const searchTerm = (data.searchQuery || data.searchPrefix || "").trim();
+          const maxResults =
+            typeof data.maxResults === "number" && data.maxResults > 0
+              ? Math.round(data.maxResults)
+              : 6;
 
-          if (sq) {
-            products = await prisma.$queryRawUnsafe(`
-                SELECT id, name, description, price, image_url, production_time 
-                FROM public."Product" 
-                WHERE is_active = true AND (${sq}) 
-                ORDER BY price DESC LIMIT 8
-              `);
+          const where: any = {};
+          if (data.onlyActive) {
+            where.is_active = true;
+          }
+          if (searchTerm) {
+            where.OR = [
+              { name: { contains: searchTerm, mode: "insensitive" } },
+              { description: { contains: searchTerm, mode: "insensitive" } },
+            ];
+          }
+          if (data.categoryId) {
+            where.categories = {
+              some: { category_id: data.categoryId },
+            };
+          }
+          if (data.typeId) {
+            where.type_id = data.typeId;
+          }
+          if (typeof data.minPrice === "number") {
+            where.price = { ...(where.price || {}), gte: data.minPrice };
+          }
+          if (typeof data.maxPrice === "number") {
+            where.price = { ...(where.price || {}), lte: data.maxPrice };
           }
 
+          const products = await prisma.product.findMany({
+            where,
+            take: maxResults,
+            orderBy: { price: "desc" },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              price: true,
+              image_url: true,
+              production_time: true,
+            },
+          });
+
           if (products.length === 0) {
-            responseMessages.push({
-              text: `Hmm, não encontrei produtos agora 😔`,
-              delay: 1500,
-            });
+            appendMessage("Hmm, não encontrei produtos agora 😔", 1500);
           } else {
-            responseMessages.push({
-              text: `Encontrei estas opções:`,
-              delay: 1500,
-            });
             for (let i = 0; i < products.length; i++) {
-              const p = products[i] as any;
-              let msg = "";
-              if (p.image_url) msg += `${p.image_url}\n`;
+              const p = products[i];
+              const previewUrl = resolvePreviewUrl(p.image_url);
+              const description = p.description
+                ? stripHtmlTags(p.description)
+                : "";
+              const productionTime =
+                typeof p.production_time === "number" && p.production_time > 0
+                  ? `${p.production_time} horas em horário comercial`
+                  : "2 horas em horário comercial";
 
-              msg += `_Opção ${i + 1}_: *${p.name}* - R$ ${p.price.toFixed(2).replace(".", ",")}\n`;
-              if (p.description)
-                msg += `${p.description.replace(/<[^>]*>/g, "").replace(/\\[.*?\\]/g, "")}\n`;
-              msg += `(Produção: ${p.production_time || 2} horas em horário comercial)`;
+              const parts = [
+                previewUrl,
+                `*${p.name}* - VALOR - R$ ${formatPrice(p.price || 0)}`,
+                description || null,
+                `(Tempo de produção: ${productionTime})`,
+              ].filter(Boolean);
 
-              responseMessages.push({ text: msg, delay: 2000 });
+              appendMessage(parts.join("\n"), 1000);
             }
           }
 
@@ -307,10 +438,10 @@ export const botFlowService = {
           continue;
 
         case "handoffNode":
-          responseMessages.push({
-            text: currentNode.data?.message || "Vou chamar um atendente.",
-            delay: 1000,
-          });
+          appendMessage(
+            currentNode.data?.message || "Vou chamar um atendente.",
+            1000,
+          );
           
           await saveSessionState(null, { ...state, is_human: true }, responseMessages);
           await prisma.botSession.update({ where: { id: session.id }, data: { is_human: true }});

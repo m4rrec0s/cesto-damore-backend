@@ -24,6 +24,8 @@ interface MessageResponse {
 }
 
 const BASE_URL = process.env.BASE_URL || "https://api.cestodamore.com.br";
+const BOT_HANDOFF_GROUP_ID =
+  process.env.WHATSAPP_BOT_HANDOFF_GROUP_ID || "120363421291021203@g.us";
 
 const stripHtmlTags = (value: string) =>
   value.replace(/<[^>]*>/g, "").replace(/\\[.*?\\]/g, "");
@@ -793,7 +795,7 @@ export const botFlowService = {
           alertMsg += `*Ação:* O bot foi pausado para este cliente.`;
 
           try {
-            await whatsappService.sendMessage(alertMsg);
+            await whatsappService.sendMessage(alertMsg, BOT_HANDOFF_GROUP_ID);
           } catch (e) {
             console.error(
               "[BotFlow] Erro ao notificar atendente de handoff:",

@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import whatsappService from "./whatsappService";
+import aiAgentService from "./aiAgentService";
 const prisma = new PrismaClient();
 
 interface BotMessageRequest {
@@ -227,6 +228,65 @@ export const botFlowService = {
     let currentNodeId = session.current_node_id;
     let node = nodes.find((n) => n.id === currentNodeId);
 
+    const buildMenuText = (baseMessage: string, options: any[]) => {
+      const optionLines = (options || []).map((opt: any, index: number) => {
+        const label =
+          typeof opt === "string" ? opt : opt?.label || opt?.value || "";
+        return `${index + 1}. ${String(label).trim()}`;
+      });
+      const trimmedBase = String(baseMessage || "").trim();
+      if (optionLines.length === 0) return trimmedBase;
+      return `${trimmedBase}\n\n${optionLines.join("\n")}`.trim();
+    };
+
+    const saveSessionState = async (
+      cNodeId: string | null,
+      stateObj: any,
+      msgs: any[],
+    ) => {
+      const finalHistory = [...history];
+      msgs.forEach((m) =>
+        finalHistory.push({
+          role: "bot",
+          text: m.text,
+          type: m.type || "text",
+          delay: m.delay,
+          created_at: new Date().toISOString(),
+        }),
+      );
+      await prisma.botSession.update({
+        where: { id: session!.id },
+        data: {
+          current_node_id: cNodeId,
+          state: stateObj,
+          history: finalHistory as any,
+          updated_at: new Date(),
+        },
+      });
+    };
+
+    const sendFallbackResponse = async (
+      menuText: string,
+      nodeId: string,
+      stateObj: any,
+    ) => {
+      const fallbackText = await aiAgentService.processFallback({
+        userMessage: rawText,
+        menuText,
+        sessionHistory: history,
+        customerName:
+          (sessionState as any)?.contactName || contactName || "Cliente",
+      });
+      const fallbackMessages: MessageResponse[] = [
+        {
+          text: fallbackText,
+          ...classifyMessage(fallbackText),
+        },
+      ];
+      await saveSessionState(nodeId, stateObj, fallbackMessages);
+      return fallbackMessages;
+    };
+
     // Se nao tem node, acha o node inicial (tipo 'start' ou o primeiro sem source edge)
     if (!node) {
       node = nodes.find((n) => n.type === "startNode") || nodes[0];
@@ -282,13 +342,15 @@ export const botFlowService = {
         if (nextNodeId) {
           node = nodes.find((n) => n.id === nextNodeId);
         } else {
-          return [
-            {
-              text:
-                "Opção inválida. Tente novamente.\n\n" +
-                (node.data?.message || ""),
-            },
-          ];
+          const options = Array.isArray(node.data?.options)
+            ? node.data.options
+            : [];
+          const menuText = buildMenuText(node.data?.message || "", options);
+          return await sendFallbackResponse(
+            menuText,
+            currentNodeId!,
+            sessionState,
+          );
         }
       }
       if (node.type === "productSearchNode") {
@@ -358,11 +420,20 @@ export const botFlowService = {
             const targetId = (foundEdge || fallbackEdge)?.target;
             node = targetId ? nodes.find((n) => n.id === targetId) : null;
           } else {
-            return [
-              {
-                text: "Opção inválida. Responda com:\n\n- Ver mais opções dessa sessão\n- Já escolhi, seguir para próxima etapa",
-              },
-            ];
+            const options = hasMorePages
+              ? [
+                  "Ver mais opções dessa sessão",
+                  "Já escolhi, seguir para próxima etapa",
+                ]
+              : ["Já escolhi, seguir para próxima etapa"];
+            const menuText = `Escolha uma opção:\n${options
+              .map((opt, index) => `${index + 1}. ${opt}`)
+              .join("\n")}`.trim();
+            return await sendFallbackResponse(
+              menuText,
+              currentNodeId!,
+              sessionState,
+            );
           }
         }
       }
@@ -390,32 +461,6 @@ export const botFlowService = {
     };
 
     let currentNode = node;
-
-    const saveSessionState = async (
-      cNodeId: string | null,
-      stateObj: any,
-      msgs: any[],
-    ) => {
-      const finalHistory = [...history];
-      msgs.forEach((m) =>
-        finalHistory.push({
-          role: "bot",
-          text: m.text,
-          type: m.type || "text",
-          delay: m.delay,
-          created_at: new Date().toISOString(),
-        }),
-      );
-      await prisma.botSession.update({
-        where: { id: session!.id },
-        data: {
-          current_node_id: cNodeId,
-          state: stateObj,
-          history: finalHistory as any,
-          updated_at: new Date(),
-        },
-      });
-    };
 
     while (currentNode) {
       const state = sessionState || {};

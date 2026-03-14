@@ -49,6 +49,139 @@ class AIAgentService {
     });
   }
 
+  private formatFallbackMenuText(menuText: string) {
+    const trimmed = menuText.trim();
+    return trimmed ? trimmed : "Escolha uma opção:";
+  }
+
+  private ensureMenuInResponse(content: string, menuText: string) {
+    const trimmedContent = content.trim();
+    const trimmedMenu = this.formatFallbackMenuText(menuText);
+    if (!trimmedMenu) return trimmedContent;
+    if (trimmedContent.includes(trimmedMenu)) return trimmedContent;
+    return `${trimmedContent}\n\n${trimmedMenu}`.trim();
+  }
+
+  async processFallback({
+    userMessage,
+    menuText,
+    sessionHistory,
+    customerName,
+  }: {
+    userMessage: string;
+    menuText: string;
+    sessionHistory?: Array<{ role: string; text: string }>;
+    customerName?: string;
+  }): Promise<string> {
+    const safeMenuText = this.formatFallbackMenuText(menuText);
+    const systemPrompt = [
+      "Você é a assistente virtual da Cesto dAmore.",
+      "Responda de forma direta, educada e assertiva.",
+      "O cliente saiu do fluxo esperado. Ajude rapidamente, sem inventar informações.",
+      "Use ferramentas disponíveis quando necessário (ex.: horários, pedidos, atendimento humano).",
+      "NÃO avance o fluxo e NÃO altere o menu.",
+      "Finalize obrigatoriamente com o menu exatamente como fornecido.",
+      "",
+      "Menu atual (não altere):",
+      safeMenuText,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    if (Array.isArray(sessionHistory) && sessionHistory.length > 0) {
+      const recentHistory = sessionHistory.slice(-8);
+      recentHistory.forEach((entry) => {
+        const role = entry.role === "user" ? "user" : "assistant";
+        if (entry.text) {
+          messages.push({ role, content: entry.text });
+        }
+      });
+    }
+
+    const displayName = customerName?.trim() || "Cliente";
+    messages.push({
+      role: "user",
+      content: `${displayName}: ${userMessage}`,
+    });
+
+    try {
+      const tools = await mcpClientService.listTools();
+      const formattedTools = tools.map((t) => ({
+        type: "function" as const,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.inputSchema,
+        },
+      }));
+
+      const maxIterations = 6;
+      for (let iteration = 0; iteration < maxIterations; iteration++) {
+        const response = await this.openai.chat.completions.create({
+          model: this.model,
+          messages,
+          tools: formattedTools,
+          stream: false,
+        });
+
+        const responseMessage = response.choices[0].message;
+        const toolCalls = (responseMessage.tool_calls || []) as any[];
+        if (toolCalls.length) {
+          messages.push(responseMessage);
+          for (const call of toolCalls) {
+            if (call.type && call.type !== "function") continue;
+            const toolName = call.function?.name;
+            if (!toolName) continue;
+            let toolResultText = "";
+            try {
+              const toolArgs = call.function?.arguments
+                ? JSON.parse(call.function.arguments)
+                : {};
+              const toolResult = await mcpClientService.callTool(
+                toolName,
+                toolArgs,
+              );
+              toolResultText =
+                typeof toolResult === "string"
+                  ? toolResult
+                  : toolResult?.humanized ||
+                    toolResult?.data ||
+                    JSON.stringify(toolResult);
+            } catch (error: any) {
+              logger.warn(
+                `⚠️ Falha ao executar tool ${toolName} no fallback: ${error?.message}`,
+              );
+              toolResultText =
+                "Não consegui obter essa informação agora. Posso ajudar de outra forma.";
+            }
+
+            messages.push({
+              role: "tool",
+              tool_call_id: call.id,
+              content: toolResultText,
+            });
+          }
+          continue;
+        }
+
+        const content = (responseMessage.content || "").trim();
+        if (content) {
+          return this.ensureMenuInResponse(content, safeMenuText);
+        }
+      }
+    } catch (error: any) {
+      logger.warn(`⚠️ Erro ao processar fallback: ${error?.message}`);
+    }
+
+    const fallbackText =
+      "Posso te ajudar com isso. Para continuar, escolha uma das opções abaixo.";
+    return this.ensureMenuInResponse(fallbackText, safeMenuText);
+  }
+
 
 
   private determineToolStrategy(

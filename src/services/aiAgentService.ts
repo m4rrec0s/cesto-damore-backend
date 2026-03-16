@@ -113,6 +113,7 @@ class AIAgentService {
     if (!trimmedMenu) return trimmedContent;
     if (this.responseAlreadyHasMenu(rawContent, trimmedMenu)) {
       if (!trimmedContent) return trimmedMenu;
+      if (rawContent === trimmedContent) return rawContent;
       return `${trimmedContent}\n\n${trimmedMenu}`.trim();
     }
     if (!trimmedContent) return trimmedMenu;
@@ -122,7 +123,7 @@ class AIAgentService {
   private stripGeneratedMenuBlocks(content: string) {
     const lines = content.split("\n").map((line) => line.trimEnd());
 
-    const menuTriggerIndex = lines.findIndex((line) => {
+    let menuTriggerIndex = lines.findIndex((line) => {
       const normalized = this.normalizeFallbackText(line);
       if (!normalized) return false;
       return (
@@ -130,9 +131,18 @@ class AIAgentService {
         normalized.startsWith("escolha a ocasiao") ||
         normalized.startsWith("escolha o item") ||
         normalized.startsWith("você gostaria de seguir") ||
-        normalized.startsWith("voce gostaria de seguir")
+        normalized.startsWith("voce gostaria de seguir") ||
+        normalized.startsWith("em que posso ajudar") ||
+        normalized.includes("gostaria de ver com base em que")
       );
     });
+
+    if (menuTriggerIndex === -1) {
+      menuTriggerIndex = lines.findIndex((line) => /^(1|2|3|4|5|6|7)\.\s/.test(line.trim()));
+      if (menuTriggerIndex > 0 && lines[menuTriggerIndex - 1].trim() === "") {
+        menuTriggerIndex -= 1;
+      }
+    }
 
     const body =
       menuTriggerIndex >= 0 ? lines.slice(0, menuTriggerIndex) : lines;

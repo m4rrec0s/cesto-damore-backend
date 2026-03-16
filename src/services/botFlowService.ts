@@ -30,6 +30,17 @@ const BOT_HANDOFF_GROUP_ID =
 const stripHtmlTags = (value: string) =>
   value.replace(/<[^>]*>/g, "").replace(/\\[.*?\\]/g, "");
 
+const sanitizeProductDescription = (value: string) => {
+  const sanitized = stripHtmlTags(value || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/\[informac(?:ao|ão)_?interna\]/i.test(line))
+    .filter((line) => !/^tags\s*:/i.test(line));
+
+  return sanitized.join("\n").trim();
+};
+
 const formatPrice = (price: number) => price.toFixed(2).replace(".", ",");
 
 const resolvePreviewUrl = (imageUrl?: string | null) => {
@@ -435,6 +446,25 @@ export const botFlowService = {
             ? node.data.options
             : [];
           const menuText = buildMenuText(node.data?.message || "", options);
+
+          if (!isNaN(optionMatched)) {
+            const invalidText =
+              `Opção inválida. Escolha um número entre 1 e ${Math.max(options.length, 1)}.\n\n${menuText}`.trim();
+            const invalidMessages: MessageResponse[] = [
+              {
+                text: invalidText,
+                delay: resolveNodeDelay(node.data, 900),
+                ...classifyMessage(invalidText),
+              },
+            ];
+            await saveSessionState(
+              currentNodeId!,
+              sessionState,
+              invalidMessages,
+            );
+            return invalidMessages;
+          }
+
           return await sendFallbackResponse(
             menuText,
             currentNodeId!,
@@ -561,6 +591,24 @@ export const botFlowService = {
             const menuText = `Escolha uma opção:\n${options
               .map((opt, index) => `${index + 1}. ${opt}`)
               .join("\n")}`.trim();
+
+            if (!isNaN(optionMatched)) {
+              const invalidText = `Opção inválida. Escolha uma das opções abaixo.\n\n${menuText}`;
+              const invalidMessages: MessageResponse[] = [
+                {
+                  text: invalidText,
+                  delay: resolveNodeDelay(node.data, 900),
+                  ...classifyMessage(invalidText),
+                },
+              ];
+              await saveSessionState(
+                currentNodeId!,
+                sessionState,
+                invalidMessages,
+              );
+              return invalidMessages;
+            }
+
             return await sendFallbackResponse(
               menuText,
               currentNodeId!,
@@ -807,7 +855,7 @@ export const botFlowService = {
               const p = products[i];
               const previewUrl = resolvePreviewUrl(p.image_url);
               const description = p.description
-                ? stripHtmlTags(p.description)
+                ? sanitizeProductDescription(p.description)
                 : "";
               const productionTime =
                 typeof p.production_time === "number" && p.production_time > 0

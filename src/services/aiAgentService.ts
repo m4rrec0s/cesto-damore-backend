@@ -115,6 +115,7 @@ class AIAgentService {
       return (
         normalized.startsWith("escolha uma opcao") ||
         normalized.startsWith("escolha a ocasiao") ||
+        normalized.startsWith("escolha o item") ||
         normalized.startsWith("você gostaria de seguir") ||
         normalized.startsWith("voce gostaria de seguir")
       );
@@ -179,11 +180,25 @@ class AIAgentService {
   }): Promise<string> {
     const safeMenuText = this.formatFallbackMenuText(menuText);
     const spContext = this.getSaoPauloContext();
+    const normalizedUserMessage = this.normalizeFallbackText(userMessage || "");
+    const isDeliveryQuestion =
+      normalizedUserMessage.includes("entrega") ||
+      normalizedUserMessage.includes("amanha") ||
+      normalizedUserMessage.includes("amanhã") ||
+      normalizedUserMessage.includes("hoje") ||
+      normalizedUserMessage.includes("horario") ||
+      normalizedUserMessage.includes("horário") ||
+      normalizedUserMessage.includes("prazo") ||
+      normalizedUserMessage.includes("data");
+
     const systemPrompt = [
       "Você é a assistente virtual da Cesto dAmore.",
       "Responda de forma direta, educada e assertiva.",
       "O cliente saiu do fluxo esperado. Ajude rapidamente, sem inventar informações.",
       "Use ferramentas disponíveis quando necessário (ex.: horários, pedidos, atendimento humano).",
+      "Para perguntas sobre entrega/data/horário/prazo, valide com tool antes de responder.",
+      "Se não conseguir validar com tool, não chute: encaminhe para atendimento humano.",
+      "Nunca deduza dia da semana manualmente sem validar pelo contexto de data/hora e/ou tool.",
       "NÃO avance o fluxo e NÃO altere o menu.",
       "Não escreva seu próprio menu, opções ou botões.",
       "Finalize obrigatoriamente com o menu exatamente como fornecido.",
@@ -241,6 +256,9 @@ class AIAgentService {
 
         if (formattedTools.length > 0) {
           completionInput.tools = formattedTools;
+          if (isDeliveryQuestion && iteration === 0) {
+            completionInput.tool_choice = "required";
+          }
         }
 
         const response =

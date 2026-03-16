@@ -68,9 +68,7 @@ const normalizeText = (value: string) =>
 const normalizeSearchTokens = (value: string) =>
   value
     .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s,]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s,]+/gu, " ")
     .replace(/_/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -785,6 +783,7 @@ export const botFlowService = {
             where.is_active = true;
           }
           if (searchTerm) {
+            const rawSearch = searchTerm.trim();
             const normalized = normalizeSearchTokens(searchTerm);
             const groups = normalized
               .split(",")
@@ -823,8 +822,19 @@ export const botFlowService = {
               .map(buildTokenFilters)
               .filter(Boolean) as any[];
 
-            if (groupFilters.length > 0) {
-              where.OR = groupFilters;
+            const searchOrFilters: any[] = [];
+            if (rawSearch) {
+              searchOrFilters.push({
+                name: { contains: rawSearch, mode: "insensitive" },
+              });
+              searchOrFilters.push({
+                description: { contains: rawSearch, mode: "insensitive" },
+              });
+            }
+            searchOrFilters.push(...groupFilters);
+
+            if (searchOrFilters.length > 0) {
+              where.OR = searchOrFilters;
             }
           }
           if (data.categoryId) {

@@ -38,6 +38,12 @@ interface ToolExecutionResult {
   success: boolean;
 }
 
+interface FallbackProcessingResult {
+  text: string;
+  handoffToHuman: boolean;
+  handoffReason?: string;
+}
+
 class AIAgentService {
   private openai: OpenAI;
   private model: string = "gpt-4o-mini";
@@ -182,7 +188,7 @@ class AIAgentService {
     menuText: string;
     sessionHistory?: Array<{ role: string; text: string }>;
     customerName?: string;
-  }): Promise<string> {
+  }): Promise<FallbackProcessingResult> {
     const safeMenuText = this.formatFallbackMenuText(menuText);
     const spContext = this.getSaoPauloContext();
     const normalizedUserMessage = this.normalizeFallbackText(userMessage || "");
@@ -199,11 +205,13 @@ class AIAgentService {
     const systemPrompt = [
       "Você é a assistente virtual da Cesto dAmore.",
       "Responda de forma direta, educada e assertiva.",
-      "O cliente saiu do fluxo esperado. Ajude rapidamente, sem inventar informações.",
-      "Use ferramentas disponíveis quando necessário (ex.: horários, pedidos, atendimento humano).",
-      "Para perguntas sobre entrega/data/horário/prazo, valide com tool antes de responder.",
-      "Se não conseguir validar com tool, não chute: encaminhe para atendimento humano.",
-      "Nunca deduza dia da semana manualmente sem validar pelo contexto de data/hora e/ou tool.",
+      "O cliente saiu do fluxo. Ajude e devolva ao menu sem inventar dados.",
+      "Nunca anuncie tool; execute e responda só com resultado final.",
+      "Use calculate_freight para dúvidas de LOCAL de entrega (cidade/região).",
+      "Use validate_delivery_availability para DATA/HORÁRIO sem produto definido.",
+      "Use can_produce_in_time quando houver produto + data + horário.",
+      "Use get_product_details para confirmar composição/preço de produto.",
+      "Se não conseguir validar com tool, use request_human_handoff para encaminhar ao atendimento humano.",
       "NÃO avance o fluxo e NÃO altere o menu.",
       "Não escreva seu próprio menu, opções ou botões.",
       "Finalize obrigatoriamente com o menu exatamente como fornecido.",
@@ -250,6 +258,33 @@ class AIAgentService {
           },
         }));
 
+      const internalTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+        {
+          type: "function",
+          function: {
+            name: "request_human_handoff",
+            description:
+              "Solicita atendimento humano quando a validação não puder ser concluída com segurança.",
+            parameters: {
+              type: "object",
+              properties: {
+                reason: {
+                  type: "string",
+                  description:
+                    "Motivo curto para encaminhar ao atendimento humano.",
+                },
+              },
+              required: [],
+              additionalProperties: false,
+            },
+          },
+        },
+      ];
+
+      const availableTools = [...formattedTools, ...internalTools];
+      let handoffRequested = false;
+      let handoffReason = "";
+
       const maxIterations = 6;
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         const completionInput: OpenAI.Chat.Completions.ChatCompletionCreateParams =
@@ -259,8 +294,8 @@ class AIAgentService {
             stream: false,
           };
 
-        if (formattedTools.length > 0) {
-          completionInput.tools = formattedTools;
+        if (availableTools.length > 0) {
+          completionInput.tools = availableTools;
           if (isDeliveryQuestion && iteration === 0) {
             completionInput.tool_choice = "required";
           }
@@ -278,6 +313,28 @@ class AIAgentService {
             const toolName = call.function?.name;
             if (!toolName) continue;
             let toolResultText = "";
+            if (toolName === "request_human_handoff") {
+              let toolArgs: any = {};
+              try {
+                toolArgs = call.function?.arguments
+                  ? JSON.parse(call.function.arguments)
+                  : {};
+              } catch (error) {
+                toolArgs = {};
+              }
+
+              handoffRequested = true;
+              handoffReason = String(toolArgs?.reason || "").trim();
+              toolResultText =
+                "Handoff solicitado com sucesso. A sessão será encerrada para atendimento humano.";
+              messages.push({
+                role: "tool",
+                tool_call_id: call.id,
+                content: toolResultText,
+              });
+              continue;
+            }
+
             if (!this.isFallbackToolAllowed(toolName)) {
               toolResultText =
                 "Não posso executar essa ação neste momento. Posso seguir com orientações diretas.";
@@ -321,7 +378,26 @@ class AIAgentService {
 
         const content = (responseMessage.content || "").trim();
         if (content) {
-          return this.ensureMenuInResponse(content, safeMenuText);
+          if (handoffRequested) {
+            return {
+              text: content,
+              handoffToHuman: true,
+              handoffReason,
+            };
+          }
+
+          return {
+            text: this.ensureMenuInResponse(content, safeMenuText),
+            handoffToHuman: false,
+          };
+        }
+
+        if (handoffRequested) {
+          return {
+            text: "Perfeito! Vou te encaminhar para atendimento humano agora.",
+            handoffToHuman: true,
+            handoffReason,
+          };
         }
       }
     } catch (error: any) {
@@ -330,7 +406,10 @@ class AIAgentService {
 
     const fallbackText =
       "Posso te ajudar com isso. Para continuar, escolha uma das opções abaixo.";
-    return this.ensureMenuInResponse(fallbackText, safeMenuText);
+    return {
+      text: this.ensureMenuInResponse(fallbackText, safeMenuText),
+      handoffToHuman: false,
+    };
   }
 
   private determineToolStrategy(

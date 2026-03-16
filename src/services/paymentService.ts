@@ -132,6 +132,53 @@ export class PaymentService {
     }
   }
 
+  private static async resolveOrderConfirmationDriveContext(
+    orderId: string,
+    googleDriveUrl?: string,
+  ): Promise<{
+    hasImageCustomizations: boolean;
+    resolvedGoogleDriveUrl?: string;
+  }> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        google_drive_folder_url: true,
+        items: {
+          select: {
+            customizations: {
+              select: {
+                value: true,
+                customization: {
+                  select: {
+                    type: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new Error(`Pedido não encontrado: ${orderId}`);
+    }
+
+    const hasImageCustomizations = order.items.some((item) =>
+      item.customizations.some(
+        (customization) =>
+          customization.customization?.type === "IMAGES" ||
+          PaymentService.customizationValueHasImageAssets(customization.value),
+      ),
+    );
+
+    return {
+      hasImageCustomizations,
+      resolvedGoogleDriveUrl:
+        googleDriveUrl || order.google_drive_folder_url || undefined,
+    };
+  }
+
   private static runApprovedOrderPostProcessingInBackground(params: {
     orderId: string;
     paymentId: string;
@@ -276,6 +323,19 @@ export class PaymentService {
     orderId: string,
     googleDriveUrl?: string,
   ) {
+    const confirmationContext =
+      await this.resolveOrderConfirmationDriveContext(orderId, googleDriveUrl);
+
+    if (
+      confirmationContext.hasImageCustomizations &&
+      !confirmationContext.resolvedGoogleDriveUrl
+    ) {
+      logger.warn(
+        `⏳ Adiando confirmação WhatsApp do pedido ${orderId}: link do Drive ainda não disponível`,
+      );
+      return false;
+    }
+
     if (PaymentService.notificationSentOrders.has(orderId)) {
       logger.info(
         `🟡 Notificação de pedido já enviada (cache) para ${orderId}, pulando.`,
@@ -306,7 +366,7 @@ export class PaymentService {
     try {
       await this.performSendOrderConfirmationNotification(
         orderId,
-        googleDriveUrl,
+        confirmationContext.resolvedGoogleDriveUrl,
       );
       PaymentService.notificationSentOrders.add(orderId);
       this.scheduleNotificationCacheRelease(orderId);

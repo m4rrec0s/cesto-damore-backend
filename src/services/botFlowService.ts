@@ -299,24 +299,91 @@ export const botFlowService = {
       });
     };
 
+    const activateHumanHandoff = async ({
+      botText,
+      stateObj,
+      reason,
+      delayMs,
+      alertTitle = "ATENDIMENTO HUMANO SOLICITADO",
+    }: {
+      botText: string;
+      stateObj: any;
+      reason?: string;
+      delayMs?: number;
+      alertTitle?: string;
+    }) => {
+      const safeBotText =
+        String(botText || "").trim() ||
+        "Perfeito! Vou te encaminhar para atendimento humano agora.";
+
+      const handoffMessages: MessageResponse[] = [
+        {
+          text: safeBotText,
+          delay: typeof delayMs === "number" ? delayMs : 1000,
+          ...classifyMessage(safeBotText),
+        },
+      ];
+
+      const handoffState = {
+        ...stateObj,
+        is_human: true,
+        ...(reason ? { handoff_reason: reason } : {}),
+      };
+
+      await saveSessionState(null, handoffState, handoffMessages);
+      await prisma.botSession.update({
+        where: { id: session.id },
+        data: { is_human: true },
+      });
+
+      const cName =
+        (session.state as any)?.contactName || contactName || "Cliente";
+      let alertMsg = `🚨 *${alertTitle}* 🚨\n\n`;
+      if (reason) {
+        alertMsg += `*Motivo:* ${reason}\n`;
+      }
+      alertMsg += `*Nome:* ${cName}\n`;
+      alertMsg += `*WhatsApp:* https://wa.me/${phone}\n`;
+      alertMsg += `*Ação:* O bot foi pausado para este cliente.`;
+
+      try {
+        await whatsappService.sendMessage(alertMsg, BOT_HANDOFF_GROUP_ID);
+      } catch (e) {
+        console.error("[BotFlow] Erro ao notificar atendente de handoff:", e);
+      }
+
+      return handoffMessages;
+    };
+
     const sendFallbackResponse = async (
       menuText: string,
       nodeId: string,
       stateObj: any,
       delayMs?: number,
     ) => {
-      const fallbackText = await aiAgentService.processFallback({
+      const fallbackResult = await aiAgentService.processFallback({
         userMessage: rawText,
         menuText,
         sessionHistory: history,
         customerName:
           (sessionState as any)?.contactName || contactName || "Cliente",
       });
+
+      if (fallbackResult.handoffToHuman) {
+        return await activateHumanHandoff({
+          botText: fallbackResult.text,
+          stateObj,
+          reason:
+            fallbackResult.handoffReason || "Solicitado pela LLM no fallback",
+          delayMs: typeof delayMs === "number" ? delayMs : 800,
+        });
+      }
+
       const fallbackMessages: MessageResponse[] = [
         {
-          text: fallbackText,
+          text: fallbackResult.text,
           delay: typeof delayMs === "number" ? delayMs : 800,
-          ...classifyMessage(fallbackText),
+          ...classifyMessage(fallbackResult.text),
         },
       ];
       await saveSessionState(nodeId, stateObj, fallbackMessages);
@@ -332,47 +399,17 @@ export const botFlowService = {
       normalizedRawText.includes("o cliente mandou uma imagem");
 
     const forceHumanHandoff = async (reason: string) => {
-      const handoffMessages: MessageResponse[] = [
-        {
-          text: "Perfeito! Vou te encaminhar para atendimento humano agora.",
-          delay: 600,
-          ...classifyMessage(
-            "Perfeito! Vou te encaminhar para atendimento humano agora.",
-          ),
+      return await activateHumanHandoff({
+        botText: "Perfeito! Vou te encaminhar para atendimento humano agora.",
+        stateObj: {
+          ...sessionState,
+          forced_handoff_reason: reason,
+          forced_handoff_input: rawText.slice(0, 700),
         },
-      ];
-
-      const handoffState = {
-        ...sessionState,
-        is_human: true,
-        forced_handoff_reason: reason,
-      };
-
-      await saveSessionState(null, handoffState, handoffMessages);
-      await prisma.botSession.update({
-        where: { id: session.id },
-        data: { is_human: true },
+        reason,
+        delayMs: 600,
+        alertTitle: "ATENDIMENTO HUMANO FORÇADO (BOT)",
       });
-
-      const cName =
-        (session.state as any)?.contactName || contactName || "Cliente";
-      let alertMsg = `🚨 *ATENDIMENTO HUMANO FORÇADO (BOT)* 🚨\n\n`;
-      alertMsg += `*Motivo:* ${reason}\n`;
-      alertMsg += `*Nome:* ${cName}\n`;
-      alertMsg += `*WhatsApp:* https://wa.me/${phone}\n`;
-      alertMsg += `*Entrada:* ${rawText.slice(0, 700)}\n`;
-      alertMsg += `*Ação:* O bot foi pausado e o cliente deve ser atendido por humano.`;
-
-      try {
-        await whatsappService.sendMessage(alertMsg, BOT_HANDOFF_GROUP_ID);
-      } catch (e) {
-        console.error(
-          "[BotFlow] Erro ao notificar atendente de handoff forçado:",
-          e,
-        );
-      }
-
-      return handoffMessages;
     };
 
     if (isCartAddedInternalEvent) {
@@ -913,39 +950,11 @@ export const botFlowService = {
           continue;
 
         case "handoffNode":
-          appendMessage(
-            currentNode.data?.message || "Vou chamar um atendente.",
-            resolveNodeDelay(currentNode.data, 1000),
-          );
-
-          await saveSessionState(
-            null,
-            { ...state, is_human: true },
-            responseMessages,
-          );
-          await prisma.botSession.update({
-            where: { id: session.id },
-            data: { is_human: true },
+          return await activateHumanHandoff({
+            botText: currentNode.data?.message || "Vou chamar um atendente.",
+            stateObj: state,
+            delayMs: resolveNodeDelay(currentNode.data, 1000),
           });
-
-          // Envia notificação para a equipe via WhatsApp
-          const cName =
-            (session.state as any)?.contactName || contactName || "Cliente";
-          let alertMsg = `🚨 *ATENDIMENTO HUMANO SOLICITADO* 🚨\n\n`;
-          alertMsg += `*Nome:* ${cName}\n`;
-          alertMsg += `*WhatsApp:* https://wa.me/${phone}\n`;
-          alertMsg += `*Ação:* O bot foi pausado para este cliente.`;
-
-          try {
-            await whatsappService.sendMessage(alertMsg, BOT_HANDOFF_GROUP_ID);
-          } catch (e) {
-            console.error(
-              "[BotFlow] Erro ao notificar atendente de handoff:",
-              e,
-            );
-          }
-
-          return responseMessages;
 
         default:
           currentNode = null;

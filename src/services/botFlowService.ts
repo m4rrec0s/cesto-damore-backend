@@ -379,13 +379,39 @@ export const botFlowService = {
         });
       }
 
-      const fallbackMessages: MessageResponse[] = [
-        {
-          text: fallbackResult.text,
-          delay: typeof delayMs === "number" ? delayMs : 800,
-          ...classifyMessage(fallbackResult.text),
-        },
-      ];
+      const safeMenuText = String(menuText || "").trim();
+      const safeFallbackText = String(fallbackResult.text || "").trim();
+      const baseDelay = typeof delayMs === "number" ? delayMs : 800;
+      const fallbackMessages: MessageResponse[] = [];
+
+      if (
+        safeMenuText &&
+        safeFallbackText.endsWith(safeMenuText) &&
+        safeFallbackText !== safeMenuText
+      ) {
+        const answerText = safeFallbackText
+          .slice(0, safeFallbackText.length - safeMenuText.length)
+          .trim();
+        if (answerText) {
+          fallbackMessages.push({
+            text: answerText,
+            delay: Math.max(500, Math.round(baseDelay * 0.85)),
+            ...classifyMessage(answerText),
+          });
+        }
+        fallbackMessages.push({
+          text: safeMenuText,
+          delay: baseDelay,
+          ...classifyMessage(safeMenuText),
+        });
+      } else {
+        fallbackMessages.push({
+          text: safeFallbackText,
+          delay: baseDelay,
+          ...classifyMessage(safeFallbackText),
+        });
+      }
+
       await saveSessionState(nodeId, stateObj, fallbackMessages);
       return fallbackMessages;
     };

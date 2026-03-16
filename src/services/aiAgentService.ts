@@ -100,9 +100,14 @@ class AIAgentService {
   }
 
   private ensureMenuInResponse(content: string, menuText: string) {
-    const trimmedContent = this.stripGeneratedMenuBlocks(content);
+    const rawContent = (content || "").trim();
+    const trimmedContent = this.stripGeneratedMenuBlocks(rawContent);
     const trimmedMenu = this.formatFallbackMenuText(menuText);
     if (!trimmedMenu) return trimmedContent;
+    if (this.responseAlreadyHasMenu(rawContent, trimmedMenu)) {
+      return rawContent;
+    }
+    if (!trimmedContent) return trimmedMenu;
     return `${trimmedContent}\n\n${trimmedMenu}`.trim();
   }
 

@@ -46,11 +46,10 @@ const allowedOrigins = [
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
 
-      if (!origin) return callback(null, true);
-
-      const isMainDomain = origin === "https://cestodamore.com.br";
-      const isSubdomain = origin.endsWith(".cestodamore.com.br");
+    const isMainDomain = origin === "https://cestodamore.com.br";
+    const isSubdomain = origin.endsWith(".cestodamore.com.br");
 
     if (isMainDomain || isSubdomain || allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -274,6 +273,27 @@ cron.schedule("*/10 * * * *", async () => {
   }
 });
 
+cron.schedule("*/15 * * * *", async () => {
+  try {
+    const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000);
+    const result = await prisma.botSession.deleteMany({
+      where: {
+        updated_at: {
+          lt: fiveHoursAgo,
+        },
+      },
+    });
+
+    if (result.count > 0) {
+      logger.info(
+        `🧹 [Cron] Sessões do bot expiradas removidas: ${result.count}`,
+      );
+    }
+  } catch (error) {
+    logger.error("❌ [Cron] Erro ao limpar sessões expiradas do bot:", error);
+  }
+});
+
 cron.schedule("*/20 * * * *", async () => {
   try {
     const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000);
@@ -394,7 +414,6 @@ scheduledJobsService.start();
 
 process.on("unhandledRejection", (reason, promise) => {
   logger.error("🛑 Unhandled Rejection at:", promise, "reason:", reason);
-
 });
 
 process.on("uncaughtException", (error) => {

@@ -140,6 +140,29 @@ class AIAgentService {
     return body.join("\n").trim();
   }
 
+  private sanitizeFallbackAssistantText(content: string) {
+    const cleaned = (content || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter(
+        (line) =>
+          !/(^|\s)(vou verificar|um momento|deixa eu ver|aguarde)(\s|[,.!?]|$)/i.test(
+            line,
+          ),
+      )
+      .filter(
+        (line) =>
+          !/^\([^)]*(produto|data|hor[áa]rio|contexto|tool|ferramenta)[^)]*\)$/i.test(
+            line,
+          ),
+      )
+      .join("\n")
+      .trim();
+
+    return cleaned;
+  }
+
   private getSaoPauloContext() {
     const now = new Date();
     const formatter = new Intl.DateTimeFormat("pt-BR", {
@@ -224,7 +247,10 @@ class AIAgentService {
       "Você é a assistente virtual da Cesto dAmore.",
       "Responda de forma direta, educada e assertiva.",
       "O cliente saiu do fluxo. Ajude e devolva ao menu sem inventar dados.",
+      "[INTERNO: CRÍTICO] Quando uma Tool for necessária para a tarefa, execute-a ANTES de responder. Nunca responda com base em suposições quando a Tool forneceria a informação correta.",
       "Nunca anuncie tool; execute e responda só com resultado final.",
+      "PROIBIDO escrever frases transitórias como: 'Vou verificar', 'Um momento', 'Deixa eu ver'.",
+      "PROIBIDO expor linhas internas de contexto entre parênteses (ex.: produto/data/horário).",
       "Use calculate_freight para dúvidas de LOCAL de entrega (cidade/região).",
       "Use validate_delivery_availability para DATA/HORÁRIO sem produto definido.",
       "Use can_produce_in_time quando houver produto + data + horário.",
@@ -401,16 +427,19 @@ class AIAgentService {
 
         const content = (responseMessage.content || "").trim();
         if (content) {
+          const sanitizedContent = this.sanitizeFallbackAssistantText(content);
+          const safeContent = sanitizedContent || content;
+
           if (handoffRequested) {
             return {
-              text: content,
+              text: safeContent,
               handoffToHuman: true,
               handoffReason,
             };
           }
 
           return {
-            text: this.ensureMenuInResponse(content, safeMenuText),
+            text: this.ensureMenuInResponse(safeContent, safeMenuText),
             handoffToHuman: false,
           };
         }

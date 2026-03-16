@@ -249,6 +249,19 @@ export const botFlowService = {
       return `${trimmedBase}\n\n${optionLines.join("\n")}`.trim();
     };
 
+    const resolveNodeDelay = (nodeData: any, fallback = 1500) => {
+      if (typeof nodeData?.delayMs === "number" && nodeData.delayMs >= 0) {
+        return Math.round(nodeData.delayMs);
+      }
+      if (
+        typeof nodeData?.delaySeconds === "number" &&
+        nodeData.delaySeconds >= 0
+      ) {
+        return Math.round(nodeData.delaySeconds * 1000);
+      }
+      return fallback;
+    };
+
     const saveSessionState = async (
       cNodeId: string | null,
       stateObj: any,
@@ -279,6 +292,7 @@ export const botFlowService = {
       menuText: string,
       nodeId: string,
       stateObj: any,
+      delayMs?: number,
     ) => {
       const fallbackText = await aiAgentService.processFallback({
         userMessage: rawText,
@@ -290,6 +304,7 @@ export const botFlowService = {
       const fallbackMessages: MessageResponse[] = [
         {
           text: fallbackText,
+          delay: typeof delayMs === "number" ? delayMs : 800,
           ...classifyMessage(fallbackText),
         },
       ];
@@ -424,6 +439,7 @@ export const botFlowService = {
             menuText,
             currentNodeId!,
             sessionState,
+            resolveNodeDelay(node.data, 1200),
           );
         }
       }
@@ -511,6 +527,7 @@ export const botFlowService = {
                 menuText,
                 currentNodeId!,
                 sessionState,
+                resolveNodeDelay(node.data, 1200),
               );
             }
             node = targetId ? nodes.find((n) => n.id === targetId) : null;
@@ -529,6 +546,7 @@ export const botFlowService = {
                 menuText,
                 currentNodeId!,
                 sessionState,
+                resolveNodeDelay(node.data, 1200),
               );
             }
             node = nodes.find((n) => n.id === backEdge.target) || null;
@@ -547,6 +565,7 @@ export const botFlowService = {
               menuText,
               currentNodeId!,
               sessionState,
+              resolveNodeDelay(node.data, 1200),
             );
           }
         }
@@ -582,10 +601,10 @@ export const botFlowService = {
       switch (currentNode.type) {
         case "startNode":
           if (currentNode.data?.message) {
-            responseMessages.push({
-              text: currentNode.data.message,
-              delay: 1500,
-            });
+            appendMessage(
+              currentNode.data.message,
+              resolveNodeDelay(currentNode.data, 1500),
+            );
           }
           // Move to next node immediately
           const startEdge = edges.find((e) => e.source === currentNode?.id);
@@ -595,7 +614,10 @@ export const botFlowService = {
           continue;
 
         case "messageNode":
-          appendMessage(currentNode.data?.message || "", 1500);
+          appendMessage(
+            currentNode.data?.message || "",
+            resolveNodeDelay(currentNode.data, 1500),
+          );
           // Move to next node immediately
           const msgEdge = edges.find((e) => e.source === currentNode?.id);
           currentNode = msgEdge
@@ -620,7 +642,9 @@ export const botFlowService = {
             menuText = `${baseMessage}\n\n${optionLines.join("\n")}`.trim();
           }
 
-          appendMessage(menuText, 1500, { type: "menu" });
+          appendMessage(menuText, resolveNodeDelay(currentNode.data, 1500), {
+            type: "menu",
+          });
           // Stops here, waiting for user input
           await saveSessionState(currentNode.id, state, responseMessages);
           return responseMessages;
@@ -628,7 +652,10 @@ export const botFlowService = {
 
         case "productSearchNode":
           // Perform search
-          appendMessage("🔍 Buscando opções para você...", 1000);
+          appendMessage(
+            "🔍 Buscando opções para você...",
+            resolveNodeDelay(currentNode.data, 1000),
+          );
 
           const data = currentNode.data || {};
           const searchTerm = (
@@ -750,7 +777,10 @@ export const botFlowService = {
                 });
 
           if (products.length === 0) {
-            appendMessage("Hmm, não encontrei produtos agora 😔", 1500);
+            appendMessage(
+              "Hmm, não encontrei produtos agora 😔",
+              resolveNodeDelay(currentNode.data, 1200),
+            );
             sessionState = { ...sessionState, productSearch: undefined };
             const notFoundEdge = edges.find(
               (e) =>
@@ -804,9 +834,13 @@ export const botFlowService = {
               options.push("1. Já escolhi, seguir para próxima etapa");
               options.push("2. Voltar ao menu");
             }
-            appendMessage(`Escolha uma opção:\n${options.join("\n")}`, 800, {
-              type: "menu",
-            });
+            appendMessage(
+              `Escolha uma opção:\n${options.join("\n")}`,
+              resolveNodeDelay(currentNode.data, 800),
+              {
+                type: "menu",
+              },
+            );
 
             sessionState = {
               ...sessionState,
@@ -833,7 +867,7 @@ export const botFlowService = {
         case "handoffNode":
           appendMessage(
             currentNode.data?.message || "Vou chamar um atendente.",
-            1000,
+            resolveNodeDelay(currentNode.data, 1000),
           );
 
           await saveSessionState(

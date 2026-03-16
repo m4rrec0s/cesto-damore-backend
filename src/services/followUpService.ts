@@ -7,6 +7,12 @@ type N8nLatestCustomerMessageRow = {
   last_human_message_at: Date | null;
 };
 
+type BotHistoryEntry = {
+  role?: string;
+  text?: string;
+  created_at?: string;
+};
+
 class FollowUpService {
   private readonly intervals = [2, 24, 48];
   private readonly n8nWebhookUrl =
@@ -15,6 +21,69 @@ class FollowUpService {
   private extractPhoneFromSessionId(sessionId: string): string | null {
     const extracted = sessionId.match(/^session-(\d+)$/)?.[1];
     return extracted || null;
+  }
+
+  private toValidDate(value?: string | Date | null): Date | null {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private async upsertLatestMessageByPhone(
+    latestByPhone: Map<string, Date>,
+  ): Promise<Set<string>> {
+    if (latestByPhone.size === 0) {
+      return new Set<string>();
+    }
+
+    const phones = [...latestByPhone.keys()];
+    const existingCustomers = await prisma.customer.findMany({
+      where: { number: { in: phones } },
+      select: { number: true, last_message_sent: true },
+    });
+
+    const existingMap = new Map(
+      existingCustomers.map((customer) => [customer.number, customer]),
+    );
+    const updatedPhones = new Set<string>();
+
+    for (const [phone, latestMessageAt] of latestByPhone.entries()) {
+      const existing = existingMap.get(phone);
+
+      if (!existing) {
+        await prisma.customer.create({
+          data: {
+            number: phone,
+            follow_up: true,
+            last_message_sent: latestMessageAt,
+          },
+        });
+        updatedPhones.add(phone);
+        continue;
+      }
+
+      const isNewer =
+        !existing.last_message_sent ||
+        latestMessageAt > existing.last_message_sent;
+      if (!isNewer) continue;
+
+      await prisma.customer.update({
+        where: { number: phone },
+        data: {
+          follow_up: true,
+          last_message_sent: latestMessageAt,
+        },
+      });
+
+      // Reinicia o ciclo de follow-up quando chega nova mensagem do cliente
+      await prisma.followUpSent.deleteMany({
+        where: { cliente_number: phone },
+      });
+
+      updatedPhones.add(phone);
+    }
+
+    return updatedPhones;
   }
 
   private async syncLastMessageFromN8nHistories(): Promise<Set<string>> {
@@ -59,49 +128,46 @@ class FollowUpService {
       }
     });
 
-    if (latestByPhone.size === 0) {
+    return this.upsertLatestMessageByPhone(latestByPhone);
+  }
+
+  private async syncLastMessageFromBotSessions(): Promise<Set<string>> {
+    const sessions = await prisma.botSession.findMany({
+      where: {
+        phone: { not: "" },
+      },
+      select: {
+        phone: true,
+        history: true,
+      },
+    });
+
+    if (sessions.length === 0) {
       return new Set<string>();
     }
 
-    const phones = [...latestByPhone.keys()];
-    const existingCustomers = await prisma.customer.findMany({
-      where: { number: { in: phones } },
-      select: { number: true, last_message_sent: true },
+    const latestByPhone = new Map<string, Date>();
+
+    sessions.forEach((session) => {
+      const history = Array.isArray(session.history)
+        ? (session.history as BotHistoryEntry[])
+        : [];
+
+      const lastUserMessageAt = history
+        .filter((entry) => (entry.role || "").toLowerCase() === "user")
+        .map((entry) => this.toValidDate(entry.created_at))
+        .filter((date): date is Date => Boolean(date))
+        .sort((a, b) => b.getTime() - a.getTime())[0];
+
+      if (!lastUserMessageAt) return;
+
+      const current = latestByPhone.get(session.phone);
+      if (!current || lastUserMessageAt > current) {
+        latestByPhone.set(session.phone, lastUserMessageAt);
+      }
     });
 
-    const existingMap = new Map(
-      existingCustomers.map((customer) => [customer.number, customer]),
-    );
-
-    for (const [phone, latestMessageAt] of latestByPhone.entries()) {
-      const existing = existingMap.get(phone);
-
-      if (!existing) {
-        await prisma.customer.create({
-          data: {
-            number: phone,
-            follow_up: true,
-            last_message_sent: latestMessageAt,
-          },
-        });
-        continue;
-      }
-
-      if (
-        !existing.last_message_sent ||
-        latestMessageAt > existing.last_message_sent
-      ) {
-        await prisma.customer.update({
-          where: { number: phone },
-          data: {
-            follow_up: true,
-            last_message_sent: latestMessageAt,
-          },
-        });
-      }
-    }
-
-    return new Set(phones);
+    return this.upsertLatestMessageByPhone(latestByPhone);
   }
 
   async getSentHistory() {
@@ -122,7 +188,11 @@ class FollowUpService {
 
   async triggerFollowUpFunction() {
     try {
-      const eligiblePhones = await this.syncLastMessageFromN8nHistories();
+      const [n8nPhones, botPhones] = await Promise.all([
+        this.syncLastMessageFromN8nHistories(),
+        this.syncLastMessageFromBotSessions(),
+      ]);
+      const eligiblePhones = new Set<string>([...n8nPhones, ...botPhones]);
 
       if (eligiblePhones.size === 0) {
         logger.info(
@@ -204,7 +274,6 @@ class FollowUpService {
         }
 
         if (jaEnviouUltimo) {
-
           await prisma.followUpSent.deleteMany({
             where: { cliente_number: customer.number },
           });

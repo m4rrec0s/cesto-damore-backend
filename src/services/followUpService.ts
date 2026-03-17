@@ -190,15 +190,10 @@ class FollowUpService {
 
   async triggerFollowUpFunction() {
     try {
-      const [eligiblePhones, followUpNodes] = await Promise.all([
+      const [, followUpNodes] = await Promise.all([
         this.syncLastMessageFromBotSessions(),
         this.getFollowUpNodeConfigs(),
       ]);
-
-      if (eligiblePhones.size === 0) {
-        logger.info("📊 [FollowUp] Nenhum telefone elegível no Bot Session");
-        return;
-      }
 
       if (followUpNodes.length === 0) {
         logger.info("📊 [FollowUp] Nenhum nó Follow Up configurado no fluxo");
@@ -207,7 +202,6 @@ class FollowUpService {
 
       const customersToProcess = await prisma.customer.findMany({
         where: {
-          number: { in: [...eligiblePhones] },
           follow_up: true,
           last_message_sent: { not: null },
         },
@@ -215,6 +209,13 @@ class FollowUpService {
           followUpSent: true,
         },
       });
+
+      if (customersToProcess.length === 0) {
+        logger.info(
+          "📊 [FollowUp] Nenhum cliente elegível (follow_up ativo e last_message_sent preenchido)",
+        );
+        return;
+      }
 
       logger.info(
         `📊 [FollowUp] Verificando ${customersToProcess.length} clientes para follow-up...`,

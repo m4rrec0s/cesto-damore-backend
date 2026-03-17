@@ -81,6 +81,66 @@ const isYesOption = (value: string, option: string) => {
   return normalized.includes(option);
 };
 
+const MENU_MATCH_STOPWORDS = new Set([
+  "a",
+  "o",
+  "os",
+  "as",
+  "de",
+  "do",
+  "da",
+  "dos",
+  "das",
+  "e",
+  "ou",
+  "em",
+  "no",
+  "na",
+  "nos",
+  "nas",
+  "para",
+  "pra",
+  "pro",
+  "com",
+  "sem",
+  "um",
+  "uma",
+  "meu",
+  "minha",
+  "meus",
+  "minhas",
+]);
+
+const canonicalizeMenuToken = (token: string) => {
+  let normalized = normalizeText(token)
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+
+  if (!normalized) return "";
+
+  normalized = normalized
+    .replace(/^amig[oa]s?$/, "amig")
+    .replace(/^parentes?$/, "parent")
+    .replace(/^familia(res)?$/, "famil")
+    .replace(/^romanticas?$/, "romant")
+    .replace(/^chocolates?$/, "chocol")
+    .replace(/^orcamentos?$/, "orcament");
+
+  if (normalized.endsWith("s") && normalized.length > 4) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
+};
+
+const tokenizeMenuText = (value: string) =>
+  normalizeText(value)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => canonicalizeMenuToken(token))
+    .filter((token) => token && token.length >= 3)
+    .filter((token) => !MENU_MATCH_STOPWORDS.has(token));
+
 const resolveMenuOptionIndex = (inputText: string, options: any[]): number => {
   const normalizedInput = normalizeText(inputText || "");
   if (!normalizedInput) return -1;
@@ -120,6 +180,39 @@ const resolveMenuOptionIndex = (inputText: string, options: any[]): number => {
     );
     if (backIndex >= 0) return backIndex;
   }
+
+  const inputTokens = tokenizeMenuText(normalizedInput);
+  if (inputTokens.length === 0) return -1;
+
+  let bestIndex = -1;
+  let bestScore = 0;
+
+  normalizedLabels.forEach((label, index) => {
+    const labelTokens = tokenizeMenuText(label);
+    if (labelTokens.length === 0) return;
+
+    let score = 0;
+    inputTokens.forEach((inputToken) => {
+      if (labelTokens.includes(inputToken)) {
+        score += 2;
+        return;
+      }
+
+      const partial = labelTokens.some(
+        (labelToken) =>
+          (inputToken.length >= 4 && labelToken.startsWith(inputToken)) ||
+          (labelToken.length >= 4 && inputToken.startsWith(labelToken)),
+      );
+      if (partial) score += 1;
+    });
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+
+  if (bestScore >= 2) return bestIndex;
 
   return -1;
 };

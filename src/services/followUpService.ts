@@ -1,11 +1,6 @@
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
-import axios from "axios";
-
-type N8nLatestCustomerMessageRow = {
-  session_id: string;
-  last_human_message_at: Date | null;
-};
+import { botFlowService } from "./botFlowService";
 
 type BotHistoryEntry = {
   role?: string;
@@ -13,16 +8,12 @@ type BotHistoryEntry = {
   created_at?: string;
 };
 
+type FollowUpNodeConfig = {
+  id: string;
+  inactivityHours: number;
+};
+
 class FollowUpService {
-  private readonly intervals = [2, 24, 48];
-  private readonly n8nWebhookUrl =
-    "https://n8n.cestodamore.com.br/webhook/followup";
-
-  private extractPhoneFromSessionId(sessionId: string): string | null {
-    const extracted = sessionId.match(/^session-(\d+)$/)?.[1];
-    return extracted || null;
-  }
-
   private toValidDate(value?: string | Date | null): Date | null {
     if (!value) return null;
     const parsed = value instanceof Date ? value : new Date(value);
@@ -86,51 +77,6 @@ class FollowUpService {
     return updatedPhones;
   }
 
-  private async syncLastMessageFromN8nHistories(): Promise<Set<string>> {
-    const rows = await prisma.$queryRaw<N8nLatestCustomerMessageRow[]>`
-      SELECT
-        session_id,
-        MAX("createdAt") AS last_human_message_at
-      FROM n8n_chat_histories
-      WHERE LOWER(COALESCE(message->>'type', message->>'role', '')) IN ('human', 'user')
-        AND session_id NOT LIKE 'session-lab-%'
-      GROUP BY session_id
-    `;
-
-    if (rows.length === 0) {
-      return new Set<string>();
-    }
-
-    const sessionIds = rows.map((row) => row.session_id);
-    const sessions = await prisma.aIAgentSession.findMany({
-      where: { id: { in: sessionIds } },
-      select: { id: true, customer_phone: true },
-    });
-
-    const sessionPhoneMap = new Map(
-      sessions.map((session) => [session.id, session.customer_phone]),
-    );
-
-    const latestByPhone = new Map<string, Date>();
-
-    rows.forEach((row) => {
-      if (!row.last_human_message_at) return;
-
-      const mappedPhone =
-        sessionPhoneMap.get(row.session_id) ||
-        this.extractPhoneFromSessionId(row.session_id);
-
-      if (!mappedPhone) return;
-
-      const current = latestByPhone.get(mappedPhone);
-      if (!current || row.last_human_message_at > current) {
-        latestByPhone.set(mappedPhone, row.last_human_message_at);
-      }
-    });
-
-    return this.upsertLatestMessageByPhone(latestByPhone);
-  }
-
   private async syncLastMessageFromBotSessions(): Promise<Set<string>> {
     const sessions = await prisma.botSession.findMany({
       where: {
@@ -170,6 +116,29 @@ class FollowUpService {
     return this.upsertLatestMessageByPhone(latestByPhone);
   }
 
+  private async getFollowUpNodeConfigs(): Promise<FollowUpNodeConfig[]> {
+    const flow = await botFlowService.getActiveFlow();
+    const nodes = Array.isArray(flow.nodes) ? (flow.nodes as any[]) : [];
+
+    const followUpNodes = nodes
+      .filter((node) => node.type === "followUpNode")
+      .map((node) => {
+        const configuredHours = Number(node?.data?.inactivityHours);
+        if (!Number.isFinite(configuredHours) || configuredHours <= 0) {
+          return null;
+        }
+
+        return {
+          id: String(node.id),
+          inactivityHours: Math.round(configuredHours),
+        } satisfies FollowUpNodeConfig;
+      })
+      .filter((item): item is FollowUpNodeConfig => Boolean(item))
+      .sort((a, b) => a.inactivityHours - b.inactivityHours);
+
+    return followUpNodes;
+  }
+
   async getSentHistory() {
     return prisma.followUpSent.findMany({
       include: {
@@ -188,16 +157,18 @@ class FollowUpService {
 
   async triggerFollowUpFunction() {
     try {
-      const [n8nPhones, botPhones] = await Promise.all([
-        this.syncLastMessageFromN8nHistories(),
+      const [eligiblePhones, followUpNodes] = await Promise.all([
         this.syncLastMessageFromBotSessions(),
+        this.getFollowUpNodeConfigs(),
       ]);
-      const eligiblePhones = new Set<string>([...n8nPhones, ...botPhones]);
 
       if (eligiblePhones.size === 0) {
-        logger.info(
-          "📊 [FollowUp] Nenhum telefone elegível (sessões LAB são ignoradas)",
-        );
+        logger.info("📊 [FollowUp] Nenhum telefone elegível no Bot Session");
+        return;
+      }
+
+      if (followUpNodes.length === 0) {
+        logger.info("📊 [FollowUp] Nenhum nó Follow Up configurado no fluxo");
         return;
       }
 
@@ -231,61 +202,48 @@ class FollowUpService {
           `⏱️ [FollowUp] Cliente ${customer.number} (${customer.name}): ${diffInHours}h desde última mensagem`,
         );
 
-        let jaEnviouUltimo = false;
-
-        for (const intervalo of this.intervals) {
-          if (diffInHours >= intervalo) {
-            const jaEnviado = customer.followUpSent.some(
-              (s) => s.horas_followup === intervalo,
-            );
-
-            if (!jaEnviado) {
-              try {
-                logger.info(
-                  `🔔 [FollowUp] Disparando follow-up de ${intervalo}h para ${customer.number}`,
-                );
-
-                await prisma.followUpSent.create({
-                  data: {
-                    cliente_number: customer.number,
-                    horas_followup: intervalo,
-                  },
-                });
-
-                await axios.post(this.n8nWebhookUrl, {
-                  cliente_number: customer.number,
-                  horas_apos_ultima_mensagem: intervalo,
-                  link_instagram: intervalo === 48,
-                });
-
-                logger.info(
-                  `✅ [FollowUp] Follow-up de ${intervalo}h enviado para ${customer.number}`,
-                );
-
-                if (intervalo === 48) jaEnviouUltimo = true;
-                processedCount++;
-              } catch (error: any) {
-                logger.error(
-                  `❌ [FollowUp] Erro ao processar intervalo ${intervalo}h para ${customer.number}: ${error.message}`,
-                );
-              }
-            }
+        for (const nodeConfig of followUpNodes) {
+          if (diffInHours < nodeConfig.inactivityHours) {
+            continue;
           }
-        }
 
-        if (jaEnviouUltimo) {
-          await prisma.followUpSent.deleteMany({
-            where: { cliente_number: customer.number },
+          const jaEnviado = customer.followUpSent.some(
+            (sent) => sent.horas_followup === nodeConfig.inactivityHours,
+          );
+
+          if (jaEnviado) {
+            continue;
+          }
+
+          logger.info(
+            `🔔 [FollowUp] Disparando follow-up de ${nodeConfig.inactivityHours}h para ${customer.number} (node ${nodeConfig.id})`,
+          );
+
+          const sent = await botFlowService.triggerFollowUpNode({
+            phone: customer.number,
+            nodeId: nodeConfig.id,
           });
 
-          await prisma.customer.update({
-            where: { number: customer.number },
-            data: { follow_up: false },
+          if (!sent) {
+            logger.error(
+              `❌ [FollowUp] Falha ao enviar follow-up para ${customer.number} no node ${nodeConfig.id}`,
+            );
+            continue;
+          }
+
+          await prisma.followUpSent.create({
+            data: {
+              cliente_number: customer.number,
+              horas_followup: nodeConfig.inactivityHours,
+            },
           });
 
           logger.info(
-            `🔒 [FollowUp] Follow-up desativado e histórico resetado para ${customer.number} (ciclo completo)`,
+            `✅ [FollowUp] Follow-up de ${nodeConfig.inactivityHours}h enviado para ${customer.number}`,
           );
+
+          processedCount++;
+          break;
         }
       }
 

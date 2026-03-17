@@ -235,6 +235,23 @@ const resolveMenuOptionIndex = (inputText: string, options: any[]): number => {
   return -1;
 };
 
+const getNodeOptions = (nodeData: any): any[] =>
+  Array.isArray(nodeData?.options) ? nodeData.options : [];
+
+const getMenuLikeNodeMessage = (nodeData: any): string =>
+  String(nodeData?.title || nodeData?.message || "").trim();
+
+const buildMenuText = (baseMessage: string, options: any[]) => {
+  const optionLines = (options || []).map((opt: any, index: number) => {
+    const label =
+      typeof opt === "string" ? opt : opt?.label || opt?.value || "";
+    return `${index + 1}. ${String(label).trim()}`;
+  });
+  const trimmedBase = String(baseMessage || "").trim();
+  if (optionLines.length === 0) return trimmedBase;
+  return `${trimmedBase}\n\n${optionLines.join("\n")}`.trim();
+};
+
 const classifyMessage = (message: string): Partial<MessageResponse> => {
   try {
     const produtoPattern =
@@ -335,6 +352,78 @@ export const botFlowService = {
     });
   },
 
+  async triggerFollowUpNode({
+    phone,
+    nodeId,
+  }: {
+    phone: string;
+    nodeId: string;
+  }): Promise<boolean> {
+    const flow = await this.getActiveFlow();
+    const nodes = (flow.nodes as any[]) || [];
+    const node = nodes.find(
+      (flowNode) => flowNode.id === nodeId && flowNode.type === "followUpNode",
+    );
+
+    if (!node) {
+      return false;
+    }
+
+    const followUpText = buildMenuText(
+      getMenuLikeNodeMessage(node.data),
+      getNodeOptions(node.data),
+    );
+
+    if (!followUpText) {
+      return false;
+    }
+
+    let session = await prisma.botSession.findUnique({
+      where: { phone },
+    });
+
+    if (!session) {
+      session = await prisma.botSession.create({
+        data: {
+          phone,
+          flow_id: flow.id,
+          current_node_id: null,
+          is_human: false,
+          state: {},
+          history: [],
+        },
+      });
+    }
+
+    const sent = await whatsappService.sendDirectMessage(phone, followUpText);
+    if (!sent) {
+      return false;
+    }
+
+    const history = (Array.isArray(session.history) ? session.history : []) as any[];
+    history.push({
+      role: "bot",
+      text: followUpText,
+      type: "menu",
+      created_at: new Date().toISOString(),
+      meta: { source: "follow_up_node", node_id: nodeId },
+    });
+
+    const state = (session.state as any) || {};
+
+    await prisma.botSession.update({
+      where: { id: session.id },
+      data: {
+        current_node_id: nodeId,
+        state,
+        history: history as any,
+        updated_at: new Date(),
+      },
+    });
+
+    return true;
+  },
+
   async processMessage({
     phone,
     message,
@@ -410,17 +499,6 @@ export const botFlowService = {
 
     let currentNodeId = session.current_node_id;
     let node = nodes.find((n) => n.id === currentNodeId);
-
-    const buildMenuText = (baseMessage: string, options: any[]) => {
-      const optionLines = (options || []).map((opt: any, index: number) => {
-        const label =
-          typeof opt === "string" ? opt : opt?.label || opt?.value || "";
-        return `${index + 1}. ${String(label).trim()}`;
-      });
-      const trimmedBase = String(baseMessage || "").trim();
-      if (optionLines.length === 0) return trimmedBase;
-      return `${trimmedBase}\n\n${optionLines.join("\n")}`.trim();
-    };
 
     const resolveNodeDelay = (nodeData: any, fallback = 1500) => {
       if (typeof nodeData?.delayMs === "number" && nodeData.delayMs >= 0) {
@@ -672,7 +750,7 @@ export const botFlowService = {
       currentNodeId = node.id;
     } else {
       // Process input based on node type
-      if (node.type === "menuNode") {
+      if (node.type === "menuNode" || node.type === "followUpNode") {
         // Tenta achar a opcao escolhida
         const normalizedInput = normalizeText(text);
         const hasBackIntent =
@@ -739,10 +817,11 @@ export const botFlowService = {
         if (nextNodeId) {
           node = nodes.find((n) => n.id === nextNodeId);
         } else {
-          const options = Array.isArray(node.data?.options)
-            ? node.data.options
-            : [];
-          const menuText = buildMenuText(node.data?.message || "", options);
+          const options = getNodeOptions(node.data);
+          const menuText = buildMenuText(
+            getMenuLikeNodeMessage(node.data),
+            options,
+          );
 
           if (!isNaN(optionMatched) && isPureNumericInput) {
             const invalidText =
@@ -970,22 +1049,13 @@ export const botFlowService = {
             : null;
           continue;
 
-        case "menuNode": {
-          const options = Array.isArray(currentNode.data?.options)
-            ? currentNode.data.options
-            : [];
-          const baseMessage = currentNode.data?.message || "";
-          let menuText = baseMessage;
-          if (options.length > 0) {
-            const optionLines = options.map((opt: any, index: number) => {
-              const label =
-                typeof opt === "string"
-                  ? opt
-                  : opt?.label || opt?.value || `Opção ${index + 1}`;
-              return `${index + 1}. ${String(label).trim()}`;
-            });
-            menuText = `${baseMessage}\n\n${optionLines.join("\n")}`.trim();
-          }
+        case "menuNode":
+        case "followUpNode": {
+          const options = getNodeOptions(currentNode.data);
+          const menuText = buildMenuText(
+            getMenuLikeNodeMessage(currentNode.data),
+            options,
+          );
 
           appendMessage(menuText, resolveNodeDelay(currentNode.data, 1500), {
             type: "menu",

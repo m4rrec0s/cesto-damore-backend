@@ -14,6 +14,30 @@ type FollowUpNodeConfig = {
 };
 
 class FollowUpService {
+  private isRunning = false;
+
+  private normalizePhoneForWhatsApp(phone: string): string | null {
+    const raw = String(phone || "").trim();
+    if (!raw || /^lab-/i.test(raw)) return null;
+
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) return null;
+
+    if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+      return digits;
+    }
+
+    if (digits.length === 10 || digits.length === 11) {
+      return `55${digits}`;
+    }
+
+    if (digits.length === 12 || digits.length === 13) {
+      return digits;
+    }
+
+    return null;
+  }
+
   private formatMinutes(totalMinutes: number): string {
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
@@ -189,6 +213,13 @@ class FollowUpService {
   }
 
   async triggerFollowUpFunction() {
+    if (this.isRunning) {
+      logger.info("⏳ [FollowUp] Rotina já em execução, pulando ciclo concorrente");
+      return;
+    }
+
+    this.isRunning = true;
+
     try {
       const [, followUpNodes] = await Promise.all([
         this.syncLastMessageFromBotSessions(),
@@ -217,23 +248,67 @@ class FollowUpService {
         return;
       }
 
+      const customerGroups = new Map<
+        string,
+        {
+          normalizedPhone: string;
+          aliases: string[];
+          customerNames: string[];
+          lastMessageSent: Date;
+        }
+      >();
+
+      for (const customer of customersToProcess) {
+        if (!customer.last_message_sent) continue;
+        const normalizedPhone = this.normalizePhoneForWhatsApp(customer.number);
+        if (!normalizedPhone) continue;
+
+        const existing = customerGroups.get(normalizedPhone);
+        if (!existing) {
+          customerGroups.set(normalizedPhone, {
+            normalizedPhone,
+            aliases: [customer.number],
+            customerNames: customer.name ? [customer.name] : [],
+            lastMessageSent: customer.last_message_sent,
+          });
+          continue;
+        }
+
+        if (!existing.aliases.includes(customer.number)) {
+          existing.aliases.push(customer.number);
+        }
+        if (customer.name && !existing.customerNames.includes(customer.name)) {
+          existing.customerNames.push(customer.name);
+        }
+        if (customer.last_message_sent > existing.lastMessageSent) {
+          existing.lastMessageSent = customer.last_message_sent;
+        }
+      }
+
+      const groupedCustomers = [...customerGroups.values()];
+
+      if (groupedCustomers.length === 0) {
+        logger.info("📊 [FollowUp] Nenhum cliente válido após normalização de telefone");
+        return;
+      }
+
       logger.info(
-        `📊 [FollowUp] Verificando ${customersToProcess.length} clientes para follow-up...`,
+        `📊 [FollowUp] Verificando ${groupedCustomers.length} clientes para follow-up...`,
       );
 
       const now = new Date();
       let processedCount = 0;
 
-      for (const customer of customersToProcess) {
-        if (!customer.last_message_sent) continue;
-
+      for (const customer of groupedCustomers) {
         const diffInMinutes = Math.floor(
-          (now.getTime() - customer.last_message_sent.getTime()) /
+          (now.getTime() - customer.lastMessageSent.getTime()) /
             (1000 * 60),
         );
 
+        const displayName = customer.customerNames[0] || "Sem nome";
+
         logger.info(
-          `⏱️ [FollowUp] Cliente ${customer.number} (${customer.name}): ${this.formatMinutes(diffInMinutes)} desde última mensagem`,
+          `⏱️ [FollowUp] Cliente ${customer.normalizedPhone} (${displayName}): ${this.formatMinutes(diffInMinutes)} desde última mensagem`,
         );
 
         for (const nodeConfig of followUpNodes) {
@@ -241,39 +316,77 @@ class FollowUpService {
             continue;
           }
 
-          const jaEnviado = customer.followUpSent.some(
-            (sent) => sent.horas_followup === nodeConfig.inactivityMinutes,
-          );
+          const alreadySentCount = await prisma.followUpSent.count({
+            where: {
+              cliente_number: { in: customer.aliases },
+              horas_followup: nodeConfig.inactivityMinutes,
+            },
+          });
 
-          if (jaEnviado) {
+          if (alreadySentCount > 0) {
             continue;
           }
 
           logger.info(
-            `🔔 [FollowUp] Disparando follow-up de ${this.formatMinutes(nodeConfig.inactivityMinutes)} para ${customer.number} (node ${nodeConfig.id})`,
+            `🔔 [FollowUp] Disparando follow-up de ${this.formatMinutes(nodeConfig.inactivityMinutes)} para ${customer.normalizedPhone} (node ${nodeConfig.id})`,
           );
 
+          const activeSession = await prisma.botSession.findFirst({
+            where: {
+              phone: { in: customer.aliases },
+            },
+            orderBy: { updated_at: "desc" },
+            select: {
+              id: true,
+              phone: true,
+              is_human: true,
+            },
+          });
+
+          if (!activeSession) {
+            logger.info(
+              `⏭️ [FollowUp] Ignorado para ${customer.normalizedPhone}: cliente sem sessão ativa no bot`,
+            );
+            continue;
+          }
+
+          if (activeSession?.is_human) {
+            logger.info(
+              `⏭️ [FollowUp] Ignorado para ${customer.normalizedPhone}: sessão em atendimento humano (is_human=true)`,
+            );
+            continue;
+          }
+
           const sent = await botFlowService.triggerFollowUpNode({
-            phone: customer.number,
+            phone: activeSession.phone,
             nodeId: nodeConfig.id,
           });
 
           if (!sent) {
             logger.error(
-              `❌ [FollowUp] Falha ao enviar follow-up para ${customer.number} no node ${nodeConfig.id}`,
+              `❌ [FollowUp] Falha ao enviar follow-up para ${customer.normalizedPhone} no node ${nodeConfig.id}`,
             );
             continue;
           }
 
-          await prisma.followUpSent.create({
-            data: {
-              cliente_number: customer.number,
-              horas_followup: nodeConfig.inactivityMinutes,
-            },
-          });
+          for (const alias of customer.aliases) {
+            await prisma.followUpSent.upsert({
+              where: {
+                cliente_number_horas_followup: {
+                  cliente_number: alias,
+                  horas_followup: nodeConfig.inactivityMinutes,
+                },
+              },
+              update: { enviado_em: new Date() },
+              create: {
+                cliente_number: alias,
+                horas_followup: nodeConfig.inactivityMinutes,
+              },
+            });
+          }
 
           logger.info(
-            `✅ [FollowUp] Follow-up de ${this.formatMinutes(nodeConfig.inactivityMinutes)} enviado para ${customer.number}`,
+            `✅ [FollowUp] Follow-up de ${this.formatMinutes(nodeConfig.inactivityMinutes)} enviado para ${customer.normalizedPhone}`,
           );
 
           processedCount++;
@@ -289,6 +402,8 @@ class FollowUpService {
         `❌ [FollowUp] Erro na rotina de follow-up: ${error.message}`,
       );
       throw error;
+    } finally {
+      this.isRunning = false;
     }
   }
 }

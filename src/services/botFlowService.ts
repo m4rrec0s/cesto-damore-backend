@@ -81,6 +81,49 @@ const isYesOption = (value: string, option: string) => {
   return normalized.includes(option);
 };
 
+const resolveMenuOptionIndex = (inputText: string, options: any[]): number => {
+  const normalizedInput = normalizeText(inputText || "");
+  if (!normalizedInput) return -1;
+
+  const labels = (options || []).map((opt: any) => {
+    const label =
+      typeof opt === "string" ? opt : opt?.label || opt?.value || "";
+    return String(label).trim();
+  });
+  const normalizedLabels = labels.map((label) => normalizeText(label));
+
+  const exactIndex = normalizedLabels.findIndex(
+    (label) => label === normalizedInput,
+  );
+  if (exactIndex >= 0) return exactIndex;
+
+  const containsIndex = normalizedLabels.findIndex(
+    (label) =>
+      normalizedInput.length >= 4 &&
+      (label.includes(normalizedInput) || normalizedInput.includes(label)),
+  );
+  if (containsIndex >= 0) return containsIndex;
+
+  if (
+    normalizedInput.includes("voltar") ||
+    normalizedInput.includes("menu principal") ||
+    normalizedInput.includes("inicio") ||
+    normalizedInput.includes("inicial") ||
+    normalizedInput.includes("primeiro menu")
+  ) {
+    const backIndex = normalizedLabels.findIndex(
+      (label) =>
+        label.includes("voltar") ||
+        label.includes("menu principal") ||
+        label.includes("inicio") ||
+        label.includes("inicial"),
+    );
+    if (backIndex >= 0) return backIndex;
+  }
+
+  return -1;
+};
+
 const classifyMessage = (message: string): Partial<MessageResponse> => {
   try {
     const produtoPattern =
@@ -551,12 +594,7 @@ export const botFlowService = {
             }
           }
         } else if (Array.isArray(node.data?.options)) {
-          const normalizedText = text.trim();
-          const optionIndex = node.data.options.findIndex((opt: any) => {
-            const label =
-              typeof opt === "string" ? opt : opt?.label || opt?.value || "";
-            return String(label).trim().toLowerCase() === normalizedText;
-          });
+          const optionIndex = resolveMenuOptionIndex(text, node.data.options);
           if (optionIndex >= 0) {
             const edge = outEdges.find(
               (e) => String(e.sourceHandle) === String(optionIndex),

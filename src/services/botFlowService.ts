@@ -26,6 +26,9 @@ interface MessageResponse {
 const BASE_URL = process.env.BASE_URL || "https://api.cestodamore.com.br";
 const BOT_HANDOFF_GROUP_ID =
   process.env.WHATSAPP_BOT_HANDOFF_GROUP_ID || "120363421291021203@g.us";
+const FLOW_NODE_REDIRECT_REGEX = /SUCESSO_REDIRECIONAMENTO_DE_NO:\[([^\]]+)\]/i;
+const FLOW_NODE_REDIRECT_TEXT_REGEX =
+  /SUCESSO:\s*Fluxo redirecionado para node_id\s+([^\s\n]+)/i;
 
 const stripHtmlTags = (value: string) =>
   value.replace(/<[^>]*>/g, "").replace(/\\[.*?\\]/g, "");
@@ -378,8 +381,72 @@ export const botFlowService = {
       }
 
       const safeMenuText = String(menuText || "").trim();
-      const safeFallbackText = String(fallbackResult.text || "").trim();
+      const rawFallbackText = String(fallbackResult.text || "").trim();
+      const redirectMatch = rawFallbackText.match(FLOW_NODE_REDIRECT_REGEX);
+      const redirectTextMatch = rawFallbackText.match(
+        FLOW_NODE_REDIRECT_TEXT_REGEX,
+      );
+      const redirectNodeId =
+        redirectMatch?.[1]?.trim() || redirectTextMatch?.[1]?.trim();
+      const safeFallbackText = rawFallbackText
+        .replace(FLOW_NODE_REDIRECT_REGEX, "")
+        .replace(FLOW_NODE_REDIRECT_TEXT_REGEX, "")
+        .trim();
       const baseDelay = typeof delayMs === "number" ? delayMs : 800;
+
+      if (redirectNodeId) {
+        const targetNode = nodes.find((n) => String(n.id) === redirectNodeId);
+        if (targetNode) {
+          const redirectMessages: MessageResponse[] = [];
+
+          if (safeFallbackText) {
+            redirectMessages.push({
+              text: safeFallbackText,
+              delay: Math.max(450, Math.round(baseDelay * 0.75)),
+              ...classifyMessage(safeFallbackText),
+            });
+          }
+
+          if (targetNode.type === "menuNode") {
+            const targetOptions = Array.isArray(targetNode.data?.options)
+              ? targetNode.data.options
+              : [];
+            const targetMenuText = buildMenuText(
+              targetNode.data?.message || "Escolha uma opção:",
+              targetOptions,
+            );
+            redirectMessages.push({
+              text: targetMenuText,
+              delay: baseDelay,
+              ...classifyMessage(targetMenuText),
+              type: "menu",
+            });
+          } else {
+            const targetText = String(targetNode.data?.message || "").trim();
+            if (targetText) {
+              redirectMessages.push({
+                text: targetText,
+                delay: baseDelay,
+                ...classifyMessage(targetText),
+              });
+            }
+          }
+
+          if (redirectMessages.length === 0) {
+            const defaultText =
+              "Perfeito! Te redirecionei para a próxima etapa.";
+            redirectMessages.push({
+              text: defaultText,
+              delay: baseDelay,
+              ...classifyMessage(defaultText),
+            });
+          }
+
+          await saveSessionState(redirectNodeId, stateObj, redirectMessages);
+          return redirectMessages;
+        }
+      }
+
       const fallbackMessages: MessageResponse[] = [];
 
       if (

@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import prisma from "../database/prisma";
 import mcpClientService from "./mcpClientService";
 import logger from "../utils/logger";
-import { addDays, isPast, format } from "date-fns";
+import { addDays, addHours, isPast, format } from "date-fns";
 import { PROMPTS } from "../config/prompts";
 
 enum ProcessingState {
@@ -47,10 +47,16 @@ interface FallbackProcessingResult {
 
 class AIAgentService {
   private openai: OpenAI;
+  private lastMessageTimestamps: Map<string, { text: string; time: number }> =
+    new Map();
   private model: string = "gpt-4o-mini";
   private advancedModel: string = "gpt-4-turbo";
-  private fallbackAllowedTools = new Set(
-    (process.env.FALLBACK_ALLOWED_MCP_TOOLS || "")
+  private fallbackAllowAllTools =
+    (process.env.FALLBACK_ALLOW_ALL_MCP_TOOLS || "false")
+      .toLowerCase()
+      .trim() === "true";
+  private fallbackBlockedTools = new Set(
+    (process.env.FALLBACK_BLOCKED_MCP_TOOLS || "")
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean),
@@ -138,7 +144,9 @@ class AIAgentService {
     });
 
     if (menuTriggerIndex === -1) {
-      menuTriggerIndex = lines.findIndex((line) => /^(1|2|3|4|5|6|7)\.\s/.test(line.trim()));
+      menuTriggerIndex = lines.findIndex((line) =>
+        /^(1|2|3|4|5|6|7)\.\s/.test(line.trim()),
+      );
       if (menuTriggerIndex > 0 && lines[menuTriggerIndex - 1].trim() === "") {
         menuTriggerIndex -= 1;
       }
@@ -209,8 +217,8 @@ class AIAgentService {
   }
 
   private isFallbackToolAllowed(toolName: string) {
-    if (this.fallbackAllowedTools.size === 0) return false;
-    return this.fallbackAllowedTools.has(toolName);
+    if (this.fallbackBlockedTools.has(toolName)) return false;
+    return this.fallbackAllowAllTools;
   }
 
   async processFallback({
@@ -1617,7 +1625,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
           id: sessionId,
           customer_phone: identifyingPhone,
           remote_jid_alt: identifyingRemoteJid,
-          expires_at: addDays(new Date(), 5),
+          expires_at: addHours(new Date(), 24),
         },
         include: {
           messages: true,
@@ -1729,7 +1737,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
       where: { id: sessionId },
       data: {
         is_blocked: true,
-        expires_at: addDays(new Date(), 4),
+        expires_at: addHours(new Date(), 24),
       },
     });
   }
@@ -1830,6 +1838,24 @@ Logo te respondem! Obrigadaaa 🥰"`;
     customerName?: string,
     remoteJidAlt?: string,
   ) {
+    const nowTime = Date.now();
+    const cleanMsg = userMessage.trim();
+    const lastMsgInfo = this.lastMessageTimestamps.get(sessionId);
+    if (
+      lastMsgInfo &&
+      lastMsgInfo.text === cleanMsg &&
+      nowTime - lastMsgInfo.time < 5000
+    ) {
+      logger.warn(
+        `⚠️ [AIAgent] Mensagem duplicada ignorada para sessão ${sessionId} ("${cleanMsg}")`,
+      );
+      return null;
+    }
+    this.lastMessageTimestamps.set(sessionId, {
+      text: cleanMsg,
+      time: nowTime,
+    });
+
     const session = await this.getSession(
       sessionId,
       customerPhone,

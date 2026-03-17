@@ -467,7 +467,7 @@ class AIAgentService {
 
         if (handoffRequested) {
           return {
-            text: "Perfeito! Vou te encaminhar para atendimento humano agora.",
+            text: "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00",
             handoffToHuman: true,
             handoffReason,
           };

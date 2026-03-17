@@ -476,7 +476,7 @@ export const botFlowService = {
     }) => {
       const safeBotText =
         String(botText || "").trim() ||
-        "Perfeito! Vou te encaminhar para atendimento humano agora.";
+        "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00";
 
       const handoffMessages: MessageResponse[] = [
         {
@@ -644,7 +644,8 @@ export const botFlowService = {
 
     const forceHumanHandoff = async (reason: string) => {
       return await activateHumanHandoff({
-        botText: "Perfeito! Vou te encaminhar para atendimento humano agora.",
+        botText:
+          "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00",
         stateObj: {
           ...sessionState,
           forced_handoff_reason: reason,

@@ -81,6 +81,24 @@ const isYesOption = (value: string, option: string) => {
   return normalized.includes(option);
 };
 
+const isInternalCartAddedEvent = (value: string) => {
+  const text = String(value || "");
+  const hasInternalTag = /\[\s*interno\s*\]/i.test(text);
+  const hasCartAddedSignal =
+    /evento\s*=\s*cart[_-]?added/i.test(text) ||
+    /cart[_-]?added/i.test(text) ||
+    /adicionou\s+produto\s+ao\s+carrinho/i.test(text);
+  return hasInternalTag && hasCartAddedSignal;
+};
+
+const isInternalImageEvent = (value: string) => {
+  const normalized = normalizeText(String(value || ""));
+  return (
+    normalized.includes("[informacoes internas]") &&
+    normalized.includes("o cliente mandou uma imagem")
+  );
+};
+
 const MENU_MATCH_STOPWORDS = new Set([
   "a",
   "o",
@@ -324,6 +342,8 @@ export const botFlowService = {
   }: BotMessageRequest): Promise<MessageResponse[]> {
     const rawText = (message || "").toString().trim();
     const text = rawText.toLowerCase();
+    const hasInternalCartAddedEvent = isInternalCartAddedEvent(rawText);
+    const hasInternalImageInstruction = isInternalImageEvent(rawText);
 
     // Find or create session
     let session = await prisma.botSession.findUnique({
@@ -374,7 +394,12 @@ export const botFlowService = {
       }
     }
 
-    if (session && session.is_human) {
+    if (
+      session &&
+      session.is_human &&
+      !hasInternalCartAddedEvent &&
+      !hasInternalImageInstruction
+    ) {
       return []; // Return empty if human is handling
     }
 
@@ -617,14 +642,6 @@ export const botFlowService = {
       return fallbackMessages;
     };
 
-    const normalizedRawText = normalizeText(rawText);
-    const isCartAddedInternalEvent =
-      normalizedRawText.includes("[interno]") &&
-      normalizedRawText.includes("evento=cart_added");
-    const isInternalImageInstruction =
-      normalizedRawText.includes("[informacoes internas]") &&
-      normalizedRawText.includes("o cliente mandou uma imagem");
-
     const forceHumanHandoff = async (reason: string) => {
       return await activateHumanHandoff({
         botText: "Perfeito! Vou te encaminhar para atendimento humano agora.",
@@ -639,11 +656,11 @@ export const botFlowService = {
       });
     };
 
-    if (isCartAddedInternalEvent) {
+    if (hasInternalCartAddedEvent) {
       return await forceHumanHandoff("Evento interno CART_ADDED");
     }
 
-    if (isInternalImageInstruction) {
+    if (hasInternalImageInstruction) {
       return await forceHumanHandoff("Mensagem interna de imagem recebida");
     }
 

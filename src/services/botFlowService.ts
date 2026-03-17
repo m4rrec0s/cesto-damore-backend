@@ -563,6 +563,14 @@ export const botFlowService = {
       // Process input based on node type
       if (node.type === "menuNode") {
         // Tenta achar a opcao escolhida
+        const normalizedInput = normalizeText(text);
+        const hasBackIntent =
+          normalizedInput.includes("voltar") ||
+          normalizedInput.includes("menu principal") ||
+          normalizedInput.includes("inicio") ||
+          normalizedInput.includes("inicial") ||
+          normalizedInput.includes("primeiro menu");
+        const isPureNumericInput = /^\s*\d+\s*$/.test(text);
         const digitsMatch = text.match(/\d+/);
         const optionMatched = digitsMatch ? parseInt(digitsMatch[0], 10) : NaN;
         let nextNodeId: string | null = null;
@@ -570,7 +578,19 @@ export const botFlowService = {
         // As edges que saem deste nó:
         const outEdges = edges.filter((e) => e.source === currentNodeId);
 
-        if (!isNaN(optionMatched)) {
+        if (Array.isArray(node.data?.options) && hasBackIntent) {
+          const optionIndex = resolveMenuOptionIndex(text, node.data.options);
+          if (optionIndex >= 0) {
+            const edge = outEdges.find(
+              (e) => String(e.sourceHandle) === String(optionIndex),
+            );
+            if (edge) {
+              nextNodeId = edge.target;
+            }
+          }
+        }
+
+        if (!nextNodeId && !isNaN(optionMatched) && isPureNumericInput) {
           const candidateHandles: string[] = [];
 
           // Prioriza index baseado em 1 -> handle 0 (UI atual)
@@ -593,7 +613,7 @@ export const botFlowService = {
               break;
             }
           }
-        } else if (Array.isArray(node.data?.options)) {
+        } else if (!nextNodeId && Array.isArray(node.data?.options)) {
           const optionIndex = resolveMenuOptionIndex(text, node.data.options);
           if (optionIndex >= 0) {
             const edge = outEdges.find(
@@ -613,7 +633,7 @@ export const botFlowService = {
             : [];
           const menuText = buildMenuText(node.data?.message || "", options);
 
-          if (!isNaN(optionMatched)) {
+          if (!isNaN(optionMatched) && isPureNumericInput) {
             const invalidText =
               `Opção inválida. Escolha um número entre 1 e ${Math.max(options.length, 1)}.\n\n${menuText}`.trim();
             const invalidMessages: MessageResponse[] = [

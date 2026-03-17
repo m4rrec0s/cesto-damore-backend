@@ -10,10 +10,41 @@ type BotHistoryEntry = {
 
 type FollowUpNodeConfig = {
   id: string;
-  inactivityHours: number;
+  inactivityMinutes: number;
 };
 
 class FollowUpService {
+  private formatMinutes(totalMinutes: number): string {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (hours > 0 && minutes > 0) {
+      return `${hours}h ${minutes}min`;
+    }
+    if (hours > 0) {
+      return `${hours}h`;
+    }
+    return `${minutes}min`;
+  }
+
+  private resolveFollowUpInactivityMinutes(nodeData: Record<string, any>): number {
+    if (
+      typeof nodeData?.inactivityMinutes === "number" &&
+      Number.isFinite(nodeData.inactivityMinutes)
+    ) {
+      return Math.max(1, Math.round(nodeData.inactivityMinutes));
+    }
+
+    if (
+      typeof nodeData?.inactivityHours === "number" &&
+      Number.isFinite(nodeData.inactivityHours)
+    ) {
+      return Math.max(1, Math.round(nodeData.inactivityHours * 60));
+    }
+
+    return 24 * 60;
+  }
+
   private toValidDate(value?: string | Date | null): Date | null {
     if (!value) return null;
     const parsed = value instanceof Date ? value : new Date(value);
@@ -123,18 +154,20 @@ class FollowUpService {
     const followUpNodes = nodes
       .filter((node) => node.type === "followUpNode")
       .map((node) => {
-        const configuredHours = Number(node?.data?.inactivityHours);
-        if (!Number.isFinite(configuredHours) || configuredHours <= 0) {
+        const configuredMinutes = this.resolveFollowUpInactivityMinutes(
+          (node?.data || {}) as Record<string, any>,
+        );
+        if (!Number.isFinite(configuredMinutes) || configuredMinutes <= 0) {
           return null;
         }
 
         return {
           id: String(node.id),
-          inactivityHours: Math.round(configuredHours),
+          inactivityMinutes: Math.round(configuredMinutes),
         } satisfies FollowUpNodeConfig;
       })
       .filter((item): item is FollowUpNodeConfig => Boolean(item))
-      .sort((a, b) => a.inactivityHours - b.inactivityHours);
+      .sort((a, b) => a.inactivityMinutes - b.inactivityMinutes);
 
     return followUpNodes;
   }
@@ -193,22 +226,22 @@ class FollowUpService {
       for (const customer of customersToProcess) {
         if (!customer.last_message_sent) continue;
 
-        const diffInHours = Math.floor(
+        const diffInMinutes = Math.floor(
           (now.getTime() - customer.last_message_sent.getTime()) /
-            (1000 * 60 * 60),
+            (1000 * 60),
         );
 
         logger.info(
-          `⏱️ [FollowUp] Cliente ${customer.number} (${customer.name}): ${diffInHours}h desde última mensagem`,
+          `⏱️ [FollowUp] Cliente ${customer.number} (${customer.name}): ${this.formatMinutes(diffInMinutes)} desde última mensagem`,
         );
 
         for (const nodeConfig of followUpNodes) {
-          if (diffInHours < nodeConfig.inactivityHours) {
+          if (diffInMinutes < nodeConfig.inactivityMinutes) {
             continue;
           }
 
           const jaEnviado = customer.followUpSent.some(
-            (sent) => sent.horas_followup === nodeConfig.inactivityHours,
+            (sent) => sent.horas_followup === nodeConfig.inactivityMinutes,
           );
 
           if (jaEnviado) {
@@ -216,7 +249,7 @@ class FollowUpService {
           }
 
           logger.info(
-            `🔔 [FollowUp] Disparando follow-up de ${nodeConfig.inactivityHours}h para ${customer.number} (node ${nodeConfig.id})`,
+            `🔔 [FollowUp] Disparando follow-up de ${this.formatMinutes(nodeConfig.inactivityMinutes)} para ${customer.number} (node ${nodeConfig.id})`,
           );
 
           const sent = await botFlowService.triggerFollowUpNode({
@@ -234,12 +267,12 @@ class FollowUpService {
           await prisma.followUpSent.create({
             data: {
               cliente_number: customer.number,
-              horas_followup: nodeConfig.inactivityHours,
+              horas_followup: nodeConfig.inactivityMinutes,
             },
           });
 
           logger.info(
-            `✅ [FollowUp] Follow-up de ${nodeConfig.inactivityHours}h enviado para ${customer.number}`,
+            `✅ [FollowUp] Follow-up de ${this.formatMinutes(nodeConfig.inactivityMinutes)} enviado para ${customer.number}`,
           );
 
           processedCount++;

@@ -595,6 +595,41 @@ export const botFlowService = {
       return handoffMessages;
     };
 
+    const activateSilentBlock = async ({
+      botText,
+      stateObj,
+      delayMs,
+    }: {
+      botText?: string;
+      stateObj: any;
+      delayMs?: number;
+    }) => {
+      const safeBotText = String(botText || "").trim();
+      const blockMessages: MessageResponse[] = [];
+
+      if (safeBotText) {
+        blockMessages.push({
+          text: safeBotText,
+          delay: typeof delayMs === "number" ? delayMs : 900,
+          ...classifyMessage(safeBotText),
+        });
+      }
+
+      const blockState = {
+        ...stateObj,
+        is_human: true,
+        blocked_by_flow: true,
+      };
+
+      await saveSessionState(null, blockState, blockMessages);
+      await prisma.botSession.update({
+        where: { id: session.id },
+        data: { is_human: true },
+      });
+
+      return blockMessages;
+    };
+
     const sendFallbackResponse = async (
       menuText: string,
       nodeId: string,
@@ -1296,6 +1331,13 @@ export const botFlowService = {
             botText: currentNode.data?.message || "Vou chamar um atendente.",
             stateObj: state,
             delayMs: resolveNodeDelay(currentNode.data, 1000),
+          });
+
+        case "blockNode":
+          return await activateSilentBlock({
+            botText: currentNode.data?.message || currentNode.data?.content || "",
+            stateObj: state,
+            delayMs: resolveNodeDelay(currentNode.data, 900),
           });
 
         default:

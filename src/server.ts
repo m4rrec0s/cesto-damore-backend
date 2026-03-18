@@ -275,11 +275,11 @@ cron.schedule("*/10 * * * *", async () => {
 
 cron.schedule("*/15 * * * *", async () => {
   try {
-    const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000);
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
     const result = await prisma.botSession.deleteMany({
       where: {
         updated_at: {
-          lt: fiveHoursAgo,
+          lt: threeDaysAgo,
         },
       },
     });

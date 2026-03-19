@@ -534,6 +534,7 @@ class AIAgentService {
       "O cliente saiu do fluxo. Ajude e devolva ao menu sem inventar dados.",
       "[INTERNO: CRÍTICO] Quando uma Tool for necessária para a tarefa, execute-a ANTES de responder. Nunca responda com base em suposições quando a Tool forneceria a informação correta.",
       "Nunca anuncie tool; execute e responda só com resultado final.",
+      "Não faça perguntas que tiram o cliente do fluixo. Dê a informação precisa e direcione para o node atual.",
       "PROIBIDO escrever frases transitórias como: 'Vou verificar', 'Um momento', 'Deixa eu ver'.",
       "PROIBIDO expor linhas internas de contexto entre parênteses (ex.: produto/data/horário).",
       "Use calculate_freight para dúvidas de LOCAL de entrega (cidade/região).",

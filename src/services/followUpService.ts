@@ -8,6 +8,17 @@ type BotHistoryEntry = {
   created_at?: string;
 };
 
+type BotSessionSyncRow = {
+  phone: string;
+  state: unknown;
+  history: unknown;
+};
+
+type BotSessionSyncData = {
+  lastMessageAt: Date;
+  customerName?: string | null;
+};
+
 type FollowUpNodeConfig = {
   id: string;
   inactivityMinutes: number;
@@ -75,8 +86,31 @@ class FollowUpService {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
+  private normalizeCustomerName(value?: unknown): string | null {
+    const normalized = String(value ?? "").trim();
+
+    if (!normalized) return null;
+    if (normalized.toLowerCase() === "cliente") return null;
+
+    return normalized;
+  }
+
+  private resolveCustomerNameFromSession(
+    session: BotSessionSyncRow,
+  ): string | null {
+    const state = session.state;
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      return null;
+    }
+
+    const stateRecord = state as Record<string, unknown>;
+    return this.normalizeCustomerName(
+      stateRecord.contactName ?? stateRecord.customerName ?? stateRecord.name,
+    );
+  }
+
   private async upsertLatestMessageByPhone(
-    latestByPhone: Map<string, Date>,
+    latestByPhone: Map<string, BotSessionSyncData>,
   ): Promise<Set<string>> {
     if (latestByPhone.size === 0) {
       return new Set<string>();
@@ -85,7 +119,7 @@ class FollowUpService {
     const phones = [...latestByPhone.keys()];
     const existingCustomers = await prisma.customer.findMany({
       where: { number: { in: phones } },
-      select: { number: true, last_message_sent: true },
+      select: { number: true, name: true, last_message_sent: true },
     });
 
     const existingMap = new Map(
@@ -93,15 +127,17 @@ class FollowUpService {
     );
     const updatedPhones = new Set<string>();
 
-    for (const [phone, latestMessageAt] of latestByPhone.entries()) {
+    for (const [phone, syncData] of latestByPhone.entries()) {
+      const { lastMessageAt, customerName } = syncData;
       const existing = existingMap.get(phone);
 
       if (!existing) {
         await prisma.customer.create({
           data: {
             number: phone,
+            name: customerName ?? null,
             follow_up: true,
-            last_message_sent: latestMessageAt,
+            last_message_sent: lastMessageAt,
           },
         });
         updatedPhones.add(phone);
@@ -110,21 +146,26 @@ class FollowUpService {
 
       const isNewer =
         !existing.last_message_sent ||
-        latestMessageAt > existing.last_message_sent;
-      if (!isNewer) continue;
+        lastMessageAt > existing.last_message_sent;
+      const shouldUpdateName =
+        !!customerName && !String(existing.name || "").trim();
+
+      if (!isNewer && !shouldUpdateName) continue;
 
       await prisma.customer.update({
         where: { number: phone },
         data: {
-          follow_up: true,
-          last_message_sent: latestMessageAt,
+          ...(shouldUpdateName ? { name: customerName } : {}),
+          ...(isNewer ? { last_message_sent: lastMessageAt } : {}),
         },
       });
 
-      // Reinicia o ciclo de follow-up quando chega nova mensagem do cliente
-      await prisma.followUpSent.deleteMany({
-        where: { cliente_number: phone },
-      });
+      if (isNewer) {
+        // Reinicia o ciclo de follow-up quando chega nova mensagem do cliente
+        await prisma.followUpSent.deleteMany({
+          where: { cliente_number: phone },
+        });
+      }
 
       updatedPhones.add(phone);
     }
@@ -139,6 +180,7 @@ class FollowUpService {
       },
       select: {
         phone: true,
+        state: true,
         history: true,
       },
     });
@@ -147,12 +189,13 @@ class FollowUpService {
       return new Set<string>();
     }
 
-    const latestByPhone = new Map<string, Date>();
+    const latestByPhone = new Map<string, BotSessionSyncData>();
 
     sessions.forEach((session) => {
       const history = Array.isArray(session.history)
         ? (session.history as BotHistoryEntry[])
         : [];
+      const customerName = this.resolveCustomerNameFromSession(session);
 
       const lastUserMessageAt = history
         .filter((entry) => (entry.role || "").toLowerCase() === "user")
@@ -163,8 +206,19 @@ class FollowUpService {
       if (!lastUserMessageAt) return;
 
       const current = latestByPhone.get(session.phone);
-      if (!current || lastUserMessageAt > current) {
-        latestByPhone.set(session.phone, lastUserMessageAt);
+      if (!current || lastUserMessageAt > current.lastMessageAt) {
+        latestByPhone.set(session.phone, {
+          lastMessageAt: lastUserMessageAt,
+          customerName: customerName ?? current?.customerName ?? null,
+        });
+        return;
+      }
+
+      if (!current.customerName && customerName) {
+        latestByPhone.set(session.phone, {
+          ...current,
+          customerName,
+        });
       }
     });
 

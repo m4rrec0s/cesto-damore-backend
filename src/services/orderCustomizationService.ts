@@ -375,12 +375,18 @@ class OrderCustomizationService {
           data.final_artworks?.[0]?.preview_url;
 
         const hasArtwork = !!artworkUrl && checkValidUrl(artworkUrl);
-        const hasLabelDL = !!(
-          data.selected_item_label ||
-          data.label_selected ||
-          data.label
-        );
-        return !!hasArtwork || !!data.fabricState || hasLabelDL;
+        const hasLayoutAsset =
+          hasArtwork ||
+          (Array.isArray(data.images) &&
+            data.images.some((image: any) => {
+              const url =
+                image?.preview_url ||
+                image?.url ||
+                (typeof image === "string" ? image : null);
+              return url && checkValidUrl(url);
+            }));
+
+        return !!hasLayoutAsset || !!data.fabricState;
 
       default:
         return data && Object.keys(data).length > 0;
@@ -417,7 +423,8 @@ class OrderCustomizationService {
       },
     });
 
-    const result = orderItems.map((item) => {
+    const result = await Promise.all(
+      orderItems.map(async (item) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const allAvailable: any[] = [];
 
@@ -454,49 +461,53 @@ class OrderCustomizationService {
         }
       }
 
-      const seen = new Set();
-      const filledCustomizations = item.customizations
-        .map((c: any) => {
-          const parsedValue = this.parseCustomizationData(c.value);
-          const type = (c.customization_type ||
-            parsedValue.customization_type ||
-            "TEXT") as string;
+      const seen = new Set<string>();
+      const filledCustomizations = (
+        await Promise.all(
+          item.customizations.map(async (c: any) => {
+            const parsedValue = this.parseCustomizationData(c.value);
+            const type = (c.customization_type ||
+              parsedValue.customization_type ||
+              "TEXT") as string;
 
-          if (!this.isCustomizationValid(type, parsedValue)) {
-            return null;
-          }
+            const fileCheck = await this.validateCustomizationFiles(parsedValue);
+            if (!this.isCustomizationValid(type, parsedValue) || !fileCheck.valid) {
+              return null;
+            }
 
-          const ruleId =
-            c.customization_id ||
-            parsedValue.customizationRuleId ||
-            parsedValue.customization_id ||
-            "default";
+            const ruleId =
+              c.customization_id ||
+              parsedValue.customizationRuleId ||
+              parsedValue.customization_id ||
+              "default";
 
-          return {
-            id: c.id,
-            order_item_id: c.order_item_id,
-            customization_id: ruleId,
-            value: parsedValue,
-            componentId: parsedValue.componentId,
-          };
-        })
-        .filter((c: any) => {
-          if (!c) return false;
+            return {
+              id: c.id,
+              order_item_id: c.order_item_id,
+              customization_id: ruleId,
+              value: parsedValue,
+              componentId: parsedValue.componentId,
+            };
+          }),
+        )
+      ).filter((c: any) => {
+        if (!c) return false;
 
-          const key = `${c.customization_id}-${c.componentId || "default"}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
+        const key = `${c.customization_id}-${c.componentId || "default"}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
-      return {
-        orderItemId: item.id,
-        productId: item.product_id,
-        productName: item.product.name,
-        availableCustomizations: allAvailable,
-        filledCustomizations: filledCustomizations,
-      };
-    });
+        return {
+          orderItemId: item.id,
+          productId: item.product_id,
+          productName: item.product.name,
+          availableCustomizations: allAvailable,
+          filledCustomizations: filledCustomizations,
+        };
+      }),
+    );
 
     return result;
   }
@@ -1902,8 +1913,25 @@ class OrderCustomizationService {
 
       if (typeof obj.preview_url === "string") urls.add(obj.preview_url);
       if (typeof obj.url === "string") urls.add(obj.url);
-      if (typeof obj.text === "string" && obj.text.startsWith("/uploads/")) {
-        urls.add(obj.text);
+      if (typeof obj.google_drive_url === "string") {
+        urls.add(obj.google_drive_url);
+      }
+      if (typeof obj.webContentLink === "string") {
+        urls.add(obj.webContentLink);
+      }
+      if (typeof obj.webViewLink === "string") {
+        urls.add(obj.webViewLink);
+      }
+      if (typeof obj.text === "string") {
+        const textValue = obj.text.trim();
+        if (
+          textValue.startsWith("/uploads/") ||
+          textValue.startsWith("http://") ||
+          textValue.startsWith("https://") ||
+          textValue.startsWith("data:")
+        ) {
+          urls.add(textValue);
+        }
       }
 
       Object.values(obj).forEach(walk);
@@ -1916,7 +1944,21 @@ class OrderCustomizationService {
   private async validateCustomizationFiles(
     data: Record<string, any>,
   ): Promise<{ valid: boolean; reason?: string }> {
+    const customizationType = String(
+      data?.customization_type || data?.customizationType || "",
+    );
     const urls = this.collectCandidateUrls(data);
+
+    if (
+      (customizationType === "IMAGES" || customizationType === "DYNAMIC_LAYOUT") &&
+      urls.length === 0
+    ) {
+      return {
+        valid: false,
+        reason: "Arquivo de imagem ausente ou não persistido no pedido",
+      };
+    }
+
     for (const rawUrl of urls) {
       if (!rawUrl || rawUrl.startsWith("blob:") || rawUrl.startsWith("data:")) {
         return {
@@ -1986,7 +2028,33 @@ class OrderCustomizationService {
       return fs.existsSync(fullPath);
     }
 
-    return true;
+    try {
+      const headResponse = await axios.head(url, {
+        timeout: 5000,
+        validateStatus: (status) => status >= 200 && status < 400,
+      });
+
+      if (headResponse.status >= 200 && headResponse.status < 400) {
+        return true;
+      }
+    } catch (headError) {
+      try {
+        const getResponse = await axios.get(url, {
+          responseType: "arraybuffer",
+          timeout: 5000,
+          validateStatus: (status) => status >= 200 && status < 400,
+        });
+
+        return getResponse.status >= 200 && getResponse.status < 400;
+      } catch (getError) {
+        logger.debug(`🔎 URL inacessível durante validação: ${url}`, {
+          headError: headError instanceof Error ? headError.message : headError,
+          getError: getError instanceof Error ? getError.message : getError,
+        });
+      }
+    }
+
+    return false;
   }
 }
 

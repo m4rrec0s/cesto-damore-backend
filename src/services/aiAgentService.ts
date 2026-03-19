@@ -45,16 +45,21 @@ interface FallbackProcessingResult {
   handoffReason?: string;
 }
 
+type FallbackIntentFlags = {
+  human: boolean;
+  navigation: boolean;
+  delivery: boolean;
+  businessHours: boolean;
+  location: boolean;
+  product: boolean;
+};
+
 class AIAgentService {
   private openai: OpenAI;
   private lastMessageTimestamps: Map<string, { text: string; time: number }> =
     new Map();
   private model: string = "gpt-4o-mini";
-  private advancedModel: string = "gpt-4-turbo";
-  private fallbackAllowAllTools =
-    (process.env.FALLBACK_ALLOW_ALL_MCP_TOOLS || "false")
-      .toLowerCase()
-      .trim() === "true";
+  private advancedModel: string = "gpt-5.4-mini";
   private fallbackBlockedTools = new Set(
     (process.env.FALLBACK_BLOCKED_MCP_TOOLS || "")
       .split(",")
@@ -213,12 +218,256 @@ class AIAgentService {
       date,
       time,
       tomorrowWeekday,
+      isOpenNow: this.isStoreOpenInSaoPaulo(now),
+      businessHoursText:
+        "Seg-Sex 08:30-12:00 | 14:00-17:00 | Sábado 08:00-11:00 | Domingo fechado",
+      storeStatus: this.isStoreOpenInSaoPaulo(now)
+        ? "ABERTA (atendendo agora ✅)"
+        : "FECHADA (fora do expediente ⏰)",
     };
   }
 
-  private isFallbackToolAllowed(toolName: string) {
-    if (this.fallbackBlockedTools.has(toolName)) return false;
-    return this.fallbackAllowAllTools;
+  private isStoreOpenInSaoPaulo(date: Date) {
+    const dayOfWeek = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long",
+    })
+      .format(date)
+      .toLowerCase();
+
+    const timeParts = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+    const [hour, minute] = timeParts.split(":").map(Number);
+    const currentMinutes = hour * 60 + minute;
+
+    if (dayOfWeek === "saturday") {
+      return currentMinutes >= 8 * 60 && currentMinutes <= 11 * 60;
+    }
+
+    if (dayOfWeek === "sunday") {
+      return false;
+    }
+
+    return (
+      (currentMinutes >= 8 * 60 + 30 && currentMinutes <= 12 * 60) ||
+      (currentMinutes >= 14 * 60 && currentMinutes <= 17 * 60)
+    );
+  }
+
+  private isBusinessHoursQuestion(normalizedMessage: string) {
+    return (
+      normalizedMessage.includes("horario de atendimento") ||
+      normalizedMessage.includes("horário de atendimento") ||
+      normalizedMessage.includes("que horas abre") ||
+      normalizedMessage.includes("que horas fecha") ||
+      normalizedMessage.includes("estao abertos") ||
+      normalizedMessage.includes("estão abertos") ||
+      normalizedMessage.includes("abre hoje") ||
+      normalizedMessage.includes("fecha hoje") ||
+      normalizedMessage.includes("domingo abre") ||
+      normalizedMessage.includes("esta aberto") ||
+      normalizedMessage.includes("está aberto") ||
+      normalizedMessage.includes("funciona agora")
+    );
+  }
+
+  private isNavigationFallbackQuestion(normalizedMessage: string) {
+    return (
+      normalizedMessage.includes("menu principal") ||
+      normalizedMessage.includes("primeiro menu") ||
+      normalizedMessage.includes("voltar ao menu") ||
+      normalizedMessage.includes("voltar") ||
+      normalizedMessage.includes("inicio") ||
+      normalizedMessage.includes("inicial") ||
+      normalizedMessage.includes("comeco") ||
+      normalizedMessage.includes("catálogo") ||
+      normalizedMessage.includes("catalogo") ||
+      normalizedMessage.includes("ver opções") ||
+      normalizedMessage.includes("ver opcoes") ||
+      normalizedMessage.includes("mais opções") ||
+      normalizedMessage.includes("mais opcoes") ||
+      normalizedMessage.includes("ocasião") ||
+      normalizedMessage.includes("ocasiao") ||
+      normalizedMessage.includes("itens") ||
+      normalizedMessage.includes("orçamento") ||
+      normalizedMessage.includes("orcamento")
+    );
+  }
+
+  private isDeliveryFallbackQuestion(normalizedMessage: string) {
+    return (
+      normalizedMessage.includes("entrega") ||
+      normalizedMessage.includes("amanha") ||
+      normalizedMessage.includes("amanhã") ||
+      normalizedMessage.includes("hoje") ||
+      normalizedMessage.includes("horario") ||
+      normalizedMessage.includes("horário") ||
+      normalizedMessage.includes("prazo") ||
+      normalizedMessage.includes("data") ||
+      normalizedMessage.includes("sábado") ||
+      normalizedMessage.includes("sabado") ||
+      normalizedMessage.includes("domingo") ||
+      normalizedMessage.includes("slot") ||
+      normalizedMessage.includes("vaga")
+    );
+  }
+
+  private isLocationFallbackQuestion(normalizedMessage: string) {
+    return (
+      normalizedMessage.includes("cidade") ||
+      normalizedMessage.includes("cidades") ||
+      normalizedMessage.includes("regiao") ||
+      normalizedMessage.includes("região") ||
+      normalizedMessage.includes("bairro") ||
+      normalizedMessage.includes("pocinhos") ||
+      normalizedMessage.includes("queimadas") ||
+      normalizedMessage.includes("galante") ||
+      normalizedMessage.includes("puxinana") ||
+      normalizedMessage.includes("puxinanã") ||
+      normalizedMessage.includes("sao jose") ||
+      normalizedMessage.includes("são josé")
+    );
+  }
+
+  private isProductFallbackQuestion(normalizedMessage: string) {
+    return (
+      normalizedMessage.includes("produto") ||
+      normalizedMessage.includes("cesta") ||
+      normalizedMessage.includes("cesto") ||
+      normalizedMessage.includes("buque") ||
+      normalizedMessage.includes("buquê") ||
+      normalizedMessage.includes("caneca") ||
+      normalizedMessage.includes("quadro") ||
+      normalizedMessage.includes("chocolate") ||
+      normalizedMessage.includes("flor") ||
+      normalizedMessage.includes("rosa") ||
+      normalizedMessage.includes("pelucia") ||
+      normalizedMessage.includes("pelúcia")
+    );
+  }
+
+  private buildFallbackIntentFlags(
+    normalizedMessage: string,
+  ): FallbackIntentFlags {
+    const human =
+      normalizedMessage.includes("atendente") ||
+      normalizedMessage.includes("atendimento") ||
+      normalizedMessage.includes("humano") ||
+      normalizedMessage.includes("suporte") ||
+      normalizedMessage.includes("falar com") ||
+      normalizedMessage.includes("pessoa");
+
+    return {
+      human,
+      navigation: this.isNavigationFallbackQuestion(normalizedMessage),
+      delivery: this.isDeliveryFallbackQuestion(normalizedMessage),
+      businessHours: this.isBusinessHoursQuestion(normalizedMessage),
+      location: this.isLocationFallbackQuestion(normalizedMessage),
+      product: this.isProductFallbackQuestion(normalizedMessage),
+    };
+  }
+
+  private resolveRelativeDateHint(normalizedMessage: string) {
+    const now = new Date();
+    const weekdays: Array<{ name: string; patterns: string[] }> = [
+      { name: "segunda-feira", patterns: ["segunda", "segunda-feira"] },
+      {
+        name: "terça-feira",
+        patterns: ["terça", "terca", "terça-feira", "terca-feira"],
+      },
+      { name: "quarta-feira", patterns: ["quarta", "quarta-feira"] },
+      { name: "quinta-feira", patterns: ["quinta", "quinta-feira"] },
+      { name: "sexta-feira", patterns: ["sexta", "sexta-feira"] },
+      { name: "sábado", patterns: ["sábado", "sabado"] },
+      { name: "domingo", patterns: ["domingo"] },
+    ];
+
+    if (normalizedMessage.includes("hoje")) {
+      return this.getSaoPauloContext().date;
+    }
+
+    if (
+      normalizedMessage.includes("amanha") ||
+      normalizedMessage.includes("amanhã")
+    ) {
+      const tomorrow = addDays(now, 1);
+      return new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }).format(tomorrow);
+    }
+
+    for (let offset = 0; offset <= 6; offset++) {
+      const candidate = addDays(now, offset);
+      const candidateWeekday = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        weekday: "long",
+      })
+        .format(candidate)
+        .toLowerCase();
+
+      const matchedDay = weekdays.find((weekday) =>
+        weekday.patterns.some((pattern) => candidateWeekday.includes(pattern)),
+      );
+
+      if (!matchedDay) continue;
+
+      if (
+        matchedDay.patterns.some((pattern) =>
+          normalizedMessage.includes(pattern),
+        )
+      ) {
+        return new Intl.DateTimeFormat("pt-BR", {
+          timeZone: "America/Sao_Paulo",
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }).format(candidate);
+      }
+    }
+
+    return null;
+  }
+
+  private selectFallbackToolNames(
+    availableTools: Array<{ name: string }>,
+    intentFlags: FallbackIntentFlags,
+  ) {
+    const availableToolNames = new Set(availableTools.map((tool) => tool.name));
+    const selectedToolNames = new Set<string>();
+
+    const addTool = (toolName: string) => {
+      if (this.fallbackBlockedTools.has(toolName)) return;
+      if (availableToolNames.has(toolName)) selectedToolNames.add(toolName);
+    };
+
+    if (intentFlags.navigation) {
+      addTool("list_available_menus");
+      addTool("change_flow_node");
+      addTool("route_to_flow_node");
+    }
+
+    if (intentFlags.delivery) {
+      addTool("validate_delivery_availability");
+      addTool("can_produce_in_time");
+      addTool("get_active_holidays");
+    }
+
+    if (intentFlags.location) {
+      addTool("calculate_freight");
+    }
+
+    if (intentFlags.product) {
+      addTool("get_product_details");
+    }
+
+    return [...selectedToolNames];
   }
 
   async processFallback({
@@ -235,13 +484,7 @@ class AIAgentService {
     const safeMenuText = this.formatFallbackMenuText(menuText);
     const spContext = this.getSaoPauloContext();
     const normalizedUserMessage = this.normalizeFallbackText(userMessage || "");
-    const explicitHumanRequest =
-      normalizedUserMessage.includes("atendente") ||
-      normalizedUserMessage.includes("atendimento") ||
-      normalizedUserMessage.includes("humano") ||
-      normalizedUserMessage.includes("suporte") ||
-      normalizedUserMessage.includes("falar com") ||
-      normalizedUserMessage.includes("pessoa");
+    const intentFlags = this.buildFallbackIntentFlags(normalizedUserMessage);
     const suspiciousRequest =
       normalizedUserMessage.includes("prompt") ||
       normalizedUserMessage.includes("instrucoes internas") ||
@@ -250,16 +493,40 @@ class AIAgentService {
       normalizedUserMessage.includes("dados bancarios") ||
       normalizedUserMessage.includes("token") ||
       normalizedUserMessage.includes("api key");
-    const allowInternalHandoff = explicitHumanRequest || suspiciousRequest;
-    const isDeliveryQuestion =
-      normalizedUserMessage.includes("entrega") ||
-      normalizedUserMessage.includes("amanha") ||
-      normalizedUserMessage.includes("amanhã") ||
-      normalizedUserMessage.includes("hoje") ||
-      normalizedUserMessage.includes("horario") ||
-      normalizedUserMessage.includes("horário") ||
-      normalizedUserMessage.includes("prazo") ||
-      normalizedUserMessage.includes("data");
+    const allowInternalHandoff = intentFlags.human || suspiciousRequest;
+
+    if (allowInternalHandoff) {
+      return {
+        text: "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00",
+        handoffToHuman: true,
+        handoffReason: intentFlags.human
+          ? "Cliente pediu atendimento humano"
+          : "Suspeita de manipulação ou acesso a dados internos",
+      };
+    }
+
+    if (
+      intentFlags.businessHours &&
+      !intentFlags.delivery &&
+      !intentFlags.location
+    ) {
+      const directHoursText = [
+        spContext.isOpenNow
+          ? `Agora estamos abertos em Campina Grande-PB ✅`
+          : `Agora estamos fechados em Campina Grande-PB ⏰`,
+        `Horário de atendimento: ${spContext.businessHoursText}.`,
+      ].join(" ");
+
+      return {
+        text: this.ensureMenuInResponse(directHoursText, safeMenuText),
+        handoffToHuman: false,
+      };
+    }
+
+    const relativeDateHint = this.resolveRelativeDateHint(
+      normalizedUserMessage,
+    );
+    const isDeliveryQuestion = intentFlags.delivery;
 
     const systemPrompt = [
       "Você é a assistente virtual da Cesto dAmore.",
@@ -283,6 +550,11 @@ class AIAgentService {
       "Finalize obrigatoriamente com o menu exatamente como fornecido.",
       `Data/hora atual (America/Sao_Paulo): ${spContext.weekday}, ${spContext.date} ${spContext.time}.`,
       `Amanhã em America/Sao_Paulo será: ${spContext.tomorrowWeekday}.`,
+      relativeDateHint
+        ? `Data inferida do cliente, se aplicável: ${relativeDateHint}.`
+        : "",
+      `Status da loja agora: ${spContext.storeStatus}.`,
+      `Horários comerciais: ${spContext.businessHoursText}.`,
       "Regra operacional: aos domingos a loja não abre. Não confirme produção/entrega para domingo.",
       "Base factual autorizada:",
       PROMPTS.location_info,
@@ -315,43 +587,23 @@ class AIAgentService {
 
     try {
       const tools = await mcpClientService.listTools();
+      const selectedToolNames = this.selectFallbackToolNames(
+        tools,
+        intentFlags,
+      );
+      const allowToolCalls = selectedToolNames.length > 0;
+
       const formattedTools = tools
-        .filter((t) => this.isFallbackToolAllowed(t.name))
-        .map((t) => ({
+        .filter((tool) => selectedToolNames.includes(tool.name))
+        .map((tool) => ({
           type: "function" as const,
           function: {
-            name: t.name,
-            description: t.description,
-            parameters: t.inputSchema,
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputSchema,
           },
         }));
 
-      const internalTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
-        {
-          type: "function",
-          function: {
-            name: "request_human_handoff",
-            description:
-              "Solicita atendimento humano quando a validação não puder ser concluída com segurança.",
-            parameters: {
-              type: "object",
-              properties: {
-                reason: {
-                  type: "string",
-                  description:
-                    "Motivo curto para encaminhar ao atendimento humano.",
-                },
-              },
-              required: [],
-              additionalProperties: false,
-            },
-          },
-        },
-      ];
-
-      const availableTools = allowInternalHandoff
-        ? [...formattedTools, ...internalTools]
-        : formattedTools;
       let handoffRequested = false;
       let handoffReason = "";
 
@@ -364,8 +616,8 @@ class AIAgentService {
             stream: false,
           };
 
-        if (availableTools.length > 0) {
-          completionInput.tools = availableTools;
+        if (allowToolCalls && formattedTools.length > 0) {
+          completionInput.tools = formattedTools;
           if (isDeliveryQuestion && iteration === 0) {
             completionInput.tool_choice = "required";
           }
@@ -383,29 +635,7 @@ class AIAgentService {
             const toolName = call.function?.name;
             if (!toolName) continue;
             let toolResultText = "";
-            if (toolName === "request_human_handoff") {
-              let toolArgs: any = {};
-              try {
-                toolArgs = call.function?.arguments
-                  ? JSON.parse(call.function.arguments)
-                  : {};
-              } catch (error) {
-                toolArgs = {};
-              }
-
-              handoffRequested = true;
-              handoffReason = String(toolArgs?.reason || "").trim();
-              toolResultText =
-                "Handoff solicitado com sucesso. A sessão será encerrada para atendimento humano.";
-              messages.push({
-                role: "tool",
-                tool_call_id: call.id,
-                content: toolResultText,
-              });
-              continue;
-            }
-
-            if (!this.isFallbackToolAllowed(toolName)) {
+            if (!selectedToolNames.includes(toolName)) {
               toolResultText =
                 "Não posso executar essa ação neste momento. Posso seguir com orientações diretas.";
               messages.push({
@@ -462,14 +692,6 @@ class AIAgentService {
           return {
             text: this.ensureMenuInResponse(safeContent, safeMenuText),
             handoffToHuman: false,
-          };
-        }
-
-        if (handoffRequested) {
-          return {
-            text: "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00",
-            handoffToHuman: true,
-            handoffReason,
           };
         }
       }

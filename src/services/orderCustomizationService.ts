@@ -309,6 +309,18 @@ class OrderCustomizationService {
       }
     }
 
+    try {
+      await this.cleanupDuplicateOrderItemCustomizations(
+        input.orderItemId,
+        record.id,
+      );
+    } catch (error) {
+      logger.warn(
+        "⚠️ Erro ao limpar customizações duplicadas após salvar:",
+        error,
+      );
+    }
+
     if (orderItem?.order_id) {
       const deletedPendingPayments = await prisma.payment.deleteMany({
         where: {
@@ -1710,8 +1722,11 @@ class OrderCustomizationService {
 
     for (const item of orderItems) {
       const requiredRules = this.getRequiredCustomizationDescriptors(item);
+      const latestCustomizations = await this.getLatestCustomizationsByIdentity(
+        item.customizations,
+      );
       const parsedCustomizations = await Promise.all(
-        item.customizations.map(async (custom) => {
+        latestCustomizations.map(async (custom) => {
           const parsed = this.parseCustomizationData(custom.value);
           const customType = String(
             parsed.customization_type || parsed.customizationType || "TEXT",
@@ -1845,6 +1860,125 @@ class OrderCustomizationService {
   private normalizeRuleId(raw?: string | null): string {
     if (!raw) return "";
     return String(raw).split(":")[0];
+  }
+
+  private getCustomizationDedupKey(input: {
+    customizationId?: string | null;
+    componentId?: string | null;
+    title?: string | null;
+    label?: string | null;
+    data?: Record<string, any>;
+  }): string {
+    const data = input.data || {};
+    const rawRuleId =
+      input.customizationId ||
+      data.customizationRuleId ||
+      data.customization_rule_id ||
+      data.customization_id ||
+      data.ruleId ||
+      "";
+    const normalizedRuleId = this.normalizeRuleId(rawRuleId);
+    const normalizedTitle = String(
+      input.title || input.label || data.title || data._customizationName || "",
+    )
+      .trim()
+      .toLowerCase();
+    const componentId = String(
+      input.componentId || data.componentId || data.component_id || "default",
+    );
+
+    return `${normalizedRuleId || normalizedTitle || "default"}:${componentId}`;
+  }
+
+  private async cleanupDuplicateOrderItemCustomizations(
+    orderItemId: string,
+    keepCustomizationId: string,
+  ): Promise<void> {
+    const customizations = await prisma.orderItemCustomization.findMany({
+      where: { order_item_id: orderItemId },
+      orderBy: [
+        { updated_at: "desc" },
+        { created_at: "desc" },
+        { id: "desc" },
+      ],
+    });
+
+    const byKey = new Map<string, string[]>();
+
+    for (const customization of customizations) {
+      const parsed = this.parseCustomizationData(customization.value);
+      const key = this.getCustomizationDedupKey({
+        customizationId: customization.customization_id,
+        componentId: (parsed.componentId as string) || (parsed.component_id as string) || undefined,
+        title: parsed.title,
+        label:
+          parsed.label_selected ||
+          parsed.selected_item_label ||
+          parsed.selected_option_label,
+        data: parsed,
+      });
+
+      if (!byKey.has(key)) {
+        byKey.set(key, []);
+      }
+      byKey.get(key)!.push(customization.id);
+    }
+
+    const idsToDelete = new Set<string>();
+    for (const ids of byKey.values()) {
+      if (ids.length <= 1) continue;
+      const survivor = ids.includes(keepCustomizationId)
+        ? keepCustomizationId
+        : ids[0];
+      for (const id of ids) {
+        if (id !== survivor) {
+          idsToDelete.add(id);
+        }
+      }
+    }
+
+    if (idsToDelete.size === 0) return;
+
+    await prisma.orderItemCustomization.deleteMany({
+      where: { id: { in: [...idsToDelete] } },
+    });
+  }
+
+  private async getLatestCustomizationsByIdentity(customizations: any[]) {
+    if (!Array.isArray(customizations) || customizations.length === 0) {
+      return [];
+    }
+
+    const latestByKey = new Map<string, any>();
+
+    for (const customization of customizations) {
+      const parsed = this.parseCustomizationData(customization.value);
+      const key = this.getCustomizationDedupKey({
+        customizationId: customization.customization_id,
+        componentId: (parsed.componentId as string) || (parsed.component_id as string) || undefined,
+        title: parsed.title,
+        label:
+          parsed.label_selected ||
+          parsed.selected_item_label ||
+          parsed.selected_option_label,
+        data: parsed,
+      });
+
+      const current = latestByKey.get(key);
+      if (!current) {
+        latestByKey.set(key, customization);
+        continue;
+      }
+
+      const currentUpdatedAt = new Date(current.updated_at || 0).getTime();
+      const nextUpdatedAt = new Date(customization.updated_at || 0).getTime();
+
+      if (nextUpdatedAt >= currentUpdatedAt) {
+        latestByKey.set(key, customization);
+      }
+    }
+
+    return [...latestByKey.values()];
   }
 
   private matchesRequiredCustomization(

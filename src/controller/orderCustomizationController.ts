@@ -494,6 +494,16 @@ class OrderCustomizationController {
         });
       }
 
+      if (
+        error instanceof Error &&
+        error.message === "Item do pedido não encontrado"
+      ) {
+        return res.status(404).json({
+          error: "Item do pedido não encontrado",
+          details: error.message,
+        });
+      }
+
       logger.error("Erro ao salvar customização do item:", error);
       return res.status(500).json({
         error: "Erro ao salvar customização",

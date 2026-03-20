@@ -34,7 +34,10 @@ class FollowUpService {
     const digits = raw.replace(/\D/g, "");
     if (!digits) return null;
 
-    if (digits.startsWith("55") && (digits.length === 12 || digits.length === 13)) {
+    if (
+      digits.startsWith("55") &&
+      (digits.length === 12 || digits.length === 13)
+    ) {
       return digits;
     }
 
@@ -62,7 +65,9 @@ class FollowUpService {
     return `${minutes}min`;
   }
 
-  private resolveFollowUpInactivityMinutes(nodeData: Record<string, any>): number {
+  private resolveFollowUpInactivityMinutes(
+    nodeData: Record<string, any>,
+  ): number {
     if (
       typeof nodeData?.inactivityMinutes === "number" &&
       Number.isFinite(nodeData.inactivityMinutes)
@@ -268,7 +273,9 @@ class FollowUpService {
 
   async triggerFollowUpFunction() {
     if (this.isRunning) {
-      logger.info("⏳ [FollowUp] Rotina já em execução, pulando ciclo concorrente");
+      logger.info(
+        "⏳ [FollowUp] Rotina já em execução, pulando ciclo concorrente",
+      );
       return;
     }
 
@@ -296,9 +303,6 @@ class FollowUpService {
       });
 
       if (customersToProcess.length === 0) {
-        logger.info(
-          "📊 [FollowUp] Nenhum cliente elegível (follow_up ativo e last_message_sent preenchido)",
-        );
         return;
       }
 
@@ -342,28 +346,21 @@ class FollowUpService {
       const groupedCustomers = [...customerGroups.values()];
 
       if (groupedCustomers.length === 0) {
-        logger.info("📊 [FollowUp] Nenhum cliente válido após normalização de telefone");
+        logger.info(
+          "📊 [FollowUp] Nenhum cliente válido após normalização de telefone",
+        );
         return;
       }
-
-      logger.info(
-        `📊 [FollowUp] Verificando ${groupedCustomers.length} clientes para follow-up...`,
-      );
 
       const now = new Date();
       let processedCount = 0;
 
       for (const customer of groupedCustomers) {
         const diffInMinutes = Math.floor(
-          (now.getTime() - customer.lastMessageSent.getTime()) /
-            (1000 * 60),
+          (now.getTime() - customer.lastMessageSent.getTime()) / (1000 * 60),
         );
 
         const displayName = customer.customerNames[0] || "Sem nome";
-
-        logger.info(
-          `⏱️ [FollowUp] Cliente ${customer.normalizedPhone} (${displayName}): ${this.formatMinutes(diffInMinutes)} desde última mensagem`,
-        );
 
         for (const nodeConfig of followUpNodes) {
           if (diffInMinutes < nodeConfig.inactivityMinutes) {
@@ -381,10 +378,6 @@ class FollowUpService {
             continue;
           }
 
-          logger.info(
-            `🔔 [FollowUp] Disparando follow-up de ${this.formatMinutes(nodeConfig.inactivityMinutes)} para ${customer.normalizedPhone} (node ${nodeConfig.id})`,
-          );
-
           const activeSession = await prisma.botSession.findFirst({
             where: {
               phone: { in: customer.aliases },
@@ -398,16 +391,10 @@ class FollowUpService {
           });
 
           if (!activeSession) {
-            logger.info(
-              `⏭️ [FollowUp] Ignorado para ${customer.normalizedPhone}: cliente sem sessão ativa no bot`,
-            );
             continue;
           }
 
           if (activeSession?.is_human) {
-            logger.info(
-              `⏭️ [FollowUp] Ignorado para ${customer.normalizedPhone}: sessão em atendimento humano (is_human=true)`,
-            );
             continue;
           }
 

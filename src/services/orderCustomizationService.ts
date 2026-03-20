@@ -63,10 +63,19 @@ interface CheckoutValidationResult {
 
 class OrderCustomizationService {
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
+    logger.info(`🔍 [SERVICE DEBUG] Recebendo save com orderItemId: ${input.orderItemId}`);
+    
     const orderItem = await prisma.orderItem.findUnique({
       where: { id: input.orderItemId },
       select: { order_id: true },
     });
+    
+    if (!orderItem) {
+      logger.error(`❌ [SERVICE DEBUG] OrderItem não encontrado: ${input.orderItemId}`);
+      throw new Error("Item do pedido não encontrado");
+    }
+    
+    logger.info(`✅ [SERVICE DEBUG] OrderItem encontrado para order: ${orderItem.order_id}`);
 
     const rawInputRuleId =
       input.customizationRuleId ||
@@ -159,6 +168,17 @@ class OrderCustomizationService {
       selected_layout_id: input.selectedLayoutId,
       componentId: componentId,
     };
+    
+    logger.info(`📦 [SERVICE DEBUG] Customization value antes de salvar:`, {
+      hasFinalArtwork: !!customizationValue.final_artwork,
+      finalArtworkPreview: customizationValue.final_artwork?.preview_url,
+      hasImage: !!customizationValue.image,
+      imagePreview: customizationValue.image?.preview_url,
+      hasImages: !!customizationValue.images,
+      imagesCount: customizationValue.images?.length,
+      firstImagePreview: customizationValue.images?.[0]?.preview_url,
+      hasText: !!customizationValue.text,
+    });
 
     const oldTempFiles: string[] = [];
     if (existing) {

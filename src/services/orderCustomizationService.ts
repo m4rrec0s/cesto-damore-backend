@@ -68,7 +68,15 @@ class OrderCustomizationService {
       select: { order_id: true },
     });
 
-    const ruleId = input.customizationRuleId || "default";
+    const rawInputRuleId =
+      input.customizationRuleId ||
+      input.customizationData.customizationRuleId ||
+      input.customizationData.customization_rule_id ||
+      input.customizationData.customization_id ||
+      input.customizationData.ruleId ||
+      null;
+    const normalizedInputRuleId = this.normalizeRuleId(rawInputRuleId);
+    const ruleId = normalizedInputRuleId || "default";
     const componentIdRaw =
       input.customizationData.componentId ||
       input.customizationData.component_id ||
@@ -104,6 +112,10 @@ class OrderCustomizationService {
         data: val,
         componentId: parsedComponent,
         normalizedRuleId: this.normalizeRuleId(rawRuleId as string | undefined),
+        customizationType:
+          typeof val.customization_type === "string"
+            ? String(val.customization_type).trim().toUpperCase()
+            : "",
         title:
           typeof val.title === "string" ? val.title.trim().toLowerCase() : "",
       };
@@ -126,6 +138,25 @@ class OrderCustomizationService {
       existing = sameRuleCandidates[0].record;
     }
 
+    if (!existing) {
+      const normalizedInputType = String(input.customizationType).toUpperCase();
+      const typeCandidates = mappedCustomizations.filter((c) => {
+        if (
+          componentId &&
+          c.componentId &&
+          c.componentId.trim().length > 0 &&
+          c.componentId !== componentId
+        ) {
+          return false;
+        }
+        return c.customizationType === normalizedInputType;
+      });
+
+      if (typeCandidates.length === 1) {
+        existing = typeCandidates[0].record;
+      }
+    }
+
     // Final fallback by title to avoid duplicated rows when rule id is missing/legacy.
     if (!existing) {
       const targetTitle =
@@ -141,6 +172,7 @@ class OrderCustomizationService {
     const customizationValue: any = {
       ...input.customizationData,
       customizationRuleId: ruleId,
+      customization_id: ruleId,
       customization_type: input.customizationType,
       title: input.title,
       selected_layout_id: input.selectedLayoutId,
@@ -231,12 +263,12 @@ class OrderCustomizationService {
     const payload: any = {
       order_item_id: input.orderItemId,
       customization_id:
-        ruleId &&
+        normalizedInputRuleId &&
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          ruleId,
+          normalizedInputRuleId,
         ) &&
         !componentId
-          ? ruleId
+          ? normalizedInputRuleId
           : null,
       value: valueStr,
     };

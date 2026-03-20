@@ -138,25 +138,6 @@ class OrderCustomizationService {
       existing = sameRuleCandidates[0].record;
     }
 
-    if (!existing) {
-      const normalizedInputType = String(input.customizationType).toUpperCase();
-      const typeCandidates = mappedCustomizations.filter((c) => {
-        if (
-          componentId &&
-          c.componentId &&
-          c.componentId.trim().length > 0 &&
-          c.componentId !== componentId
-        ) {
-          return false;
-        }
-        return c.customizationType === normalizedInputType;
-      });
-
-      if (typeCandidates.length === 1) {
-        existing = typeCandidates[0].record;
-      }
-    }
-
     // Final fallback by title to avoid duplicated rows when rule id is missing/legacy.
     if (!existing) {
       const targetTitle =

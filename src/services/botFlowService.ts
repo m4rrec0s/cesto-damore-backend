@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import whatsappService from "./whatsappService";
 import aiAgentService from "./aiAgentService";
+import type { FlowCatalogNode } from "../types/flowRouter";
 const prisma = new PrismaClient();
 
 interface BotMessageRequest {
@@ -22,6 +23,29 @@ interface MessageResponse {
   isTextMessage?: boolean;
   originalMessage?: string;
 }
+
+type FlowNodeData = {
+  title?: string;
+  message?: string;
+  summary?: string;
+  when_to_use?: string;
+  examples?: string[];
+  keywords?: string[];
+  expected_user_state?: string;
+  next_best_nodes?: string[];
+  requires_slots?: string[];
+  bot_voice_template?: string;
+  confidence_rules?: string;
+  confidence_threshold?: number;
+  [key: string]: unknown;
+};
+
+type FlowNode = {
+  id: string;
+  type: string;
+  data?: FlowNodeData;
+  [key: string]: unknown;
+};
 
 const BASE_URL = process.env.BASE_URL || "https://api.cestodamore.com.br";
 const BOT_HANDOFF_GROUP_ID =
@@ -239,7 +263,7 @@ const getNodeOptions = (nodeData: any): any[] =>
   Array.isArray(nodeData?.options) ? nodeData.options : [];
 
 const getMenuLikeNodeMessage = (nodeData: any): string =>
-  String(nodeData?.title || nodeData?.message || "").trim();
+  String(nodeData?.menu_title || nodeData?.message || "").trim();
 
 const buildMenuText = (baseMessage: string, options: any[]) => {
   const optionLines = (options || []).map((opt: any, index: number) => {
@@ -250,6 +274,47 @@ const buildMenuText = (baseMessage: string, options: any[]) => {
   const trimmedBase = String(baseMessage || "").trim();
   if (optionLines.length === 0) return trimmedBase;
   return `${trimmedBase}\n\n${optionLines.join("\n")}`.trim();
+};
+
+const toFlowCatalogNode = (node: FlowNode): FlowCatalogNode => {
+  const data = (node?.data || {}) as FlowNodeData;
+  const title = String(data.title || node.type || "Node").trim();
+  const summary = String(data.summary || data.message || "").trim();
+  const listOf = (value: unknown) =>
+    Array.isArray(value)
+      ? value
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+      : [];
+  return {
+    id: String(node.id || "").trim(),
+    type: String(node.type || "").trim(),
+    title,
+    ...(summary ? { summary } : {}),
+    ...(String(data.when_to_use || "").trim()
+      ? { when_to_use: String(data.when_to_use).trim() }
+      : {}),
+    ...(listOf(data.examples).length > 0 ? { examples: listOf(data.examples) } : {}),
+    ...(listOf(data.keywords).length > 0 ? { keywords: listOf(data.keywords) } : {}),
+    ...(String(data.expected_user_state || "").trim()
+      ? { expected_user_state: String(data.expected_user_state).trim() }
+      : {}),
+    ...(listOf(data.next_best_nodes).length > 0
+      ? { next_best_nodes: listOf(data.next_best_nodes) }
+      : {}),
+    ...(listOf(data.requires_slots).length > 0
+      ? { requires_slots: listOf(data.requires_slots) }
+      : {}),
+    ...(String(data.bot_voice_template || "").trim()
+      ? { bot_voice_template: String(data.bot_voice_template).trim() }
+      : {}),
+    ...(typeof data.confidence_threshold === "number"
+      ? { confidence_threshold: data.confidence_threshold }
+      : {}),
+    ...(String(data.confidence_rules || "").trim()
+      ? { confidence_rules: String(data.confidence_rules).trim() }
+      : {}),
+  };
 };
 
 const classifyMessage = (message: string): Partial<MessageResponse> => {
@@ -445,8 +510,11 @@ export const botFlowService = {
     let history: any[] = [];
 
     const flow = await this.getActiveFlow();
-    const nodes = (flow.nodes as any[]) || [];
+    const nodes = ((flow.nodes as any[]) || []) as FlowNode[];
     const edges = (flow.edges as any[]) || [];
+    const flowCatalog = nodes
+      .map(toFlowCatalogNode)
+      .filter((catalogNode) => Boolean(catalogNode.id));
 
     if (!session) {
       session = await prisma.botSession.create({
@@ -498,7 +566,7 @@ export const botFlowService = {
     }
 
     let currentNodeId = session.current_node_id;
-    let node = nodes.find((n) => n.id === currentNodeId);
+    let node: FlowNode | null = nodes.find((n) => n.id === currentNodeId) || null;
 
     const resolveNodeDelay = (nodeData: any, fallback = 1500) => {
       if (typeof nodeData?.delayMs === "number" && nodeData.delayMs >= 0) {
@@ -642,12 +710,24 @@ export const botFlowService = {
         sessionHistory: history,
         customerName:
           (sessionState as any)?.contactName || contactName || "Cliente",
+        flowCatalog,
       });
+
+      const routerDecision = fallbackResult.routerDecision || null;
+      const stateWithRouterMeta = routerDecision
+        ? {
+            ...stateObj,
+            llm_router_last_decision: {
+              ...routerDecision,
+              created_at: new Date().toISOString(),
+            },
+          }
+        : stateObj;
 
       if (fallbackResult.handoffToHuman) {
         return await activateHumanHandoff({
           botText: fallbackResult.text,
-          stateObj,
+          stateObj: stateWithRouterMeta,
           reason:
             fallbackResult.handoffReason || "Solicitado pela LLM no fallback",
           delayMs: typeof delayMs === "number" ? delayMs : 800,
@@ -716,7 +796,11 @@ export const botFlowService = {
             });
           }
 
-          await saveSessionState(redirectNodeId, stateObj, redirectMessages);
+          await saveSessionState(
+            redirectNodeId,
+            stateWithRouterMeta,
+            redirectMessages,
+          );
           return redirectMessages;
         }
       }
@@ -751,7 +835,7 @@ export const botFlowService = {
         });
       }
 
-      await saveSessionState(nodeId, stateObj, fallbackMessages);
+      await saveSessionState(nodeId, stateWithRouterMeta, fallbackMessages);
       return fallbackMessages;
     };
 
@@ -850,7 +934,7 @@ export const botFlowService = {
         }
 
         if (nextNodeId) {
-          node = nodes.find((n) => n.id === nextNodeId);
+          node = nodes.find((n) => n.id === nextNodeId) || null;
         } else {
           const options = getNodeOptions(node.data);
           const menuText = buildMenuText(
@@ -884,7 +968,7 @@ export const botFlowService = {
           );
         }
       }
-      if (node.type === "productSearchNode") {
+      if (node?.type === "productSearchNode") {
         const ctx = (sessionState?.productSearch || {}) as any;
         if (ctx?.nodeId === currentNodeId) {
           const normalized = normalizeText(text);
@@ -951,7 +1035,7 @@ export const botFlowService = {
               ...sessionState,
               productSearch: { ...ctx, page: nextPage },
             };
-            node = nodes.find((n) => n.id === currentNodeId);
+            node = nodes.find((n) => n.id === currentNodeId) || null;
           } else if (wantsDone) {
             sessionState = { ...sessionState, productSearch: undefined };
             const foundEdge = edges.find(
@@ -968,10 +1052,10 @@ export const botFlowService = {
                 menuText,
                 currentNodeId!,
                 sessionState,
-                resolveNodeDelay(node.data, 1200),
+                resolveNodeDelay(node?.data, 1200),
               );
             }
-            node = targetId ? nodes.find((n) => n.id === targetId) : null;
+            node = targetId ? nodes.find((n) => n.id === targetId) || null : null;
           } else if (wantsBack) {
             sessionState = { ...sessionState, productSearch: undefined };
             const backEdge = edges.find(
@@ -987,7 +1071,7 @@ export const botFlowService = {
                 menuText,
                 currentNodeId!,
                 sessionState,
-                resolveNodeDelay(node.data, 1200),
+                resolveNodeDelay(node?.data, 1200),
               );
             }
             node = nodes.find((n) => n.id === backEdge.target) || null;
@@ -1008,7 +1092,7 @@ export const botFlowService = {
               const invalidMessages: MessageResponse[] = [
                 {
                   text: invalidText,
-                  delay: resolveNodeDelay(node.data, 900),
+                  delay: resolveNodeDelay(node?.data, 900),
                   ...classifyMessage(invalidText),
                 },
               ];
@@ -1024,7 +1108,7 @@ export const botFlowService = {
               menuText,
               currentNodeId!,
               sessionState,
-              resolveNodeDelay(node.data, 1200),
+              resolveNodeDelay(node?.data, 1200),
             );
           }
         }
@@ -1052,7 +1136,7 @@ export const botFlowService = {
       });
     };
 
-    let currentNode = node;
+    let currentNode: FlowNode | null = node;
 
     while (currentNode) {
       const state = sessionState || {};
@@ -1068,7 +1152,7 @@ export const botFlowService = {
           // Move to next node immediately
           const startEdge = edges.find((e) => e.source === currentNode?.id);
           currentNode = startEdge
-            ? nodes.find((n) => n.id === startEdge.target)
+            ? nodes.find((n) => n.id === startEdge.target) || null
             : null;
           continue;
 
@@ -1080,7 +1164,7 @@ export const botFlowService = {
           // Move to next node immediately
           const msgEdge = edges.find((e) => e.source === currentNode?.id);
           currentNode = msgEdge
-            ? nodes.find((n) => n.id === msgEdge.target)
+            ? nodes.find((n) => n.id === msgEdge.target) || null
             : null;
           continue;
 
@@ -1107,12 +1191,8 @@ export const botFlowService = {
             resolveNodeDelay(currentNode.data, 1000),
           );
 
-          const data = currentNode.data || {};
-          const searchTerm = (
-            data.searchQuery ||
-            data.searchPrefix ||
-            ""
-          ).trim();
+          const data = (currentNode.data || {}) as Record<string, any>;
+          const searchTerm = String(data.searchQuery || data.searchPrefix || "").trim();
           const maxResults =
             typeof data.maxResults === "number" && data.maxResults > 0
               ? Math.round(data.maxResults)
@@ -1335,7 +1415,7 @@ export const botFlowService = {
 
         case "blockNode":
           return await activateSilentBlock({
-            botText: currentNode.data?.message || currentNode.data?.content || "",
+            botText: String(currentNode.data?.message || currentNode.data?.content || ""),
             stateObj: state,
             delayMs: resolveNodeDelay(currentNode.data, 900),
           });
@@ -1346,7 +1426,7 @@ export const botFlowService = {
     }
 
     if (responseMessages.length > 0) {
-      const finalNodeId = currentNode ? currentNode.id : null;
+      const finalNodeId = null;
       await saveSessionState(finalNodeId, sessionState, responseMessages);
     }
     return responseMessages;

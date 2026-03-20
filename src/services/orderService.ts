@@ -1555,15 +1555,67 @@ class OrderService {
                 const isValidUUID =
                   customization_id && uuidRegex.test(customization_id);
 
-                const customizationDataToSave =
-                  await customizationAssetPersistenceService.processBase64InData(
-                    {
-                      customization_type,
-                      title,
-                      ...(customization_data || {}),
-                      ...otherFields,
-                    },
+                let customizationDataToSave: any = {
+                  customization_type,
+                  title,
+                  ...(customization_data || {}),
+                  ...otherFields,
+                };
+
+                // Para DYNAMIC_LAYOUT, processar arte final antes de remover base64
+                if (customization_type === "DYNAMIC_LAYOUT") {
+                  logger.debug(
+                    `🎨 [updateOrderItems] Processando DYNAMIC_LAYOUT para item ${idx}`,
                   );
+
+                  // Tentar extrair arte final de várias fontes
+                  const artworkData =
+                    customizationDataToSave.final_artwork ||
+                    customizationDataToSave.finalArtwork ||
+                    customizationDataToSave.image;
+
+                  let finalArtworkUrl: string | null = null;
+
+                  // Se tem base64 na arte, converter para arquivo
+                  if (artworkData?.base64) {
+                    logger.info(
+                      `  🔄 Convertendo arte final base64 para arquivo...`,
+                    );
+                    finalArtworkUrl =
+                      await customizationAssetPersistenceService.convertBase64ToTempUrl(
+                        artworkData.base64,
+                        "artwork",
+                      );
+                    if (finalArtworkUrl) {
+                      logger.info(`  ✅ Arte final salva: ${finalArtworkUrl}`);
+                    }
+                  }
+
+                  // Processar outros base64s no data
+                  customizationDataToSave =
+                    await customizationAssetPersistenceService.processBase64InData(
+                      customizationDataToSave,
+                    );
+
+                  // Se conseguiu converter arte final, adicionar ao data
+                  if (finalArtworkUrl) {
+                    customizationDataToSave.final_artwork = {
+                      preview_url: finalArtworkUrl,
+                    };
+                    customizationDataToSave.image = {
+                      preview_url: finalArtworkUrl,
+                    };
+                    customizationDataToSave.text = finalArtworkUrl;
+                  }
+                } else {
+                  // Para outros tipos, processar normalmente
+                  customizationDataToSave =
+                    await customizationAssetPersistenceService.processBase64InData(
+                      customizationDataToSave,
+                    );
+                }
+
+                // Remover base64 residual
                 this.removeBase64Recursive(customizationDataToSave);
 
                 customizationsBatch.push({

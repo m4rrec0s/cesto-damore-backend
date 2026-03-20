@@ -18,21 +18,30 @@ class CustomizationAssetPersistenceService {
   ): Promise<string | null> {
     try {
       let buffer: Buffer;
+      let mimeType = "image/png"; // default
 
       if (base64String.startsWith("data:")) {
-        const matches = base64String.match(/data:[^;]+;base64,(.+)/);
+        const matches = base64String.match(/data:([^;]+);base64,(.+)/);
         if (!matches) {
           logger.warn(
             `[CustomizationAssetPersistenceService] Formato base64 invalido para ${fileName}`,
           );
           return null;
         }
-        buffer = Buffer.from(matches[1], "base64");
+        mimeType = matches[1];
+        buffer = Buffer.from(matches[2], "base64");
       } else {
         buffer = Buffer.from(base64String, "base64");
       }
 
-      const result = await tempFileService.saveFile(buffer, fileName);
+      // Adicionar extensão baseada no mimeType se não houver
+      let finalFileName = fileName;
+      if (!fileName.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+        const ext = mimeType.split("/")[1] || "png";
+        finalFileName = `${fileName}.${ext}`;
+      }
+
+      const result = await tempFileService.saveFile(buffer, finalFileName);
       return result.url;
     } catch (error: any) {
       logger.error(

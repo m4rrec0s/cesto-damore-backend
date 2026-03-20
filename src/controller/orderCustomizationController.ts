@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { CustomizationType } from "@prisma/client";
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import prisma from "../database/prisma";
 import orderCustomizationService from "../services/orderCustomizationService";
 import tempFileService from "../services/tempFileService";
@@ -23,6 +25,135 @@ const customizationPayloadSchema = z.object({
   finalArtwork: artworkSchema.optional(),
   finalArtworks: z.array(artworkSchema).optional(),
 });
+
+type JsonCustomizationPayload = {
+  customization_type?: string;
+  customizationType?: string;
+  title?: string;
+  text?: string;
+  selected_option?: string;
+  selected_item_label?: string;
+  label_selected?: string;
+  componentId?: string;
+  component_id?: string;
+  selected_layout_id?: string;
+  layout_id?: string;
+  previewUrl?: string;
+  highQualityUrl?: string;
+  fabricState?: string;
+  images?: Array<{
+    id?: string;
+    url?: string;
+    preview_url?: string;
+  }>;
+  photos?: Array<{
+    preview_url?: string;
+    temp_file_id?: string;
+    original_name?: string;
+    position?: number;
+  }>;
+  image?: {
+    preview_url?: string;
+    url?: string;
+  };
+  final_artwork?: {
+    preview_url?: string;
+    url?: string;
+  };
+  final_artworks?: Array<{
+    preview_url?: string;
+    url?: string;
+  }>;
+  [key: string]: unknown;
+};
+
+const customizationDataSchema = {
+  type: "object",
+  additionalProperties: true,
+  properties: {
+    customization_type: { type: "string", nullable: true },
+    customizationType: { type: "string", nullable: true },
+    title: { type: "string", nullable: true },
+    text: { type: "string", nullable: true },
+    selected_option: { type: "string", nullable: true },
+    selected_item_label: { type: "string", nullable: true },
+    label_selected: { type: "string", nullable: true },
+    componentId: { type: "string", nullable: true },
+    component_id: { type: "string", nullable: true },
+    selected_layout_id: { type: "string", nullable: true },
+    layout_id: { type: "string", nullable: true },
+    previewUrl: { type: "string", nullable: true },
+    highQualityUrl: { type: "string", nullable: true },
+    fabricState: { type: "string", nullable: true },
+    images: {
+      type: "array",
+      nullable: true,
+      items: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          id: { type: "string", nullable: true },
+          url: { type: "string", nullable: true },
+          preview_url: { type: "string", nullable: true },
+        },
+        required: [],
+      },
+    },
+    photos: {
+      type: "array",
+      nullable: true,
+      items: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          preview_url: { type: "string", nullable: true },
+          temp_file_id: { type: "string", nullable: true },
+          original_name: { type: "string", nullable: true },
+          position: { type: "number", nullable: true },
+        },
+        required: [],
+      },
+    },
+    image: {
+      type: "object",
+      nullable: true,
+      additionalProperties: true,
+      properties: {
+        preview_url: { type: "string", nullable: true },
+        url: { type: "string", nullable: true },
+      },
+      required: [],
+    },
+    final_artwork: {
+      type: "object",
+      nullable: true,
+      additionalProperties: true,
+      properties: {
+        preview_url: { type: "string", nullable: true },
+        url: { type: "string", nullable: true },
+      },
+      required: [],
+    },
+    final_artworks: {
+      type: "array",
+      nullable: true,
+      items: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          preview_url: { type: "string", nullable: true },
+          url: { type: "string", nullable: true },
+        },
+        required: [],
+      },
+    },
+  },
+  required: [],
+} as const;
+
+const ajv = new Ajv({ allErrors: true, allowUnionTypes: true });
+addFormats(ajv);
+const validateCustomizationData = ajv.compile(customizationDataSchema);
 
 class OrderCustomizationController {
   private normalizeImagesCustomizationData(data: Record<string, any>) {
@@ -330,6 +461,12 @@ class OrderCustomizationController {
       );
 
       const payload = customizationPayloadSchema.parse(req.body);
+      if (!validateCustomizationData(payload.data as JsonCustomizationPayload)) {
+        return res.status(400).json({
+          error: "Formato de customização inválido",
+          details: validateCustomizationData.errors,
+        });
+      }
       logger.info(`📦 Payload recebido: tipo=${payload.customizationType}`);
       logger.debug(`   finalArtwork? ${!!payload.finalArtwork}`);
       logger.debug(`   finalArtworks? ${!!payload.finalArtworks}`);

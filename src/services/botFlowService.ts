@@ -766,7 +766,7 @@ export const botFlowService = {
               ? targetNode.data.options
               : [];
             const targetMenuText = buildMenuText(
-              targetNode.data?.message || "Escolha uma opção:",
+              getMenuLikeNodeMessage(targetNode.data) || "Escolha uma opção:",
               targetOptions,
             );
             redirectMessages.push({

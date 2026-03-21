@@ -658,19 +658,8 @@ class AIAgentService {
       };
     }
 
-    if (routingDecision.action === "ask_clarifying_question") {
-      const question =
-        String(routingDecision.question || "").trim() ||
-        "Pode me dizer em uma frase qual opção você quer seguir no menu?";
-      return {
-        text: question,
-        handoffToHuman: false,
-        routerDecision: routingDecision,
-      };
-    }
-
     const routedNodeId = String(routingDecision.node_id || "").trim();
-    if (routedNodeId) {
+    if (routingDecision.action === "route_node" && routedNodeId) {
       return {
         text: `SUCESSO_REDIRECIONAMENTO_DE_NO:[${routedNodeId}]`,
         handoffToHuman: false,
@@ -679,28 +668,8 @@ class AIAgentService {
     }
 
     const safeMenuText = this.formatFallbackMenuText(menuText);
-    const normalizedUserMessage = this.normalizeFallbackText(userMessage || "");
-    const intentFlags = this.buildFallbackIntentFlags(normalizedUserMessage);
-    const suspiciousRequest =
-      normalizedUserMessage.includes("prompt") ||
-      normalizedUserMessage.includes("instrucoes internas") ||
-      normalizedUserMessage.includes("instrucao interna") ||
-      normalizedUserMessage.includes("chave pix") ||
-      normalizedUserMessage.includes("dados bancarios") ||
-      normalizedUserMessage.includes("token") ||
-      normalizedUserMessage.includes("api key");
-    const allowInternalHandoff = intentFlags.human || suspiciousRequest;
-
-    if (allowInternalHandoff) {
-      return {
-        text: "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00",
-        handoffToHuman: true,
-        handoffReason: intentFlags.human
-          ? "Cliente pediu atendimento humano"
-          : "Suspeita de manipulação ou acesso a dados internos",
-      };
-    }
-
+    logger.warn(`⚠️ Router retornou decisão inválida ou sem node_id. Action: ${routingDecision.action}, Node: ${routedNodeId || '(vazio)'}`);
+    
     return {
        text: this.ensureMenuInResponse("Não entendi. Por favor, escolha uma das opções abaixo para continuarmos.", safeMenuText),
        handoffToHuman: false,

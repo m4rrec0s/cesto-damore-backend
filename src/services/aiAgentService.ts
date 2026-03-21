@@ -60,8 +60,8 @@ class AIAgentService {
   private openai: OpenAI;
   private lastMessageTimestamps: Map<string, { text: string; time: number }> =
     new Map();
-  private model: string = "gpt-4o-mini";
-  private advancedModel: string = "gpt-5.4-mini";
+  private model: string = "gpt-5.4-mini";
+  private advancedModel: string = "gpt-5-mini";
   private fallbackBlockedTools = new Set(
     (process.env.FALLBACK_BLOCKED_MCP_TOOLS || "")
       .split(",")

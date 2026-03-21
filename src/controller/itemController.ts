@@ -204,6 +204,37 @@ class ItemController {
     }
   }
 
+  async getComponents(req: Request, res: Response) {
+    try {
+      const items = await itemService.getComponentItems();
+      res.json(items);
+    } catch (error: any) {
+      console.error("Erro ao buscar componentes:", error);
+      res.status(500).json({
+        error: "Erro ao buscar componentes",
+        details: error.message,
+      });
+    }
+  }
+
+  async getProductsByComponent(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await itemService.getProductsByComponentId(id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Erro ao buscar produtos por componente:", error);
+      if (error.message.includes("não encontrado")) {
+        res.status(404).json({ error: error.message });
+      } else {
+        res.status(500).json({
+          error: "Erro ao buscar produtos por componente",
+          details: error.message,
+        });
+      }
+    }
+  }
+
   async updateStock(req: Request, res: Response) {
     try {
       const { id } = req.params;

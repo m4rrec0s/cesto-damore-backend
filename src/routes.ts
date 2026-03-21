@@ -317,6 +317,8 @@ router.post(
 router.get("/items", itemController.index);
 router.get("/items/available", itemController.getAvailable);
 router.get("/items/customizable", itemController.getWithCustomizations);
+router.get("/items/components", itemController.getComponents);
+router.get("/items/components/:id/products", itemController.getProductsByComponent);
 router.get("/items/:id", itemController.show);
 router.post(
   "/items",

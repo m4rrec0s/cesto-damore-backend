@@ -294,6 +294,92 @@ class ItemService {
       orderBy: { name: "asc" },
     });
   }
+  async getComponentItems() {
+    // Busca apenas itens que são componentes principais de produtos (não adicionais)
+    const items = await prisma.item.findMany({
+      where: {
+        components: {
+          some: {},
+        },
+      },
+      include: {
+        components: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                image_url: true,
+                is_active: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            components: true,
+          },
+        },
+      },
+      orderBy: {
+        name: "asc",
+      },
+    });
+
+    // Filtra para retornar apenas itens com produtos ativos
+    return items.filter((item) => item._count.components > 0);
+  }
+
+  async getProductsByComponentId(itemId: string) {
+    const item = await prisma.item.findUnique({
+      where: { id: itemId },
+      include: {
+        components: {
+          include: {
+            product: {
+              include: {
+                type: true,
+                categories: {
+                  include: {
+                    category: true,
+                  },
+                },
+              },
+            },
+          },
+          where: {
+            product: {
+              is_active: true,
+            },
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new Error("Item não encontrado");
+    }
+
+    return {
+      item: {
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        image_url: item.image_url,
+        base_price: item.base_price,
+      },
+      products: item.components.map((comp) => ({
+        id: comp.product.id,
+        name: comp.product.name,
+        price: comp.product.price,
+        image_url: comp.product.image_url,
+        quantity: comp.quantity,
+        type: comp.product.type.name,
+        categories: comp.product.categories.map((pc) => pc.category.name),
+      })),
+    };
+  }
 }
 
 export default new ItemService();

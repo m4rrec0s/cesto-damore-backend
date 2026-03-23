@@ -317,6 +317,50 @@ const toFlowCatalogNode = (node: FlowNode): FlowCatalogNode => {
   };
 };
 
+const FLOW_GENERIC_PLACEHOLDER_MESSAGES = new Set([
+  "nova mensagem",
+  "new message",
+  "mensagem",
+]);
+
+const isGenericPlaceholderMessage = (value: unknown) => {
+  const normalized = normalizeText(String(value || ""));
+  return FLOW_GENERIC_PLACEHOLDER_MESSAGES.has(normalized);
+};
+
+const isRoutableCatalogNode = (node: FlowNode) => {
+  const type = String(node?.type || "").trim();
+  if (!type) return false;
+
+  // startNode and blockNode are not user-facing navigation targets.
+  if (type === "startNode" || type === "blockNode") return false;
+
+  // Ignore generic placeholder message nodes to avoid "Nova mensagem" routing.
+  if (type === "messageNode") {
+    const message = String(node?.data?.message || "").trim();
+    if (!message || isGenericPlaceholderMessage(message)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const isRedirectNodeUsable = (node: FlowNode) => {
+  if (!node) return false;
+  const type = String(node.type || "").trim();
+  if (!type || type === "startNode" || type === "blockNode") return false;
+
+  if (type === "messageNode") {
+    const message = String(node.data?.message || "").trim();
+    if (!message || isGenericPlaceholderMessage(message)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 const classifyMessage = (message: string): Partial<MessageResponse> => {
   try {
     const produtoPattern =
@@ -513,6 +557,7 @@ export const botFlowService = {
     const nodes = ((flow.nodes as any[]) || []) as FlowNode[];
     const edges = (flow.edges as any[]) || [];
     const flowCatalog = nodes
+      .filter(isRoutableCatalogNode)
       .map(toFlowCatalogNode)
       .filter((catalogNode) => Boolean(catalogNode.id));
 
@@ -750,7 +795,7 @@ export const botFlowService = {
 
       if (redirectNodeId) {
         const targetNode = nodes.find((n) => String(n.id) === redirectNodeId);
-        if (targetNode) {
+        if (targetNode && isRedirectNodeUsable(targetNode)) {
           const redirectMessages: MessageResponse[] = [];
 
           if (safeFallbackText) {
@@ -806,14 +851,17 @@ export const botFlowService = {
       }
 
       const fallbackMessages: MessageResponse[] = [];
+      const effectiveFallbackText =
+        safeFallbackText ||
+        "Não consegui identificar exatamente sua intenção, mas vamos continuar por este menu.";
 
       if (
         safeMenuText &&
-        safeFallbackText.endsWith(safeMenuText) &&
-        safeFallbackText !== safeMenuText
+        effectiveFallbackText.endsWith(safeMenuText) &&
+        effectiveFallbackText !== safeMenuText
       ) {
-        const answerText = safeFallbackText
-          .slice(0, safeFallbackText.length - safeMenuText.length)
+        const answerText = effectiveFallbackText
+          .slice(0, effectiveFallbackText.length - safeMenuText.length)
           .trim();
         if (answerText) {
           fallbackMessages.push({
@@ -829,9 +877,9 @@ export const botFlowService = {
         });
       } else {
         fallbackMessages.push({
-          text: safeFallbackText,
+          text: effectiveFallbackText,
           delay: baseDelay,
-          ...classifyMessage(safeFallbackText),
+          ...classifyMessage(effectiveFallbackText),
         });
       }
 

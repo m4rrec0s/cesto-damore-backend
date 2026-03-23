@@ -2,6 +2,7 @@ import prisma from "../database/prisma";
 import { CreateProductInput } from "../models/Product";
 import { deleteProductImage } from "../config/localStorage";
 import productComponentService from "./productComponentService";
+import logger from "../utils/logger";
 
 class ProductService {
   async getAllProducts(
@@ -433,7 +434,7 @@ class ProductService {
       if (error.message.includes("pedidos vinculados")) {
         throw error;
       }
-      console.error(`[ProductService] Erro ao deletar produto ${id}:`, error);
+      logger.error(`[ProductService] Erro ao deletar produto ${id}:`, error);
       throw new Error(`Erro ao deletar produto: ${error.message}`);
     }
   }

@@ -39,11 +39,15 @@ class AuthController {
       const result = await authService.login(email, password);
       res.json(result);
     } catch (error: any) {
+      const errorMessage =
+        error instanceof Error ? error.message : typeof error === "string" ? error : "";
+
       if (
-        error.message.includes("não encontrado") ||
-        error.message.includes("não configurada")
+        errorMessage.includes("não encontrado") ||
+        errorMessage.includes("não configurada") ||
+        errorMessage.includes("Credenciais inválidas")
       ) {
-        res.status(400).json({ error: error.message });
+        res.status(401).json({ error: "Credenciais inválidas" });
       } else {
         res.status(500).json({ error: "Erro interno do servidor" });
       }
@@ -77,7 +81,7 @@ class AuthController {
         } catch (imageError: any) {
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }

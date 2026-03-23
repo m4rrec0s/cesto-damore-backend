@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import whatsappService from "./whatsappService";
 import aiAgentService from "./aiAgentService";
 import type { FlowCatalogNode } from "../types/flowRouter";
+import logger from "../utils/logger";
 const prisma = new PrismaClient();
 
 interface BotMessageRequest {
@@ -702,7 +703,7 @@ export const botFlowService = {
       try {
         await whatsappService.sendMessage(alertMsg, BOT_HANDOFF_GROUP_ID);
       } catch (e) {
-        console.error("[BotFlow] Erro ao notificar atendente de handoff:", e);
+        logger.error("[BotFlow] Erro ao notificar atendente de handoff:", e);
       }
 
       return handoffMessages;

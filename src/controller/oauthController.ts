@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import googleDriveService from "../services/googleDriveService";
+import logger from "../utils/logger";
 
 class OAuthController {
   
@@ -76,10 +77,10 @@ class OAuthController {
         </html>
       `);
     } catch (error: any) {
-      console.error("Erro ao gerar URL de autenticação:", error);
+      logger.error("Erro ao gerar URL de autenticação:", error);
       res.status(500).json({
         error: "Erro ao gerar URL de autenticação",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -204,7 +205,7 @@ class OAuthController {
         </html>
       `);
     } catch (error: any) {
-      console.error("Erro no callback OAuth:", error);
+      logger.error("Erro no callback OAuth:", error);
       res.status(500).send(`
         <!DOCTYPE html>
         <html>
@@ -271,11 +272,11 @@ class OAuthController {
           : "Google Drive NÃO configurado. Execute /oauth/authorize",
       });
     } catch (error: any) {
-      console.error("Erro ao verificar status:", error);
+      logger.error("Erro ao verificar status:", error);
       res.status(500).json({
         success: false,
         error: "Erro ao verificar status",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -288,7 +289,7 @@ class OAuthController {
         message: "Tokens limpos. Execute /oauth/authorize para reautenticar.",
       });
     } catch (err: any) {
-      console.error("Erro ao limpar tokens:", err);
+      logger.error("Erro ao limpar tokens:", err);
       res
         .status(500)
         .json({ success: false, message: "Falha ao limpar tokens" });
@@ -319,7 +320,7 @@ class OAuthController {
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
-      console.error("Erro no debug:", err);
+      logger.error("Erro no debug:", err);
       res.status(500).json({
         error: "Erro ao obter informações de debug",
         details: err.message,

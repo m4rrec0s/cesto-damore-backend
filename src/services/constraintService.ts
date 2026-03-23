@@ -1,4 +1,5 @@
 import prisma from "../database/prisma";
+import logger from "../utils/logger";
 
 interface ItemConstraintData {
   target_item_id: string;
@@ -27,7 +28,7 @@ class ConstraintService {
 
   async createConstraint(data: ItemConstraintData) {
 
-    console.warn("createConstraint: funcionalidade desabilitada");
+    logger.warn("createConstraint: funcionalidade desabilitada");
     return null;
   }
 
@@ -42,7 +43,7 @@ class ConstraintService {
 
   async updateConstraint(id: string, data: Partial<ItemConstraintData>) {
 
-    console.warn("updateConstraint: funcionalidade desabilitada");
+    logger.warn("updateConstraint: funcionalidade desabilitada");
     return null;
   }
 
@@ -50,7 +51,7 @@ class ConstraintService {
 
   async deleteConstraint(id: string) {
 
-    console.warn("deleteConstraint: funcionalidade desabilitada");
+    logger.warn("deleteConstraint: funcionalidade desabilitada");
     return { success: true };
   }
 

@@ -431,7 +431,7 @@ Qual é a intenção? Responda com UMA PALAVRA apenas (o nome da intenção).`;
     );
     return detectIntentWithKeywords(message, messageHistory);
   } catch (error) {
-    console.error(
+    logger.error(
       `[PromptOrchestration] Erro ao detectar intent com LLM:`,
       error,
     );
@@ -559,7 +559,7 @@ async function loadChatHistory(sessionId: string): Promise<any[]> {
     `;
     return messages || [];
   } catch (error) {
-    console.error(`[PromptOrchestration] Erro ao carregar histórico: ${error}`);
+    logger.error(`[PromptOrchestration] Erro ao carregar histórico: ${error}`);
     return [];
   }
 }
@@ -574,7 +574,7 @@ async function loadCustomerMemory(customerPhone: string): Promise<any> {
     });
     return memory || null;
   } catch (error) {
-    console.error(`[PromptOrchestration] Erro ao carregar memória: ${error}`);
+    logger.error(`[PromptOrchestration] Erro ao carregar memória: ${error}`);
     return null;
   }
 }
@@ -660,7 +660,7 @@ async function ensureAIAgentSession(
 
     return finalSessionId;
   } catch (error) {
-    console.error(
+    logger.error(
       `[PromptOrchestration] Erro ao criar/verificar session: ${error}`,
     );
     throw error;
@@ -881,7 +881,7 @@ export async function orchestratePrompt(
       prompt_injection: promptInjection,
     });
   } catch (error) {
-    console.error(`[PromptOrchestration] Erro fatal:`, error);
+    logger.error(`[PromptOrchestration] Erro fatal:`, error);
     return res.status(500).json({
       status: "error",
       error: `Erro ao processar orquestração: ${error instanceof Error ? error.message : "Desconhecido"}`,
@@ -1131,7 +1131,7 @@ export async function getPromptByName(
       content: prompt,
     });
   } catch (error) {
-    console.error(`[GetPrompt] Erro:`, error);
+    logger.error(`[GetPrompt] Erro:`, error);
     return res.status(500).json({
       status: "error",
       error: `Erro ao obter prompt: ${error instanceof Error ? error.message : "Desconhecido"}`,
@@ -1188,7 +1188,7 @@ export async function updateCustomerMemory(
       customer_memory: memory,
     });
   } catch (error) {
-    console.error(`[UpdateMemory] Erro:`, error);
+    logger.error(`[UpdateMemory] Erro:`, error);
     return res.status(500).json({
       status: "error",
       error: `Erro ao atualizar memória: ${error instanceof Error ? error.message : "Desconhecido"}`,

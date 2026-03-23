@@ -69,6 +69,10 @@ function createAppJWT(userId: string, email: string) {
 }
 
 class AuthService {
+  private createInvalidLoginError() {
+    return new Error("Credenciais inválidas");
+  }
+
   async register({ firebaseUid, email, name, imageUrl }: RegisterInput) {
     const existingUser = await prisma.user.findUnique({
       where: { firebaseUId: firebaseUid },
@@ -198,9 +202,7 @@ class AuthService {
             data: { firebaseUId: uid, updated_at: new Date() },
           });
         } else {
-          throw new Error(
-            "Usuário não encontrado. Faça login com Google primeiro.",
-          );
+          throw this.createInvalidLoginError();
         }
       } else {
 
@@ -244,9 +246,7 @@ class AuthService {
       };
     } catch (error: any) {
       if (error.response?.status === 400) {
-        throw new Error(
-          "Email ou senha incorretos, ou usuário não registrado no Firebase Auth",
-        );
+        throw this.createInvalidLoginError();
       }
       throw error;
     }

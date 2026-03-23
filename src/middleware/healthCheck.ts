@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { checkDatabaseConnection } from "../database/prismaRetry";
+import logger from "../utils/logger";
 
 export async function databaseHealthCheck(
   req: Request,
@@ -10,7 +11,7 @@ export async function databaseHealthCheck(
     const isConnected = await checkDatabaseConnection();
 
     if (!isConnected) {
-      console.warn("⚠️ Banco de dados não está respondendo");
+      logger.warn("⚠️ Banco de dados não está respondendo");
       return res.status(503).json({
         error: "Serviço temporariamente indisponível",
         message:
@@ -20,7 +21,7 @@ export async function databaseHealthCheck(
 
     next();
   } catch (error) {
-    console.error("❌ Erro no healthcheck do banco:", error);
+    logger.error("❌ Erro no healthcheck do banco:", error);
     next();
   }
 }

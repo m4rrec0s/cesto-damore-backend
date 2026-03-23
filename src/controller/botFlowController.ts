@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { botFlowService } from "../services/botFlowService";
+import logger from "../utils/logger";
 
 export const botFlowController = {
   async handleWebhook(req: Request, res: Response) {
@@ -18,7 +19,7 @@ export const botFlowController = {
 
       return res.json({ messages: responseMessages, responses: responseMessages });
     } catch (error) {
-      console.error("[BotFlowController] Error:", error);
+      logger.error("[BotFlowController] Error:", error);
       return res.status(500).json({ error: "Internal server error" });
     }
   },

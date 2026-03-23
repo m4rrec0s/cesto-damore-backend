@@ -1,6 +1,7 @@
 import { CustomizationType } from "@prisma/client";
 import prisma from "../database/prisma";
 import layoutBaseService from "./layoutBaseService";
+import logger from "../utils/logger";
 
 interface CustomizationDTO {
   id: string;
@@ -326,7 +327,7 @@ class CustomizationService {
           try {
             layout = await layoutBaseService.getById(layoutId);
           } catch (error) {
-            console.warn(`Preview: Layout ${layoutId} não encontrado`);
+            logger.warn(`Preview: Layout ${layoutId} não encontrado`);
           }
         }
       }

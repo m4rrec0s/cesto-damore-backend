@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../database/prisma";
+import logger from "../utils/logger";
 
 const uuidSchema = z.string().uuid({ message: "Identificador inválido" });
 
@@ -23,10 +24,10 @@ class ItemConstraintController {
     try {
       return res.json([]);
     } catch (error: any) {
-      console.error("Erro ao listar constraints:", error);
+      logger.error("Erro ao listar constraints:", error);
       return res.status(500).json({
         error: "Erro ao listar constraints",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -42,10 +43,10 @@ class ItemConstraintController {
         });
       }
 
-      console.error("Erro ao buscar constraints:", error);
+      logger.error("Erro ao buscar constraints:", error);
       return res.status(500).json({
         error: "Erro ao buscar constraints",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -65,10 +66,10 @@ class ItemConstraintController {
         });
       }
 
-      console.error("Erro ao criar constraint:", error);
+      logger.error("Erro ao criar constraint:", error);
       return res.status(500).json({
         error: "Erro ao criar constraint",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -89,10 +90,10 @@ class ItemConstraintController {
         });
       }
 
-      console.error("Erro ao atualizar constraint:", error);
+      logger.error("Erro ao atualizar constraint:", error);
       return res.status(500).json({
         error: "Erro ao atualizar constraint",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -113,10 +114,10 @@ class ItemConstraintController {
         });
       }
 
-      console.error("Erro ao deletar constraint:", error);
+      logger.error("Erro ao deletar constraint:", error);
       return res.status(500).json({
         error: "Erro ao deletar constraint",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -182,10 +183,10 @@ class ItemConstraintController {
         });
       }
 
-      console.error("Erro ao buscar itens:", error);
+      logger.error("Erro ao buscar itens:", error);
       return res.status(500).json({
         error: "Erro ao buscar itens",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }

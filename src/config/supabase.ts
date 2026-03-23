@@ -1,9 +1,10 @@
 import postgres from "postgres";
+import logger from "../utils/logger";
 
 const connectionString = process.env.SUPABASE_N8N_DATABASE_URL;
 
 if (!connectionString) {
-  console.warn(
+  logger.warn(
     "⚠️ SUPABASE_N8N_DATABASE_URL não está configurada. Serviço de clientes n8n não estará disponível."
   );
 }

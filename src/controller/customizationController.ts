@@ -5,6 +5,7 @@ import customizationService, {
   CustomizationInput,
 } from "../services/customizationService";
 import { saveImageLocally } from "../config/localStorage";
+import logger from "../utils/logger";
 
 const customizationInputSchema: z.ZodType<CustomizationInput> = z.object({
   customization_id: z.string().uuid(),
@@ -43,10 +44,10 @@ class CustomizationController {
         });
       }
 
-      console.error("Erro ao buscar customizações:", error);
+      logger.error("Erro ao buscar customizações:", error);
       return res.status(500).json({
         error: "Erro ao buscar customizações",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -74,10 +75,10 @@ class CustomizationController {
         });
       }
 
-      console.error("Erro ao validar customizações:", error);
+      logger.error("Erro ao validar customizações:", error);
       return res.status(500).json({
         error: "Erro ao validar customizações",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -105,10 +106,10 @@ class CustomizationController {
         });
       }
 
-      console.error("Erro ao gerar preview:", error);
+      logger.error("Erro ao gerar preview:", error);
       return res.status(500).json({
         error: "Erro ao gerar preview",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -133,10 +134,10 @@ class CustomizationController {
         });
       }
 
-      console.error("Erro ao listar customizações:", error);
+      logger.error("Erro ao listar customizações:", error);
       return res.status(500).json({
         error: "Erro ao listar customizações",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -165,10 +166,10 @@ class CustomizationController {
         return res.status(404).json({ error: error.message });
       }
 
-      console.error("Erro ao buscar customização:", error);
+      logger.error("Erro ao buscar customização:", error);
       return res.status(500).json({
         error: "Erro ao buscar customização",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -246,14 +247,14 @@ class CustomizationController {
       if (isCustomizationValidationError(error?.message)) {
         return res.status(400).json({
           error: "Dados inválidos para customização",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
 
-      console.error("Erro ao criar customização:", error);
+      logger.error("Erro ao criar customização:", error);
       return res.status(500).json({
         error: "Erro ao criar customização",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -334,7 +335,7 @@ class CustomizationController {
       if (isCustomizationValidationError(error?.message)) {
         return res.status(400).json({
           error: "Dados inválidos para customização",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
 
@@ -342,10 +343,10 @@ class CustomizationController {
         return res.status(404).json({ error: error.message });
       }
 
-      console.error("Erro ao atualizar customização:", error);
+      logger.error("Erro ao atualizar customização:", error);
       return res.status(500).json({
         error: "Erro ao atualizar customização",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -374,10 +375,10 @@ class CustomizationController {
         return res.status(404).json({ error: error.message });
       }
 
-      console.error("Erro ao remover customização:", error);
+      logger.error("Erro ao remover customização:", error);
       return res.status(500).json({
         error: "Erro ao remover customização",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }

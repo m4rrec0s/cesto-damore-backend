@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import categoryService from "../services/categoryService";
+import logger from "../utils/logger";
 
 class CategoryController {
   async index(req: Request, res: Response) {
@@ -7,7 +8,7 @@ class CategoryController {
       const categories = await categoryService.getAllCategories();
       res.json(categories);
     } catch (error: any) {
-      console.error("Erro ao buscar categorias:", error);
+      logger.error("Erro ao buscar categorias:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -18,7 +19,7 @@ class CategoryController {
       const category = await categoryService.getCategoryById(id);
       res.json(category);
     } catch (error: any) {
-      console.error("Erro ao buscar categoria:", error);
+      logger.error("Erro ao buscar categoria:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -34,7 +35,7 @@ class CategoryController {
       const category = await categoryService.createCategory(req.body);
       res.status(201).json(category);
     } catch (error: any) {
-      console.error("Erro ao criar categoria:", error);
+      logger.error("Erro ao criar categoria:", error);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("Já existe")
@@ -52,7 +53,7 @@ class CategoryController {
       const category = await categoryService.updateCategory(id, req.body);
       res.json(category);
     } catch (error: any) {
-      console.error("Erro ao atualizar categoria:", error);
+      logger.error("Erro ao atualizar categoria:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -73,7 +74,7 @@ class CategoryController {
       const result = await categoryService.deleteCategory(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar categoria:", error);
+      logger.error("Erro ao deletar categoria:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else if (

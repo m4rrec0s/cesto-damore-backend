@@ -120,11 +120,11 @@ export class PaymentController {
         data: preference,
       });
     } catch (error) {
-      console.error("Erro ao criar preferência:", error);
+      logger.error("Erro ao criar preferência:", error);
       const status = PaymentController.mapErrorToStatus(error);
       res.status(status).json({
         error: "Falha ao criar preferência de pagamento",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -174,11 +174,11 @@ export class PaymentController {
         data: payment,
       });
     } catch (error) {
-      console.error("Erro ao criar pagamento:", error);
+      logger.error("Erro ao criar pagamento:", error);
       const status = PaymentController.mapErrorToStatus(error);
       res.status(status).json({
         error: "Falha ao criar pagamento",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -215,7 +215,7 @@ export class PaymentController {
         orderId === "null" ||
         orderId === "undefined"
       ) {
-        console.warn(
+        logger.warn(
           `[Checkout] Dados inválidos recebidos: orderId=${orderId}, userId=${userId}`,
         );
         return res.status(400).json({
@@ -278,7 +278,7 @@ export class PaymentController {
             : "Pagamento processado com sucesso!",
       });
     } catch (error) {
-      console.error("Erro ao processar checkout transparente:", error);
+      logger.error("Erro ao processar checkout transparente:", error);
 
       const friendlyMessage = PaymentController.extractMercadoPagoError(error);
 
@@ -294,7 +294,7 @@ export class PaymentController {
       const status = PaymentController.mapErrorToStatus(error);
       res.status(status).json({
         error: friendlyMessage || "Falha ao processar pagamento",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
         status_detail: statusDetail,
       });
     }
@@ -343,7 +343,7 @@ export class PaymentController {
             dbPayment.mercado_pago_id,
           );
         } catch (error) {
-          console.warn("Não foi possível buscar dados do Mercado Pago:", error);
+          logger.warn("Não foi possível buscar dados do Mercado Pago:", error);
         }
       }
 
@@ -371,10 +371,10 @@ export class PaymentController {
         },
       });
     } catch (error) {
-      console.error("Erro ao consultar status do pagamento:", error);
+      logger.error("Erro ao consultar status do pagamento:", error);
       res.status(500).json({
         error: "Falha ao consultar status do pagamento",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -414,10 +414,10 @@ export class PaymentController {
       );
       res.status(200).json({ received: true });
     } catch (error) {
-      console.error("❌ PaymentController.handleWebhook - Erro:", error);
+      logger.error("❌ PaymentController.handleWebhook - Erro:", error);
       res.status(500).json({
         error: "Falha ao processar webhook",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -471,10 +471,10 @@ export class PaymentController {
         data: cancelResult,
       });
     } catch (error) {
-      console.error("Erro ao cancelar pagamento:", error);
+      logger.error("Erro ao cancelar pagamento:", error);
       res.status(500).json({
         error: "Falha ao cancelar pagamento",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -534,10 +534,10 @@ export class PaymentController {
         },
       });
     } catch (error) {
-      console.error("Erro ao buscar pagamentos do usuário:", error);
+      logger.error("Erro ao buscar pagamentos do usuário:", error);
       res.status(500).json({
         error: "Falha ao buscar pagamentos",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -578,10 +578,10 @@ export class PaymentController {
         },
       });
     } catch (error) {
-      console.error("Erro ao buscar resumo financeiro:", error);
+      logger.error("Erro ao buscar resumo financeiro:", error);
       res.status(500).json({
         error: "Falha ao buscar resumo financeiro",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -681,11 +681,11 @@ export class PaymentController {
         environment: process.env.NODE_ENV || "development",
       });
     } catch (error) {
-      console.error("Erro no health check:", error);
+      logger.error("Erro no health check:", error);
       res.status(500).json({
         success: false,
         error: "Falha no health check",
-        details: error instanceof Error ? error.message : "Erro desconhecido",
+        details: "Erro interno do servidor",
         timestamp: new Date().toISOString(),
       });
     }

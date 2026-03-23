@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { promises as fs } from "fs";
 import path from "path";
+import logger from "../utils/logger";
 
 const prisma = new PrismaClient();
 
@@ -227,7 +228,7 @@ class LayoutBaseService {
       try {
         await fs.unlink(imagePath);
       } catch (error) {
-        console.warn(`Erro ao deletar arquivo físico: ${imagePath}`, error);
+        logger.warn(`Erro ao deletar arquivo físico: ${imagePath}`, error);
       }
     }
 

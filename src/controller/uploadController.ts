@@ -46,13 +46,13 @@ class UploadController {
       } catch (imageError: any) {
         return res.status(500).json({
           error: "Erro ao processar imagem",
-          details: imageError.message,
+          details: "Erro interno do servidor",
         });
       }
     } catch (error: any) {
       return res.status(500).json({
         error: "Erro ao fazer upload",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }

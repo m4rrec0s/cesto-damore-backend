@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { CardToken, MercadoPagoConfig } from "mercadopago";
 import axios from "axios";
 import { environmentConfig, mercadoPagoConfig } from "../config/mercadopago";
+import logger from "../utils/logger";
 
 export async function getPublicConfig(_req: Request, res: Response) {
   try {
@@ -90,7 +91,7 @@ export async function getCardIssuers(req: Request, res: Response) {
       message: "Emissor não encontrado para este cartão",
     });
   } catch (error: unknown) {
-    console.error("❌ Erro ao buscar emissor do cartão:", error);
+    logger.error("❌ Erro ao buscar emissor do cartão:", error);
 
     const errorMessage =
       error && typeof error === "object" && "message" in error
@@ -170,7 +171,7 @@ export async function createCardToken(req: Request, res: Response) {
       last_four_digits: tokenResponse.last_four_digits,
     });
   } catch (error: unknown) {
-    console.error("❌ Erro ao criar token de cartão:", error);
+    logger.error("❌ Erro ao criar token de cartão:", error);
 
     const errorMessage =
       error && typeof error === "object" && "message" in error
@@ -239,7 +240,7 @@ export async function getInstallments(req: Request, res: Response) {
       message: "Nenhuma opção de parcelamento encontrada",
     });
   } catch (error: unknown) {
-    console.error("❌ Erro ao buscar parcelas:", error);
+    logger.error("❌ Erro ao buscar parcelas:", error);
 
     const errorMessage =
       error && typeof error === "object" && "message" in error

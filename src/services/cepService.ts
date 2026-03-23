@@ -1,4 +1,5 @@
 import axios from "axios";
+import logger from "../utils/logger";
 
 export interface AddressInfo {
   zip_code: string;
@@ -108,7 +109,7 @@ class CepService {
         }
       }
 
-      console.error("Erro na consulta do CEP:", error);
+      logger.error("Erro na consulta do CEP:", error);
       throw new Error("Erro ao consultar informações do CEP");
     }
   }

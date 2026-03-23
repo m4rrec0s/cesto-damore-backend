@@ -3,6 +3,7 @@ import sharp from "sharp";
 import productService from "../services/productService";
 import { saveImageLocally } from "../config/localStorage";
 import trendStatsService from "../services/trendStatsService";
+import logger from "../utils/logger";
 
 class ProductController {
   async index(req: Request, res: Response) {
@@ -26,7 +27,7 @@ class ProductController {
       });
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao buscar produtos:", error);
+      logger.error("Erro ao buscar produtos:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -38,7 +39,7 @@ class ProductController {
       void trendStatsService.recordProductView(id, req);
       res.json(product);
     } catch (error: any) {
-      console.error("Erro ao buscar produto:", error);
+      logger.error("Erro ao buscar produto:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -100,10 +101,10 @@ class ProductController {
           );
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro ao salvar imagem:", imageError);
+          logger.error("Erro ao salvar imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -111,7 +112,7 @@ class ProductController {
       const product = await productService.createProduct(data);
       res.status(201).json(product);
     } catch (error: any) {
-      console.error("Erro ao criar produto:", error);
+      logger.error("Erro ao criar produto:", error);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("inválido")
@@ -173,10 +174,10 @@ class ProductController {
 
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro no processamento de imagem:", imageError);
+          logger.error("Erro no processamento de imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -184,7 +185,7 @@ class ProductController {
       const product = await productService.updateProduct(id, data);
       res.json(product);
     } catch (error: any) {
-      console.error("Erro ao atualizar produto:", error);
+      logger.error("Erro ao atualizar produto:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -204,7 +205,7 @@ class ProductController {
       const result = await productService.deleteProduct(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar produto:", error);
+      logger.error("Erro ao deletar produto:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -233,7 +234,7 @@ class ProductController {
       const result = await productService.linkAdditional(id, additionalId);
       res.status(201).json(result);
     } catch (error: any) {
-      console.error("Erro ao vincular adicional:", error);
+      logger.error("Erro ao vincular adicional:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -256,7 +257,7 @@ class ProductController {
       const result = await productService.unlinkAdditional(id, additionalId);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao desvincular adicional:", error);
+      logger.error("Erro ao desvincular adicional:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else {

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { webhookNotificationService } from "../services/webhookNotificationService";
+import logger from "../utils/logger";
 
 class WebhookNotificationController {
   
@@ -24,7 +25,7 @@ class WebhookNotificationController {
       const stats = webhookNotificationService.getStats();
       res.json(stats);
     } catch (error) {
-      console.error("Erro ao obter estatísticas SSE:", error);
+      logger.error("Erro ao obter estatísticas SSE:", error);
       res.status(500).json({ error: "Erro ao obter estatísticas" });
     }
   }

@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { promises as fs } from "fs";
 import path from "path";
+import logger from "../utils/logger";
 
 interface SlotDef {
   id: string;
@@ -62,7 +63,7 @@ export class ImageCompositionService {
       try {
         await fs.access(imageSlot.imagePath);
       } catch (error) {
-        console.warn(
+        logger.warn(
           `Imagem não encontrada para slot ${slot.id}: ${imageSlot.imagePath}`
         );
         continue;

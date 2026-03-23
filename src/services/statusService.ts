@@ -1,6 +1,7 @@
 import prisma from "../database/prisma";
 import { withRetry } from "../database/prismaRetry";
 import { subDays, startOfMonth, endOfMonth, differenceInDays } from "date-fns";
+import logger from "../utils/logger";
 
 class StatusService {
     async getBusinessStatus(days: number = 30) {
@@ -167,7 +168,7 @@ class StatusService {
                 daily_data: summaries,
             };
         } catch (error: any) {
-            console.error("Erro ao calcular status do negócio:", error);
+            logger.error("Erro ao calcular status do negócio:", error);
             throw new Error(`Falha ao calcular status do negócio: ${error.message}`);
         }
     }
@@ -212,7 +213,7 @@ class StatusService {
 
             return enriched;
         } catch (error: any) {
-            console.error("Erro ao buscar produtos mais vendidos:", error);
+            logger.error("Erro ao buscar produtos mais vendidos:", error);
             return [];
         }
     }

@@ -170,7 +170,7 @@ export const deleteProductImage = async (
       "⚠️ Não foi possível deletar a imagem do produto:",
       error.message,
     );
-    console.warn("🔄 Produto será deletado mesmo assim");
+    logger.warn("🔄 Produto será deletado mesmo assim");
   }
 };
 
@@ -188,7 +188,7 @@ export const deleteAdditionalImage = async (
       "⚠️ Não foi possível deletar a imagem adicional:",
       error.message,
     );
-    console.warn("🔄 Imagem adicional será deletada mesmo assim");
+    logger.warn("🔄 Imagem adicional será deletada mesmo assim");
   }
 };
 

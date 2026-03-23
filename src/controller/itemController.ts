@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import itemService from "../services/itemService";
 import { saveImageLocally } from "../config/localStorage";
+import logger from "../utils/logger";
 
 class ItemController {
   async index(req: Request, res: Response) {
@@ -24,10 +25,10 @@ class ItemController {
       });
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao buscar items:", error);
+      logger.error("Erro ao buscar items:", error);
       res.status(500).json({
         error: "Erro ao buscar items",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -52,13 +53,13 @@ class ItemController {
         .status(400)
         .json({ error: "Parâmetro 'id' ou 'productId' é obrigatório" });
     } catch (error: any) {
-      console.error("Erro ao buscar item:", error);
+      logger.error("Erro ao buscar item:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else {
         res.status(500).json({
           error: "Erro ao buscar item",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -92,7 +93,7 @@ class ItemController {
       const item = await itemService.createItem(data);
       res.status(201).json(item);
     } catch (error: any) {
-      console.error("Erro ao criar item:", error);
+      logger.error("Erro ao criar item:", error);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("inválido")
@@ -101,7 +102,7 @@ class ItemController {
       } else {
         res.status(500).json({
           error: "Erro ao criar item",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -141,7 +142,7 @@ class ItemController {
       const item = await itemService.updateItem(id, data);
       res.json(item);
     } catch (error: any) {
-      console.error("Erro ao atualizar item:", error);
+      logger.error("Erro ao atualizar item:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -152,7 +153,7 @@ class ItemController {
       } else {
         res.status(500).json({
           error: "Erro ao atualizar item",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -164,7 +165,7 @@ class ItemController {
       await itemService.deleteItem(id);
       res.status(204).send();
     } catch (error: any) {
-      console.error("Erro ao deletar item:", error);
+      logger.error("Erro ao deletar item:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("usado")) {
@@ -172,7 +173,7 @@ class ItemController {
       } else {
         res.status(500).json({
           error: "Erro ao deletar item",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -183,10 +184,10 @@ class ItemController {
       const items = await itemService.getAvailableItems();
       res.json(items);
     } catch (error: any) {
-      console.error("Erro ao buscar items disponíveis:", error);
+      logger.error("Erro ao buscar items disponíveis:", error);
       res.status(500).json({
         error: "Erro ao buscar items disponíveis",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -196,10 +197,10 @@ class ItemController {
       const items = await itemService.getItemsWithCustomizations();
       res.json(items);
     } catch (error: any) {
-      console.error("Erro ao buscar items com customizações:", error);
+      logger.error("Erro ao buscar items com customizações:", error);
       res.status(500).json({
         error: "Erro ao buscar items com customizações",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -209,10 +210,10 @@ class ItemController {
       const items = await itemService.getComponentItems();
       res.json(items);
     } catch (error: any) {
-      console.error("Erro ao buscar componentes:", error);
+      logger.error("Erro ao buscar componentes:", error);
       res.status(500).json({
         error: "Erro ao buscar componentes",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -223,13 +224,13 @@ class ItemController {
       const result = await itemService.getProductsByComponentId(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao buscar produtos por componente:", error);
+      logger.error("Erro ao buscar produtos por componente:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else {
         res.status(500).json({
           error: "Erro ao buscar produtos por componente",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -247,7 +248,7 @@ class ItemController {
       const item = await itemService.updateStock(id, quantity);
       res.json(item);
     } catch (error: any) {
-      console.error("Erro ao atualizar estoque:", error);
+      logger.error("Erro ao atualizar estoque:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("inválid")) {
@@ -255,7 +256,7 @@ class ItemController {
       } else {
         res.status(500).json({
           error: "Erro ao atualizar estoque",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }

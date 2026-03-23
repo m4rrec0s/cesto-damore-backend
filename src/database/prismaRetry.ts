@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import logger from "../utils/logger";
 
 export async function withRetry<T>(
   operation: () => Promise<T>,
@@ -30,7 +31,7 @@ export async function withRetry<T>(
         throw error;
       }
 
-      console.warn(
+      logger.warn(
         `⚠️ Tentativa ${attempt}/${maxRetries} falhou. Tentando novamente em ${retryDelay}ms...`,
         error.message
       );
@@ -47,7 +48,7 @@ export async function checkDatabaseConnection(): Promise<boolean> {
     await prisma.$queryRaw`SELECT 1`;
     return true;
   } catch (error) {
-    console.error("❌ Erro ao conectar com o banco de dados:", error);
+    logger.error("❌ Erro ao conectar com o banco de dados:", error);
     return false;
   }
 }
@@ -56,7 +57,7 @@ export async function ensureConnection(): Promise<void> {
   try {
     await prisma.$connect();
   } catch (error) {
-    console.error("❌ Erro ao garantir conexão:", error);
+    logger.error("❌ Erro ao garantir conexão:", error);
     throw error;
   }
 }

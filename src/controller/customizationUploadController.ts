@@ -42,7 +42,7 @@ class CustomizationUploadController {
       );
       return res.status(500).json({
         error: "Erro ao fazer upload da imagem",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -82,7 +82,7 @@ class CustomizationUploadController {
       );
       return res.status(500).json({
         error: "Erro ao remover imagem",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }

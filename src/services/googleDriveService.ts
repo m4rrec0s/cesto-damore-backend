@@ -142,7 +142,7 @@ class GoogleDriveService {
       const tokens = JSON.parse(tokenFile);
       this.oauth2Client.setCredentials(tokens);
     } catch (error) {
-      console.warn(
+      logger.warn(
         "⚠️ Arquivo de tokens não encontrado ou inválido. Execute a autenticação OAuth2."
       );
     }
@@ -169,7 +169,7 @@ class GoogleDriveService {
         await this.updateEnvFile(finalTokens);
       } catch (_) {}
     } catch (error) {
-      console.error("Erro ao salvar tokens:", error);
+      logger.error("Erro ao salvar tokens:", error);
     }
   }
 
@@ -222,11 +222,11 @@ class GoogleDriveService {
       logger.info("✅ Arquivo .env atualizado com sucesso");
     } catch (error) {
       if (process.env.NODE_ENV === "production") {
-        console.warn(
+        logger.warn(
           "⚠️ Não é possível atualizar .env em produção (variáveis gerenciadas pelo ambiente)"
         );
       } else {
-        console.error("❌ Erro ao atualizar .env:", error);
+        logger.error("❌ Erro ao atualizar .env:", error);
       }
     }
   }
@@ -390,7 +390,7 @@ class GoogleDriveService {
       if (this.oauth2Client) this.oauth2Client.credentials = {};
       logger.info("✅ Google Drive tokens cleared");
     } catch (err) {
-      console.warn("Não foi possível remover token local:", String(err));
+      logger.warn("Não foi possível remover token local:", String(err));
     }
   }
 
@@ -491,7 +491,7 @@ class GoogleDriveService {
         });
       } catch (permErr) {
 
-        console.warn(
+        logger.warn(
           "Could not set file permissions to anyone: ",
           String(permErr)
         );
@@ -506,8 +506,8 @@ class GoogleDriveService {
         webContentLink: response.data.webContentLink || directImageUrl,
       };
     } catch (error: any) {
-      console.error("❌ Erro ao fazer upload via buffer:", String(error));
-      console.error("🔎 folderId usado no upload:", folderId);
+      logger.error("❌ Erro ao fazer upload via buffer:", String(error));
+      logger.error("🔎 folderId usado no upload:", folderId);
 
       const message = String(error?.message || error);
       if (
@@ -578,7 +578,7 @@ class GoogleDriveService {
         webContentLink: `https://drive.google.com/uc?id=${file.id}&export=download`,
       }));
     } catch (error: any) {
-      console.error("❌ Erro ao listar arquivos:", error.message);
+      logger.error("❌ Erro ao listar arquivos:", error.message);
       return [];
     }
   }
@@ -593,7 +593,7 @@ class GoogleDriveService {
         fileId: fileId,
       });
     } catch (error: any) {
-      console.error("❌ Erro ao deletar arquivo:", error.message);
+      logger.error("❌ Erro ao deletar arquivo:", error.message);
       throw new Error("Falha ao deletar arquivo do Google Drive");
     }
   }
@@ -609,7 +609,7 @@ class GoogleDriveService {
         fileId: folderId,
       });
     } catch (error: any) {
-      console.error("❌ Erro ao deletar pasta:", error.message);
+      logger.error("❌ Erro ao deletar pasta:", error.message);
       throw new Error("Falha ao deletar pasta do Google Drive");
     }
   }
@@ -628,7 +628,7 @@ class GoogleDriveService {
         },
       });
     } catch (error: any) {
-      console.error("❌ Erro ao tornar pasta pública:", error.message);
+      logger.error("❌ Erro ao tornar pasta pública:", error.message);
     }
   }
 

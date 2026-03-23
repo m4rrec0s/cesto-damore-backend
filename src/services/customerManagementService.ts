@@ -1,5 +1,6 @@
 import prisma from "../database/prisma";
 import whatsappService from "./whatsappService";
+import logger from "../utils/logger";
 
 interface N8NCustomer {
   number: string;
@@ -75,7 +76,7 @@ class CustomerManagementService {
 
       return customer as N8NCustomer;
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao criar/atualizar cliente no Prisma:",
         error.message,
       );
@@ -92,7 +93,7 @@ class CustomerManagementService {
       });
       return customer as N8NCustomer | null;
     } catch (error: any) {
-      console.error("Erro ao buscar cliente no Prisma:", error.message);
+      logger.error("Erro ao buscar cliente no Prisma:", error.message);
       return null;
     }
   }
@@ -144,7 +145,7 @@ class CustomerManagementService {
         total,
       };
     } catch (error: any) {
-      console.error("Erro ao listar clientes no Prisma:", error.message);
+      logger.error("Erro ao listar clientes no Prisma:", error.message);
       return { customers: [], total: 0 };
     }
   }
@@ -159,7 +160,7 @@ class CustomerManagementService {
       });
       return true;
     } catch (error: any) {
-      console.error("Erro ao atualizar follow-up no Prisma:", error.message);
+      logger.error("Erro ao atualizar follow-up no Prisma:", error.message);
       return false;
     }
   }
@@ -177,7 +178,7 @@ class CustomerManagementService {
       });
       return true;
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao atualizar status de cliente no Prisma:",
         error.message,
       );
@@ -209,7 +210,7 @@ class CustomerManagementService {
 
       return { success: false };
     } catch (error: any) {
-      console.error("Erro ao enviar mensagem ao cliente:", error.message);
+      logger.error("Erro ao enviar mensagem ao cliente:", error.message);
       return { success: false };
     }
   }
@@ -254,7 +255,7 @@ class CustomerManagementService {
         last_order_status: appUser?.orders[0]?.status as string | undefined,
       };
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao buscar informações completas do cliente:",
         error.message,
       );
@@ -281,7 +282,7 @@ class CustomerManagementService {
 
       return true;
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao sincronizar usuário app -> Prisma:",
         error.message,
       );
@@ -301,7 +302,7 @@ class CustomerManagementService {
         (info) => info !== null,
       ) as CombinedCustomerInfo[];
     } catch (error: any) {
-      console.error("Erro ao buscar clientes para follow-up:", error.message);
+      logger.error("Erro ao buscar clientes para follow-up:", error.message);
       return [];
     }
   }
@@ -314,7 +315,7 @@ class CustomerManagementService {
       });
       return true;
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao atualizar status de serviço no Prisma:",
         error.message,
       );
@@ -330,7 +331,7 @@ class CustomerManagementService {
       });
       return true;
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao atualizar nome do cliente no Prisma:",
         error.message,
       );

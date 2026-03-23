@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import whatsappService from "../services/whatsappService";
+import logger from "../utils/logger";
 
 class WhatsAppController {
   
@@ -36,10 +37,10 @@ class WhatsAppController {
         });
       }
     } catch (error: any) {
-      console.error("Erro ao testar mensagem WhatsApp:", error);
+      logger.error("Erro ao testar mensagem WhatsApp:", error);
       return res.status(500).json({
         error: "Erro ao testar mensagem",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -67,10 +68,10 @@ class WhatsAppController {
         message: `Verificação concluída. ${result.alerts_sent} alertas enviados.`,
       });
     } catch (error: any) {
-      console.error("Erro ao verificar estoque:", error);
+      logger.error("Erro ao verificar estoque:", error);
       return res.status(500).json({
         error: "Erro ao verificar estoque",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -101,10 +102,10 @@ class WhatsAppController {
         });
       }
     } catch (error: any) {
-      console.error("Erro ao enviar resumo:", error);
+      logger.error("Erro ao enviar resumo:", error);
       return res.status(500).json({
         error: "Erro ao enviar resumo",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -128,10 +129,10 @@ class WhatsAppController {
         ],
       });
     } catch (error: any) {
-      console.error("Erro ao verificar configuração:", error);
+      logger.error("Erro ao verificar configuração:", error);
       return res.status(500).json({
         error: "Erro ao verificar configuração",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }

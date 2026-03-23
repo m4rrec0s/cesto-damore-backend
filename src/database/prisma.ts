@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import logger from "../utils/logger";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -29,7 +30,7 @@ try {
     prisma = global.__prisma;
   }
 } catch (e: any) {
-  console.error(
+  logger.error(
     "Prisma client not initialized. Ensure you ran 'npx prisma generate' and the generated client is available."
   );
   throw e;

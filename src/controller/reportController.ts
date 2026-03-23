@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import reportService from "../services/reportService";
+import logger from "../utils/logger";
 
 class ReportController {
   
@@ -12,10 +13,10 @@ class ReportController {
 
       return res.json(report);
     } catch (error: any) {
-      console.error("Erro ao gerar relatório de estoque:", error);
+      logger.error("Erro ao gerar relatório de estoque:", error);
       return res.status(500).json({
         error: "Erro ao gerar relatório de estoque",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -31,10 +32,10 @@ class ReportController {
         total: criticalItems.length,
       });
     } catch (error: any) {
-      console.error("Erro ao buscar estoque crítico:", error);
+      logger.error("Erro ao buscar estoque crítico:", error);
       return res.status(500).json({
         error: "Erro ao buscar estoque crítico",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -49,10 +50,10 @@ class ReportController {
 
       return res.json(result);
     } catch (error: any) {
-      console.error("Erro ao verificar estoque baixo:", error);
+      logger.error("Erro ao verificar estoque baixo:", error);
       return res.status(500).json({
         error: "Erro ao verificar estoque baixo",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }

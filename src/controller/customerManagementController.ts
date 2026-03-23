@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import customerManagementService from "../services/customerManagementService";
+import logger from "../utils/logger";
 
 class CustomerManagementController {
   
@@ -25,10 +26,10 @@ class CustomerManagementController {
 
       return res.json(customerInfo);
     } catch (error: any) {
-      console.error("Erro ao buscar informações do cliente:", error.message);
+      logger.error("Erro ao buscar informações do cliente:", error.message);
       return res.status(500).json({
         error: "Erro ao buscar informações do cliente",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -60,10 +61,10 @@ class CustomerManagementController {
 
       return res.json(result);
     } catch (error: any) {
-      console.error("Erro ao listar clientes:", error.message);
+      logger.error("Erro ao listar clientes:", error.message);
       return res.status(500).json({
         error: "Erro ao listar clientes",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -97,10 +98,10 @@ class CustomerManagementController {
 
       return res.status(201).json(customer);
     } catch (error: any) {
-      console.error("Erro ao criar/atualizar cliente:", error.message);
+      logger.error("Erro ao criar/atualizar cliente:", error.message);
       return res.status(500).json({
         error: "Erro ao criar/atualizar cliente",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -141,10 +142,10 @@ class CustomerManagementController {
         follow_up,
       });
     } catch (error: any) {
-      console.error("Erro ao atualizar follow-up:", error.message);
+      logger.error("Erro ao atualizar follow-up:", error.message);
       return res.status(500).json({
         error: "Erro ao atualizar follow-up",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -157,7 +158,7 @@ class CustomerManagementController {
       const { message } = req.body;
 
       if (!phone || !message) {
-        console.error("❌ [Controller] Validação falhou:", {
+        logger.error("❌ [Controller] Validação falhou:", {
           phone: !!phone,
           message: !!message,
         });
@@ -172,7 +173,7 @@ class CustomerManagementController {
       );
 
       if (!result.success) {
-        console.error("❌ [Controller] Serviço retornou success=false");
+        logger.error("❌ [Controller] Serviço retornou success=false");
         return res.status(500).json({
           error: "Erro ao enviar mensagem",
           success: false,
@@ -185,13 +186,13 @@ class CustomerManagementController {
         customer: result.customer,
       });
     } catch (error: any) {
-      console.error("❌ [Controller] Exceção ao enviar mensagem:", {
-        message: error.message,
-        stack: error.stack,
+      logger.error("❌ [Controller] Exceção ao enviar mensagem:", {
+        message: "Erro interno do servidor",
+        stack: error,
       });
       return res.status(500).json({
         error: "Erro ao enviar mensagem",
-        message: error.message,
+        message: "Erro interno do servidor",
         success: false,
       });
     }
@@ -206,10 +207,10 @@ class CustomerManagementController {
         customers,
       });
     } catch (error: any) {
-      console.error("Erro ao buscar clientes para follow-up:", error.message);
+      logger.error("Erro ao buscar clientes para follow-up:", error.message);
       return res.status(500).json({
         error: "Erro ao buscar clientes para follow-up",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -244,10 +245,10 @@ class CustomerManagementController {
         service_status,
       });
     } catch (error: any) {
-      console.error("Erro ao atualizar status de serviço:", error.message);
+      logger.error("Erro ao atualizar status de serviço:", error.message);
       return res.status(500).json({
         error: "Erro ao atualizar status de serviço",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -282,10 +283,10 @@ class CustomerManagementController {
         already_a_customer,
       });
     } catch (error: any) {
-      console.error("Erro ao atualizar status de cliente:", error.message);
+      logger.error("Erro ao atualizar status de cliente:", error.message);
       return res.status(500).json({
         error: "Erro ao atualizar status de cliente",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -320,10 +321,10 @@ class CustomerManagementController {
         name,
       });
     } catch (error: any) {
-      console.error("Erro ao atualizar nome:", error.message);
+      logger.error("Erro ao atualizar nome:", error.message);
       return res.status(500).json({
         error: "Erro ao atualizar nome",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -353,10 +354,10 @@ class CustomerManagementController {
         userId,
       });
     } catch (error: any) {
-      console.error("Erro ao sincronizar usuário:", error.message);
+      logger.error("Erro ao sincronizar usuário:", error.message);
       return res.status(500).json({
         error: "Erro ao sincronizar usuário",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }

@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import reportService from "./reportService";
+import logger from "../utils/logger";
 
 type OrderStatus = "PENDING" | "PAID" | "SHIPPED" | "DELIVERED" | "CANCELED";
 
@@ -28,7 +29,7 @@ class WhatsAppService {
       !process.env.EVOLUTION_INSTANCE ||
       !process.env.WHATSAPP_GROUP_ID
     ) {
-      console.warn(
+      logger.warn(
         "⚠️ Variáveis de ambiente do WhatsApp não estão totalmente configuradas.",
       );
     }
@@ -56,7 +57,7 @@ class WhatsAppService {
 
   async sendMessage(text: string, phoneNumber?: string): Promise<boolean> {
     if (!this.isConfigured()) {
-      console.warn(
+      logger.warn(
         "WhatsApp não configurado. Configure as variáveis de ambiente.",
       );
       return false;
@@ -75,7 +76,7 @@ class WhatsAppService {
 
       return true;
     } catch (error: any) {
-      console.error("Erro ao enviar mensagem WhatsApp:", {
+      logger.error("Erro ao enviar mensagem WhatsApp:", {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
@@ -139,7 +140,7 @@ class WhatsAppService {
     colorInfo?: { name: string; hex: string; additionalName: string },
   ): Promise<boolean> {
     if (!this.canSendAlert(`low-${itemId}`)) {
-      console.warn(
+      logger.warn(
         `Alerta de estoque baixo já enviado recentemente para ${itemId}`,
       );
       return false;
@@ -181,7 +182,7 @@ class WhatsAppService {
     errors: number;
   }> {
     if (!this.isConfigured()) {
-      console.warn("WhatsApp não configurado. Pulando verificação de estoque.");
+      logger.warn("WhatsApp não configurado. Pulando verificação de estoque.");
       return { checked: false, alerts_sent: 0, errors: 0 };
     }
 
@@ -189,7 +190,7 @@ class WhatsAppService {
       const result = await reportService.hasItemsBelowThreshold(threshold);
 
       if (!result.has_critical || result.items.length === 0) {
-        console.warn("Nenhum item com estoque baixo encontrado.");
+        logger.warn("Nenhum item com estoque baixo encontrado.");
         return { checked: true, alerts_sent: 0, errors: 0 };
       }
 
@@ -232,7 +233,7 @@ class WhatsAppService {
 
           if (sent) alertsSent++;
         } catch (error: any) {
-          console.error(
+          logger.error(
             `Erro ao enviar alerta para ${item.name}:`,
             error.message,
           );
@@ -242,7 +243,7 @@ class WhatsAppService {
 
       return { checked: true, alerts_sent: alertsSent, errors };
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao verificar e notificar estoque baixo:",
         error.message,
       );
@@ -252,7 +253,7 @@ class WhatsAppService {
 
   async sendStockSummary(): Promise<boolean> {
     if (!this.isConfigured()) {
-      console.warn("WhatsApp não configurado.");
+      logger.warn("WhatsApp não configurado.");
       return false;
     }
 
@@ -297,7 +298,7 @@ class WhatsAppService {
 
       return await this.sendMessage(message);
     } catch (error: any) {
-      console.error("Erro ao enviar resumo de estoque:", error.message);
+      logger.error("Erro ao enviar resumo de estoque:", error.message);
       return false;
     }
   }
@@ -336,7 +337,7 @@ class WhatsAppService {
     },
   ): Promise<boolean> {
     if (!this.isConfigured()) {
-      console.warn("WhatsApp não configurado. Pulando notificação de pedido.");
+      logger.warn("WhatsApp não configurado. Pulando notificação de pedido.");
       return false;
     }
 
@@ -373,7 +374,7 @@ class WhatsAppService {
               customerMessage,
             );
           } else {
-            console.warn(
+            logger.warn(
               `Telefone inválido para notificação ao cliente: ${targetPhone}`,
             );
           }
@@ -382,7 +383,7 @@ class WhatsAppService {
 
       return teamSent || customerSent;
     } catch (error: any) {
-      console.error("Erro ao enviar notificação de pedido:", error.message);
+      logger.error("Erro ao enviar notificação de pedido:", error.message);
       return false;
     }
   }
@@ -593,13 +594,13 @@ class WhatsAppService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Erro ao enviar mensagem direta:", errorText);
+        logger.error("Erro ao enviar mensagem direta:", errorText);
         return false;
       }
 
       return true;
     } catch (error: any) {
-      console.error("Erro ao enviar mensagem direta:", error.message);
+      logger.error("Erro ao enviar mensagem direta:", error.message);
       return false;
     }
   }
@@ -790,7 +791,7 @@ class WhatsAppService {
 
         await this.sendDirectMessage(customerPhone, message);
       } else {
-        console.warn(
+        logger.warn(
           `Telefone do cliente inválido para notificação: ${orderData.customer.phone}`,
         );
       }
@@ -810,7 +811,7 @@ class WhatsAppService {
     total: number;
   }): Promise<boolean> {
     if (!this.isConfigured()) {
-      console.warn(
+      logger.warn(
         "WhatsApp não configurado. Pulando notificação ao comprador.",
       );
       return false;
@@ -823,7 +824,7 @@ class WhatsAppService {
         : `55${cleanPhone}`;
 
       if (phoneWithCountry.length < 12) {
-        console.warn(`Telefone inválido: ${data.phone}`);
+        logger.warn(`Telefone inválido: ${data.phone}`);
         return false;
       }
 
@@ -876,7 +877,7 @@ class WhatsAppService {
 
       return sent;
     } catch (error: any) {
-      console.error("Erro ao enviar confirmação ao comprador:", error.message);
+      logger.error("Erro ao enviar confirmação ao comprador:", error.message);
       return false;
     }
   }

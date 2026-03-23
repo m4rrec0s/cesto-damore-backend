@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import orderService from "../services/orderService";
+import logger from "../utils/logger";
 
 class OrderController {
   async index(req: Request, res: Response) {
@@ -17,7 +18,7 @@ class OrderController {
       );
       res.json(orders);
     } catch (error: any) {
-      console.error("Erro ao buscar pedidos:", error);
+      logger.error("Erro ao buscar pedidos:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -28,7 +29,7 @@ class OrderController {
       const order = await orderService.getOrderById(id);
       res.json(order);
     } catch (error: any) {
-      console.error("Erro ao buscar pedido:", error);
+      logger.error("Erro ao buscar pedido:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -50,7 +51,7 @@ class OrderController {
       const orders = await orderService.getOrdersByUserId(userId);
       res.status(200).json(orders);
     } catch (error: any) {
-      console.error("Erro ao buscar pedidos do usuário:", error);
+      logger.error("Erro ao buscar pedidos do usuário:", error);
 
       if (error.message.includes("obrigatório")) {
         return res.status(400).json({ error: error.message });
@@ -78,7 +79,7 @@ class OrderController {
 
       res.status(200).json(pendingOrder);
     } catch (error: any) {
-      console.error("Erro ao buscar pedido pendente:", error);
+      logger.error("Erro ao buscar pedido pendente:", error);
 
       if (error.message.includes("obrigatório")) {
         return res.status(400).json({ error: error.message });
@@ -102,8 +103,8 @@ class OrderController {
       console.log("✅ Pedido criado com sucesso:", order.id);
       res.status(201).json(order);
     } catch (error: any) {
-      console.error("❌ Erro ao criar pedido:", error);
-      console.error("Stack trace:", error.stack);
+      logger.error("❌ Erro ao criar pedido:", error);
+      logger.error("Stack trace:", error);
 
       if (
         error.message.includes("obrigatório") ||
@@ -175,7 +176,7 @@ class OrderController {
 
       if (!isAdmin) {
         if (order.user_id !== userId) {
-          console.warn(
+          logger.warn(
             `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`,
           );
           return res.status(403).json({
@@ -196,7 +197,7 @@ class OrderController {
       );
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar pedido:", error);
+      logger.error("Erro ao deletar pedido:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -224,7 +225,7 @@ class OrderController {
 
       res.json(updated);
     } catch (error: any) {
-      console.error("Erro ao atualizar status do pedido:", error);
+      logger.error("Erro ao atualizar status do pedido:", error);
 
       if (error.message.includes("Status inválido")) {
         return res.status(400).json({ error: error.message });
@@ -282,7 +283,7 @@ class OrderController {
       });
       res.json(updated);
     } catch (error: any) {
-      console.error("Erro ao atualizar metadata do pedido:", error);
+      logger.error("Erro ao atualizar metadata do pedido:", error);
       if (error.message.includes("obrigatório")) {
         return res.status(400).json({ error: error.message });
       }
@@ -323,7 +324,7 @@ class OrderController {
       });
 
       if (userId && existingOrder.user_id !== userId) {
-        console.warn(
+        logger.warn(
           "⚠️ [updateItems] Acesso negado: usuário não é dono do pedido",
         );
         return res
@@ -334,7 +335,7 @@ class OrderController {
       const updated = await orderService.updateOrderItems(id, items);
       res.json(updated);
     } catch (error: any) {
-      console.error("Erro ao atualizar itens do pedido:", error);
+      logger.error("Erro ao atualizar itens do pedido:", error);
 
       if (error.message.includes("obrigatório")) {
         return res.status(400).json({ error: error.message });
@@ -388,7 +389,7 @@ class OrderController {
 
       res.status(200).json(pendingOrder);
     } catch (error: any) {
-      console.error("Erro ao buscar pedido pendente:", error);
+      logger.error("Erro ao buscar pedido pendente:", error);
 
       if (error.message.includes("obrigatório")) {
         return res.status(400).json({ error: error.message });
@@ -415,7 +416,7 @@ class OrderController {
         order: canceledOrder,
       });
     } catch (error: any) {
-      console.error("Erro ao cancelar pedido:", error);
+      logger.error("Erro ao cancelar pedido:", error);
 
       if (error.message.includes("não encontrado")) {
         return res.status(404).json({ error: error.message });
@@ -441,7 +442,7 @@ class OrderController {
       const result = await orderService.deleteAllCanceledOrders();
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar pedidos cancelados:", error);
+      logger.error("Erro ao deletar pedidos cancelados:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }

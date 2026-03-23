@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import feedService from "../services/feedService";
 import { saveImageLocally } from "../config/localStorage";
 import trendStatsService from "../services/trendStatsService";
+import logger from "../utils/logger";
 
 class FeedController {
   async getAllConfigurations(req: Request, res: Response) {
@@ -9,7 +10,7 @@ class FeedController {
       const configurations = await feedService.getAllFeedConfigurations();
       res.json(configurations);
     } catch (error: any) {
-      console.error("Erro ao buscar configurações de feed:", error);
+      logger.error("Erro ao buscar configurações de feed:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -20,7 +21,7 @@ class FeedController {
       const configuration = await feedService.getFeedConfigurationById(id);
       res.json(configuration);
     } catch (error: any) {
-      console.error("Erro ao buscar configuração de feed:", error);
+      logger.error("Erro ao buscar configuração de feed:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else {
@@ -35,7 +36,7 @@ class FeedController {
       const configuration = await feedService.createFeedConfiguration(data);
       res.status(201).json(configuration);
     } catch (error: any) {
-      console.error("Erro ao criar configuração de feed:", error);
+      logger.error("Erro ao criar configuração de feed:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else {
@@ -51,7 +52,7 @@ class FeedController {
       const configuration = await feedService.updateFeedConfiguration(id, data);
       res.json(configuration);
     } catch (error: any) {
-      console.error("Erro ao atualizar configuração de feed:", error);
+      logger.error("Erro ao atualizar configuração de feed:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -68,7 +69,7 @@ class FeedController {
       const result = await feedService.deleteFeedConfiguration(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar configuração de feed:", error);
+      logger.error("Erro ao deletar configuração de feed:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else {
@@ -121,10 +122,10 @@ class FeedController {
           );
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro ao processar imagem:", imageError);
+          logger.error("Erro ao processar imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -132,7 +133,7 @@ class FeedController {
       const banner = await feedService.createFeedBanner(data);
       res.status(201).json(banner);
     } catch (error: any) {
-      console.error("Erro ao criar banner:", error);
+      logger.error("Erro ao criar banner:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else {
@@ -178,10 +179,10 @@ class FeedController {
           );
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro ao processar imagem:", imageError);
+          logger.error("Erro ao processar imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -189,7 +190,7 @@ class FeedController {
       const banner = await feedService.updateFeedBanner(id, data);
       res.json(banner);
     } catch (error: any) {
-      console.error("Erro ao atualizar banner:", error);
+      logger.error("Erro ao atualizar banner:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -206,7 +207,7 @@ class FeedController {
       const result = await feedService.deleteFeedBanner(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar banner:", error);
+      logger.error("Erro ao deletar banner:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else {
@@ -220,7 +221,7 @@ class FeedController {
       const banners = await feedService.getAllBanners();
       res.json(banners);
     } catch (error: any) {
-      console.error("Erro ao buscar banners:", error);
+      logger.error("Erro ao buscar banners:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -230,7 +231,7 @@ class FeedController {
       const sections = await feedService.getAllSections();
       res.json(sections);
     } catch (error: any) {
-      console.error("Erro ao buscar seções:", error);
+      logger.error("Erro ao buscar seções:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -241,7 +242,7 @@ class FeedController {
       const section = await feedService.createFeedSection(data);
       res.status(201).json(section);
     } catch (error: any) {
-      console.error("Erro ao criar seção:", error);
+      logger.error("Erro ao criar seção:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else {
@@ -257,7 +258,7 @@ class FeedController {
       const section = await feedService.updateFeedSection(id, data);
       res.json(section);
     } catch (error: any) {
-      console.error("Erro ao atualizar seção:", error);
+      logger.error("Erro ao atualizar seção:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -274,7 +275,7 @@ class FeedController {
       const result = await feedService.deleteFeedSection(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar seção:", error);
+      logger.error("Erro ao deletar seção:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else {
@@ -289,7 +290,7 @@ class FeedController {
       const item = await feedService.createFeedSectionItem(data);
       res.status(201).json(item);
     } catch (error: any) {
-      console.error("Erro ao criar item da seção:", error);
+      logger.error("Erro ao criar item da seção:", error);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("não encontrad")
@@ -308,7 +309,7 @@ class FeedController {
       const item = await feedService.updateFeedSectionItem(id, data);
       res.json(item);
     } catch (error: any) {
-      console.error("Erro ao atualizar item da seção:", error);
+      logger.error("Erro ao atualizar item da seção:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -328,7 +329,7 @@ class FeedController {
       const result = await feedService.deleteFeedSectionItem(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar item da seção:", error);
+      logger.error("Erro ao deletar item da seção:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else {
@@ -346,7 +347,7 @@ class FeedController {
       void trendStatsService.recordAccess(req);
       res.json(feed);
     } catch (error: any) {
-      console.error("Erro ao buscar feed público:", error);
+      logger.error("Erro ao buscar feed público:", error);
       if (error.message.includes("não encontrada")) {
         res.status(404).json({ error: error.message });
       } else {
@@ -398,7 +399,7 @@ class FeedController {
 
       res.json(sectionTypes);
     } catch (error: any) {
-      console.error("Erro ao buscar tipos de seção:", error);
+      logger.error("Erro ao buscar tipos de seção:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }

@@ -27,6 +27,7 @@ interface LayoutPayload {
 }
 
 import { IMAGES_DIR } from "../config/localStorage";
+import logger from "../utils/logger";
 
 const MODELS_DIR = path.join(process.cwd(), "customizations", "models");
 const CUSTOMIZATION_IMAGES_DIR = path.join(IMAGES_DIR, "customizations");
@@ -87,19 +88,19 @@ class LayoutService {
 
   async createLayout(itemId: string, payload: LayoutPayload) {
 
-    console.warn("createLayout: funcionalidade desabilitada - Tabela removida");
+    logger.warn("createLayout: funcionalidade desabilitada - Tabela removida");
     return null;
   }
 
   async updateLayout(itemId: string, layoutId: string, payload: LayoutPayload) {
 
-    console.warn("updateLayout: funcionalidade desabilitada - Tabela removida");
+    logger.warn("updateLayout: funcionalidade desabilitada - Tabela removida");
     return null;
   }
 
   async deleteLayout(itemId: string, layoutId: string) {
 
-    console.warn("deleteLayout: funcionalidade desabilitada - Tabela removida");
+    logger.warn("deleteLayout: funcionalidade desabilitada - Tabela removida");
     return { success: true };
   }
 
@@ -189,7 +190,7 @@ class LayoutService {
         fs.unlinkSync(filepath);
       }
     } catch (error) {
-      console.warn("Não foi possível remover arquivo de layout:", error);
+      logger.warn("Não foi possível remover arquivo de layout:", error);
     }
   }
 }

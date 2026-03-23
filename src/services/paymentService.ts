@@ -630,7 +630,7 @@ export class PaymentService {
         external_reference: externalReference,
       };
     } catch (error) {
-      console.error("Erro ao criar preferência:", error);
+      logger.error("Erro ao criar preferência:", error);
       throw new Error(
         `Falha ao criar preferência de pagamento: ${
           error instanceof Error ? error.message : "Erro desconhecido"
@@ -972,7 +972,7 @@ export class PaymentService {
         }),
       };
     } catch (error) {
-      console.error("Erro ao processar checkout transparente:", error);
+      logger.error("Erro ao processar checkout transparente:", error);
 
       if (error && typeof error === "object") {
         const serializedError = JSON.stringify(
@@ -980,23 +980,23 @@ export class PaymentService {
           Object.getOwnPropertyNames(error),
           2,
         );
-        console.error("📛 Detalhes completos do erro:", serializedError);
+        logger.error("📛 Detalhes completos do erro:", serializedError);
 
         const mpError = error as any;
         if (mpError.cause) {
-          console.error(
+          logger.error(
             "📛 Causa do erro:",
             JSON.stringify(mpError.cause, null, 2),
           );
         }
         if (mpError.response) {
-          console.error(
+          logger.error(
             "📛 Resposta da API:",
             JSON.stringify(mpError.response, null, 2),
           );
         }
         if (mpError.status || mpError.statusCode) {
-          console.error(
+          logger.error(
             "📛 Status HTTP:",
             mpError.status || mpError.statusCode,
           );
@@ -1251,7 +1251,7 @@ export class PaymentService {
         raw: mercadoPagoResult.raw,
       };
     } catch (error) {
-      console.error("❌ Erro ao criar pagamento:", error);
+      logger.error("❌ Erro ao criar pagamento:", error);
       throw new Error(
         `Falha ao criar pagamento: ${
           error instanceof Error ? error.message : "Erro desconhecido"
@@ -1345,7 +1345,7 @@ export class PaymentService {
       const paymentMethods = await response.json();
       return paymentMethods;
     } catch (error) {
-      console.error("Erro ao buscar métodos de pagamento:", error);
+      logger.error("Erro ao buscar métodos de pagamento:", error);
       throw new Error(
         `Falha ao buscar métodos de pagamento: ${
           error instanceof Error ? error.message : "Erro desconhecido"
@@ -1408,7 +1408,7 @@ export class PaymentService {
 
       return this.getDefaultInstallmentOptions(amount);
     } catch (error) {
-      console.error("Erro ao buscar opções de parcelamento:", error);
+      logger.error("Erro ao buscar opções de parcelamento:", error);
 
       return this.getDefaultInstallmentOptions(amount);
     }
@@ -1450,7 +1450,7 @@ export class PaymentService {
       const paymentInfo = await payment.get({ id: paymentId });
       return paymentInfo;
     } catch (error) {
-      console.error("Erro ao buscar pagamento:", error);
+      logger.error("Erro ao buscar pagamento:", error);
       throw new Error(
         `Falha ao buscar pagamento: ${
           error instanceof Error ? error.message : "Erro desconhecido"
@@ -1479,7 +1479,7 @@ export class PaymentService {
           });
 
           if (!dbPayment || !dbPayment.order_id) {
-            console.warn(`Reprocess: pagamento ${paymentId} sem order_id`);
+            logger.warn(`Reprocess: pagamento ${paymentId} sem order_id`);
             await prisma.webhookLog.updateMany({
               where: { id: log.id },
               data: { finalization_attempts: { increment: 1 } as any },
@@ -1488,7 +1488,7 @@ export class PaymentService {
           }
 
           if (dbPayment.status !== "APPROVED") {
-            console.warn(
+            logger.warn(
               `Reprocess: pagamento ${paymentId} não aprovado (status: ${dbPayment.status}), pulando.`,
             );
             await prisma.webhookLog.updateMany({
@@ -1519,7 +1519,7 @@ export class PaymentService {
             },
           });
         } catch (err: any) {
-          console.error("Erro ao reprocessar finalização:", err);
+          logger.error("Erro ao reprocessar finalização:", err);
           await prisma.webhookLog.updateMany({
             where: { id: log.id },
             data: {
@@ -1531,7 +1531,7 @@ export class PaymentService {
         }
       }
     } catch (err) {
-      console.error("Erro ao buscar logs para reprocessamento:", err);
+      logger.error("Erro ao buscar logs para reprocessamento:", err);
     }
   }
 
@@ -1606,7 +1606,7 @@ export class PaymentService {
         undefined;
 
       if (!resourceId || !webhookType) {
-        console.error("❌ Webhook inválido - sem ID de recurso ou tipo", {
+        logger.error("❌ Webhook inválido - sem ID de recurso ou tipo", {
           resourceId: resourceId || null,
           webhookType: webhookType || null,
           action: data.action || null,
@@ -1650,7 +1650,7 @@ export class PaymentService {
           const mpStatus = (paymentInfo?.status || "").toLowerCase();
           const dbStatus = dbPayment?.status?.toLowerCase() || null;
           if (mpStatus === "approved" && dbStatus !== "approved") {
-            console.warn(
+            logger.warn(
               "⚠️ Webhook marked processed but DB out-of-sync (MP approved, DB not) - reprocessing",
               { resourceId },
             );
@@ -1668,7 +1668,7 @@ export class PaymentService {
             };
           }
         } catch (err) {
-          console.error(
+          logger.error(
             "Erro ao verificar estado do pagamento para webhooks duplicados:",
             err,
           );
@@ -1727,7 +1727,7 @@ export class PaymentService {
           },
         });
       } else {
-        console.warn(
+        logger.warn(
           "⚠️ Webhook processing completed but payment was NOT processed (not updating webhookLog.processed)",
           { resourceId, topic: webhookType },
         );
@@ -1738,7 +1738,7 @@ export class PaymentService {
         message: "Webhook processado com sucesso",
       };
     } catch (error: any) {
-      console.error("Erro ao processar webhook:", error);
+      logger.error("Erro ao processar webhook:", error);
 
       const isPrismaDBUnreachable =
         (error && (error.code === "P1001" || error?.meta?.code === "P1001")) ||
@@ -1756,11 +1756,11 @@ export class PaymentService {
               "./webhook_offline_log.ndjson",
             JSON.stringify(logEntry) + "\n",
           );
-          console.warn(
+          logger.warn(
             "⚠️ Webhook armazenado localmente por indisponibilidade do BD",
           );
         } catch (fileErr) {
-          console.error("Falha ao salvar webhook offline:", fileErr);
+          logger.error("Falha ao salvar webhook offline:", fileErr);
         }
 
         return {
@@ -1803,7 +1803,7 @@ export class PaymentService {
           const entry = JSON.parse(line);
           await PaymentService.processWebhookNotification(entry.payload, {});
         } catch (err) {
-          console.error("Falha ao reprocesar webhook armazenado:", err);
+          logger.error("Falha ao reprocesar webhook armazenado:", err);
           failed.push(line);
         }
       }
@@ -1817,7 +1817,7 @@ export class PaymentService {
       if (error.code === "ENOENT") {
         return;
       }
-      console.error("Erro ao reprocessar webhooks armazenados:", error);
+      logger.error("Erro ao reprocessar webhooks armazenados:", error);
     }
   }
 
@@ -1840,7 +1840,7 @@ export class PaymentService {
       );
 
       if (!dbPayment) {
-        console.error("Pagamento não encontrado no banco:", paymentId);
+        logger.error("Pagamento não encontrado no banco:", paymentId);
         return false;
       }
 
@@ -2046,7 +2046,7 @@ export class PaymentService {
       }
       return true;
     } catch (error) {
-      console.error("Erro ao processar notificação de pagamento:", error);
+      logger.error("Erro ao processar notificação de pagamento:", error);
       throw error;
     }
   }
@@ -2161,7 +2161,7 @@ export class PaymentService {
         total: Number(order.grand_total || order.total || 0),
       });
     } else {
-      console.warn(
+      logger.warn(
         "Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp.",
       );
     }
@@ -2177,7 +2177,7 @@ export class PaymentService {
         googleDriveUrl,
       );
     } catch (error: any) {
-      console.error(
+      logger.error(
         "Erro ao enviar notificação de pedido confirmado:",
         error.message,
       );
@@ -2188,7 +2188,7 @@ export class PaymentService {
     try {
       return data && data.type && data.data && data.data.id;
     } catch (error) {
-      console.error("Erro na validação do webhook:", error);
+      logger.error("Erro na validação do webhook:", error);
       return false;
     }
   }
@@ -2220,7 +2220,7 @@ export class PaymentService {
 
       return cancelResponse;
     } catch (error) {
-      console.error("Erro ao cancelar pagamento:", error);
+      logger.error("Erro ao cancelar pagamento:", error);
       throw new Error(
         `Falha ao cancelar pagamento: ${
           error instanceof Error ? error.message : "Erro desconhecido"
@@ -2272,7 +2272,7 @@ export class PaymentService {
         test_payment_id: response.id,
       };
     } catch (error: any) {
-      console.error("❌ Health check do Mercado Pago falhou:", error);
+      logger.error("❌ Health check do Mercado Pago falhou:", error);
 
       return {
         status: "unhealthy",

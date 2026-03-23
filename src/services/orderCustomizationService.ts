@@ -1207,7 +1207,7 @@ class OrderCustomizationService {
           );
           if (match) return match.label || match.name || match.title;
         } catch (error) {
-          console.warn(
+          logger.warn(
             "computeLabelSelected: erro ao buscar customization rule",
             error,
           );

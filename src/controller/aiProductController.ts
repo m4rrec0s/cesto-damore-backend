@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import aiProductService from "../services/aiProductService";
+import logger from "../utils/logger";
 
 class AIProductController {
   
@@ -9,10 +10,10 @@ class AIProductController {
       const result = await aiProductService.getLightweightProducts(req.query);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao buscar produtos leves:", error);
+      logger.error("Erro ao buscar produtos leves:", error);
       res.status(500).json({
         error: "Erro ao buscar produtos",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -25,10 +26,10 @@ class AIProductController {
       const result = await aiProductService.getProductDetail(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao buscar detalhe do produto:", error);
+      logger.error("Erro ao buscar detalhe do produto:", error);
       res.status(500).json({
         error: "Erro ao buscar detalhe do produto",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }
@@ -40,11 +41,11 @@ class AIProductController {
       const result = await aiProductService.searchProducts(req.query);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro na consulta AI de produtos:", error);
+      logger.error("Erro na consulta AI de produtos:", error);
       res.status(500).json({
         success: false,
         error: "Erro ao processar consulta de produtos",
-        message: error.message,
+        message: "Erro interno do servidor",
       });
     }
   }

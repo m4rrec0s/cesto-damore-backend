@@ -1,4 +1,5 @@
 import { preference } from "../config/mercadopago";
+import logger from "../utils/logger";
 
 export interface CheckoutProRequest {
   items: Array<{
@@ -65,7 +66,7 @@ class CheckoutProService {
         checkout_url: response.init_point!,
       };
     } catch (error: any) {
-      console.error("❌ Erro ao criar preferência:", {
+      logger.error("❌ Erro ao criar preferência:", {
         message: error?.message,
         status: error?.status,
         cause: error?.cause,

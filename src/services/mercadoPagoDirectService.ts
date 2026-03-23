@@ -1,5 +1,6 @@
 import { config } from "dotenv";
 import { payment } from "../config/mercadopago";
+import logger from "../utils/logger";
 
 config();
 
@@ -110,7 +111,7 @@ class MercadoPagoDirectService {
         raw: paymentResponse,
       };
     } catch (error: any) {
-      console.error("❌ Erro detalhado no Mercado Pago:", {
+      logger.error("❌ Erro detalhado no Mercado Pago:", {
         message: error?.message,
         code: error?.code,
         status: error?.status,

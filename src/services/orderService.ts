@@ -184,7 +184,7 @@ class OrderService {
               value: JSON.stringify(customData),
             };
           } catch (error) {
-            console.error(
+            logger.error(
               "Erro ao enriquecer customização:",
               customization.id,
               error,
@@ -239,7 +239,7 @@ class OrderService {
               value: JSON.stringify(customData),
             };
           } catch (error) {
-            console.error(
+            logger.error(
               "Erro ao sanitizar customização:",
               customization.id,
               error,
@@ -595,7 +595,7 @@ class OrderService {
     );
 
     if (!data.is_draft && paymentMethod !== "pix" && paymentMethod !== "card") {
-      console.error(
+      logger.error(
         "❌ [OrderService] Método de pagamento inválido:",
         paymentMethod,
       );
@@ -603,7 +603,7 @@ class OrderService {
     }
 
     if (!data.is_draft && (!data.delivery_city || !data.delivery_state)) {
-      console.error("❌ [OrderService] Cidade ou estado de entrega ausente");
+      logger.error("❌ [OrderService] Cidade ou estado de entrega ausente");
       throw new Error("Cidade e estado de entrega são obrigatórios");
     }
 
@@ -615,7 +615,7 @@ class OrderService {
     if (!data.is_draft) {
       shippingRules = ACCEPTED_CITIES[normalizedCity as string];
       if (!shippingRules) {
-        console.error("❌ [OrderService] Cidade não atendida:", normalizedCity);
+        logger.error("❌ [OrderService] Cidade não atendida:", normalizedCity);
         throw new Error("Ainda não fazemos entrega nesse endereço");
       }
     }
@@ -630,7 +630,7 @@ class OrderService {
       normalizedState !== "pb" &&
       normalizedState !== "paraiba"
     ) {
-      console.error("❌ [OrderService] Estado não atendido:", normalizedState);
+      logger.error("❌ [OrderService] Estado não atendido:", normalizedState);
       throw new Error("Atualmente só entregamos na Paraíba (PB)");
     }
 
@@ -1026,7 +1026,7 @@ class OrderService {
           );
         }
       } catch (syncError: any) {
-        console.error(
+        logger.error(
           "⚠️ Erro ao sincronizar cliente com n8n:",
           syncError.message,
         );
@@ -1667,7 +1667,7 @@ class OrderService {
         { timeout: 20000 },
       );
     } catch (error: any) {
-      console.error(
+      logger.error(
         `[OrderService] updateOrderItems transaction failed for order ${orderId}:`,
         error,
       );
@@ -2113,7 +2113,7 @@ class OrderService {
           normalizedStatus,
         );
       } catch (error) {
-        console.error(
+        logger.error(
           "⚠️ Erro ao enviar notificação de atualização de pedido:",
           (error as Error).message,
         );
@@ -2176,7 +2176,7 @@ class OrderService {
     });
 
     if (!order) {
-      console.error(`[CancelOrder] Pedido ${orderId} não encontrado`);
+      logger.error(`[CancelOrder] Pedido ${orderId} não encontrado`);
       throw new Error("Pedido não encontrado");
     }
 
@@ -2197,7 +2197,7 @@ class OrderService {
           `✅ Pagamento ${order.payment.mercado_pago_id} cancelado no Mercado Pago`,
         );
       } catch (error) {
-        console.error("Erro ao cancelar pagamento no Mercado Pago:", error);
+        logger.error("Erro ao cancelar pagamento no Mercado Pago:", error);
       }
     }
 
@@ -2208,7 +2208,7 @@ class OrderService {
         });
         console.log(`🗑️ Registro de pagamento deletado para pedido ${orderId}`);
       } catch (error) {
-        console.error("Erro ao deletar registro de pagamento:", error);
+        logger.error("Erro ao deletar registro de pagamento:", error);
       }
     }
 
@@ -2270,7 +2270,7 @@ class OrderService {
           await this.cancelOrder(order.id, userId);
           canceledCount++;
         } catch (error) {
-          console.error(
+          logger.error(
             `⚠️ Erro ao cancelar pedido ${order.id}:`,
             error instanceof Error ? error.message : error,
           );
@@ -2283,7 +2283,7 @@ class OrderService {
 
       return { canceled: canceledCount };
     } catch (error: any) {
-      console.error(
+      logger.error(
         `❌ [OrderService] Erro ao canc elar pedidos PENDING anteriores:`,
         error,
       );
@@ -2347,7 +2347,7 @@ class OrderService {
           await this.cancelOrder(order.id, order.user_id);
           cleanedCount++;
         } catch (error) {
-          console.error(
+          logger.error(
             `⚠️ Erro ao limpar pedido abandonado ${order.id}:`,
             error instanceof Error ? error.message : error,
           );
@@ -2382,7 +2382,7 @@ class OrderService {
 
       return { cleaned: cleanedCount };
     } catch (error: any) {
-      console.error(
+      logger.error(
         `❌ [OrderService] Erro ao limpar pedidos abandonados:`,
         error,
       );
@@ -2473,7 +2473,7 @@ class OrderService {
 
       return { deleted: canceledOrders.length };
     } catch (error: any) {
-      console.error(
+      logger.error(
         `❌ [OrderService] Erro ao deletar pedidos cancelados:`,
         error,
       );

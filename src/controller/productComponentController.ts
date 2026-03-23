@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import productComponentService from "../services/productComponentService";
+import logger from "../utils/logger";
 
 class ProductComponentController {
   
@@ -34,7 +35,7 @@ class ProductComponentController {
         product_stock: newStock,
       });
     } catch (error: any) {
-      console.error("Erro ao adicionar componente:", error);
+      logger.error("Erro ao adicionar componente:", error);
       if (
         error.message.includes("não encontrado") ||
         error.message.includes("já foi adicionado")
@@ -43,7 +44,7 @@ class ProductComponentController {
       } else {
         res.status(500).json({
           error: "Erro ao adicionar componente",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -76,13 +77,13 @@ class ProductComponentController {
         product_stock: newStock,
       });
     } catch (error: any) {
-      console.error("Erro ao atualizar componente:", error);
+      logger.error("Erro ao atualizar componente:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else {
         res.status(500).json({
           error: "Erro ao atualizar componente",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -107,13 +108,13 @@ class ProductComponentController {
         product_stock: newStock,
       });
     } catch (error: any) {
-      console.error("Erro ao remover componente:", error);
+      logger.error("Erro ao remover componente:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else {
         res.status(500).json({
           error: "Erro ao remover componente",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
     }
@@ -135,10 +136,10 @@ class ProductComponentController {
         total_components: components.length,
       });
     } catch (error: any) {
-      console.error("Erro ao buscar componentes:", error);
+      logger.error("Erro ao buscar componentes:", error);
       res.status(500).json({
         error: "Erro ao buscar componentes",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -157,10 +158,10 @@ class ProductComponentController {
         available_stock: availableStock,
       });
     } catch (error: any) {
-      console.error("Erro ao calcular estoque:", error);
+      logger.error("Erro ao calcular estoque:", error);
       res.status(500).json({
         error: "Erro ao calcular estoque",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -195,10 +196,10 @@ class ProductComponentController {
         });
       }
     } catch (error: any) {
-      console.error("Erro ao validar estoque:", error);
+      logger.error("Erro ao validar estoque:", error);
       res.status(500).json({
         error: "Erro ao validar estoque",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -219,10 +220,10 @@ class ProductComponentController {
         total_products: products.length,
       });
     } catch (error: any) {
-      console.error("Erro ao buscar produtos:", error);
+      logger.error("Erro ao buscar produtos:", error);
       res.status(500).json({
         error: "Erro ao buscar produtos",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }

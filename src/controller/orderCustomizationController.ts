@@ -252,7 +252,7 @@ class OrderCustomizationController {
     } catch (error: any) {
       logger.error(
         `❌ [convertBase64ToFile] Erro: ${error.message}`,
-        error.stack,
+        error,
       );
       return null;
     }
@@ -440,10 +440,10 @@ class OrderCustomizationController {
         });
       }
 
-      console.error("Erro ao listar customizações do pedido:", error);
+      logger.error("Erro ao listar customizações do pedido:", error);
       return res.status(500).json({
         error: "Erro ao listar customizações",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -637,14 +637,14 @@ class OrderCustomizationController {
       ) {
         return res.status(404).json({
           error: "Item do pedido não encontrado",
-          details: error.message,
+          details: "Erro interno do servidor",
         });
       }
 
       logger.error("Erro ao salvar customização do item:", error);
       return res.status(500).json({
         error: "Erro ao salvar customização",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   };

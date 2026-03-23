@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import prisma from "../database/prisma";
 import { mercadoPagoConfig } from "../config/mercadopago";
 import { auth } from "../config/firebase";
+import logger from "../utils/logger";
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -85,7 +86,7 @@ export const authenticateToken = async (
         },
       });
     } catch (jwtError: any) {
-      console.error("❌ JWT inválido, tentando Firebase:", {
+      logger.error("❌ JWT inválido, tentando Firebase:", {
         error: jwtError?.message || "JWT verification failed",
       });
 
@@ -103,7 +104,7 @@ export const authenticateToken = async (
           },
         });
       } catch (firebaseError: any) {
-        console.error("❌ Ambos tokens falharam:", {
+        logger.error("❌ Ambos tokens falharam:", {
           jwtError: jwtError?.message || "JWT verification failed",
           firebaseError:
             firebaseError?.message || "Firebase verification failed",
@@ -125,7 +126,7 @@ export const authenticateToken = async (
     }
 
     if (!user) {
-      console.error("❌ Usuário não encontrado no banco:", {
+      logger.error("❌ Usuário não encontrado no banco:", {
         decodedToken: decodedToken
           ? {
               userId: decodedToken.userId,
@@ -149,7 +150,7 @@ export const authenticateToken = async (
 
     next();
   } catch (error) {
-    console.error("💥 Erro inesperado na autenticação:", error);
+    logger.error("💥 Erro inesperado na autenticação:", error);
 
     if (error instanceof jwt.JsonWebTokenError) {
       return res.status(401).json({
@@ -246,7 +247,7 @@ export const requireAdmin = (
   next: NextFunction,
 ) => {
   if (!req.user) {
-    console.warn("🚫 [SECURITY] Tentativa de acesso admin sem autenticação", {
+    logger.warn("🚫 [SECURITY] Tentativa de acesso admin sem autenticação", {
       ip: req.ip,
       method: req.method,
       path: req.path,
@@ -259,7 +260,7 @@ export const requireAdmin = (
   }
 
   if (req.user.role && req.user.role.toLowerCase() !== "admin") {
-    console.warn("🚫 [SECURITY] Acesso admin negado - permissão insuficiente", {
+    logger.warn("🚫 [SECURITY] Acesso admin negado - permissão insuficiente", {
       userId: req.user.id,
       userRole: req.user.role,
       ip: req.ip,
@@ -337,7 +338,7 @@ export const validateMercadoPagoWebhook = (
       }
 
       if (!resourceId || resourceId.length === 0) {
-        console.error("❌ Formato antigo inválido - resource vazio", {
+        logger.error("❌ Formato antigo inválido - resource vazio", {
           resource,
           topic,
         });
@@ -349,7 +350,7 @@ export const validateMercadoPagoWebhook = (
 
       type = topic;
       data = { id: resourceId } as any;
-      console.warn(
+      logger.warn(
         "⚠️ Aceitando formato antigo e normalizando para processamento",
         {
           normalizedType: type,
@@ -363,7 +364,7 @@ export const validateMercadoPagoWebhook = (
     }
 
     if (!type || !data || !data.id) {
-      console.error("❌ Webhook com estrutura inválida", {
+      logger.error("❌ Webhook com estrutura inválida", {
         type,
         action,
         hasData: !!data,
@@ -385,7 +386,7 @@ export const validateMercadoPagoWebhook = (
     const xRequestId = req.headers["x-request-id"] as string;
 
     if (!mercadoPagoConfig.webhookSecret) {
-      console.error(
+      logger.error(
         "❌ [SECURITY] MERCADO_PAGO_WEBHOOK_SECRET não configurado",
       );
       return res.status(500).json({
@@ -395,7 +396,7 @@ export const validateMercadoPagoWebhook = (
     }
 
     if (!signatureHeader || !xRequestId) {
-      console.error("🚫 [SECURITY] Webhook sem headers de segurança", {
+      logger.error("🚫 [SECURITY] Webhook sem headers de segurança", {
         hasSignature: !!signatureHeader,
         hasRequestId: !!xRequestId,
         paymentId: data?.id,
@@ -420,7 +421,7 @@ export const validateMercadoPagoWebhook = (
       }
 
       if (!timestamp || !hash) {
-        console.warn("Webhook rejeitado - formato de assinatura inválido");
+        logger.warn("Webhook rejeitado - formato de assinatura inválido");
         return res.status(401).json({
           error: "Formato de assinatura inválido",
           code: "INVALID_SIGNATURE_FORMAT",
@@ -433,7 +434,7 @@ export const validateMercadoPagoWebhook = (
 
       if (difference > 3600) {
 
-        console.warn(
+        logger.warn(
           "⚠️ Webhook com timestamp antigo (possível reprocessamento) - ACEITANDO MESMO ASSIM",
           {
             webhookTimestamp,
@@ -455,7 +456,7 @@ export const validateMercadoPagoWebhook = (
         .toString(crypto.enc.Hex);
 
       if (hash !== expectedHash) {
-        console.warn("🚫 [SECURITY] Webhook rejeitado - assinatura inválida", {
+        logger.warn("🚫 [SECURITY] Webhook rejeitado - assinatura inválida", {
           paymentId: dataId,
           receivedHash: hash.substring(0, 10) + "...",
           expectedHash: expectedHash.substring(0, 10) + "...",
@@ -472,14 +473,14 @@ export const validateMercadoPagoWebhook = (
         type: type,
       });
     } else {
-      console.warn(
+      logger.warn(
         "⚠️ MERCADO_PAGO_WEBHOOK_SECRET não configurado - validação desabilitada",
       );
     }
 
     next();
   } catch (error) {
-    console.error("❌ Erro na validação do webhook:", error);
+    logger.error("❌ Erro na validação do webhook:", error);
     res.status(500).json({
       error: "Erro na validação do webhook",
       code: "WEBHOOK_VALIDATION_ERROR",
@@ -573,7 +574,7 @@ export const validatePaymentData = (
 
     next();
   } catch (error) {
-    console.error("Erro na validação de dados de pagamento:", error);
+    logger.error("Erro na validação de dados de pagamento:", error);
     res.status(500).json({
       error: "Erro na validação de dados",
       code: "VALIDATION_ERROR",
@@ -617,7 +618,7 @@ export const validateAIAgentKey = (
     : apiKey?.toString?.() || "";
 
   if (!validKey) {
-    console.error("❌ AI_AGENT_API_KEY não configurado no servidor");
+    logger.error("❌ AI_AGENT_API_KEY não configurado no servidor");
     return res.status(500).json({
       error: "Erro de configuração de segurança",
       code: "SECURITY_CONFIG_ERROR",
@@ -625,7 +626,7 @@ export const validateAIAgentKey = (
   }
 
   if (normalizedApiKey !== validKey) {
-    console.warn("🚫 [SECURITY] Tentativa de acesso à IA com chave inválida", {
+    logger.warn("🚫 [SECURITY] Tentativa de acesso à IA com chave inválida", {
       ip: req.ip,
       path: req.path,
     });

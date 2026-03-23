@@ -1,4 +1,5 @@
 import prisma from "../database/prisma";
+import logger from "../utils/logger";
 
 async function backfillPendingOwnerKey() {
   console.log("🔧 [backfillPendingOwnerKey] Iniciando saneamento...");
@@ -68,7 +69,7 @@ async function backfillPendingOwnerKey() {
 
 backfillPendingOwnerKey()
   .catch((error) => {
-    console.error("❌ [backfillPendingOwnerKey] Falha:", error);
+    logger.error("❌ [backfillPendingOwnerKey] Falha:", error);
     process.exitCode = 1;
   })
   .finally(async () => {

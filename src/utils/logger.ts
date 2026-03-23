@@ -6,6 +6,27 @@ const isDebugEnabled =
 const showInfoLogs = process.env.INFO_LOGS === "true";
 
 const BRAZIL_TIMEZONE = "America/Sao_Paulo";
+const SENSITIVE_KEYS = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "password",
+  "token",
+  "access_token",
+  "refresh_token",
+  "idtoken",
+  "client_secret",
+  "apikey",
+  "api_key",
+  "x-api-key",
+  "headers",
+  "request",
+  "response",
+  "config",
+  "req",
+  "res",
+  "stack",
+]);
 
 type ColorFunction = (text: string) => string;
 
@@ -99,8 +120,7 @@ const applyMessageColor = (
   message: any,
   colorOption?: ColorFunction | string,
 ): string => {
-  const messageStr =
-    typeof message === "string" ? message : JSON.stringify(message, null, 2);
+  const messageStr = formatLogValue(message);
 
   if (!colorOption) return messageStr;
 
@@ -123,6 +143,60 @@ const applyMessageColor = (
   return (colorMap[colorOption] || chalk.white)(messageStr);
 };
 
+const formatLogValue = (value: any): string => {
+  const seen = new WeakSet<object>();
+
+  const sanitize = (input: any): any => {
+    if (input instanceof Error) {
+      return {
+        name: input.name,
+        message: input.message,
+        ...(isDebugEnabled && input.stack ? { stack: input.stack } : {}),
+      };
+    }
+
+    if (input === null || input === undefined) {
+      return input;
+    }
+
+    if (typeof input !== "object") {
+      return input;
+    }
+
+    if (seen.has(input)) {
+      return "[Circular]";
+    }
+
+    seen.add(input);
+
+    if (Array.isArray(input)) {
+      return input.map((item) => sanitize(item));
+    }
+
+    const out: Record<string, any> = {};
+    for (const [key, nestedValue] of Object.entries(input)) {
+      if (SENSITIVE_KEYS.has(key.toLowerCase())) {
+        out[key] = "[REDACTED]";
+        continue;
+      }
+
+      out[key] = sanitize(nestedValue);
+    }
+
+    return out;
+  };
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(sanitize(value), null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
 const logger = {
   debug: (...args: any[]) => {
     if (isDebugEnabled) {
@@ -138,7 +212,11 @@ const logger = {
         message,
       );
       const coloredMessage = applyMessageColor(message, ctx?.color);
-      console.log(prefix, coloredMessage, ...otherArgs);
+      console.log(
+        prefix,
+        coloredMessage,
+        ...otherArgs.map((arg) => (typeof arg === "string" ? arg : formatLogValue(arg))),
+      );
     }
   },
   info: (...args: any[]) => {
@@ -155,7 +233,11 @@ const logger = {
         message,
       );
       const coloredMessage = applyMessageColor(message, ctx?.color || "blue");
-      console.log(prefix, coloredMessage, ...otherArgs);
+      console.log(
+        prefix,
+        coloredMessage,
+        ...otherArgs.map((arg) => (typeof arg === "string" ? arg : formatLogValue(arg))),
+      );
     }
   },
   log: (...args: any[]) => {
@@ -169,7 +251,11 @@ const logger = {
       message,
     );
     const coloredMessage = applyMessageColor(message, ctx?.color);
-    console.log(prefix, coloredMessage, ...otherArgs);
+    console.log(
+      prefix,
+      coloredMessage,
+      ...otherArgs.map((arg) => (typeof arg === "string" ? arg : formatLogValue(arg))),
+    );
   },
   warn: (...args: any[]) => {
     const message = args[0];
@@ -182,7 +268,11 @@ const logger = {
       message,
     );
     const coloredMessage = applyMessageColor(message, ctx?.color || "yellow");
-    console.warn(prefix, coloredMessage, ...otherArgs);
+    console.warn(
+      prefix,
+      coloredMessage,
+      ...otherArgs.map((arg) => (typeof arg === "string" ? arg : formatLogValue(arg))),
+    );
   },
   error: (...args: any[]) => {
     const message = args[0];
@@ -195,7 +285,11 @@ const logger = {
       message,
     );
     const coloredMessage = applyMessageColor(message, ctx?.color || "red");
-    console.error(prefix, coloredMessage, ...otherArgs);
+    console.error(
+      prefix,
+      coloredMessage,
+      ...otherArgs.map((arg) => (typeof arg === "string" ? arg : formatLogValue(arg))),
+    );
   },
   status: (...args: any[]) => {
     const message = args[0];
@@ -210,7 +304,11 @@ const logger = {
       message,
     );
     const coloredMessage = applyMessageColor(message, color);
-    console.log(prefix, coloredMessage, ...otherArgs);
+    console.log(
+      prefix,
+      coloredMessage,
+      ...otherArgs.map((arg) => (typeof arg === "string" ? arg : formatLogValue(arg))),
+    );
   },
 };
 

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import statusService from "../services/statusService";
+import logger from "../utils/logger";
 
 class StatusController {
     async getBusinessStatus(req: Request, res: Response) {
@@ -16,11 +17,11 @@ class StatusController {
                 },
             });
         } catch (error: any) {
-            console.error("Erro no StatusController:", error);
+            logger.error("Erro no StatusController:", error);
             res.status(500).json({
                 success: false,
                 error: "Falha ao buscar status do negócio",
-                details: error.message,
+                details: "Erro interno do servidor",
             });
         }
     }

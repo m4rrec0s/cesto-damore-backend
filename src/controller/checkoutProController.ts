@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { checkoutProService } from "../services/checkoutProService";
+import logger from "../utils/logger";
 
 export class CheckoutProController {
   async createPreference(req: Request, res: Response) {
@@ -35,14 +36,13 @@ export class CheckoutProController {
         message: "Preferência criada com sucesso",
       });
     } catch (error: any) {
-      console.error("❌ Erro ao criar preferência:", error);
+      logger.error("❌ Erro ao criar preferência:", error);
 
       res.status(500).json({
         success: false,
         error: "Erro interno do servidor",
-        message: error.message,
-        details:
-          process.env.NODE_ENV === "development" ? error.stack : undefined,
+        message: "Erro interno do servidor",
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -56,7 +56,7 @@ export class CheckoutProController {
 
       res.status(200).json({ received: true });
     } catch (error: any) {
-      console.error("❌ Erro no webhook:", error);
+      logger.error("❌ Erro no webhook:", error);
       res.status(500).json({ error: "Erro ao processar webhook" });
     }
   }
@@ -76,7 +76,7 @@ export class CheckoutProController {
         },
       });
     } catch (error: any) {
-      console.error("❌ Erro ao consultar status:", error);
+      logger.error("❌ Erro ao consultar status:", error);
       res.status(500).json({
         success: false,
         error: "Erro ao consultar status do pagamento",

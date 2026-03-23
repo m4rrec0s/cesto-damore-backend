@@ -59,7 +59,7 @@ class TempFileController {
       logger.error("❌ Erro ao fazer upload de arquivo temporário:", error);
       return res.status(500).json({
         error: "Erro ao fazer upload",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -89,7 +89,7 @@ class TempFileController {
       logger.error("❌ Erro ao listar arquivos temp:", error);
       return res.status(500).json({
         error: "Erro ao listar arquivos",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -133,7 +133,7 @@ class TempFileController {
       logger.error("❌ Erro ao deletar arquivo temp:", error);
       return res.status(500).json({
         error: "Erro ao deletar arquivo",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -159,7 +159,7 @@ class TempFileController {
       logger.error("❌ Erro ao fazer cleanup de temp files:", error);
       return res.status(500).json({
         error: "Erro ao fazer cleanup",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }
@@ -188,7 +188,7 @@ class TempFileController {
       logger.error("❌ Erro ao fazer cleanup by order:", error);
       return res.status(500).json({
         error: "Erro ao fazer cleanup",
-        details: error.message,
+        details: "Erro interno do servidor",
       });
     }
   }

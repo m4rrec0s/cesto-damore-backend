@@ -20,7 +20,7 @@ class CustomizationReviewController {
             logger.error("❌ [CustomizationReviewController] Erro ao buscar dados de revisão:", error);
             return res.status(500).json({
                 error: "Erro ao buscar dados de revisão",
-                details: error.message,
+                details: "Erro interno do servidor",
             });
         }
     }

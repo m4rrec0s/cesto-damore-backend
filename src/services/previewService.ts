@@ -1,6 +1,7 @@
 import prisma from "../database/prisma";
 import path from "path";
 import fs from "fs/promises";
+import logger from "../utils/logger";
 
 interface PreviewRequest {
   productId: string;
@@ -63,7 +64,7 @@ class PreviewService {
 
       return response;
     } catch (error: any) {
-      console.error("Erro ao gerar preview:", error);
+      logger.error("Erro ao gerar preview:", error);
       return {
         message: "Erro ao gerar preview",
       };

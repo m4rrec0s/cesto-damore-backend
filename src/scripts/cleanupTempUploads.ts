@@ -46,7 +46,7 @@ if (require.main === module) {
       process.exit(0);
     })
     .catch((error) => {
-      console.error("\n❌ Erro:", error);
+      logger.error("\n❌ Erro:", error);
       process.exit(1);
     });
 }

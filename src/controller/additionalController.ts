@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import additionalService from "../services/additionalService";
 import sharp from "sharp";
 import { saveImageLocally } from "../config/localStorage";
+import logger from "../utils/logger";
 
 class AdditionalController {
   async index(req: Request, res: Response) {
@@ -12,7 +13,7 @@ class AdditionalController {
       );
       res.json(additionals);
     } catch (error: any) {
-      console.error("Erro ao buscar adicionais:", error);
+      logger.error("Erro ao buscar adicionais:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -27,7 +28,7 @@ class AdditionalController {
       );
       res.json(additional);
     } catch (error: any) {
-      console.error("Erro ao buscar adicional:", error);
+      logger.error("Erro ao buscar adicional:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -69,10 +70,10 @@ class AdditionalController {
           );
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro ao salvar imagem:", imageError);
+          logger.error("Erro ao salvar imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -92,7 +93,7 @@ class AdditionalController {
       const additional = await additionalService.createAdditional(data);
       res.status(201).json(additional);
     } catch (error: any) {
-      console.error("Erro ao criar adicional:", error);
+      logger.error("Erro ao criar adicional:", error);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("inválido")
@@ -119,10 +120,10 @@ class AdditionalController {
 
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro no processamento de imagem:", imageError);
+          logger.error("Erro no processamento de imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -142,7 +143,7 @@ class AdditionalController {
       const additional = await additionalService.updateAdditional(id, data);
       res.json(additional);
     } catch (error: any) {
-      console.error("Erro ao atualizar adicional:", error);
+      logger.error("Erro ao atualizar adicional:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -162,7 +163,7 @@ class AdditionalController {
       const result = await additionalService.deleteAdditional(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar adicional:", error);
+      logger.error("Erro ao deletar adicional:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -189,7 +190,7 @@ class AdditionalController {
       );
       res.status(201).json(result);
     } catch (error: any) {
-      console.error("Erro ao vincular adicional:", error);
+      logger.error("Erro ao vincular adicional:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -216,7 +217,7 @@ class AdditionalController {
       );
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao atualizar vínculo do adicional:", error);
+      logger.error("Erro ao atualizar vínculo do adicional:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else {
@@ -236,7 +237,7 @@ class AdditionalController {
       );
       res.json({ price });
     } catch (error: any) {
-      console.error("Erro ao buscar preço do adicional:", error);
+      logger.error("Erro ao buscar preço do adicional:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -255,7 +256,7 @@ class AdditionalController {
       );
       res.json(additionals);
     } catch (error: any) {
-      console.error("Erro ao buscar adicionais do produto:", error);
+      logger.error("Erro ao buscar adicionais do produto:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else {
@@ -276,7 +277,7 @@ class AdditionalController {
       const result = await additionalService.unlinkFromProduct(id, productId);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao desvincular adicional:", error);
+      logger.error("Erro ao desvincular adicional:", error);
       if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else if (error.message.includes("não encontrado")) {

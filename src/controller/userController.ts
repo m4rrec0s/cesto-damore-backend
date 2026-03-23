@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import userService from "../services/userService";
 import sharp from "sharp";
 import { saveImageLocally } from "../config/localStorage";
+import logger from "../utils/logger";
 
 class UserController {
   async index(req: Request, res: Response) {
@@ -9,7 +10,7 @@ class UserController {
       const users = await userService.getAllUsers();
       res.json(users);
     } catch (error: any) {
-      console.error("Erro ao buscar usuários:", error);
+      logger.error("Erro ao buscar usuários:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
@@ -20,7 +21,7 @@ class UserController {
       const user = await userService.getUserById(id);
       res.json(user);
     } catch (error: any) {
-      console.error("Erro ao buscar usuário:", error);
+      logger.error("Erro ao buscar usuário:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
@@ -50,10 +51,10 @@ class UserController {
 
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro no processamento de imagem:", imageError);
+          logger.error("Erro no processamento de imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -61,7 +62,7 @@ class UserController {
       const user = await userService.createUser(data);
       res.status(201).json(user);
     } catch (error: any) {
-      console.error("Erro ao criar usuário:", error);
+      logger.error("Erro ao criar usuário:", error);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("inválido") ||
@@ -94,10 +95,10 @@ class UserController {
 
           data.image_url = imageUrl;
         } catch (imageError: any) {
-          console.error("Erro no processamento de imagem:", imageError);
+          logger.error("Erro no processamento de imagem:", imageError);
           return res.status(500).json({
             error: "Erro ao processar imagem",
-            details: imageError.message,
+            details: "Erro interno do servidor",
           });
         }
       }
@@ -105,7 +106,7 @@ class UserController {
       const user = await userService.updateUser(id, data);
       res.json(user);
     } catch (error: any) {
-      console.error("Erro ao atualizar usuário:", error);
+      logger.error("Erro ao atualizar usuário:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -126,7 +127,7 @@ class UserController {
       const result = await userService.deleteUser(id);
       res.json(result);
     } catch (error: any) {
-      console.error("Erro ao deletar usuário:", error);
+      logger.error("Erro ao deletar usuário:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else if (
@@ -149,7 +150,7 @@ class UserController {
       const user = await userService.getUserById(req.user.id);
       res.json(user);
     } catch (error: any) {
-      console.error("Erro ao buscar usuário atual:", error);
+      logger.error("Erro ao buscar usuário atual:", error);
       if (error.message.includes("não encontrado")) {
         res.status(404).json({ error: error.message });
       } else {
@@ -169,7 +170,7 @@ class UserController {
       const addressInfo = await userService.getAddressByZipCode(zipCode);
       res.json(addressInfo);
     } catch (error: any) {
-      console.error("Erro ao consultar CEP:", error);
+      logger.error("Erro ao consultar CEP:", error);
 
       if (
         error.message.includes("CEP deve ter 8 dígitos") ||

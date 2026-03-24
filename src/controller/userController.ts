@@ -5,6 +5,16 @@ import { saveImageLocally } from "../config/localStorage";
 import logger from "../utils/logger";
 
 class UserController {
+  constructor() {
+    this.index = this.index.bind(this);
+    this.show = this.show.bind(this);
+    this.create = this.create.bind(this);
+    this.update = this.update.bind(this);
+    this.remove = this.remove.bind(this);
+    this.me = this.me.bind(this);
+    this.getAddressByZipCode = this.getAddressByZipCode.bind(this);
+  }
+
   private isAdmin(req: Request) {
     return String((req as any).user?.role || "").toUpperCase() === "ADMIN";
   }

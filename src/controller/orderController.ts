@@ -3,6 +3,21 @@ import orderService from "../services/orderService";
 import logger from "../utils/logger";
 
 class OrderController {
+  constructor() {
+    this.index = this.index.bind(this);
+    this.show = this.show.bind(this);
+    this.getByUserId = this.getByUserId.bind(this);
+    this.getPendingOrderByUserId = this.getPendingOrderByUserId.bind(this);
+    this.create = this.create.bind(this);
+    this.remove = this.remove.bind(this);
+    this.updateStatus = this.updateStatus.bind(this);
+    this.updateMetadata = this.updateMetadata.bind(this);
+    this.updateItems = this.updateItems.bind(this);
+    this.getPendingOrder = this.getPendingOrder.bind(this);
+    this.cancelOrder = this.cancelOrder.bind(this);
+    this.removeAllCanceledOrders = this.removeAllCanceledOrders.bind(this);
+  }
+
   private isAdmin(req: Request) {
     return String((req as any).user?.role || "").toUpperCase() === "ADMIN";
   }

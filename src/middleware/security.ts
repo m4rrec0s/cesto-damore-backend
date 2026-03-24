@@ -621,6 +621,7 @@ export const requireApiKey = (
     req.path === "/robots.txt" ||
     req.path === "/manifest.webmanifest" ||
     req.path === "/apple-touch-icon.png" ||
+    req.path === "/preview" ||
     req.path.startsWith("/images") ||
     req.path.startsWith("/uploads/temp")
   ) {

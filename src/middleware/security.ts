@@ -616,6 +616,10 @@ export const requireApiKey = (
   res: Response,
   next: NextFunction,
 ) => {
+  if (req.path.startsWith("/images") || req.path.startsWith("/uploads/temp")) {
+    return next();
+  }
+
   const apiKeyHeader =
     req.headers["x-api-key"] ||
     req.headers["api-key"] ||

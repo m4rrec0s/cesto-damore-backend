@@ -616,7 +616,14 @@ export const requireApiKey = (
   res: Response,
   next: NextFunction,
 ) => {
-  if (req.path.startsWith("/images") || req.path.startsWith("/uploads/temp")) {
+  if (
+    req.path === "/favicon.ico" ||
+    req.path === "/robots.txt" ||
+    req.path === "/manifest.webmanifest" ||
+    req.path === "/apple-touch-icon.png" ||
+    req.path.startsWith("/images") ||
+    req.path.startsWith("/uploads/temp")
+  ) {
     return next();
   }
 

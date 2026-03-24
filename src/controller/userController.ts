@@ -5,6 +5,15 @@ import { saveImageLocally } from "../config/localStorage";
 import logger from "../utils/logger";
 
 class UserController {
+  private isAdmin(req: Request) {
+    return String((req as any).user?.role || "").toUpperCase() === "ADMIN";
+  }
+
+  private canAccessUser(req: Request, targetUserId: string) {
+    const currentUserId = (req as any).user?.id;
+    return this.isAdmin(req) || currentUserId === targetUserId;
+  }
+
   async index(req: Request, res: Response) {
     try {
       const users = await userService.getAllUsers();
@@ -18,6 +27,16 @@ class UserController {
   async show(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(req as any).user) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
+      if (!this.canAccessUser(req, id)) {
+        return res
+          .status(403)
+          .json({ error: "Você não tem permissão para acessar este usuário" });
+      }
+
       const user = await userService.getUserById(id);
       res.json(user);
     } catch (error: any) {
@@ -80,6 +99,16 @@ class UserController {
       const { id } = req.params;
       const data = { ...req.body };
 
+      if (!(req as any).user) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
+      if (!this.canAccessUser(req, id)) {
+        return res
+          .status(403)
+          .json({ error: "Você não tem permissão para atualizar este usuário" });
+      }
+
       if (req.file) {
         try {
           const compressedImage = await sharp(req.file.buffer)
@@ -124,6 +153,14 @@ class UserController {
   async remove(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      if (!(req as any).user) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
+      if (!this.isAdmin(req)) {
+        return res.status(403).json({ error: "Apenas administradores podem deletar usuários" });
+      }
+
       const result = await userService.deleteUser(id);
       res.json(result);
     } catch (error: any) {

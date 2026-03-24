@@ -72,8 +72,12 @@ class TempUploadController {
       }
 
       const userId = (req.user as any)?.id;
-      if (upload.userId && upload.userId !== userId) {
+      if (!userId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
 
+      if (upload.userId && upload.userId !== userId) {
+        return res.status(403).json({ error: "Acesso negado" });
       }
 
       const result = await tempUploadService.makePermanent(uploadId, orderId);

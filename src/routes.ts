@@ -635,6 +635,7 @@ router.post(
 router.post("/customizations/preview", customizationController.buildPreview);
 router.get(
   "/customization/review/:orderId",
+  authenticateToken,
   customizationReviewController.getReviewData,
 );
 
@@ -742,6 +743,7 @@ router.get("/mercadopago/public-config", async (req, res) => {
 });
 router.get(
   "/webhooks/notifications/:orderId",
+  authenticateToken,
   webhookNotificationController.streamNotifications,
 );
 router.get(

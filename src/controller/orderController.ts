@@ -3,6 +3,15 @@ import orderService from "../services/orderService";
 import logger from "../utils/logger";
 
 class OrderController {
+  private isAdmin(req: Request) {
+    return String((req as any).user?.role || "").toUpperCase() === "ADMIN";
+  }
+
+  private canAccessOrder(req: Request, orderUserId: string) {
+    const currentUserId = (req as any).user?.id;
+    return this.isAdmin(req) || currentUserId === orderUserId;
+  }
+
   async index(req: Request, res: Response) {
     try {
       const { status, page = "1", limit = "8", summary } = req.query;
@@ -10,13 +19,66 @@ class OrderController {
       const limitNum = Math.max(1, Math.min(100, parseInt(String(limit), 10)));
       const summaryMode =
         String(summary).toLowerCase() === "true" || String(summary) === "1";
+      const currentUserId = (req as any).user?.id;
+      const isAdmin = this.isAdmin(req);
 
-      const orders = await orderService.getAllOrders(
-        status ? { status: String(status) } : undefined,
-        { page: pageNum, limit: limitNum },
-        { summary: summaryMode },
-      );
-      res.json(orders);
+      if (!currentUserId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
+      if (isAdmin) {
+        const orders = await orderService.getAllOrders(
+          status ? { status: String(status) } : undefined,
+          { page: pageNum, limit: limitNum },
+          { summary: summaryMode },
+        );
+        return res.json(orders);
+      }
+
+      const orders = await orderService.getOrdersByUserId(currentUserId);
+      const filteredOrders = status
+        ? orders.filter((order: any) => {
+            const normalized = String(status).trim().toLowerCase();
+            if (normalized === "open" || normalized === "abertos") {
+              return ["PENDING", "PAID", "SHIPPED"].includes(order.status);
+            }
+            if (normalized === "closed" || normalized === "fechados") {
+              return ["DELIVERED", "CANCELED"].includes(order.status);
+            }
+            return String(order.status).toLowerCase() === normalized;
+          })
+        : orders;
+
+      const total = filteredOrders.length;
+      const totalPages = Math.ceil(total / limitNum);
+      const start = (pageNum - 1) * limitNum;
+      const data = filteredOrders.slice(start, start + limitNum);
+
+      return res.json({
+        data: summaryMode
+          ? data.map((order: any) => ({
+              id: order.id,
+              status: order.status,
+              total: order.total,
+              grand_total: order.grand_total,
+              created_at: order.created_at,
+              recipient_phone: order.recipient_phone,
+              user: {
+                id: order.user?.id,
+                name: order.user?.name,
+                phone: order.user?.phone,
+              },
+              items_count: Array.isArray(order.items) ? order.items.length : 0,
+            }))
+          : data,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+          hasMore: pageNum < totalPages,
+        },
+      });
     } catch (error: any) {
       logger.error("Erro ao buscar pedidos:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
@@ -26,7 +88,18 @@ class OrderController {
   async show(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
       const order = await orderService.getOrderById(id);
+      if (!this.canAccessOrder(req, order.user_id)) {
+        return res
+          .status(403)
+          .json({ error: "Você não tem permissão para acessar este pedido" });
+      }
+
       res.json(order);
     } catch (error: any) {
       logger.error("Erro ao buscar pedido:", error);
@@ -43,9 +116,19 @@ class OrderController {
   async getByUserId(req: Request, res: Response) {
     try {
       const { userId } = req.params;
+      const currentUserId = (req as any).user?.id;
+      if (!currentUserId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
 
       if (!userId) {
         return res.status(400).json({ error: "ID do usuário é obrigatório" });
+      }
+
+      if (!(this.isAdmin(req) || currentUserId === userId)) {
+        return res
+          .status(403)
+          .json({ error: "Você não tem permissão para acessar estes pedidos" });
       }
 
       const orders = await orderService.getOrdersByUserId(userId);
@@ -64,9 +147,19 @@ class OrderController {
   async getPendingOrderByUserId(req: Request, res: Response) {
     try {
       const { userId } = req.params;
+      const currentUserId = (req as any).user?.id;
+      if (!currentUserId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
 
       if (!userId) {
         return res.status(400).json({ error: "ID do usuário é obrigatório" });
+      }
+
+      if (!(this.isAdmin(req) || currentUserId === userId)) {
+        return res
+          .status(403)
+          .json({ error: "Você não tem permissão para acessar este pedido" });
       }
 
       const pendingOrder = await orderService.getPendingOrderByUserId(userId);
@@ -91,6 +184,12 @@ class OrderController {
 
   async create(req: Request, res: Response) {
     try {
+      const currentUserId = (req as any).user?.id;
+      if (currentUserId && req.body?.user_id && req.body.user_id !== currentUserId) {
+        return res.status(403).json({
+          error: "Você não tem permissão para criar pedidos para outro usuário",
+        });
+      }
 
       console.log("📝 Criando pedido - resumo:", {
         user_id: req.body?.user_id,
@@ -261,8 +360,12 @@ class OrderController {
       }
 
       const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
       const existingOrder = await orderService.getOrderById(id);
-      if (userId && existingOrder.user_id !== userId) {
+      if (!this.canAccessOrder(req, existingOrder.user_id)) {
         return res
           .status(403)
           .json({ error: "Você não tem permissão para modificar este pedido" });
@@ -314,6 +417,10 @@ class OrderController {
       }
 
       const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
       const existingOrder = await orderService.getOrderById(id);
 
       console.log("🔍 [updateItems] Verificação de permissão:", {
@@ -323,7 +430,7 @@ class OrderController {
         hasUser: !!(req as any).user,
       });
 
-      if (userId && existingOrder.user_id !== userId) {
+      if (!this.canAccessOrder(req, existingOrder.user_id)) {
         logger.warn(
           "⚠️ [updateItems] Acesso negado: usuário não é dono do pedido",
         );
@@ -376,9 +483,20 @@ class OrderController {
   async getPendingOrder(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      const userId = (req as any).user?.id;
 
       if (!id) {
         return res.status(400).json({ error: "ID do usuário é obrigatório" });
+      }
+
+      if (!userId) {
+        return res.status(401).json({ error: "Autenticação necessária" });
+      }
+
+      if (!(this.isAdmin(req) || userId === id)) {
+        return res
+          .status(403)
+          .json({ error: "Você não tem permissão para acessar este pedido" });
       }
 
       const pendingOrder = await orderService.getPendingOrder(id);

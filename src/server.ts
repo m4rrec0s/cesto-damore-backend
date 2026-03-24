@@ -19,7 +19,7 @@ import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
 import followUpService from "./services/followUpService";
-import { apiRateLimit } from "./middleware/security";
+import { apiRateLimit, requireApiKey } from "./middleware/security";
 import path from "path";
 
 const app = express();
@@ -62,6 +62,8 @@ const corsOptions: cors.CorsOptions = {
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
+
+app.use(requireApiKey);
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));

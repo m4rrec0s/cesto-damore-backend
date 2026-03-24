@@ -608,17 +608,26 @@ export const validateAIAgentKey = (
   res: Response,
   next: NextFunction,
 ) => {
-  const apiKey =
+  return requireApiKey(req, res, next);
+};
+
+export const requireApiKey = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const apiKeyHeader =
+    req.headers["x-api-key"] ||
+    req.headers["api-key"] ||
     req.headers["x-ai-api-key"] ||
-    req.headers["X-AI-API-Key"] ||
-    req.query.x_ai_api_key;
-  const validKey = process.env.AI_AGENT_API_KEY;
-  const normalizedApiKey = Array.isArray(apiKey)
-    ? apiKey[0]
-    : apiKey?.toString?.() || "";
+    req.query.api_key;
+  const validKey = process.env.API_KEY || process.env.AI_AGENT_API_KEY;
+  const normalizedApiKey = Array.isArray(apiKeyHeader)
+    ? apiKeyHeader[0]
+    : apiKeyHeader?.toString?.() || "";
 
   if (!validKey) {
-    logger.error("❌ AI_AGENT_API_KEY não configurado no servidor");
+    logger.error("❌ API_KEY não configurada no servidor");
     return res.status(500).json({
       error: "Erro de configuração de segurança",
       code: "SECURITY_CONFIG_ERROR",
@@ -626,13 +635,13 @@ export const validateAIAgentKey = (
   }
 
   if (normalizedApiKey !== validKey) {
-    logger.warn("🚫 [SECURITY] Tentativa de acesso à IA com chave inválida", {
+    logger.warn("🚫 [SECURITY] Tentativa de acesso com chave de API inválida", {
       ip: req.ip,
       path: req.path,
     });
     return res.status(401).json({
       error: "Acesso não autorizado - Chave de API inválida",
-      code: "INVALID_AI_API_KEY",
+      code: "INVALID_API_KEY",
     });
   }
 

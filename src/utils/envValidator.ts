@@ -1,6 +1,13 @@
 import logger from "./logger";
 
 export const validateEnv = () => {
+  if (!process.env.API_KEY && process.env.AI_AGENT_API_KEY) {
+    process.env.API_KEY = process.env.AI_AGENT_API_KEY;
+    logger.warn(
+      "⚠️ API_KEY não definida; usando temporariamente o valor de AI_AGENT_API_KEY.",
+    );
+  }
+
   const requiredEnvVars = [
     "DATABASE_URL",
     "JWT_SECRET",
@@ -10,7 +17,7 @@ export const validateEnv = () => {
     "GOOGLE_PROJECT_ID",
     "GOOGLE_CLIENT_EMAIL",
     "GOOGLE_PRIVATE_KEY",
-    "AI_AGENT_API_KEY",
+    "API_KEY",
     "BASE_URL",
   ];
 

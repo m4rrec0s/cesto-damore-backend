@@ -479,10 +479,10 @@ export const botFlowService = {
       return false;
     }
 
-    const followUpText = buildMenuText(
-      getMenuLikeNodeMessage(node.data),
-      getNodeOptions(node.data),
-    );
+    const options = getNodeOptions(node.data);
+    const baseMessage = getMenuLikeNodeMessage(node.data);
+    const followUpText =
+      options.length > 0 ? buildMenuText(baseMessage, options) : baseMessage;
 
     if (!followUpText) {
       return false;
@@ -919,6 +919,21 @@ export const botFlowService = {
     } else {
       // Process input based on node type
       if (node.type === "menuNode" || node.type === "followUpNode") {
+        const options = getNodeOptions(node.data);
+
+        if (node.type === "followUpNode" && options.length === 0) {
+          const followUpText = buildMenuText(
+            getMenuLikeNodeMessage(node.data),
+            options,
+          );
+          return await sendFallbackResponse(
+            followUpText,
+            currentNodeId!,
+            sessionState,
+            resolveNodeDelay(node.data, 1200),
+          );
+        }
+
         // Tenta achar a opcao escolhida
         const normalizedInput = normalizeText(text);
         const hasBackIntent =
@@ -985,7 +1000,6 @@ export const botFlowService = {
         if (nextNodeId) {
           node = nodes.find((n) => n.id === nextNodeId) || null;
         } else {
-          const options = getNodeOptions(node.data);
           const menuText = buildMenuText(
             getMenuLikeNodeMessage(node.data),
             options,

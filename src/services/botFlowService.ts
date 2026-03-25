@@ -93,6 +93,24 @@ const normalizeText = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+const extractReplyContent = (value: string) => {
+  const raw = String(value || "").trim();
+  if (!raw) return raw;
+
+  const replyMarker = raw.toLowerCase().lastIndexOf("resposta:");
+  if (replyMarker === -1) return raw;
+
+  const extracted = raw.slice(replyMarker + "resposta:".length).trim();
+  if (!extracted) return raw;
+
+  const cleaned = extracted
+    .replace(/^[\s"'“”‘’\[\]\(\)\-:]+/, "")
+    .replace(/[\s"'“”‘’\[\]\(\)\-:]+$/, "")
+    .trim();
+
+  return cleaned || raw;
+};
+
 const normalizeSearchTokens = (value: string) =>
   value
     .toLowerCase()
@@ -540,7 +558,8 @@ export const botFlowService = {
     contactName,
   }: BotMessageRequest): Promise<MessageResponse[]> {
     const rawText = (message || "").toString().trim();
-    const text = rawText.toLowerCase();
+    const processedText = extractReplyContent(rawText);
+    const text = processedText.toLowerCase();
     const hasInternalCartAddedEvent = isInternalCartAddedEvent(rawText);
     const hasInternalImageInstruction = isInternalImageEvent(rawText);
 
@@ -579,10 +598,10 @@ export const botFlowService = {
       history = (
         Array.isArray(session.history) ? session.history : []
       ) as any[];
-      if (rawText) {
+      if (processedText) {
         history.push({
           role: "user",
-          text: message,
+          text: processedText,
           created_at: new Date().toISOString(),
         });
       }
@@ -751,7 +770,7 @@ export const botFlowService = {
       delayMs?: number,
     ) => {
       const fallbackResult = await aiAgentService.processFallback({
-        userMessage: rawText,
+        userMessage: processedText,
         menuText,
         sessionHistory: history,
         customerName:

@@ -21,3 +21,8 @@ code/images/
 # Pastas de dados locais (desenvolvimento e produção)
 /images
 /storage
+
+# jest
+
+jest.config.cjs
+tsconfig.test.json

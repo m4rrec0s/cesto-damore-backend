@@ -655,6 +655,7 @@ model BotSession {
   is_human        Boolean  @default(false)
   state           Json?    
   history         Json?    @default("[]")
+  dynamic_menu    Json?    // LLM-generated dynamic menu: { options: [{label, target_node_id}], generated_at, context }
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 

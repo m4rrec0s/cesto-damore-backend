@@ -4,7 +4,7 @@ import mcpClientService from "./mcpClientService";
 import logger from "../utils/logger";
 import { addDays, addHours, isPast, format } from "date-fns";
 import { PROMPTS } from "../config/prompts";
-import type { FlowCatalogNode, RouterDecision } from "../types/flowRouter";
+import type { FlowCatalogNode, RouterDecision, DynamicMenuOption } from "../types/flowRouter";
 
 enum ProcessingState {
   ANALYZING = "ANALYZING",
@@ -629,18 +629,205 @@ class AIAgentService {
     return [...selectedToolNames];
   }
 
+  async generateDynamicMenu({
+    userMessage,
+    llmResponse,
+    currentNodeId,
+    sessionHistory,
+    flowCatalog,
+  }: {
+    userMessage: string;
+    llmResponse: string;
+    currentNodeId: string | null;
+    sessionHistory: Array<{ role: string; text: string }>;
+    flowCatalog: FlowCatalogNode[];
+  }): Promise<import("../types/flowRouter").DynamicMenuOption[]> {
+    const spContext = this.getSaoPauloContext();
+    const compactCatalog = (Array.isArray(flowCatalog) ? flowCatalog : [])
+      .filter((node) => node.type !== "startNode" && node.type !== "blockNode")
+      .slice(0, 80)
+      .map((node) => ({
+        id: node.id,
+        type: node.type,
+        title: node.title,
+        summary: node.summary || "",
+        nav_category: node.nav_category || "menu",
+        user_friendly_label: node.user_friendly_label || node.title,
+        keywords: Array.isArray(node.keywords) ? node.keywords.slice(0, 10) : [],
+      }));
+
+    const historyContext = sessionHistory
+      .slice(-4)
+      .map((entry) => `${entry.role === "user" ? "Cliente" : "Bot"}: ${entry.text}`)
+      .join("\n");
+
+    const systemPrompt = `Você é um assistente de navegação da Cesto dAmore. 
+O cliente fez uma pergunta e você já respondeu. Agora precisa sugerir 3-4 opções de navegação relevantes.
+
+CONTEXTO:
+- Data/hora: ${spContext.date} ${spContext.time}
+- Node atual: ${currentNodeId || "Menu Principal"}
+- Mensagem do cliente: "${userMessage}"
+- Sua resposta: "${llmResponse}"
+- Histórico recente:
+${historyContext}
+
+CATÁLOGO DE NODES DISPONÍVEIS (primeiros 80):
+${JSON.stringify(compactCatalog, null, 2)}
+
+REGRAS OBRIGATÓRIAS:
+1. Gere exatamente 3-4 opções de navegação
+2. SEMPRE inclua "Voltar ao menu principal" (use node_id: "MAIN_MENU")
+3. SEMPRE inclua "Finalizar atendimento" (use node_id: "END_SUPPORT") como última opção
+4. As opções intermediárias devem fazer sentido dado o contexto da conversa
+5. Use labels amigáveis e curtos (máximo 40 caracteres)
+6. Priorize opções que ajudem o cliente a avançar no fluxo de compra
+7. Se cliente perguntou sobre produtos, inclua opção para ver catálogo
+8. Se cliente está no meio do fluxo, ofereça continuação lógica
+9. Para target_node_id, use IDs reais do catálogo OU os especiais: MAIN_MENU, END_SUPPORT, HUMAN_HANDOFF
+
+RESPONDA SOMENTE COM JSON VÁLIDO neste formato:
+{
+  "options": [
+    {"label": "Ver opções de cestas", "target_node_id": "node-id-real-aqui", "nav_category": "product"},
+    {"label": "Informações sobre entrega", "target_node_id": "node-id-real-aqui", "nav_category": "info"},
+    {"label": "Voltar ao menu principal", "target_node_id": "MAIN_MENU", "nav_category": "menu"},
+    {"label": "Finalizar atendimento", "target_node_id": "END_SUPPORT", "nav_category": "support"}
+  ]
+}`;
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `Gere o menu de navegação contextual em JSON puro.`,
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+      });
+
+      const content = (response.choices?.[0]?.message?.content || "").trim();
+      const parsed = JSON.parse(content);
+
+      if (
+        !parsed ||
+        !Array.isArray(parsed.options) ||
+        parsed.options.length < 3 ||
+        parsed.options.length > 5
+      ) {
+        logger.warn("⚠️ LLM gerou menu dinâmico com formato inválido");
+        return this.getFallbackDynamicMenu(flowCatalog);
+      }
+
+      const validOptions = parsed.options
+        .filter(
+          (opt: any) =>
+            opt &&
+            typeof opt.label === "string" &&
+            typeof opt.target_node_id === "string" &&
+            opt.label.trim() &&
+            opt.target_node_id.trim(),
+        )
+        .map((opt: any) => ({
+          label: String(opt.label).trim().slice(0, 50),
+          target_node_id: String(opt.target_node_id).trim(),
+          nav_category: opt.nav_category || "menu",
+        }));
+
+      if (validOptions.length < 3) {
+        logger.warn("⚠️ Menu dinâmico com poucas opções válidas");
+        return this.getFallbackDynamicMenu(flowCatalog);
+      }
+
+      const hasMainMenu = validOptions.some(
+        (opt: DynamicMenuOption) => opt.target_node_id === "MAIN_MENU",
+      );
+      const hasEndSupport = validOptions.some(
+        (opt: DynamicMenuOption) => opt.target_node_id === "END_SUPPORT",
+      );
+
+      if (!hasMainMenu) {
+        validOptions.push({
+          label: "Voltar ao menu principal",
+          target_node_id: "MAIN_MENU",
+          nav_category: "menu",
+        });
+      }
+
+      if (!hasEndSupport && validOptions.length < 5) {
+        validOptions.push({
+          label: "Finalizar atendimento",
+          target_node_id: "END_SUPPORT",
+          nav_category: "support",
+        });
+      }
+
+      return validOptions.slice(0, 4);
+    } catch (error: any) {
+      logger.error(
+        `❌ Erro ao gerar menu dinâmico: ${error?.message || String(error)}`,
+      );
+      return this.getFallbackDynamicMenu(flowCatalog);
+    }
+  }
+
+  private getFallbackDynamicMenu(
+    flowCatalog: FlowCatalogNode[],
+  ): import("../types/flowRouter").DynamicMenuOption[] {
+    const productNode = flowCatalog.find(
+      (n) =>
+        n.type === "menuNode" &&
+        (n.nav_category === "product" ||
+          n.keywords?.some((k) =>
+            ["produto", "cesta", "catalogo"].includes(k.toLowerCase()),
+          )),
+    );
+
+    const options: import("../types/flowRouter").DynamicMenuOption[] = [];
+
+    if (productNode) {
+      options.push({
+        label: productNode.user_friendly_label || "Ver opções de produtos",
+        target_node_id: productNode.id,
+        nav_category: "product",
+      });
+    }
+
+    options.push({
+      label: "Voltar ao menu principal",
+      target_node_id: "MAIN_MENU",
+      nav_category: "menu",
+    });
+
+    options.push({
+      label: "Finalizar atendimento",
+      target_node_id: "END_SUPPORT",
+      nav_category: "support",
+    });
+
+    return options;
+  }
+
   async processFallback({
     userMessage,
     menuText,
     sessionHistory,
     customerName,
     flowCatalog,
+    currentNodeId,
+    enableDynamicMenu = true,
   }: {
     userMessage: string;
     menuText: string;
     sessionHistory?: Array<{ role: string; text: string }>;
     customerName?: string;
     flowCatalog?: FlowCatalogNode[];
+    currentNodeId?: string | null;
+    enableDynamicMenu?: boolean;
   }): Promise<FallbackProcessingResult> {
     const routingDecision = await this.routeFallback({
       userMessage,
@@ -668,12 +855,17 @@ class AIAgentService {
     }
 
     const safeMenuText = this.formatFallbackMenuText(menuText);
-    logger.warn(`⚠️ Router retornou decisão inválida ou sem node_id. Action: ${routingDecision.action}, Node: ${routedNodeId || '(vazio)'}`);
-    
+    logger.warn(
+      `⚠️ Router retornou decisão inválida ou sem node_id. Action: ${routingDecision.action}, Node: ${routedNodeId || "(vazio)"}`,
+    );
+
     return {
-       text: this.ensureMenuInResponse("Não entendi. Por favor, escolha uma das opções abaixo para continuarmos.", safeMenuText),
-       handoffToHuman: false,
-       routerDecision: routingDecision
+      text: this.ensureMenuInResponse(
+        "Não entendi. Por favor, escolha uma das opções abaixo para continuarmos.",
+        safeMenuText,
+      ),
+      handoffToHuman: false,
+      routerDecision: routingDecision,
     };
   }
 

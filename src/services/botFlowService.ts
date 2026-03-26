@@ -365,6 +365,73 @@ const isRoutableCatalogNode = (node: FlowNode) => {
   return true;
 };
 
+const matchDynamicMenuOption = (
+  userInput: string,
+  options: any[],
+  nodes: FlowNode[],
+): { target_node_id: string; label: string } | null => {
+  if (!Array.isArray(options) || options.length === 0) return null;
+
+  const normalized = normalizeText(userInput);
+
+  // 1. Try numeric match (1, 2, 3...)
+  const numMatch = normalized.match(/^\d+$/);
+  if (numMatch) {
+    const index = parseInt(numMatch[0], 10) - 1;
+    if (index >= 0 && index < options.length) {
+      return options[index];
+    }
+  }
+
+  // 2. Try exact label match
+  for (const opt of options) {
+    const optNorm = normalizeText(opt.label || "");
+    if (optNorm === normalized) {
+      return opt;
+    }
+  }
+
+  // 3. Try substring match
+  for (const opt of options) {
+    const optNorm = normalizeText(opt.label || "");
+    if (optNorm && normalized.length >= 4 && optNorm.includes(normalized)) {
+      return opt;
+    }
+    if (
+      normalized.length >= 4 &&
+      optNorm &&
+      normalized.includes(optNorm)
+    ) {
+      return opt;
+    }
+  }
+
+  // 4. Try keyword match for special options
+  if (
+    normalized.includes("voltar") ||
+    normalized.includes("menu principal") ||
+    normalized.includes("inicio")
+  ) {
+    const backOption = options.find(
+      (opt) =>
+        normalizeText(opt.label || "").includes("menu principal") ||
+        normalizeText(opt.label || "").includes("voltar"),
+    );
+    if (backOption) return backOption;
+  }
+
+  if (normalized.includes("finalizar") || normalized.includes("encerrar")) {
+    const endOption = options.find(
+      (opt) =>
+        normalizeText(opt.label || "").includes("finalizar") ||
+        normalizeText(opt.label || "").includes("encerrar"),
+    );
+    if (endOption) return endOption;
+  }
+
+  return null;
+};
+
 const isRedirectNodeUsable = (node: FlowNode) => {
   if (!node) return false;
   const type = String(node.type || "").trim();
@@ -776,6 +843,8 @@ export const botFlowService = {
         customerName:
           (sessionState as any)?.contactName || contactName || "Cliente",
         flowCatalog,
+        currentNodeId: nodeId,
+        enableDynamicMenu: true,
       });
 
       const routerDecision = fallbackResult.routerDecision || null;
@@ -936,6 +1005,70 @@ export const botFlowService = {
       if (!node) return [{ text: "O fluxo ainda não foi configurado." }];
       currentNodeId = node.id;
     } else {
+      // Check for dynamic menu selection first
+      const dynamicMenu = (sessionState as any)?.dynamic_menu;
+      if (
+        dynamicMenu &&
+        Array.isArray(dynamicMenu.options) &&
+        dynamicMenu.options.length > 0
+      ) {
+        const selectedOption = matchDynamicMenuOption(
+          text,
+          dynamicMenu.options,
+          nodes,
+        );
+        if (selectedOption) {
+          // Clear dynamic menu state
+          sessionState = { ...sessionState, dynamic_menu: null };
+
+          // Handle special node IDs
+          if (selectedOption.target_node_id === "MAIN_MENU") {
+            // Navigate to start node
+            const startNode = nodes.find((n) => n.type === "startNode");
+            if (startNode) {
+              node = startNode;
+              currentNodeId = startNode.id;
+            }
+          } else if (selectedOption.target_node_id === "END_SUPPORT") {
+            // Silent block
+            return await activateSilentBlock({
+              botText: "Obrigada pelo contato! Até logo! 👋",
+              stateObj: sessionState,
+              delayMs: 600,
+            });
+          } else if (selectedOption.target_node_id === "HUMAN_HANDOFF") {
+            // Transfer to human
+            return await activateHumanHandoff({
+              botText:
+                "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00",
+              stateObj: sessionState,
+              reason: "Cliente solicitou via menu dinâmico",
+              delayMs: 600,
+            });
+          } else {
+            // Navigate to target node
+            const targetNode = nodes.find(
+              (n) => n.id === selectedOption.target_node_id,
+            );
+            if (targetNode && isRedirectNodeUsable(targetNode)) {
+              node = targetNode;
+              currentNodeId = targetNode.id;
+            } else {
+              logger.warn(
+                `⚠️ Menu dinâmico referenciou node inexistente: ${selectedOption.target_node_id}`,
+              );
+              // Fallback to start
+              const startNode = nodes.find((n) => n.type === "startNode");
+              if (startNode) {
+                node = startNode;
+                currentNodeId = startNode.id;
+              }
+            }
+          }
+          // Continue processing with the selected node
+        }
+      }
+
       // Process input based on node type
       if (node.type === "menuNode" || node.type === "followUpNode") {
         const options = getNodeOptions(node.data);

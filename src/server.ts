@@ -19,7 +19,7 @@ import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
 import followUpService from "./services/followUpService";
-import { apiRateLimit, requireApiKey } from "./middleware/security";
+import { apiRateLimit, requireApiKey, initializeSecurityMonitor } from "./middleware/security";
 import path from "path";
 
 const app = express();
@@ -212,6 +212,9 @@ cron.schedule("*/10 * * * *", async () => {
 
 const PORT = process.env.PORT || 3333;
 const BASE_URL = process.env.BASE_URL;
+
+// Inicializa o monitoramento de segurança
+initializeSecurityMonitor();
 
 app.listen(PORT, () => {
   logger.status(`🚀 Server running on ${BASE_URL}`, "green");

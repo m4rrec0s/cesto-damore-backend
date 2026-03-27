@@ -16,6 +16,94 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
+// Monitoramento de padrões de scanner e rate limiting de logs
+class SecurityMonitor {
+  private ipRequests = new Map<string, { paths: string[]; count: number; resetTime: number }>();
+  private failedApiKeyAttempts = new Map<string, { count: number; resetTime: number; lastLogged: number }>();
+  private readonly MONITOR_WINDOW = 5 * 60 * 1000; // 5 minutos
+  private readonly LOG_THROTTLE = 60 * 1000; // 1 minuto entre logs do mesmo IP
+  private readonly SCANNER_THRESHOLD = 8; // requisições em paths diferentes = scanner
+  
+  // Padrões comuns de scanners de segurança
+  private readonly SCANNER_PATTERNS = [
+    /wp-content|wp-admin|wordpress/i,
+    /\.env|\.git|\.config/i,
+    /admin\/|console\/|api\/admin/i,
+    /shell|bash|cmd|exec/i,
+    /sql|mysql|database|pg_/i,
+  ];
+
+  recordRequest(ip: string, path: string): boolean {
+    const now = Date.now();
+    const record = this.ipRequests.get(ip);
+
+    if (!record || now > record.resetTime) {
+      this.ipRequests.set(ip, {
+        paths: [path],
+        count: 1,
+        resetTime: now + this.MONITOR_WINDOW,
+      });
+      return false;
+    }
+
+    if (!record.paths.includes(path)) {
+      record.paths.push(path);
+    }
+    record.count++;
+
+    // Detectar scanner: muitas requisições em paths diferentes
+    return record.paths.length >= this.SCANNER_THRESHOLD;
+  }
+
+  isScanner(ip: string, path: string): boolean {
+    const record = this.ipRequests.get(ip);
+    if (!record) return false;
+
+    // Verifica se há padrões conhecidos de scanner
+    return this.SCANNER_PATTERNS.some(pattern => pattern.test(path));
+  }
+
+  shouldLogFailedAttempt(ip: string): boolean {
+    const now = Date.now();
+    const record = this.failedApiKeyAttempts.get(ip);
+
+    if (!record || now > record.resetTime) {
+      this.failedApiKeyAttempts.set(ip, {
+        count: 1,
+        resetTime: now + this.MONITOR_WINDOW,
+        lastLogged: now,
+      });
+      return true;
+    }
+
+    record.count++;
+
+    // Log apenas se passou tempo suficiente desde o último log
+    if (now - record.lastLogged > this.LOG_THROTTLE) {
+      record.lastLogged = now;
+      return true;
+    }
+
+    return false;
+  }
+
+  cleanup(): void {
+    const now = Date.now();
+    for (const [ip, data] of this.ipRequests.entries()) {
+      if (now > data.resetTime) {
+        this.ipRequests.delete(ip);
+      }
+    }
+    for (const [ip, data] of this.failedApiKeyAttempts.entries()) {
+      if (now > data.resetTime) {
+        this.failedApiKeyAttempts.delete(ip);
+      }
+    }
+  }
+}
+
+const securityMonitor = new SecurityMonitor();
+
 export const apiRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 2000,
@@ -611,20 +699,45 @@ export const validateAIAgentKey = (
   return requireApiKey(req, res, next);
 };
 
+export const initializeSecurityMonitor = () => {
+  // Limpa o monitor de segurança a cada 10 minutos
+  setInterval(() => {
+    securityMonitor.cleanup();
+  }, 10 * 60 * 1000);
+};
+
 export const requireApiKey = (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
-  if (
-    req.path === "/favicon.ico" ||
-    req.path === "/robots.txt" ||
-    req.path === "/manifest.webmanifest" ||
-    req.path === "/apple-touch-icon.png" ||
-    req.path === "/preview" ||
-    req.path.startsWith("/images") ||
-    req.path.startsWith("/uploads/temp")
-  ) {
+  // Whitelist expandida de paths que não precisam de autenticação
+  const publicPaths = [
+    "/favicon.ico",
+    "/robots.txt",
+    "/manifest.webmanifest",
+    "/apple-touch-icon.png",
+    "/preview",
+    "/health",
+    "/healthcheck",
+    "/status",
+    "/sitemap.xml",
+    ".webmanifest",
+  ];
+
+  const startsWithPublic = [
+    "/images",
+    "/uploads/temp",
+    "/public",
+    "/assets",
+    "/static",
+  ];
+
+  // Verifica se é um path público
+  const isPublicPath = publicPaths.some(p => req.path === p) ||
+    startsWithPublic.some(p => req.path.startsWith(p));
+
+  if (isPublicPath) {
     return next();
   }
 
@@ -647,10 +760,30 @@ export const requireApiKey = (
   }
 
   if (normalizedApiKey !== validKey) {
-    logger.warn("🚫 [SECURITY] Tentativa de acesso com chave de API inválida", {
-      ip: req.ip,
-      path: req.path,
-    });
+    const clientIP = req.ip || req.connection.remoteAddress || "unknown";
+    
+    // Registra o padrão de requisição
+    const isScanner = securityMonitor.recordRequest(clientIP, req.path);
+    const isSuspiciousPath = securityMonitor.isScanner(clientIP, req.path);
+    
+    // Apenas loga se passou tempo suficiente desde o último log
+    if (securityMonitor.shouldLogFailedAttempt(clientIP)) {
+      // Usa logger.debug para scanners conhecidos, warn para padrões suspeitos
+      if (isScanner || isSuspiciousPath) {
+        logger.debug("🤖 [SECURITY] Padrão de scanner detectado", {
+          ip: clientIP,
+          attemptCount: "múltiplas",
+          suspiciousPatterns: isSuspiciousPath,
+          recentPaths: req.path,
+        });
+      } else {
+        logger.warn("🚫 [SECURITY] Tentativa de acesso com chave de API inválida", {
+          ip: clientIP,
+          path: req.path,
+        });
+      }
+    }
+
     return res.status(401).json({
       error: "Acesso não autorizado - Chave de API inválida",
       code: "INVALID_API_KEY",

@@ -78,17 +78,27 @@ const formatHolidayDate = (value: Date) => {
   return `${day}/${month}/${year}`;
 };
 
+const getSaoPauloTodayAsUtcNoon = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = Number(parts.find((p) => p.type === "year")?.value);
+  const month = Number(parts.find((p) => p.type === "month")?.value);
+  const day = Number(parts.find((p) => p.type === "day")?.value);
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+};
+
 const buildActiveHolidayClosureMessage = async (): Promise<string | null> => {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  yesterday.setHours(0, 0, 0, 0);
+  const today = getSaoPauloTodayAsUtcNoon();
 
   const holidays = await prisma.holiday.findMany({
     where: {
       is_active: true,
-      start_date: {
-        gte: yesterday,
-      },
+      start_date: { lte: today },
+      end_date: { gte: today },
     },
     orderBy: {
       start_date: "asc",
@@ -104,7 +114,7 @@ const buildActiveHolidayClosureMessage = async (): Promise<string | null> => {
 
   if (!holidays.length) return null;
 
-  let humanized = "🗓️ *Datas com loja fechada:*\n\n";
+  let humanized = "⚠️ *Loja fechada hoje:*\n\n";
 
   for (const holiday of holidays) {
     if (holiday.closure_type === "full_day") {
@@ -121,7 +131,7 @@ const buildActiveHolidayClosureMessage = async (): Promise<string | null> => {
     }
   }
 
-  humanized += "\n⚠️ Nessas datas não fazemos entrega ou processamento.";
+  humanized += "\n⚠️ Hoje não fazemos entrega ou processamento.";
   return humanized;
 };
 

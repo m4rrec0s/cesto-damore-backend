@@ -89,6 +89,48 @@ class AIAgentService {
       .trim();
   }
 
+  private findBestProductMenuNode(flowCatalog: FlowCatalogNode[]) {
+    const productKeywords = [
+      "produto",
+      "produtos",
+      "cesta",
+      "cestas",
+      "cesto",
+      "catalogo",
+      "catálogo",
+      "buque",
+      "buquê",
+      "flores",
+      "presentes",
+      "tipos",
+    ];
+    const scoreNode = (node: FlowCatalogNode) => {
+      if (node.type !== "menuNode") return -1;
+      let score = 0;
+      if (node.nav_category === "product") score += 5;
+      const textParts = [
+        node.title || "",
+        node.summary || "",
+        node.when_to_use || "",
+        node.user_friendly_label || "",
+        ...(Array.isArray(node.keywords) ? node.keywords : []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      for (const keyword of productKeywords) {
+        if (textParts.includes(keyword)) score += 1;
+      }
+      return score;
+    };
+
+    const sorted = [...(Array.isArray(flowCatalog) ? flowCatalog : [])]
+      .map((node) => ({ node, score: scoreNode(node) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    return sorted[0]?.node || null;
+  }
+
   private responseAlreadyHasMenu(content: string, menuText: string) {
     const normalizedContent = this.normalizeFallbackText(content);
     const normalizedMenu = this.normalizeFallbackText(menuText);
@@ -255,6 +297,27 @@ class AIAgentService {
         reason: intentFlags.human
           ? "Cliente pediu atendimento humano"
           : "Suspeita de manipulação ou acesso a dados internos",
+      };
+    }
+
+    const vaguePriceOnlyMessage =
+      normalizedUserMessage === "valor" ||
+      normalizedUserMessage === "valores" ||
+      normalizedUserMessage === "preco" ||
+      normalizedUserMessage === "precos" ||
+      normalizedUserMessage === "preço" ||
+      normalizedUserMessage === "preços" ||
+      normalizedUserMessage === "quanto" ||
+      normalizedUserMessage === "faixa de preco" ||
+      normalizedUserMessage === "faixa de preço";
+
+    const productMenuNode = this.findBestProductMenuNode(flowCatalog);
+    if (vaguePriceOnlyMessage && productMenuNode?.id) {
+      return {
+        action: "route_node",
+        node_id: productMenuNode.id,
+        confidence: 0.96,
+        reason: "Consulta genérica de preço; direcionado para menu de tipos de produtos",
       };
     }
 
@@ -453,7 +516,13 @@ class AIAgentService {
       normalizedMessage.includes("ocasiao") ||
       normalizedMessage.includes("itens") ||
       normalizedMessage.includes("orçamento") ||
-      normalizedMessage.includes("orcamento")
+      normalizedMessage.includes("orcamento") ||
+      normalizedMessage === "valor" ||
+      normalizedMessage === "valores" ||
+      normalizedMessage === "preco" ||
+      normalizedMessage === "precos" ||
+      normalizedMessage === "preço" ||
+      normalizedMessage === "preços"
     );
   }
 
@@ -778,14 +847,7 @@ RESPONDA SOMENTE COM JSON VÁLIDO neste formato:
   private getFallbackDynamicMenu(
     flowCatalog: FlowCatalogNode[],
   ): import("../types/flowRouter").DynamicMenuOption[] {
-    const productNode = flowCatalog.find(
-      (n) =>
-        n.type === "menuNode" &&
-        (n.nav_category === "product" ||
-          n.keywords?.some((k) =>
-            ["produto", "cesta", "catalogo"].includes(k.toLowerCase()),
-          )),
-    );
+    const productNode = this.findBestProductMenuNode(flowCatalog);
 
     const options: import("../types/flowRouter").DynamicMenuOption[] = [];
 

@@ -71,6 +71,60 @@ const sanitizeProductDescription = (value: string) => {
 
 const formatPrice = (price: number) => price.toFixed(2).replace(".", ",");
 
+const formatHolidayDate = (value: Date) => {
+  const day = String(value.getUTCDate()).padStart(2, "0");
+  const month = String(value.getUTCMonth() + 1).padStart(2, "0");
+  const year = value.getUTCFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+const buildActiveHolidayClosureMessage = async (): Promise<string | null> => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(0, 0, 0, 0);
+
+  const holidays = await prisma.holiday.findMany({
+    where: {
+      is_active: true,
+      start_date: {
+        gte: yesterday,
+      },
+    },
+    orderBy: {
+      start_date: "asc",
+    },
+    select: {
+      name: true,
+      start_date: true,
+      end_date: true,
+      closure_type: true,
+      duration_hours: true,
+    },
+  });
+
+  if (!holidays.length) return null;
+
+  let humanized = "🗓️ *Datas com loja fechada:*\n\n";
+
+  for (const holiday of holidays) {
+    if (holiday.closure_type === "full_day") {
+      if (
+        holiday.start_date.getTime() === holiday.end_date.getTime()
+      ) {
+        humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)}\n`;
+      } else {
+        humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)} a ${formatHolidayDate(holiday.end_date)}\n`;
+      }
+    } else {
+      const hours = holiday.duration_hours ?? 0;
+      humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)} - Fechado por ${hours}h\n`;
+    }
+  }
+
+  humanized += "\n⚠️ Nessas datas não fazemos entrega ou processamento.";
+  return humanized;
+};
+
 const resolvePreviewUrl = (imageUrl?: string | null) => {
   if (!imageUrl) return null;
   if (imageUrl.includes("/preview?img=")) return imageUrl;
@@ -756,11 +810,16 @@ export const botFlowService = {
         String(botText || "").trim() ||
         "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00";
 
+      const holidayClosureMessage = await buildActiveHolidayClosureMessage();
+      const handoffText = holidayClosureMessage
+        ? `${safeBotText}\n\n${holidayClosureMessage}`
+        : safeBotText;
+
       const handoffMessages: MessageResponse[] = [
         {
-          text: safeBotText,
+          text: handoffText,
           delay: typeof delayMs === "number" ? delayMs : 1000,
-          ...classifyMessage(safeBotText),
+          ...classifyMessage(handoffText),
         },
       ];
 
@@ -1364,6 +1423,13 @@ export const botFlowService = {
               resolveNodeDelay(currentNode.data, 1500),
             );
           }
+          const holidaysClosureMessage = await buildActiveHolidayClosureMessage();
+          if (holidaysClosureMessage) {
+            appendMessage(
+              holidaysClosureMessage,
+              resolveNodeDelay(currentNode.data, 1200),
+            );
+          }
           // Move to next node immediately
           const startEdge = edges.find((e) => e.source === currentNode?.id);
           currentNode = startEdge
@@ -1372,10 +1438,15 @@ export const botFlowService = {
           continue;
 
         case "messageNode":
-          appendMessage(
-            currentNode.data?.message || "",
-            resolveNodeDelay(currentNode.data, 1500),
-          );
+          {
+            const nodeMessage = String(currentNode.data?.message || "").trim();
+            if (nodeMessage && !isGenericPlaceholderMessage(nodeMessage)) {
+              appendMessage(
+                nodeMessage,
+                resolveNodeDelay(currentNode.data, 1500),
+              );
+            }
+          }
           // Move to next node immediately
           const msgEdge = edges.find((e) => e.source === currentNode?.id);
           currentNode = msgEdge

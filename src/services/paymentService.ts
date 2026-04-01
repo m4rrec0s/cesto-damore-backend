@@ -1838,11 +1838,14 @@ export class PaymentService {
     }
   }
 
-  static async processPaymentNotification(paymentId: string): Promise<boolean> {
+  static async processPaymentNotification(
+    paymentId: string,
+    mockPaymentData?: any,
+  ): Promise<boolean> {
     try {
-      const paymentInfo = await this.getPayment(paymentId);
+      const paymentInfo = mockPaymentData || (await this.getPayment(paymentId));
       console.log(
-        `🔔 processPaymentNotification - paymentId=${paymentId} status=${paymentInfo?.status}`,
+        `🔔 processPaymentNotification - paymentId=${paymentId} status=${paymentInfo?.status}${mockPaymentData ? " (MOCK)" : ""}`,
       );
 
       const dbPayment = await prisma.payment.findFirst({

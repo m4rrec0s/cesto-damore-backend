@@ -744,6 +744,7 @@ export const requireApiKey = (
     "/public",
     "/assets",
     "/static",
+    "/test/", // Rotas de teste (ainda requerem JWT, mas não API key)
   ];
 
   // Verifica se é um path público

@@ -45,6 +45,7 @@ import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import chatRealtimeController from "./controller/chatRealtimeController";
 import tempFileController from "./controller/tempFileController";
+import { TestPaymentController } from "./controller/testPaymentController";
 
 import {
   upload,
@@ -1315,5 +1316,27 @@ router.post(
 router.post("/bot/chat", botFlowController.handleWebhook);
 router.get("/bot/flow", botFlowController.getFlow);
 router.post("/bot/flow", authenticateToken, requireAdmin, botFlowController.saveFlow);
+
+// ========================================
+// 🧪 ROTAS DE TESTE - Simulação de Pagamentos
+// ========================================
+if (process.env.NODE_ENV !== "production") {
+  router.get(
+    "/test/payment/pending",
+    authenticateToken,
+    TestPaymentController.listPending,
+  );
+  router.post(
+    "/test/payment/:paymentId/approve",
+    authenticateToken,
+    TestPaymentController.simulateApproval,
+  );
+  router.post(
+    "/test/payment/:paymentId/reject",
+    authenticateToken,
+    TestPaymentController.simulateRejection,
+  );
+  logger.info("🧪 Rotas de teste de pagamento habilitadas");
+}
 
 export default router;

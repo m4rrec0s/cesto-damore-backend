@@ -8,6 +8,7 @@ node_modules
 /src/services/__tests__
 check-session.ts
 /scripts
+/src/controller/testPaymentController.ts
 
 # Google Drive OAuth2 (NÃO COMMITAR!)
 credentials.json

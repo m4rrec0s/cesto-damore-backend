@@ -142,7 +142,12 @@ export const authenticateToken = async (
 ) => {
   try {
     const authHeader = req.headers["authorization"];
-    const token = authHeader && authHeader.split(" ")[1];
+    const headerToken = authHeader && authHeader.split(" ")[1];
+    const queryToken =
+      (typeof req.query.token === "string" && req.query.token) ||
+      (typeof req.query.appToken === "string" && req.query.appToken) ||
+      "";
+    const token = headerToken || queryToken;
 
     if (!token) {
       return res.status(401).json({
@@ -723,6 +728,8 @@ export const requireApiKey = (
     "/status",
     "/sitemap.xml",
     ".webmanifest",
+    "/webhook/mercadopago",
+    "/api/webhook/mercadopago",
   ];
 
   const startsWithPublic = [

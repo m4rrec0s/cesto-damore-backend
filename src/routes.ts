@@ -732,7 +732,7 @@ router.post(
   PaymentController.handleWebhook,
 );
 router.post(
-  "/webhook/mercadopago",
+  "/api/webhook/mercadopago",
   validateMercadoPagoWebhook,
   PaymentController.handleWebhook,
 );

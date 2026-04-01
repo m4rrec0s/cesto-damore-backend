@@ -26,3 +26,7 @@ code/images/
 
 jest.config.cjs
 tsconfig.test.json
+
+# LLMs
+
+.serena

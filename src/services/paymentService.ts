@@ -1447,6 +1447,23 @@ export class PaymentService {
 
   static async getPayment(paymentId: string) {
     try {
+      // Se o paymentId parece ser um UUID, busca no banco primeiro
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId);
+      
+      if (isUuid) {
+        // É um UUID do nosso banco, busca o mercado_pago_id
+        const dbPayment = await prisma.payment.findUnique({
+          where: { id: paymentId },
+          select: { mercado_pago_id: true },
+        });
+        
+        if (!dbPayment?.mercado_pago_id) {
+          throw new Error("Pagamento ainda não possui ID do Mercado Pago");
+        }
+        
+        paymentId = dbPayment.mercado_pago_id;
+      }
+      
       const paymentInfo = await payment.get({ id: paymentId });
       return paymentInfo;
     } catch (error) {

@@ -730,6 +730,7 @@ export const requireApiKey = (
     ".webmanifest",
     "/webhook/mercadopago",
     "/api/webhook/mercadopago",
+    "/mercadopago/public-config",
   ];
 
   const startsWithPublic = [

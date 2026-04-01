@@ -716,6 +716,11 @@ export const requireApiKey = (
   res: Response,
   next: NextFunction,
 ) => {
+  // Ignora requisições OPTIONS (preflight CORS)
+  if (req.method === "OPTIONS") {
+    return next();
+  }
+
   // Whitelist expandida de paths que não precisam de autenticação
   const publicPaths = [
     "/favicon.ico",

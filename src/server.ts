@@ -58,11 +58,24 @@ const corsOptions: cors.CorsOptions = {
     }
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-API-Key",
+    "api-key",
+    "x-ai-api-key",
+    "ngrok-skip-browser-warning",
+  ],
+  exposedHeaders: ["Content-Length", "Content-Type"],
 };
 
 app.use(cors(corsOptions));
+
+// OPTIONS (preflight) deve responder ANTES do requireApiKey
 app.options(/.*/, cors(corsOptions));
 
+// Middleware de API key vem DEPOIS do OPTIONS handler
 app.use(requireApiKey);
 
 app.use(express.json({ limit: "50mb" }));

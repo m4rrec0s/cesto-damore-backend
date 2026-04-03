@@ -117,17 +117,13 @@ const buildActiveHolidayClosureMessage = async (): Promise<string | null> => {
   let humanized = "⚠️ *Loja fechada hoje:*\n\n";
 
   for (const holiday of holidays) {
-    if (holiday.closure_type === "full_day") {
-      if (
-        holiday.start_date.getTime() === holiday.end_date.getTime()
-      ) {
-        humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)}\n`;
-      } else {
-        humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)} a ${formatHolidayDate(holiday.end_date)}\n`;
-      }
+    const startsAndEndsSameDay =
+      holiday.start_date.getTime() === holiday.end_date.getTime();
+
+    if (startsAndEndsSameDay) {
+      humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)}\n`;
     } else {
-      const hours = holiday.duration_hours ?? 0;
-      humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)} - Fechado por ${hours}h\n`;
+      humanized += `• ${holiday.name}: ${formatHolidayDate(holiday.start_date)} até ${formatHolidayDate(holiday.end_date)}\n`;
     }
   }
 

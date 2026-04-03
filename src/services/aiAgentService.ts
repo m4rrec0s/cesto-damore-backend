@@ -5,6 +5,7 @@ import logger from "../utils/logger";
 import { addDays, addHours, isPast, format } from "date-fns";
 import { PROMPTS } from "../config/prompts";
 import type { FlowCatalogNode, RouterDecision, DynamicMenuOption } from "../types/flowRouter";
+import deterministicRouter from "./deterministicRouterService";
 
 enum ProcessingState {
   ANALYZING = "ANALYZING",
@@ -279,133 +280,19 @@ class AIAgentService {
     sessionHistory?: Array<{ role: string; text: string }>;
     flowCatalog: FlowCatalogNode[];
   }): Promise<RouterDecision> {
-    const normalizedUserMessage = this.normalizeFallbackText(userMessage || "");
-    const intentFlags = this.buildFallbackIntentFlags(normalizedUserMessage);
-    const suspiciousRequest =
-      normalizedUserMessage.includes("prompt") ||
-      normalizedUserMessage.includes("instrucoes internas") ||
-      normalizedUserMessage.includes("instrucao interna") ||
-      normalizedUserMessage.includes("chave pix") ||
-      normalizedUserMessage.includes("dados bancarios") ||
-      normalizedUserMessage.includes("token") ||
-      normalizedUserMessage.includes("api key");
+    // LLM COMPLETAMENTE REMOVIDA - usa apenas router determinístico
+    logger.info(
+      `[AIAgentService] Usando router determinístico (LLM desabilitada)`,
+    );
 
-    if (intentFlags.human || suspiciousRequest) {
-      return {
-        action: "handoff_human",
-        confidence: 1,
-        reason: intentFlags.human
-          ? "Cliente pediu atendimento humano"
-          : "Suspeita de manipulação ou acesso a dados internos",
-      };
-    }
+    // Usa router determinístico para decisão
+    const decision = deterministicRouter.routeDeterministic(
+      userMessage,
+      flowCatalog,
+      null, // currentNodeId será resolvido pelo botFlowService
+    );
 
-    const vaguePriceOnlyMessage =
-      normalizedUserMessage === "valor" ||
-      normalizedUserMessage === "valores" ||
-      normalizedUserMessage === "preco" ||
-      normalizedUserMessage === "precos" ||
-      normalizedUserMessage === "preço" ||
-      normalizedUserMessage === "preços" ||
-      normalizedUserMessage === "quanto" ||
-      normalizedUserMessage === "faixa de preco" ||
-      normalizedUserMessage === "faixa de preço";
-
-    const productMenuNode = this.findBestProductMenuNode(flowCatalog);
-    if (vaguePriceOnlyMessage && productMenuNode?.id) {
-      return {
-        action: "route_node",
-        node_id: productMenuNode.id,
-        confidence: 0.96,
-        reason: "Consulta genérica de preço; direcionado para menu de tipos de produtos",
-      };
-    }
-
-    const spContext = this.getSaoPauloContext();
-    const relativeDateHint = this.resolveRelativeDateHint(normalizedUserMessage);
-    const displayName = customerName?.trim() || "Cliente";
-    const compactCatalog = (Array.isArray(flowCatalog) ? flowCatalog : [])
-      .slice(0, 120)
-      .map((node) => ({
-        id: node.id,
-        type: node.type,
-        title: node.title,
-        summary: node.summary || "",
-        when_to_use: node.when_to_use || "",
-        keywords: Array.isArray(node.keywords) ? node.keywords.slice(0, 20) : [],
-        requires_slots: Array.isArray(node.requires_slots)
-          ? node.requires_slots.slice(0, 12)
-          : [],
-        next_best_nodes: Array.isArray(node.next_best_nodes)
-          ? node.next_best_nodes.slice(0, 8)
-          : [],
-        confidence_threshold:
-          typeof node.confidence_threshold === "number"
-            ? node.confidence_threshold
-            : undefined,
-      }));
-
-    const systemPrompt = [
-      "Você é um roteador estrito de fluxo da Cesto dAmore.",
-      "Seu objetivo é manter o cliente no fluxo pré-definido. NÃO converse, NÃO explique, NÃO gere texto livre.",
-      "Sua única tarefa é devolver UM JSON válido para roteamento.",
-      "Ações permitidas: route_node, handoff_human.",
-      "Analise a mensagem do cliente como uma intenção de busca no catálogo.",
-      "1. Se a mensagem corresponder a um node específico (ex: 'cestas de café', 'entrega', 'pagamento'), use route_node com o ID desse node.",
-      "2. Se a mensagem for ambígua ou genérica, use route_node para o node de MENU mais provável (ou o Menu Principal).",
-      "3. Se o cliente pedir humano explicitamente, use handoff_human.",
-      "NUNCA use ask_clarifying_question. Em caso de dúvida, roteie para o menu que melhor resolve a dúvida.",
-      "confidence deve ser número entre 0 e 1.",
-      "Campos do JSON: action, node_id, confidence, reason.",
-      `Data/hora atual (America/Sao_Paulo): ${spContext.weekday}, ${spContext.date} ${spContext.time}.`,
-      relativeDateHint
-        ? `Data inferida da mensagem, se aplicável: ${relativeDateHint}.`
-        : "",
-      "Responda SOMENTE com JSON puro.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-    ];
-
-    if (Array.isArray(sessionHistory) && sessionHistory.length > 0) {
-      sessionHistory.slice(-8).forEach((entry) => {
-        const role = entry.role === "user" ? "user" : "assistant";
-        if (entry.text) messages.push({ role, content: entry.text });
-      });
-    }
-
-    messages.push({
-      role: "user",
-      content: [
-        `Cliente: ${displayName}`,
-        `Mensagem atual: ${userMessage}`,
-        "Catálogo de nodes disponível (JSON):",
-        JSON.stringify(compactCatalog),
-      ].join("\n"),
-    });
-
-    try {
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages,
-        stream: false,
-        response_format: { type: "json_object" },
-      });
-      const content = (response.choices?.[0]?.message?.content || "").trim();
-      const parsed = this.parseRouterDecision(content);
-      if (parsed) return parsed;
-    } catch (error: any) {
-      logger.warn(`⚠️ Erro no roteamento estruturado do fallback: ${error?.message}`);
-    }
-
-    return {
-      action: "handoff_human",
-      confidence: 0,
-      reason: "Falha técnica ao obter decisão estruturada",
-    };
+    return decision;
   }
 
   private getSaoPauloContext() {

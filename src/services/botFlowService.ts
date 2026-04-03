@@ -236,6 +236,18 @@ const MENU_MATCH_STOPWORDS = new Set([
   "minhas",
 ]);
 
+// Sinônimos para melhorar matching de opções de menu
+const MENU_SYNONYMS: Record<string, string[]> = {
+  cestas: ["cesta", "cesto", "basket", "kit"],
+  flores: ["flor", "buque", "buquê", "rosas", "rosa"],
+  chocolate: ["chocolates", "choco"],
+  pelucia: ["pelúcia", "urso", "ursinho"],
+  entrega: ["entregar", "delivery", "frete"],
+  pagamento: ["pagar", "pix", "cartao", "cartão"],
+  voltar: ["volta", "retorna", "menu"],
+  preco: ["preço", "valor", "valores", "quanto"],
+};
+
 const canonicalizeMenuToken = (token: string) => {
   let normalized = normalizeText(token)
     .replace(/[^a-z0-9]/g, "")
@@ -306,8 +318,20 @@ const resolveMenuOptionIndex = (inputText: string, options: any[]): number => {
     if (backIndex >= 0) return backIndex;
   }
 
+  // Tokenização com expansão de sinônimos
   const inputTokens = tokenizeMenuText(normalizedInput);
   if (inputTokens.length === 0) return -1;
+
+  // Expandir tokens com sinônimos
+  const expandedInputTokens = new Set(inputTokens);
+  for (const token of inputTokens) {
+    for (const [base, syns] of Object.entries(MENU_SYNONYMS)) {
+      if (syns.includes(token) || token === base) {
+        expandedInputTokens.add(base);
+        syns.forEach((s) => expandedInputTokens.add(s));
+      }
+    }
+  }
 
   let bestIndex = -1;
   let bestScore = 0;
@@ -317,12 +341,27 @@ const resolveMenuOptionIndex = (inputText: string, options: any[]): number => {
     if (labelTokens.length === 0) return;
 
     let score = 0;
+
+    // Checar tokens expandidos
     inputTokens.forEach((inputToken) => {
+      // Match exato
       if (labelTokens.includes(inputToken)) {
         score += 2;
         return;
       }
 
+      // Match via sinônimo
+      if (expandedInputTokens.has(inputToken)) {
+        const hasSynonymMatch = labelTokens.some((labelToken) =>
+          expandedInputTokens.has(labelToken),
+        );
+        if (hasSynonymMatch) {
+          score += 1.5;
+          return;
+        }
+      }
+
+      // Match parcial
       const partial = labelTokens.some(
         (labelToken) =>
           (inputToken.length >= 4 && labelToken.startsWith(inputToken)) ||

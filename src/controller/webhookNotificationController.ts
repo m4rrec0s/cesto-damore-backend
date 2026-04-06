@@ -32,9 +32,34 @@ class WebhookNotificationController {
       return res.status(403).json({ error: "Você não tem permissão para acessar estas notificações" });
     }
 
+    const payment = await prisma.payment.findUnique({
+      where: { order_id: orderId },
+      select: {
+        id: true,
+        mercado_pago_id: true,
+        status: true,
+        approved_at: true,
+        payment_method: true,
+      },
+    });
+
+    const initialPaymentUpdate = payment
+      ? {
+          status: payment.status.toLowerCase(),
+          paymentId: payment.id,
+          mercadoPagoId: payment.mercado_pago_id || undefined,
+          approvedAt: payment.approved_at
+            ? payment.approved_at.toLocaleString("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+              })
+            : undefined,
+          paymentMethod: payment.payment_method || undefined,
+        }
+      : undefined;
+
     logger.info(`📡 Nova conexão SSE para pedido: ${orderId}`);
 
-    webhookNotificationService.registerClient(orderId, res);
+    webhookNotificationService.registerClient(orderId, res, initialPaymentUpdate);
 
   }
 

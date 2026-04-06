@@ -7,13 +7,25 @@ interface WebhookClient {
   pingInterval?: NodeJS.Timeout | null;
 }
 
+interface PaymentUpdateMessage {
+  status: string;
+  paymentId?: string;
+  mercadoPagoId?: string;
+  approvedAt?: string;
+  paymentMethod?: string;
+}
+
 class WebhookNotificationService {
   private clients: Map<string, WebhookClient[]> = new Map();
   private readonly CLIENT_TIMEOUT = 5 * 60 * 1000;
 
   
 
-  registerClient(orderId: string, res: Response): void {
+  registerClient(
+    orderId: string,
+    res: Response,
+    initialPaymentUpdate?: PaymentUpdateMessage,
+  ): void {
     logger.info(`📡 Cliente SSE registrado para pedido: ${orderId}`);
 
     res.setHeader("Content-Type", "text/event-stream");
@@ -33,7 +45,12 @@ class WebhookNotificationService {
       
     }
 
+    res.write("retry: 3000\n\n");
     res.write(`data: ${JSON.stringify({ type: "connected", orderId })}\n\n`);
+
+    if (initialPaymentUpdate) {
+      this.writePaymentUpdate(orderId, res, initialPaymentUpdate, "snapshot");
+    }
 
     const pingInterval = setInterval(() => {
       try {
@@ -88,16 +105,7 @@ class WebhookNotificationService {
 
   
 
-  notifyPaymentUpdate(
-    orderId: string,
-    data: {
-      status: string;
-      paymentId?: string;
-      mercadoPagoId?: string;
-      approvedAt?: string;
-      paymentMethod?: string;
-    }
-  ): void {
+  notifyPaymentUpdate(orderId: string, data: PaymentUpdateMessage): void {
     const clients = this.clients.get(orderId);
 
     if (!clients || clients.length === 0) {
@@ -120,7 +128,7 @@ class WebhookNotificationService {
 
     clients.forEach((client, index) => {
       try {
-        client.response.write(`data: ${JSON.stringify(message)}\n\n`);
+        this.writePaymentUpdate(orderId, client.response, data, "realtime");
         logger.info(`✅ Notificação enviada para cliente ${index + 1}`);
       } catch (error) {
         logger.error(
@@ -130,6 +138,24 @@ class WebhookNotificationService {
         this.removeClient(orderId, client.response);
       }
     });
+  }
+
+  private writePaymentUpdate(
+    orderId: string,
+    response: Response,
+    data: PaymentUpdateMessage,
+    source: "snapshot" | "realtime",
+  ): void {
+    const message = {
+      type: "payment_update",
+      orderId,
+      source,
+      timestamp: new Date().toLocaleString("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+      }),
+      ...data,
+    };
+    response.write(`data: ${JSON.stringify(message)}\n\n`);
   }
 
   

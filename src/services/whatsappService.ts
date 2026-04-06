@@ -474,8 +474,8 @@ class WhatsAppService {
       teamMessage += `Endereço: https://maps.app.goo.gl/YwimXyog4pTBeEjP8?g_st=aw\n`;
     }
 
-    if (orderData.hasImageCustomizations && orderData.googleDriveUrl) {
-      teamMessage += `\n🎨 *Customizações:*\n`;
+    if (orderData.googleDriveUrl) {
+      teamMessage += `\n🎨 *Link de customização:*\n`;
       teamMessage += `📸 ${orderData.googleDriveUrl}\n`;
     }
 
@@ -539,7 +539,7 @@ class WhatsAppService {
       orderData.paymentMethod || "Não especificado",
     )}\n\n`;
 
-    if (orderData.hasImageCustomizations && orderData.googleDriveUrl) {
+    if (orderData.googleDriveUrl) {
       customerMessage += `🎨 *Suas Personalizações:*\n`;
       customerMessage += `📁 ${orderData.googleDriveUrl}\n\n`;
     } else if (orderData.hasImageCustomizations) {

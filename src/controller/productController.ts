@@ -119,7 +119,10 @@ class ProductController {
       ) {
         res.status(400).json({ error: error.message });
       } else {
-        res.status(500).json({ error: "Erro interno do servidor" });
+        res.status(500).json({
+          error: "Erro interno do servidor",
+          details: error?.message || "Falha ao criar produto",
+        });
       }
     }
   }
@@ -194,7 +197,10 @@ class ProductController {
       ) {
         res.status(400).json({ error: error.message });
       } else {
-        res.status(500).json({ error: "Erro interno do servidor" });
+        res.status(500).json({
+          error: "Erro interno do servidor",
+          details: error?.message || "Falha ao atualizar produto",
+        });
       }
     }
   }

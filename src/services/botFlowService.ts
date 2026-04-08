@@ -202,6 +202,34 @@ const isInternalImageEvent = (value: string) => {
   );
 };
 
+const PRODUCT_REPLY_CONFIRMATION_PATTERNS: RegExp[] = [
+  /^(essa|esse|essa ai|esse ai|essa daqui|esse daqui)$/i,
+  /^(quero|vou querer)( essa| esse| essa ai| esse ai| essa daqui| esse daqui)?$/i,
+  /^gostei (dessa|desse|disso|dessa ai|desse ai|dessa daqui|desse daqui)$/i,
+  /\b(quero|vou querer|pode ser|fechou)\b.*\b(essa|esse|isso)\b/i,
+];
+
+const isAffirmativeProductReply = (rawValue: string, extractedReply: string) => {
+  const raw = normalizeText(String(rawValue || ""));
+  if (!raw || !raw.includes("respondendo a mensagem")) return false;
+
+  const hasProductContext =
+    raw.includes("/preview?img=") ||
+    /valor\s*-\s*r\$\s*\d/.test(raw) ||
+    /\br\$\s*\d/.test(raw);
+  if (!hasProductContext) return false;
+
+  const reply = normalizeText(String(extractedReply || ""))
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!reply || /\b(nao|não)\b/.test(reply)) return false;
+
+  return PRODUCT_REPLY_CONFIRMATION_PATTERNS.some((pattern) =>
+    pattern.test(reply),
+  );
+};
+
 const MENU_MATCH_STOPWORDS = new Set([
   "a",
   "o",
@@ -728,6 +756,10 @@ export const botFlowService = {
     const text = processedText.toLowerCase();
     const hasInternalCartAddedEvent = isInternalCartAddedEvent(rawText);
     const hasInternalImageInstruction = isInternalImageEvent(rawText);
+    const hasAffirmativeProductReply = isAffirmativeProductReply(
+      rawText,
+      processedText,
+    );
 
     // Find or create session
     let session = await prisma.botSession.findUnique({
@@ -1101,6 +1133,12 @@ export const botFlowService = {
 
     if (hasInternalImageInstruction) {
       return await forceHumanHandoff("Mensagem interna de imagem recebida");
+    }
+
+    if (hasAffirmativeProductReply) {
+      return await forceHumanHandoff(
+        "Cliente confirmou interesse em produto específico (resposta marcada)",
+      );
     }
 
     // Se nao tem node, acha o node inicial (tipo 'start' ou o primeiro sem source edge)

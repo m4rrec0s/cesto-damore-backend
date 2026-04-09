@@ -5,7 +5,7 @@
   "main": "server.ts",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "tsc",
+    "build": "node ./build-with-spinner.js",
     "build:docker": "tsc --project tsconfig.docker.json || exit 0",
     "start": "node dist/server.js",
     "test": "jest",

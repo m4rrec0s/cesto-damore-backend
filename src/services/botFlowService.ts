@@ -1,6 +1,5 @@
 import { PrismaClient } from "@prisma/client";
 import whatsappService from "./whatsappService";
-import aiAgentService from "./aiAgentService";
 import type { FlowCatalogNode } from "../types/flowRouter";
 import logger from "../utils/logger";
 const prisma = new PrismaClient();
@@ -51,9 +50,6 @@ type FlowNode = {
 const BASE_URL = process.env.BASE_URL || "https://api.cestodamore.com.br";
 const BOT_HANDOFF_GROUP_ID =
   process.env.WHATSAPP_BOT_HANDOFF_GROUP_ID || "120363421291021203@g.us";
-const FLOW_NODE_REDIRECT_REGEX = /SUCESSO_REDIRECIONAMENTO_DE_NO:\[([^\]]+)\]/i;
-const FLOW_NODE_REDIRECT_TEXT_REGEX =
-  /SUCESSO:\s*Fluxo redirecionado para node_id\s+([^\s\n]+)/i;
 
 const stripHtmlTags = (value: string) =>
   value.replace(/<[^>]*>/g, "").replace(/\\[.*?\\]/g, "");
@@ -199,6 +195,25 @@ const isInternalImageEvent = (value: string) => {
   return (
     normalized.includes("[informacoes internas]") &&
     normalized.includes("o cliente mandou uma imagem")
+  );
+};
+
+const HANDOFF_INTENT_KEYWORDS = [
+  "atendente",
+  "atendimento humano",
+  "falar com atendente",
+  "falar com humano",
+  "falar com pessoa",
+  "falar com alguem",
+  "falar com alguém",
+  "suporte",
+];
+
+const isHumanHandoffIntent = (value: string) => {
+  const normalized = normalizeText(String(value || ""));
+  if (!normalized) return false;
+  return HANDOFF_INTENT_KEYWORDS.some((keyword) =>
+    normalized.includes(keyword),
   );
 };
 
@@ -774,10 +789,6 @@ export const botFlowService = {
     const flow = await this.getActiveFlow();
     const nodes = ((flow.nodes as any[]) || []) as FlowNode[];
     const edges = (flow.edges as any[]) || [];
-    const flowCatalog = nodes
-      .filter(isRoutableCatalogNode)
-      .map(toFlowCatalogNode)
-      .filter((catalogNode) => Boolean(catalogNode.id));
 
     if (!session) {
       session = await prisma.botSession.create({
@@ -972,143 +983,29 @@ export const botFlowService = {
       stateObj: any,
       delayMs?: number,
     ) => {
-      const fallbackResult = await aiAgentService.processFallback({
-        userMessage: processedText,
-        menuText,
-        sessionHistory: history,
-        customerName:
-          (sessionState as any)?.contactName || contactName || "Cliente",
-        flowCatalog,
-        currentNodeId: nodeId,
-        enableDynamicMenu: true,
-      });
-
-      const routerDecision = fallbackResult.routerDecision || null;
-      const stateWithRouterMeta = routerDecision
-        ? {
-            ...stateObj,
-            llm_router_last_decision: {
-              ...routerDecision,
-              created_at: new Date().toISOString(),
-            },
-          }
-        : stateObj;
-
-      if (fallbackResult.handoffToHuman) {
+      if (isHumanHandoffIntent(processedText)) {
         return await activateHumanHandoff({
-          botText: fallbackResult.text,
-          stateObj: stateWithRouterMeta,
-          reason:
-            fallbackResult.handoffReason || "Solicitado pela LLM no fallback",
+          botText:
+            "Perfeito! Vou te encaminhar para atendimento humano agora.\n> SEG-SEX: 08:30-12:00; 14:00-17:00 e SÁB: 08:00-11:00",
+          stateObj,
+          reason: "Cliente solicitou atendimento humano",
           delayMs: typeof delayMs === "number" ? delayMs : 800,
         });
       }
 
       const safeMenuText = String(menuText || "").trim();
-      const rawFallbackText = String(fallbackResult.text || "").trim();
-      const redirectMatch = rawFallbackText.match(FLOW_NODE_REDIRECT_REGEX);
-      const redirectTextMatch = rawFallbackText.match(
-        FLOW_NODE_REDIRECT_TEXT_REGEX,
-      );
-      const redirectNodeId =
-        redirectMatch?.[1]?.trim() || redirectTextMatch?.[1]?.trim();
-      const safeFallbackText = rawFallbackText
-        .replace(FLOW_NODE_REDIRECT_REGEX, "")
-        .replace(FLOW_NODE_REDIRECT_TEXT_REGEX, "")
-        .trim();
       const baseDelay = typeof delayMs === "number" ? delayMs : 800;
-
-      if (redirectNodeId) {
-        const targetNode = nodes.find((n) => String(n.id) === redirectNodeId);
-        if (targetNode && isRedirectNodeUsable(targetNode)) {
-          const redirectMessages: MessageResponse[] = [];
-
-          if (safeFallbackText) {
-            redirectMessages.push({
-              text: safeFallbackText,
-              delay: Math.max(450, Math.round(baseDelay * 0.75)),
-              ...classifyMessage(safeFallbackText),
-            });
-          }
-
-          if (targetNode.type === "menuNode") {
-            const targetOptions = Array.isArray(targetNode.data?.options)
-              ? targetNode.data.options
-              : [];
-            const targetMenuText = buildMenuText(
-              getMenuLikeNodeMessage(targetNode.data) || "Escolha uma opção:",
-              targetOptions,
-            );
-            redirectMessages.push({
-              text: targetMenuText,
-              delay: baseDelay,
-              ...classifyMessage(targetMenuText),
-              type: "menu",
-            });
-          } else {
-            const targetText = String(targetNode.data?.message || "").trim();
-            if (targetText) {
-              redirectMessages.push({
-                text: targetText,
-                delay: baseDelay,
-                ...classifyMessage(targetText),
-              });
-            }
-          }
-
-          if (redirectMessages.length === 0) {
-            const defaultText =
-              "Perfeito! Te redirecionei para a próxima etapa.";
-            redirectMessages.push({
-              text: defaultText,
-              delay: baseDelay,
-              ...classifyMessage(defaultText),
-            });
-          }
-
-          await saveSessionState(
-            redirectNodeId,
-            stateWithRouterMeta,
-            redirectMessages,
-          );
-          return redirectMessages;
-        }
-      }
-
-      const fallbackMessages: MessageResponse[] = [];
-      const effectiveFallbackText =
-        safeFallbackText ||
-        "Não consegui identificar exatamente sua intenção, mas vamos continuar por este menu.";
-
-      if (
-        safeMenuText &&
-        effectiveFallbackText.endsWith(safeMenuText) &&
-        effectiveFallbackText !== safeMenuText
-      ) {
-        const answerText = effectiveFallbackText
-          .slice(0, effectiveFallbackText.length - safeMenuText.length)
-          .trim();
-        if (answerText) {
-          fallbackMessages.push({
-            text: answerText,
-            delay: Math.max(500, Math.round(baseDelay * 0.85)),
-            ...classifyMessage(answerText),
-          });
-        }
-        fallbackMessages.push({
-          text: safeMenuText,
+      const invalidText = safeMenuText
+        ? `Opção inválida. Escolha uma das opções abaixo.\n\n${safeMenuText}`
+        : "Opção inválida. Escolha uma opção válida para continuar.";
+      const fallbackMessages: MessageResponse[] = [
+        {
+          text: invalidText,
           delay: baseDelay,
-          ...classifyMessage(safeMenuText),
-        });
-      } else {
-        fallbackMessages.push({
-          text: effectiveFallbackText,
-          delay: baseDelay,
-          ...classifyMessage(effectiveFallbackText),
-        });
-      }
-
-      await saveSessionState(nodeId, stateWithRouterMeta, fallbackMessages);
+          ...classifyMessage(invalidText),
+        },
+      ];
+      await saveSessionState(nodeId, stateObj, fallbackMessages);
       return fallbackMessages;
     };
 

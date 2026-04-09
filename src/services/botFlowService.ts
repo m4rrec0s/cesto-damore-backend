@@ -516,59 +516,13 @@ const matchDynamicMenuOption = (
 
   const normalized = normalizeText(userInput);
 
-  // 1. Try numeric match (1, 2, 3...)
+  // Só aceita seleção numérica para navegação de fluxo
   const numMatch = normalized.match(/^\d+$/);
   if (numMatch) {
     const index = parseInt(numMatch[0], 10) - 1;
     if (index >= 0 && index < options.length) {
       return options[index];
     }
-  }
-
-  // 2. Try exact label match
-  for (const opt of options) {
-    const optNorm = normalizeText(opt.label || "");
-    if (optNorm === normalized) {
-      return opt;
-    }
-  }
-
-  // 3. Try substring match
-  for (const opt of options) {
-    const optNorm = normalizeText(opt.label || "");
-    if (optNorm && normalized.length >= 4 && optNorm.includes(normalized)) {
-      return opt;
-    }
-    if (
-      normalized.length >= 4 &&
-      optNorm &&
-      normalized.includes(optNorm)
-    ) {
-      return opt;
-    }
-  }
-
-  // 4. Try keyword match for special options
-  if (
-    normalized.includes("voltar") ||
-    normalized.includes("menu principal") ||
-    normalized.includes("inicio")
-  ) {
-    const backOption = options.find(
-      (opt) =>
-        normalizeText(opt.label || "").includes("menu principal") ||
-        normalizeText(opt.label || "").includes("voltar"),
-    );
-    if (backOption) return backOption;
-  }
-
-  if (normalized.includes("finalizar") || normalized.includes("encerrar")) {
-    const endOption = options.find(
-      (opt) =>
-        normalizeText(opt.label || "").includes("finalizar") ||
-        normalizeText(opt.label || "").includes("encerrar"),
-    );
-    if (endOption) return endOption;
   }
 
   return null;
@@ -996,7 +950,7 @@ export const botFlowService = {
       const safeMenuText = String(menuText || "").trim();
       const baseDelay = typeof delayMs === "number" ? delayMs : 800;
       const invalidText = safeMenuText
-        ? `Opção inválida. Escolha uma das opções abaixo.\n\n${safeMenuText}`
+        ? `Opção inválida. Escolha APENAS NÚMEROS das opções abaixo.\n\n${safeMenuText}`
         : "Opção inválida. Escolha uma opção válida para continuar.";
       const fallbackMessages: MessageResponse[] = [
         {
@@ -1126,13 +1080,6 @@ export const botFlowService = {
         }
 
         // Tenta achar a opcao escolhida
-        const normalizedInput = normalizeText(text);
-        const hasBackIntent =
-          normalizedInput.includes("voltar") ||
-          normalizedInput.includes("menu principal") ||
-          normalizedInput.includes("inicio") ||
-          normalizedInput.includes("inicial") ||
-          normalizedInput.includes("primeiro menu");
         const isPureNumericInput = /^\s*\d+\s*$/.test(text);
         const digitsMatch = text.match(/\d+/);
         const optionMatched = digitsMatch ? parseInt(digitsMatch[0], 10) : NaN;
@@ -1140,18 +1087,6 @@ export const botFlowService = {
 
         // As edges que saem deste nó:
         const outEdges = edges.filter((e) => e.source === currentNodeId);
-
-        if (Array.isArray(node.data?.options) && hasBackIntent) {
-          const optionIndex = resolveMenuOptionIndex(text, node.data.options);
-          if (optionIndex >= 0) {
-            const edge = outEdges.find(
-              (e) => String(e.sourceHandle) === String(optionIndex),
-            );
-            if (edge) {
-              nextNodeId = edge.target;
-            }
-          }
-        }
 
         if (!nextNodeId && !isNaN(optionMatched) && isPureNumericInput) {
           const candidateHandles: string[] = [];
@@ -1176,16 +1111,6 @@ export const botFlowService = {
               break;
             }
           }
-        } else if (!nextNodeId && Array.isArray(node.data?.options)) {
-          const optionIndex = resolveMenuOptionIndex(text, node.data.options);
-          if (optionIndex >= 0) {
-            const edge = outEdges.find(
-              (e) => String(e.sourceHandle) === String(optionIndex),
-            );
-            if (edge) {
-              nextNodeId = edge.target;
-            }
-          }
         }
 
         if (nextNodeId) {
@@ -1198,7 +1123,7 @@ export const botFlowService = {
 
           if (!isNaN(optionMatched) && isPureNumericInput) {
             const invalidText =
-              `Opção inválida. Escolha um número entre 1 e ${Math.max(options.length, 1)}.\n\n${menuText}`.trim();
+              `Opção inválida. Escolha APENAS NÚMEROS entre 1 e ${Math.max(options.length, 1)}.\n\n${menuText}`.trim();
             const invalidMessages: MessageResponse[] = [
               {
                 text: invalidText,
@@ -1225,8 +1150,8 @@ export const botFlowService = {
       if (node?.type === "productSearchNode") {
         const ctx = (sessionState?.productSearch || {}) as any;
         if (ctx?.nodeId === currentNodeId) {
-          const normalized = normalizeText(text);
-          const digitsMatch = normalized.match(/\d+/);
+          const isPureNumericInput = /^\s*\d+\s*$/.test(text);
+          const digitsMatch = text.match(/\d+/);
           const optionMatched = digitsMatch
             ? parseInt(digitsMatch[0], 10)
             : NaN;
@@ -1237,38 +1162,12 @@ export const botFlowService = {
           let wantsBack = false;
 
           if (hasMorePages) {
-            wantsMore =
-              optionMatched === 1 ||
-              isYesOption(normalized, "ver mais") ||
-              isYesOption(normalized, "mais opcoes") ||
-              isYesOption(normalized, "mais opcoes dessa sessao") ||
-              isYesOption(normalized, "mais opcoes dessa sessão");
-            wantsDone =
-              optionMatched === 2 ||
-              isYesOption(normalized, "ja escolhi") ||
-              isYesOption(normalized, "já escolhi") ||
-              isYesOption(normalized, "seguir para proxima etapa") ||
-              isYesOption(normalized, "seguir para próxima etapa") ||
-              isYesOption(normalized, "seguir");
-            wantsBack =
-              optionMatched === 3 ||
-              isYesOption(normalized, "voltar ao menu") ||
-              isYesOption(normalized, "voltar") ||
-              isYesOption(normalized, "menu");
+            wantsMore = isPureNumericInput && optionMatched === 1;
+            wantsDone = isPureNumericInput && optionMatched === 2;
+            wantsBack = isPureNumericInput && optionMatched === 3;
           } else {
-            wantsDone =
-              optionMatched === 1 ||
-              isYesOption(normalized, "ja escolhi") ||
-              isYesOption(normalized, "já escolhi") ||
-              isYesOption(normalized, "seguir para proxima etapa") ||
-              isYesOption(normalized, "seguir para próxima etapa") ||
-              isYesOption(normalized, "quero essa") ||
-              isYesOption(normalized, "seguir");
-            wantsBack =
-              optionMatched === 2 ||
-              isYesOption(normalized, "voltar ao menu") ||
-              isYesOption(normalized, "voltar") ||
-              isYesOption(normalized, "menu");
+            wantsDone = isPureNumericInput && optionMatched === 1;
+            wantsBack = isPureNumericInput && optionMatched === 2;
           }
 
           if (wantsMore) {
@@ -1342,7 +1241,7 @@ export const botFlowService = {
               .join("\n")}`.trim();
 
             if (!isNaN(optionMatched)) {
-              const invalidText = `Opção inválida. Escolha uma das opções abaixo.\n\n${menuText}`;
+              const invalidText = `Opção inválida. Escolha APENAS NÚMEROS das opções abaixo.\n\n${menuText}`;
               const invalidMessages: MessageResponse[] = [
                 {
                   text: invalidText,

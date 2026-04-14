@@ -189,6 +189,13 @@ ${JSON.stringify(memory)}
     return path.join(this.customerDir, `${key}.md`);
   }
 
+  async getSessionMemoryMarkdown(sessionId: string) {
+    await this.ensureDirs();
+    const content = await this.readFileSafe(this.sessionFilePath(sessionId));
+    if (content) return content;
+    return this.renderSessionMarkdown({ ...DEFAULT_SESSION_MEMORY });
+  }
+
   async getSessionMemory(sessionId: string): Promise<SessionMemoryState> {
     try {
       await this.ensureDirs();
@@ -371,6 +378,13 @@ regras:
       logger.warn("⚠️ [Memory] Falha ao ler memória de cliente", error);
       return { ...DEFAULT_CUSTOMER_MEMORY };
     }
+  }
+
+  async getCustomerMemoryMarkdown(customerPhone: string) {
+    await this.ensureDirs();
+    const content = await this.readFileSafe(this.customerFilePath(customerPhone));
+    if (content) return content;
+    return this.renderCustomerMarkdown({ ...DEFAULT_CUSTOMER_MEMORY });
   }
 
   async saveCustomerMemory(customerPhone: string, memory: CustomerMemoryState) {

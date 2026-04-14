@@ -2444,6 +2444,65 @@ Logo te respondem! Obrigadaaa 🥰"`;
     return messages;
   }
 
+  async getLabMemorySnapshot(userId: string, sessionId: string) {
+    this.ensureLabSessionOwnership(userId, sessionId);
+
+    const session = await prisma.aIAgentSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, customer_phone: true },
+    });
+
+    if (!session) {
+      throw new Error("Sessão LAB não encontrada para este usuário");
+    }
+
+    const sessionMemory = await openClawMemoryService.getSessionMemory(sessionId);
+    const sessionMarkdown =
+      await openClawMemoryService.getSessionMemoryMarkdown(sessionId);
+    const sessionCompact = openClawMemoryService.buildSessionPrompt(sessionMemory);
+
+    let customer = null as null | {
+      customer_phone: string;
+      markdown: string;
+      compact: string;
+      db_summary: string | null;
+      db_expires_at: string | null;
+    };
+
+    if (session.customer_phone) {
+      const customerMemory = await openClawMemoryService.getCustomerMemory(
+        session.customer_phone,
+      );
+      const customerMarkdown =
+        await openClawMemoryService.getCustomerMemoryMarkdown(
+          session.customer_phone,
+        );
+      const dbMemory = await prisma.customerMemory.findUnique({
+        where: { customer_phone: session.customer_phone },
+        select: { summary: true, expires_at: true },
+      });
+
+      customer = {
+        customer_phone: session.customer_phone,
+        markdown: customerMarkdown,
+        compact: openClawMemoryService.buildCustomerPrompt(customerMemory),
+        db_summary: dbMemory?.summary || null,
+        db_expires_at: dbMemory?.expires_at
+          ? dbMemory.expires_at.toISOString()
+          : null,
+      };
+    }
+
+    return {
+      session: {
+        id: sessionId,
+        markdown: sessionMarkdown,
+        compact: sessionCompact,
+      },
+      customer,
+    };
+  }
+
   async deleteLabSession(userId: string, sessionId: string) {
     this.ensureLabSessionOwnership(userId, sessionId);
 

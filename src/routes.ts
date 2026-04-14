@@ -1131,6 +1131,13 @@ router.get(
   requireAdmin,
   (req: Request, res: Response) => aiLabController.getSessionMessages(req, res),
 );
+router.get(
+  "/admin/ai/lab/sessions/:sessionId/memory",
+  authenticateToken,
+  requireAdmin,
+  (req: Request, res: Response) =>
+    aiLabController.getSessionMemorySnapshot(req, res),
+);
 router.delete(
   "/admin/ai/lab/sessions/:sessionId",
   authenticateToken,

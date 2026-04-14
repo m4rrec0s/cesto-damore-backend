@@ -112,6 +112,17 @@ class AILabController {
     }
   }
 
+  async getSessionMemorySnapshot(req: Request, res: Response) {
+    try {
+      const userId = this.getUserId(req);
+      const { sessionId } = req.params;
+      const snapshot = await aiAgentService.getLabMemorySnapshot(userId, sessionId);
+      return res.json(snapshot);
+    } catch (error: any) {
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+    }
+  }
+
   async chatStream(req: Request, res: Response) {
     const { sessionId, message, customerName } = req.body || {};
 

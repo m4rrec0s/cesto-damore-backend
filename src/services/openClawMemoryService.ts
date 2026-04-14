@@ -130,6 +130,12 @@ class OpenClawMemoryService {
     return sanitized;
   }
 
+  private formatBudgetValue(raw: string) {
+    const cleaned = raw.replace(/[^\d.,]/g, "").trim();
+    if (!cleaned) return "";
+    return cleaned.includes(",") ? cleaned : cleaned.replace(".", ",");
+  }
+
   private renderSessionMarkdown(memory: SessionMemoryState) {
     const products = memory.presentedProducts
       .slice(0, 10)
@@ -266,6 +272,12 @@ ${JSON.stringify(memory)}
     if (cityMatch?.[1]) {
       memory.client.city = cityMatch[1].trim();
     }
+    const cityLooseMatch = userMessage.match(
+      /(?:aqui em|em)\s+([A-Za-zÀ-ú'’\-\s]{2,40})/i,
+    );
+    if (!memory.client.city && cityLooseMatch?.[1]) {
+      memory.client.city = cityLooseMatch[1].trim();
+    }
 
     const audiencePatterns: Array<[RegExp, string]> = [
       [/\b(namorada|namorado|esposa|esposo)\b/i, "romantico"],
@@ -298,13 +310,26 @@ ${JSON.stringify(memory)}
       /(?:r\$\s*)?(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:-|a|até|ate)\s*(?:r\$\s*)?(\d{2,4}(?:[.,]\d{1,2})?)/i,
     );
     if (budgetRangeMatch?.[1] && budgetRangeMatch?.[2]) {
-      memory.client.budget = `R$ ${budgetRangeMatch[1].replace(".", ",")} - R$ ${budgetRangeMatch[2].replace(".", ",")}`;
+      memory.client.budget = `R$ ${this.formatBudgetValue(budgetRangeMatch[1])} - R$ ${this.formatBudgetValue(budgetRangeMatch[2])}`;
     } else {
+      const budgetRangeNoCurrency = userMessage.match(
+        /\b(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:-|a|até|ate)\s*(\d{2,4}(?:[.,]\d{1,2})?)\b/i,
+      );
+      if (budgetRangeNoCurrency?.[1] && budgetRangeNoCurrency?.[2]) {
+        memory.client.budget = `R$ ${this.formatBudgetValue(budgetRangeNoCurrency[1])} - R$ ${this.formatBudgetValue(budgetRangeNoCurrency[2])}`;
+      }
       const budgetMatch = userMessage.match(
         /(?:at[eé]\s*)?r\$\s*(\d{2,4}(?:[.,]\d{1,2})?)/i,
       );
       if (budgetMatch?.[1]) {
-        memory.client.budget = `R$ ${budgetMatch[1].replace(".", ",")}`;
+        memory.client.budget = `R$ ${this.formatBudgetValue(budgetMatch[1])}`;
+      } else {
+        const budgetMaxNoCurrency = userMessage.match(
+          /(?:at[eé]|ate)\s*(\d{2,4}(?:[.,]\d{1,2})?)/i,
+        );
+        if (budgetMaxNoCurrency?.[1]) {
+          memory.client.budget = `até R$ ${this.formatBudgetValue(budgetMaxNoCurrency[1])}`;
+        }
       }
     }
 
@@ -312,6 +337,24 @@ ${JSON.stringify(memory)}
       memory.flags.attemptedPriceManipulation = true;
     }
 
+    memory.updatedAt = new Date().toISOString();
+    await this.saveSessionMemory(sessionId, memory);
+  }
+
+  async patchSessionClientData(
+    sessionId: string,
+    patch: Partial<SessionMemoryState["client"]>,
+  ) {
+    const memory = await this.getSessionMemory(sessionId);
+    memory.client = {
+      ...memory.client,
+      ...Object.fromEntries(
+        Object.entries(patch).filter(([, value]) => {
+          if (typeof value === "string") return value.trim().length > 0;
+          return value !== null && value !== undefined;
+        }),
+      ),
+    };
     memory.updatedAt = new Date().toISOString();
     await this.saveSessionMemory(sessionId, memory);
   }

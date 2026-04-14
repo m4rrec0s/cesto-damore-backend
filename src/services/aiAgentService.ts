@@ -351,6 +351,100 @@ ${markdown}
     };
   }
 
+  private normalizeForCompare(text: string) {
+    return (text || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private async enrichSessionMemoryFromContext(
+    sessionId: string,
+    userMessage: string,
+  ) {
+    await this.enrichSessionMemoryFromContext(sessionId, userMessage);
+
+    const memory = await openClawMemoryService.getSessionMemory(sessionId);
+    const patch: Partial<
+      Awaited<ReturnType<typeof openClawMemoryService.getSessionMemory>>["client"]
+    > = {};
+    const cleaned = userMessage.trim();
+
+    if (!memory.client.name && cleaned.length > 1 && cleaned.length <= 30) {
+      const lastAssistant = await prisma.aIAgentMessage.findFirst({
+        where: { session_id: sessionId, role: "assistant" },
+        orderBy: { created_at: "desc" },
+        select: { content: true },
+      });
+
+      const asksForName =
+        /nome de quem vai receber|qual o seu nome|como (voce|você) se chama|me diz seu nome/i.test(
+          (lastAssistant?.content || "").toString(),
+        );
+
+      if (asksForName) {
+        const likelyName = cleaned
+          .replace(/[^\p{L}\s'-]/gu, "")
+          .trim()
+          .split(/\s+/)
+          .slice(0, 2)
+          .join(" ");
+        const lowerName = likelyName.toLowerCase();
+        const blocked = new Set([
+          "sim",
+          "nao",
+          "não",
+          "ok",
+          "certo",
+          "quero",
+          "pode",
+          "segue",
+          "siga",
+        ]);
+        if (likelyName.length >= 2 && !blocked.has(lowerName)) {
+          patch.name = likelyName;
+        }
+      }
+    }
+
+    if (!memory.client.city) {
+      const cityInQuestion = userMessage.match(
+        /(?:aqui em|entrega em|em)\s+([A-Za-zÀ-ú'’\-\s]{2,40})\??$/i,
+      );
+      if (cityInQuestion?.[1]) {
+        patch.city = cityInQuestion[1].trim();
+      }
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await openClawMemoryService.patchSessionClientData(sessionId, patch);
+    }
+  }
+
+  private async sanitizeProductNameOutput(sessionId: string, output: string) {
+    const memory = await openClawMemoryService.getSessionMemory(sessionId);
+    if (!memory.presentedProducts.length || !output) return output;
+
+    const knownNames = memory.presentedProducts.map((product) => product.name.trim());
+    const knownNormalized = new Set(knownNames.map((name) => this.normalizeForCompare(name)));
+    const focused =
+      memory.presentedProducts.find((product) => product.id === memory.focusedProductId) ||
+      memory.presentedProducts[0];
+    if (!focused) return output;
+
+    return output.replace(
+      /([A-Za-zÀ-ú0-9'’\-\s]{2,40}d['’]amore(?:\s+caneca)?)/gi,
+      (match) => {
+        const normalized = this.normalizeForCompare(match);
+        if (knownNormalized.has(normalized)) return match;
+        return focused.name;
+      },
+    );
+  }
+
   private formatFallbackMenuText(menuText: string) {
     const trimmed = menuText.trim();
     return trimmed ? trimmed : "Escolha uma opção:";
@@ -2579,6 +2673,14 @@ Logo te respondem! Obrigadaaa 🥰"`;
         id: sessionId,
         markdown: sessionMarkdown,
         compact: sessionCompact,
+        updated_at: sessionMemory.updatedAt || null,
+        completeness: {
+          has_name: Boolean(sessionMemory.client.name),
+          has_city: Boolean(sessionMemory.client.city),
+          has_budget: Boolean(sessionMemory.client.budget),
+          has_occasion: Boolean(sessionMemory.client.occasion),
+          has_audience: Boolean(sessionMemory.client.audience),
+        },
       },
       customer,
     };
@@ -2699,7 +2801,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
       text: cleanMsg,
       time: nowTime,
     });
-    await openClawMemoryService.updateSessionFromUserMessage(sessionId, userMessage);
+    await this.enrichSessionMemoryFromContext(sessionId, userMessage);
 
     const session = await this.getSession(sessionId);
     await prisma.aIAgentSession.update({
@@ -3773,8 +3875,50 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               args.customerContext ||
               ""
             ).toString();
+            const recentUserText = messages
+              .filter((msg) => msg.role === "user")
+              .map((msg) =>
+                typeof msg.content === "string" ? msg.content : "",
+              )
+              .join(" ");
+            const sourceText = `${memorySummary || ""} ${recentUserText} ${context}`.trim();
+            const { hasAll } = this.buildCheckoutContext(sourceText);
+            const explicitFinalizeIntent =
+              /\b(sim|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|seguir com o pedido|pode fechar|confirmo|confirmar)\b/i.test(
+                currentUserMessage.toLowerCase(),
+              );
+
+            if (!hasAll || !explicitFinalizeIntent) {
+              const errorMsg = `{"status":"error","error":"checkout_not_ready","message":"Checkout ainda não pronto para finalizar. Continue coletando dados obrigatórios e aguarde confirmação explícita do cliente para concluir."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              logger.warn(
+                "⚠️ finalize_checkout bloqueado por falta de contexto completo/confirmação explícita",
+              );
+              continue;
+            }
 
             const contextLower = context.toLowerCase();
+            const contextCityMatch = context.match(
+              /(?:cidade|endere[cç]o)[^:\n]*[:\-]?\s*([A-Za-zÀ-ú'’\-\s]{2,40})/i,
+            );
+            if (contextCityMatch?.[1]) {
+              await openClawMemoryService.patchSessionClientData(sessionId, {
+                city: contextCityMatch[1].trim(),
+              });
+            }
             const isRetirada =
               contextLower.includes("retirada") ||
               contextLower.includes("retirar");
@@ -3859,6 +4003,13 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           );
 
           if (name === "calculate_freight" && success) {
+            const freightCity =
+              (args.city || args.cityName || args.city_name || "").toString().trim();
+            if (freightCity) {
+              await openClawMemoryService.patchSessionClientData(sessionId, {
+                city: freightCity,
+              });
+            }
             const sessionMemory =
               await openClawMemoryService.getSessionMemory(sessionId);
             if (sessionMemory.client.city) {
@@ -4135,6 +4286,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       const repairedText = (repaired.choices[0]?.message?.content || "").trim();
       if (repairedText) finalText = repairedText;
     }
+
+    finalText = await this.sanitizeProductNameOutput(sessionId, finalText);
 
     return this.buildSyntheticStream(finalText);
   }

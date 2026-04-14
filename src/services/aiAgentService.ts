@@ -365,7 +365,10 @@ ${markdown}
     sessionId: string,
     userMessage: string,
   ) {
-    await this.enrichSessionMemoryFromContext(sessionId, userMessage);
+    await openClawMemoryService.updateSessionFromUserMessage(
+      sessionId,
+      userMessage,
+    );
 
     const memory = await openClawMemoryService.getSessionMemory(sessionId);
     const patch: Partial<
@@ -2924,7 +2927,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
       customerPhone,
       remoteJidAlt,
     );
-    await openClawMemoryService.updateSessionFromUserMessage(sessionId, userMessage);
+    await this.enrichSessionMemoryFromContext(sessionId, userMessage);
 
     const msgLower = userMessage.toLowerCase();
     const isCartEvent =

@@ -99,12 +99,26 @@ type FallbackIntentFlags = {
   product: boolean;
 };
 
+interface SessionProductItem {
+  id: string;
+  name: string;
+  price: number | null;
+  imageUrl: string | null;
+}
+
+interface SessionProductMemory {
+  presentedProducts: SessionProductItem[];
+  focusedProductId: string | null;
+  lastUpdatedAt: number;
+}
+
 class AIAgentService {
   private openai: OpenAI;
   private lastMessageTimestamps: Map<string, { text: string; time: number }> =
     new Map();
   private model: string = "gpt-5.4-mini";
   private advancedModel: string = "gpt-5-mini";
+  private sessionProductMemory: Map<string, SessionProductMemory> = new Map();
   private fallbackBlockedTools = new Set(
     (process.env.FALLBACK_BLOCKED_MCP_TOOLS || "")
       .split(",")
@@ -126,6 +140,161 @@ class AIAgentService {
     if (!sessionId.startsWith(this.getLabSessionPrefix(userId))) {
       throw new Error("Sessão LAB não encontrada para este usuário");
     }
+  }
+
+  private extractOptionNumberFromText(text: string) {
+    const lower = (text || "").toLowerCase();
+    const match = lower.match(/(?:op[çc][aã]o|opcao|op)\s*(\d{1,2})/i);
+    if (!match?.[1]) return null;
+    const value = Number(match[1]);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  private parseCatalogProductsFromOutput(catalogOutput: string): SessionProductItem[] {
+    const parsedCandidates: any[] = [];
+    const pushCandidate = (value: any) => {
+      if (!value || typeof value !== "object") return;
+      const arrays = [value.exatos, value.fallback, value.produtos, value.products]
+        .filter((entry) => Array.isArray(entry))
+        .flat();
+      for (const item of arrays) {
+        if (item && typeof item === "object") {
+          parsedCandidates.push(item);
+        }
+      }
+    };
+
+    try {
+      pushCandidate(JSON.parse(catalogOutput));
+    } catch {
+      const jsonBlock = catalogOutput.match(/```json\s*([\s\S]*?)\s*```/i);
+      if (jsonBlock?.[1]) {
+        try {
+          pushCandidate(JSON.parse(jsonBlock[1]));
+        } catch {
+          // ignore malformed JSON block
+        }
+      }
+    }
+
+    const normalized = parsedCandidates
+      .map((item) => {
+        const idRaw = item.id ?? item.product_id ?? item.productId;
+        const nameRaw = item.nome ?? item.name ?? item.titulo ?? item.title;
+        if (!idRaw || !nameRaw) return null;
+
+        const priceRaw = item.preco ?? item.price ?? item.valor;
+        const numericPrice =
+          typeof priceRaw === "number"
+            ? priceRaw
+            : typeof priceRaw === "string"
+              ? Number(priceRaw.replace(/[^\d.,-]/g, "").replace(",", "."))
+              : NaN;
+
+        const imageUrl =
+          item.url_imagem ||
+          item.image_url ||
+          item.image ||
+          item.imagem ||
+          item.url ||
+          null;
+
+        return {
+          id: String(idRaw),
+          name: String(nameRaw),
+          price: Number.isFinite(numericPrice) ? numericPrice : null,
+          imageUrl: imageUrl ? String(imageUrl) : null,
+        } as SessionProductItem;
+      })
+      .filter((item): item is SessionProductItem => Boolean(item));
+
+    const dedup = new Map<string, SessionProductItem>();
+    for (const product of normalized) {
+      if (!dedup.has(product.id)) dedup.set(product.id, product);
+    }
+
+    return Array.from(dedup.values());
+  }
+
+  private getSessionProductMemory(sessionId: string): SessionProductMemory | null {
+    return this.sessionProductMemory.get(sessionId) || null;
+  }
+
+  private setSessionProductMemory(
+    sessionId: string,
+    memory: SessionProductMemory,
+  ) {
+    this.sessionProductMemory.set(sessionId, memory);
+  }
+
+  private updateSessionProductMemoryFromCatalog(
+    sessionId: string,
+    catalogOutput: string,
+    currentUserMessage: string,
+  ) {
+    const products = this.parseCatalogProductsFromOutput(catalogOutput);
+    if (products.length === 0) return;
+
+    const existing = this.getSessionProductMemory(sessionId);
+    const mergedMap = new Map<string, SessionProductItem>();
+    for (const product of existing?.presentedProducts || []) {
+      mergedMap.set(product.id, product);
+    }
+    for (const product of products) {
+      mergedMap.set(product.id, product);
+    }
+
+    const optionNumber = this.extractOptionNumberFromText(currentUserMessage);
+    const focusedByOption =
+      optionNumber && products[optionNumber - 1]
+        ? products[optionNumber - 1].id
+        : null;
+
+    const focusedProductId =
+      focusedByOption || products[0]?.id || existing?.focusedProductId || null;
+
+    this.setSessionProductMemory(sessionId, {
+      presentedProducts: Array.from(mergedMap.values()).slice(0, 20),
+      focusedProductId,
+      lastUpdatedAt: Date.now(),
+    });
+  }
+
+  private buildSessionMemoryPrompt(sessionId: string, currentUserMessage: string) {
+    const memory = this.getSessionProductMemory(sessionId);
+    if (!memory || memory.presentedProducts.length === 0) return "";
+
+    const optionNumber = this.extractOptionNumberFromText(currentUserMessage);
+    const focusedProduct =
+      (optionNumber &&
+        memory.presentedProducts[optionNumber - 1]) ||
+      memory.presentedProducts.find((p) => p.id === memory.focusedProductId) ||
+      null;
+
+    const presented = memory.presentedProducts
+      .map((product, index) => {
+        const price =
+          typeof product.price === "number"
+            ? `R$ ${product.price.toFixed(2).replace(".", ",")}`
+            : "preço não informado";
+        return `- Opção ${index + 1}: id=${product.id}; nome=${product.name}; preço=${price}; imagem=${product.imageUrl || "sem_url"}`;
+      })
+      .join("\n");
+
+    return `### MEMÓRIA DE SESSÃO (CONSISTÊNCIA DE PRODUTOS)
+Use esta memória como fonte de verdade para referência a opções já mostradas.
+
+Produtos apresentados:
+${presented}
+
+Produto em foco:
+${focusedProduct ? `id=${focusedProduct.id}; nome=${focusedProduct.name}` : "não definido"}
+
+Regras de consistência:
+1. Se cliente mencionar "opção N", use EXATAMENTE a opção N desta memória.
+2. Não troque nome/preço entre turnos.
+3. Se precisar detalhar produto já mostrado, use get_product_details com o nome exato do produto em foco.
+4. Ao listar produtos, inclua URL da imagem já na primeira menção de cada opção (linha própria antes da descrição).`;
   }
 
   private formatFallbackMenuText(menuText: string) {
@@ -1176,6 +1345,8 @@ REGRAS PARA SUA RESPOSTA:
 7. Mencione tempo de produção somente quando o produto e o tempo forem conhecidos
 8. Se produto tiver "caneca" no nome, mencione opções de customização
 9. DESCREVA OS PRODUTOS EXATAMENTE COMO RETORNADOS. NÃO invente itens (comidas, bebidas) que não estão listados no JSON da ferramenta.
+9.1 Quando listar produtos, inclua SEMPRE a URL da imagem na primeira linha de cada opção.
+9.2 Se cliente pedir "opção 1/2/3", mantenha consistência absoluta com a opção já mostrada.
 10. FECHAMENTO DE PEDIDO: Se estiver finalizando um pedido (com data, endereço e pagamento), use OBRIGATORIAMENTE o formato de Resumo Visual:
     ═══ 📋 RESUMO DO SEU PEDIDO ═══
     (detalhes aqui...)
@@ -1183,6 +1354,8 @@ REGRAS PARA SUA RESPOSTA:
 11. ATENDIMENTO HUMANO: Se as ferramentas indicarem que o suporte foi notificado, informe ao cliente que o time já vai atender e **CITE EXATAMENTE** os blocos do horário comercial disponíveis na resposta da ferramenta.
 12. ⛔ DATAS DE ENTREGA: Se a ferramenta retornou suggested_slots, APRESENTE TODOS ao cliente e PERGUNTE qual ele prefere. NUNCA escolha um horário por conta própria. O estimated_ready_time é tempo de produção, NÃO é o horário de entrega escolhido.
 13. NUNCA mencione o nome de funcionários específicos ao cliente. Use "nosso time" ou "nosso atendente".
+14. Tom de venda humanizado: descreva com fluidez e apelo leve (sem parecer lista mecânica).
+15. Se faltar contexto-chave (ocasião, prazo ou orçamento), faça 1 pergunta qualificadora curta.
 
 Gere APENAS a mensagem final para o cliente.`;
   }
@@ -3055,6 +3228,17 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     const shouldExcludeProducts =
       this.shouldExcludeProducts(currentUserMessage);
 
+    const sessionMemoryPrompt = this.buildSessionMemoryPrompt(
+      sessionId,
+      currentUserMessage,
+    );
+    if (sessionMemoryPrompt) {
+      messages.push({
+        role: "system",
+        content: sessionMemoryPrompt,
+      });
+    }
+
     const tools = await mcpClientService.listTools();
     const formattedTools = tools.map((t) => ({
       type: "function" as const,
@@ -3322,6 +3506,36 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             }
           }
 
+          if (name === "get_product_details") {
+            const memory = this.getSessionProductMemory(sessionId);
+            const optionNumber = this.extractOptionNumberFromText(
+              currentUserMessage,
+            );
+            const focusedByOption =
+              optionNumber && memory?.presentedProducts[optionNumber - 1]
+                ? memory.presentedProducts[optionNumber - 1]
+                : null;
+            const focusedById =
+              memory?.presentedProducts.find(
+                (product) => product.id === memory.focusedProductId,
+              ) || null;
+            const focusedProduct = focusedByOption || focusedById;
+
+            if (
+              focusedProduct &&
+              (!args.product_name || /\b(op[çc][aã]o|opcao|op)\b/i.test(String(args.product_name)))
+            ) {
+              args.product_name = focusedProduct.name;
+              if (memory) {
+                this.setSessionProductMemory(sessionId, {
+                  ...memory,
+                  focusedProductId: focusedProduct.id,
+                  lastUpdatedAt: Date.now(),
+                });
+              }
+            }
+          }
+
           if (name === "validate_delivery_availability") {
             const dateStr = args.date_str || args.dateStr || args.date;
             if (!dateStr) {
@@ -3552,6 +3766,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                   toolExecutionResults[toolExecutionResults.length - 1];
                 if (lastResult) lastResult.output = curatedOutput;
               }
+
+              this.updateSessionProductMemoryFromCatalog(
+                sessionId,
+                toolOutputText,
+                currentUserMessage,
+              );
             } catch (e) {
               logger.debug("Não foi possível processar produtos", e);
             }

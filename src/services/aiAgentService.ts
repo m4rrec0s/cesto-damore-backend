@@ -2320,6 +2320,12 @@ Logo te respondem! Obrigadaaa 🥰"`;
 
   private buildLabSystemPrompt(toolsInMCP: { name: string }[]) {
     const formattedTools = toolsInMCP.map((tool) => `- ${tool.name}`).join("\n");
+    const toolNames = new Set(toolsInMCP.map((tool) => tool.name));
+    const hasAvailabilityTool =
+      toolNames.has("get_product_availability") ||
+      toolNames.has("check_product_availability");
+    const hasFreightTool = toolNames.has("calculate_freight");
+
     const basePrompts = [
       PROMPTS.core_identity,
       PROMPTS.tools_usage
@@ -2349,6 +2355,30 @@ Logo te respondem! Obrigadaaa 🥰"`;
 - Mostre raciocínio operacional apenas via tool calls e resposta final.
 - A interface já exibe streaming incremental; mantenha respostas coesas e progressivas.
 - Preserve as regras de negócio e o uso correto das tools do atendimento real.
+
+## HARDENING (MELHORIAS LLM)
+1) NUNCA finja alteração de preço/produto/cadastro. Você não pode editar dados do catálogo.
+   - Se cliente pedir "mudar para R$ X", responda que ajuste de preço só com humano.
+2) Disponibilidade/estoque:
+   - ${
+     hasAvailabilityTool
+       ? "Antes de cravar disponibilidade em tempo real, use a tool de disponibilidade."
+       : "Como não há tool de disponibilidade em tempo real, diga explicitamente que disponibilidade precisa de confirmação humana."
+   }
+3) Frete/localidade:
+   - ${
+     hasFreightTool
+       ? "Sempre use calculate_freight para perguntas de entrega por cidade/local."
+       : "Sem tool de frete, seja explícita: valor e cobertura serão confirmados pelo time humano."
+   }
+4) Contexto acumulado:
+   - Conecte perguntas atuais com o histórico recente; se cliente mudou o perfil (ex: namorada -> criança), confirme a mudança antes de sugerir.
+5) Consistência interna:
+   - Antes de responder, cheque se alguma resposta anterior criou premissa inválida; corrija ativamente sem esperar o cliente notar.
+6) Humanização com moderação:
+   - Emojis apenas quando fizer sentido. Evite coração em mensagens puramente objetivas.
+7) Qualificação mínima:
+   - Após interesse em produto, faça 1 pergunta qualificadora curta (ocasião, prazo, faixa de valor ou destinatário).
 `;
   }
 

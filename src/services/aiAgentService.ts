@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import prisma from "../database/prisma";
 import mcpClientService from "./mcpClientService";
+import openClawMemoryService, {
+  type SessionPresentedProduct,
+} from "./openClawMemoryService";
 import logger from "../utils/logger";
 import { addDays, addHours, isPast, format } from "date-fns";
 import { PROMPTS } from "../config/prompts";
@@ -99,26 +102,12 @@ type FallbackIntentFlags = {
   product: boolean;
 };
 
-interface SessionProductItem {
-  id: string;
-  name: string;
-  price: number | null;
-  imageUrl: string | null;
-}
-
-interface SessionProductMemory {
-  presentedProducts: SessionProductItem[];
-  focusedProductId: string | null;
-  lastUpdatedAt: number;
-}
-
 class AIAgentService {
   private openai: OpenAI;
   private lastMessageTimestamps: Map<string, { text: string; time: number }> =
     new Map();
   private model: string = "gpt-5.4-mini";
   private advancedModel: string = "gpt-5-mini";
-  private sessionProductMemory: Map<string, SessionProductMemory> = new Map();
   private fallbackBlockedTools = new Set(
     (process.env.FALLBACK_BLOCKED_MCP_TOOLS || "")
       .split(",")
@@ -150,7 +139,9 @@ class AIAgentService {
     return Number.isFinite(value) && value > 0 ? value : null;
   }
 
-  private parseCatalogProductsFromOutput(catalogOutput: string): SessionProductItem[] {
+  private parseCatalogProductsFromOutput(
+    catalogOutput: string,
+  ): SessionPresentedProduct[] {
     const parsedCandidates: any[] = [];
     const pushCandidate = (value: any) => {
       if (!value || typeof value !== "object") return;
@@ -204,11 +195,11 @@ class AIAgentService {
           name: String(nameRaw),
           price: Number.isFinite(numericPrice) ? numericPrice : null,
           imageUrl: imageUrl ? String(imageUrl) : null,
-        } as SessionProductItem;
+        } as SessionPresentedProduct;
       })
-      .filter((item): item is SessionProductItem => Boolean(item));
+      .filter((item): item is SessionPresentedProduct => Boolean(item));
 
-    const dedup = new Map<string, SessionProductItem>();
+    const dedup = new Map<string, SessionPresentedProduct>();
     for (const product of normalized) {
       if (!dedup.has(product.id)) dedup.set(product.id, product);
     }
@@ -216,18 +207,18 @@ class AIAgentService {
     return Array.from(dedup.values());
   }
 
-  private getSessionProductMemory(sessionId: string): SessionProductMemory | null {
-    return this.sessionProductMemory.get(sessionId) || null;
+  private async getSessionProductMemory(sessionId: string) {
+    return openClawMemoryService.getSessionMemory(sessionId);
   }
 
-  private setSessionProductMemory(
+  private async setSessionProductMemory(
     sessionId: string,
-    memory: SessionProductMemory,
+    memory: Awaited<ReturnType<typeof openClawMemoryService.getSessionMemory>>,
   ) {
-    this.sessionProductMemory.set(sessionId, memory);
+    await openClawMemoryService.saveSessionMemory(sessionId, memory);
   }
 
-  private updateSessionProductMemoryFromCatalog(
+  private async updateSessionProductMemoryFromCatalog(
     sessionId: string,
     catalogOutput: string,
     currentUserMessage: string,
@@ -235,8 +226,8 @@ class AIAgentService {
     const products = this.parseCatalogProductsFromOutput(catalogOutput);
     if (products.length === 0) return;
 
-    const existing = this.getSessionProductMemory(sessionId);
-    const mergedMap = new Map<string, SessionProductItem>();
+    const existing = await this.getSessionProductMemory(sessionId);
+    const mergedMap = new Map<string, SessionPresentedProduct>();
     for (const product of existing?.presentedProducts || []) {
       mergedMap.set(product.id, product);
     }
@@ -253,15 +244,20 @@ class AIAgentService {
     const focusedProductId =
       focusedByOption || products[0]?.id || existing?.focusedProductId || null;
 
-    this.setSessionProductMemory(sessionId, {
+    await this.setSessionProductMemory(sessionId, {
       presentedProducts: Array.from(mergedMap.values()).slice(0, 20),
       focusedProductId,
-      lastUpdatedAt: Date.now(),
+      updatedAt: new Date().toISOString(),
+      client: existing.client,
+      flags: existing.flags,
     });
   }
 
-  private buildSessionMemoryPrompt(sessionId: string, currentUserMessage: string) {
-    const memory = this.getSessionProductMemory(sessionId);
+  private async buildSessionMemoryPrompt(
+    sessionId: string,
+    currentUserMessage: string,
+  ) {
+    const memory = await this.getSessionProductMemory(sessionId);
     if (!memory || memory.presentedProducts.length === 0) return "";
 
     const optionNumber = this.extractOptionNumberFromText(currentUserMessage);
@@ -271,30 +267,10 @@ class AIAgentService {
       memory.presentedProducts.find((p) => p.id === memory.focusedProductId) ||
       null;
 
-    const presented = memory.presentedProducts
-      .map((product, index) => {
-        const price =
-          typeof product.price === "number"
-            ? `R$ ${product.price.toFixed(2).replace(".", ",")}`
-            : "preço não informado";
-        return `- Opção ${index + 1}: id=${product.id}; nome=${product.name}; preço=${price}; imagem=${product.imageUrl || "sem_url"}`;
-      })
-      .join("\n");
-
-    return `### MEMÓRIA DE SESSÃO (CONSISTÊNCIA DE PRODUTOS)
-Use esta memória como fonte de verdade para referência a opções já mostradas.
-
-Produtos apresentados:
-${presented}
-
-Produto em foco:
-${focusedProduct ? `id=${focusedProduct.id}; nome=${focusedProduct.name}` : "não definido"}
-
-Regras de consistência:
-1. Se cliente mencionar "opção N", use EXATAMENTE a opção N desta memória.
-2. Não troque nome/preço entre turnos.
-3. Se precisar detalhar produto já mostrado, use get_product_details com o nome exato do produto em foco.
-4. Ao listar produtos, inclua URL da imagem já na primeira menção de cada opção (linha própria antes da descrição).`;
+    return `${openClawMemoryService.buildSessionPrompt({
+      ...memory,
+      focusedProductId: focusedProduct?.id || memory.focusedProductId,
+    })}`;
   }
 
   private formatFallbackMenuText(menuText: string) {
@@ -2583,6 +2559,8 @@ Logo te respondem! Obrigadaaa 🥰"`;
       text: cleanMsg,
       time: nowTime,
     });
+    await openClawMemoryService.updateSessionFromUserMessage(sessionId, userMessage);
+    await openClawMemoryService.updateSessionFromUserMessage(sessionId, userMessage);
 
     const session = await this.getSession(sessionId);
     await prisma.aIAgentSession.update({
@@ -2608,11 +2586,22 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const recentHistory = this.filterHistoryForContext(history);
     const toolsInMCP = await mcpClientService.listTools();
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCP);
+    const sessionMemoryPrompt = await this.buildSessionMemoryPrompt(
+      sessionId,
+      userMessage,
+    );
+    const customerMemoryPrompt = session.customer_phone
+      ? openClawMemoryService.buildCustomerPrompt(
+          await openClawMemoryService.getCustomerMemory(session.customer_phone),
+        )
+      : "";
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
-        content: systemPrompt,
+        content: [systemPrompt, sessionMemoryPrompt, customerMemoryPrompt]
+          .filter(Boolean)
+          .join("\n\n"),
       },
       ...recentHistory.map((msg) => {
         const message: any = {
@@ -2856,8 +2845,13 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const phone = customerPhone || session.customer_phone;
 
     let memory = null;
+    let customerMemoryPrompt = "";
     if (phone) {
       memory = await this.getCustomerMemory(phone);
+      const markdownCustomerMemory =
+        await openClawMemoryService.getCustomerMemory(phone);
+      customerMemoryPrompt =
+        openClawMemoryService.buildCustomerPrompt(markdownCustomerMemory);
     }
 
     const sentProductIds = await this.getSentProductsInSession(sessionId);
@@ -2920,6 +2914,10 @@ Logo te respondem! Obrigadaaa 🥰"`;
     });
 
     const recentHistory = this.filterHistoryForContext(history);
+    const sessionMemoryPrompt = await this.buildSessionMemoryPrompt(
+      sessionId,
+      userMessage,
+    );
 
     const checkoutConfirmationResult = await this.handleCheckoutConfirmation(
       recentHistory,
@@ -3169,6 +3167,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 3. Minha resposta será natural?
 4. Preço/prazo = sempre ferramenta?`,
       },
+      ...(sessionMemoryPrompt
+        ? ([{ role: "system", content: sessionMemoryPrompt }] as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
+        : []),
+      ...(customerMemoryPrompt
+        ? ([{ role: "system", content: customerMemoryPrompt }] as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
+        : []),
       ...recentHistory.map((msg) => {
         const message: any = {
           role: msg.role,
@@ -3228,7 +3232,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     const shouldExcludeProducts =
       this.shouldExcludeProducts(currentUserMessage);
 
-    const sessionMemoryPrompt = this.buildSessionMemoryPrompt(
+    const sessionMemoryPrompt = await this.buildSessionMemoryPrompt(
       sessionId,
       currentUserMessage,
     );
@@ -3507,7 +3511,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "get_product_details") {
-            const memory = this.getSessionProductMemory(sessionId);
+            const memory = await this.getSessionProductMemory(sessionId);
             const optionNumber = this.extractOptionNumberFromText(
               currentUserMessage,
             );
@@ -3527,10 +3531,10 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             ) {
               args.product_name = focusedProduct.name;
               if (memory) {
-                this.setSessionProductMemory(sessionId, {
+                await this.setSessionProductMemory(sessionId, {
                   ...memory,
                   focusedProductId: focusedProduct.id,
-                  lastUpdatedAt: Date.now(),
+                  updatedAt: new Date().toISOString(),
                 });
               }
             }
@@ -3709,6 +3713,21 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             `✅ Resultado: ${toolOutputText.substring(0, 100)}${toolOutputText.length > 100 ? "..." : ""}`,
           );
 
+          if (name === "calculate_freight" && success) {
+            await openClawMemoryService.markFlag(
+              sessionId,
+              "freightCalculated",
+              true,
+            );
+          }
+          if (name === "notify_human_support" && success) {
+            await openClawMemoryService.markFlag(
+              sessionId,
+              "transferredToHuman",
+              true,
+            );
+          }
+
           toolExecutionResults.push({
             toolName: name,
             input: args,
@@ -3767,7 +3786,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 if (lastResult) lastResult.output = curatedOutput;
               }
 
-              this.updateSessionProductMemoryFromCatalog(
+              await this.updateSessionProductMemoryFromCatalog(
                 sessionId,
                 toolOutputText,
                 currentUserMessage,
@@ -3975,6 +3994,30 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         content,
       },
     });
+
+    if (session?.customer_phone) {
+      const customerMarkdownMemory =
+        await openClawMemoryService.flushSessionToCustomer(
+          sessionId,
+          session.customer_phone,
+          content,
+        );
+      const compactSummary =
+        openClawMemoryService.buildCustomerSummaryForDb(customerMarkdownMemory);
+
+      await prisma.customerMemory.upsert({
+        where: { customer_phone: session.customer_phone },
+        update: {
+          summary: compactSummary,
+          expires_at: addDays(new Date(), 60),
+        },
+        create: {
+          customer_phone: session.customer_phone,
+          summary: compactSummary,
+          expires_at: addDays(new Date(), 60),
+        },
+      });
+    }
   }
 }
 

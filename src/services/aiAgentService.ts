@@ -258,7 +258,7 @@ class AIAgentService {
     currentUserMessage: string,
   ) {
     const memory = await this.getSessionProductMemory(sessionId);
-    if (!memory || memory.presentedProducts.length === 0) return "";
+    if (!memory) return "";
 
     const optionNumber = this.extractOptionNumberFromText(currentUserMessage);
     const focusedProduct =
@@ -267,10 +267,88 @@ class AIAgentService {
       memory.presentedProducts.find((p) => p.id === memory.focusedProductId) ||
       null;
 
-    return `${openClawMemoryService.buildSessionPrompt({
+    const userTurns = await prisma.aIAgentMessage.count({
+      where: {
+        session_id: sessionId,
+        role: "user",
+      },
+    });
+
+    const resolvedMemory = {
       ...memory,
       focusedProductId: focusedProduct?.id || memory.focusedProductId,
-    })}`;
+    };
+
+    const isAmbiguous =
+      this.isAmbiguousFollowup(currentUserMessage) && Boolean(focusedProduct);
+    const focusedName = focusedProduct?.name || "n/a";
+
+    if (userTurns <= 10) {
+      const markdown = await openClawMemoryService.getSessionMemoryMarkdown(sessionId);
+      return `### SESSION_MEMORY_VERBOSE (turnos_usuario=${userTurns})
+${markdown}
+
+### FOCO_OPERACIONAL
+- produto_em_foco_nome: ${focusedName}
+- pergunta_ambigua_no_turno: ${isAmbiguous ? "sim" : "nao"}
+- regra: se pergunta estiver ambígua e houver produto_em_foco, responda referenciando esse produto primeiro.`;
+    }
+
+    return `${openClawMemoryService.buildSessionPrompt(resolvedMemory)}
+
+### FOCO_OPERACIONAL
+- produto_em_foco_nome: ${focusedName}
+- pergunta_ambigua_no_turno: ${isAmbiguous ? "sim" : "nao"}
+- regra: se pergunta estiver ambígua e houver produto_em_foco, responda referenciando esse produto primeiro.`;
+  }
+
+  private isAmbiguousFollowup(message: string) {
+    const text = (message || "").trim().toLowerCase();
+    if (!text) return false;
+    const hasProductSpecificTerms =
+      /cesta|cesto|buqu[eê]|caneca|quadro|rosa|flor|produto|cat[aá]logo|catalogo|frete|entrega|pix|cart[aã]o|hor[aá]rio|data|op[çc][aã]o\s*\d+/i.test(
+        text,
+      );
+    if (hasProductSpecificTerms) return false;
+    if (text.length <= 18) return true;
+    return /\b(essa|esse|isso|ela|ele|aquele|aquela|dessa|desse|dele|dela)\b/i.test(
+      text,
+    );
+  }
+
+  private looksLikeRawToolPayload(content: string) {
+    const text = (content || "").trim();
+    if (!text) return false;
+    if (text.startsWith("{") || text.startsWith("[")) return true;
+    if (/```json[\s\S]*```/i.test(text)) return true;
+    if (
+      /"status"\s*:\s*"?(success|error)|"suggested_slots"|"exatos"|"fallback"|"message"/i.test(
+        text,
+      )
+    ) {
+      return text.length < 1500;
+    }
+    return false;
+  }
+
+  private buildSyntheticStream(content: string) {
+    return {
+      async *[Symbol.asyncIterator]() {
+        const text = content || "";
+        const chunkSize = 56;
+        for (let i = 0; i < text.length; i += chunkSize) {
+          yield {
+            choices: [
+              {
+                delta: {
+                  content: text.slice(i, i + chunkSize),
+                },
+              },
+            ],
+          };
+        }
+      },
+    };
   }
 
   private formatFallbackMenuText(menuText: string) {
@@ -1331,7 +1409,10 @@ REGRAS PARA SUA RESPOSTA:
 12. ⛔ DATAS DE ENTREGA: Se a ferramenta retornou suggested_slots, APRESENTE TODOS ao cliente e PERGUNTE qual ele prefere. NUNCA escolha um horário por conta própria. O estimated_ready_time é tempo de produção, NÃO é o horário de entrega escolhido.
 13. NUNCA mencione o nome de funcionários específicos ao cliente. Use "nosso time" ou "nosso atendente".
 14. Tom de venda humanizado: descreva com fluidez e apelo leve (sem parecer lista mecânica).
+14.1 Ao listar produtos, traga 1 frase curta de argumento de venda por produto conectando com o contexto do cliente (ocasião/destinatário/faixa de valor).
+14.2 Se souber o nome do cliente, use o nome de forma natural uma vez na mensagem.
 15. Se faltar contexto-chave (ocasião, prazo ou orçamento), faça 1 pergunta qualificadora curta.
+16. NUNCA retorne JSON bruto, blocos de debug, ou payload de tool para o cliente.
 
 Gere APENAS a mensagem final para o cliente.`;
   }
@@ -2619,7 +2700,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
       time: nowTime,
     });
     await openClawMemoryService.updateSessionFromUserMessage(sessionId, userMessage);
-    await openClawMemoryService.updateSessionFromUserMessage(sessionId, userMessage);
 
     const session = await this.getSession(sessionId);
     await prisma.aIAgentSession.update({
@@ -2645,10 +2725,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const recentHistory = this.filterHistoryForContext(history);
     const toolsInMCP = await mcpClientService.listTools();
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCP);
-    const sessionMemoryPrompt = await this.buildSessionMemoryPrompt(
-      sessionId,
-      userMessage,
-    );
     const customerMemoryPrompt = session.customer_phone
       ? openClawMemoryService.buildCustomerPrompt(
           await openClawMemoryService.getCustomerMemory(session.customer_phone),
@@ -2658,9 +2734,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
-        content: [systemPrompt, sessionMemoryPrompt, customerMemoryPrompt]
-          .filter(Boolean)
-          .join("\n\n"),
+        content: [systemPrompt, customerMemoryPrompt].filter(Boolean).join("\n\n"),
       },
       ...recentHistory.map((msg) => {
         const message: any = {
@@ -2748,6 +2822,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
       customerPhone,
       remoteJidAlt,
     );
+    await openClawMemoryService.updateSessionFromUserMessage(sessionId, userMessage);
 
     const msgLower = userMessage.toLowerCase();
     const isCartEvent =
@@ -2973,10 +3048,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
     });
 
     const recentHistory = this.filterHistoryForContext(history);
-    const sessionMemoryPrompt = await this.buildSessionMemoryPrompt(
-      sessionId,
-      userMessage,
-    );
 
     const checkoutConfirmationResult = await this.handleCheckoutConfirmation(
       recentHistory,
@@ -3226,9 +3297,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 3. Minha resposta será natural?
 4. Preço/prazo = sempre ferramenta?`,
       },
-      ...(sessionMemoryPrompt
-        ? ([{ role: "system", content: sessionMemoryPrompt }] as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
-        : []),
       ...(customerMemoryPrompt
         ? ([{ role: "system", content: customerMemoryPrompt }] as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
         : []),
@@ -3499,6 +3567,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               args.precoMaximo === undefined
             ) {
             }
+            if (
+              args.exclude_product_ids !== undefined &&
+              args.exclude_ids === undefined
+            ) {
+              args.exclude_ids = args.exclude_product_ids;
+            }
             if (args.precoMaximo !== undefined) {
               args.preco_maximo = args.precoMaximo;
               delete args.precoMaximo;
@@ -3507,17 +3581,29 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               args.preco_minimo = args.precoMinimo;
               delete args.precoMinimo;
             }
+            if (
+              typeof args.exclude_ids === "string" &&
+              args.exclude_ids.trim().length > 0
+            ) {
+              args.exclude_ids = [args.exclude_ids.trim()];
+            }
+            if (!Array.isArray(args.exclude_ids)) {
+              args.exclude_ids = [];
+            }
+            delete args.exclude_product_ids;
 
             if (shouldExcludeProducts) {
               try {
                 const sessionProducts =
                   await this.getSentProductsInSession(sessionId);
                 if (sessionProducts.length > 0) {
-                  const existing = args.exclude_product_ids || [];
+                  const existing = Array.isArray(args.exclude_ids)
+                    ? args.exclude_ids
+                    : [];
                   const merged = [
                     ...new Set([...existing, ...sessionProducts]),
                   ];
-                  args.exclude_product_ids = merged;
+                  args.exclude_ids = merged;
                   logger.info(
                     `📦 Auto-excluindo ${merged.length} produtos ja apresentados`,
                   );
@@ -3773,11 +3859,19 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           );
 
           if (name === "calculate_freight" && success) {
-            await openClawMemoryService.markFlag(
-              sessionId,
-              "freightCalculated",
-              true,
-            );
+            const sessionMemory =
+              await openClawMemoryService.getSessionMemory(sessionId);
+            if (sessionMemory.client.city) {
+              await openClawMemoryService.markFlag(
+                sessionId,
+                "freightCalculated",
+                true,
+              );
+            } else {
+              logger.info(
+                "ℹ️ [Memory] frete_calculado não marcado: cidade ausente na memória",
+              );
+            }
           }
           if (name === "notify_human_support" && success) {
             await openClawMemoryService.markFlag(
@@ -4010,11 +4104,39 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       });
     }
 
-    return this.openai.chat.completions.create({
+    const finalResponse = await this.openai.chat.completions.create({
       model: this.model,
       messages,
-      stream: true,
+      stream: false,
     });
+    let finalText = (finalResponse.choices[0]?.message?.content || "").trim();
+
+    if (!finalText) {
+      finalText =
+        "Perfeito! Estou organizando os detalhes para te ajudar da melhor forma. Me confirme só um ponto para seguir com precisão. 💕";
+    }
+
+    if (this.looksLikeRawToolPayload(finalText)) {
+      messages.push({
+        role: "assistant",
+        content: finalText,
+      });
+      messages.push({
+        role: "system",
+        content:
+          "Sua última resposta saiu em formato técnico (JSON/debug). Reescreva como mensagem natural para cliente, sem JSON, sem blocos de código e sem mencionar tools.",
+      });
+
+      const repaired = await this.openai.chat.completions.create({
+        model: this.model,
+        messages,
+        stream: false,
+      });
+      const repairedText = (repaired.choices[0]?.message?.content || "").trim();
+      if (repairedText) finalText = repairedText;
+    }
+
+    return this.buildSyntheticStream(finalText);
   }
 
   async saveResponse(sessionId: string, content: string) {

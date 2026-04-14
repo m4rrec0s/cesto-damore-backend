@@ -106,6 +106,30 @@ class OpenClawMemoryService {
     }
   }
 
+  private sanitizeSessionMemory(memory: SessionMemoryState): SessionMemoryState {
+    const sanitized: SessionMemoryState = {
+      ...DEFAULT_SESSION_MEMORY,
+      ...memory,
+      client: {
+        ...DEFAULT_SESSION_MEMORY.client,
+        ...(memory?.client || {}),
+      },
+      flags: {
+        ...DEFAULT_SESSION_MEMORY.flags,
+        ...(memory?.flags || {}),
+      },
+      presentedProducts: Array.isArray(memory?.presentedProducts)
+        ? memory.presentedProducts.slice(0, 20)
+        : [],
+    };
+
+    if (sanitized.flags.freightCalculated && !sanitized.client.city) {
+      sanitized.flags.freightCalculated = false;
+    }
+
+    return sanitized;
+  }
+
   private renderSessionMarkdown(memory: SessionMemoryState) {
     const products = memory.presentedProducts
       .slice(0, 10)
@@ -205,21 +229,7 @@ ${JSON.stringify(memory)}
         content,
         DEFAULT_SESSION_MEMORY,
       );
-      return {
-        ...DEFAULT_SESSION_MEMORY,
-        ...parsed,
-        client: {
-          ...DEFAULT_SESSION_MEMORY.client,
-          ...(parsed?.client || {}),
-        },
-        flags: {
-          ...DEFAULT_SESSION_MEMORY.flags,
-          ...(parsed?.flags || {}),
-        },
-        presentedProducts: Array.isArray(parsed?.presentedProducts)
-          ? parsed.presentedProducts.slice(0, 20)
-          : [],
-      };
+      return this.sanitizeSessionMemory(parsed);
     } catch (error) {
       logger.warn("⚠️ [Memory] Falha ao ler memória de sessão", error);
       return { ...DEFAULT_SESSION_MEMORY };
@@ -229,9 +239,10 @@ ${JSON.stringify(memory)}
   async saveSessionMemory(sessionId: string, memory: SessionMemoryState) {
     try {
       await this.ensureDirs();
+      const normalized = this.sanitizeSessionMemory(memory);
       await this.writeFileSafe(
         this.sessionFilePath(sessionId),
-        this.renderSessionMarkdown(memory),
+        this.renderSessionMarkdown(normalized),
       );
     } catch (error) {
       logger.warn("⚠️ [Memory] Falha ao salvar memória de sessão", error);
@@ -242,8 +253,15 @@ ${JSON.stringify(memory)}
     const memory = await this.getSessionMemory(sessionId);
     const lower = userMessage.toLowerCase();
 
+    const nameMatch = userMessage.match(
+      /(?:meu nome é|meu nome e|me chamo|sou o|sou a)\s+([A-Za-zÀ-ú'’\-]{2,30})/i,
+    );
+    if (nameMatch?.[1]) {
+      memory.client.name = nameMatch[1].trim();
+    }
+
     const cityMatch = userMessage.match(
-      /(?:sou de|moro em|entrega em|cidade)\s*[:\-]?\s*([A-Za-zÀ-ú'\-\s]{2,40})/i,
+      /(?:sou de|moro em|entrega em|cidade\s*[:\-]?)\s*([A-Za-zÀ-ú'’\-\s]{2,40})/i,
     );
     if (cityMatch?.[1]) {
       memory.client.city = cityMatch[1].trim();
@@ -276,11 +294,18 @@ ${JSON.stringify(memory)}
       }
     }
 
-    const budgetMatch = userMessage.match(
-      /(?:at[eé]\s*)?r\$\s*(\d{2,4}(?:[.,]\d{1,2})?)/i,
+    const budgetRangeMatch = userMessage.match(
+      /(?:r\$\s*)?(\d{2,4}(?:[.,]\d{1,2})?)\s*(?:-|a|até|ate)\s*(?:r\$\s*)?(\d{2,4}(?:[.,]\d{1,2})?)/i,
     );
-    if (budgetMatch?.[1]) {
-      memory.client.budget = `R$ ${budgetMatch[1].replace(".", ",")}`;
+    if (budgetRangeMatch?.[1] && budgetRangeMatch?.[2]) {
+      memory.client.budget = `R$ ${budgetRangeMatch[1].replace(".", ",")} - R$ ${budgetRangeMatch[2].replace(".", ",")}`;
+    } else {
+      const budgetMatch = userMessage.match(
+        /(?:at[eé]\s*)?r\$\s*(\d{2,4}(?:[.,]\d{1,2})?)/i,
+      );
+      if (budgetMatch?.[1]) {
+        memory.client.budget = `R$ ${budgetMatch[1].replace(".", ",")}`;
+      }
     }
 
     if (/mudar.*(pre[cç]o|valor)|por\s*r\$\s*\d+/i.test(lower)) {
@@ -318,7 +343,11 @@ ${JSON.stringify(memory)}
     value: boolean,
   ) {
     const memory = await this.getSessionMemory(sessionId);
-    memory.flags[flag] = value;
+    if (flag === "freightCalculated" && value && !memory.client.city) {
+      memory.flags[flag] = false;
+    } else {
+      memory.flags[flag] = value;
+    }
     memory.updatedAt = new Date().toISOString();
     await this.saveSessionMemory(sessionId, memory);
   }

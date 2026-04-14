@@ -56,13 +56,27 @@ class AILabController {
     return userId;
   }
 
+  private resolveErrorStatus(error: any) {
+    const message = (error?.message || "").toString().toLowerCase();
+    if (message.includes("não autenticado") || message.includes("nao autenticado")) {
+      return 401;
+    }
+    if (
+      message.includes("não encontrada") ||
+      message.includes("nao encontrada")
+    ) {
+      return 404;
+    }
+    return 500;
+  }
+
   async createSession(req: Request, res: Response) {
     try {
       const userId = this.getUserId(req);
       const session = await aiAgentService.createLabSession(userId);
       return res.json({ session });
     } catch (error: any) {
-      return res.status(401).json({ error: error.message });
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
     }
   }
 
@@ -72,7 +86,7 @@ class AILabController {
       const sessions = await aiAgentService.listLabSessions(userId);
       return res.json({ sessions });
     } catch (error: any) {
-      return res.status(401).json({ error: error.message });
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
     }
   }
 
@@ -83,12 +97,7 @@ class AILabController {
       const messages = await aiAgentService.getLabSessionHistory(userId, sessionId);
       return res.json({ messages });
     } catch (error: any) {
-      const statusCode =
-        error.message?.includes("não encontrada") ||
-        error.message?.includes("nao encontrada")
-          ? 404
-          : 401;
-      return res.status(statusCode).json({ error: error.message });
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
     }
   }
 
@@ -99,12 +108,7 @@ class AILabController {
       await aiAgentService.deleteLabSession(userId, sessionId);
       return res.json({ success: true });
     } catch (error: any) {
-      const statusCode =
-        error.message?.includes("não encontrada") ||
-        error.message?.includes("nao encontrada")
-          ? 404
-          : 401;
-      return res.status(statusCode).json({ error: error.message });
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
     }
   }
 

@@ -118,6 +118,16 @@ class AIAgentService {
     });
   }
 
+  private getLabSessionPrefix(userId: string) {
+    return `lab-${userId}-`;
+  }
+
+  private ensureLabSessionOwnership(userId: string, sessionId: string) {
+    if (!sessionId.startsWith(this.getLabSessionPrefix(userId))) {
+      throw new Error("Sessão LAB não encontrada para este usuário");
+    }
+  }
+
   private formatFallbackMenuText(menuText: string) {
     const trimmed = menuText.trim();
     return trimmed ? trimmed : "Escolha uma opção:";
@@ -2215,7 +2225,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const session = await prisma.aIAgentSession.create({
       data: {
         id: sessionId,
-        user_id: userId,
         expires_at: addDays(new Date(), 30),
       },
     });
@@ -2226,8 +2235,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
   async listLabSessions(userId: string) {
     const sessions = await prisma.aIAgentSession.findMany({
       where: {
-        user_id: userId,
-        id: { startsWith: "lab-" },
+        id: { startsWith: this.getLabSessionPrefix(userId) },
       },
       orderBy: { created_at: "desc" },
       select: {
@@ -2262,11 +2270,10 @@ Logo te respondem! Obrigadaaa 🥰"`;
   }
 
   async getLabSessionHistory(userId: string, sessionId: string) {
-    const session = await prisma.aIAgentSession.findFirst({
-      where: {
-        id: sessionId,
-        user_id: userId,
-      },
+    this.ensureLabSessionOwnership(userId, sessionId);
+
+    const session = await prisma.aIAgentSession.findUnique({
+      where: { id: sessionId },
       select: { id: true },
     });
 
@@ -2289,11 +2296,10 @@ Logo te respondem! Obrigadaaa 🥰"`;
   }
 
   async deleteLabSession(userId: string, sessionId: string) {
-    const session = await prisma.aIAgentSession.findFirst({
-      where: {
-        id: sessionId,
-        user_id: userId,
-      },
+    this.ensureLabSessionOwnership(userId, sessionId);
+
+    const session = await prisma.aIAgentSession.findUnique({
+      where: { id: sessionId },
       select: { id: true },
     });
 
@@ -2353,6 +2359,8 @@ Logo te respondem! Obrigadaaa 🥰"`;
     customerName: string,
     emit: (event: LabTraceEvent) => Promise<void> | void,
   ) {
+    this.ensureLabSessionOwnership(userId, sessionId);
+
     const nowTime = Date.now();
     const cleanMsg = userMessage.trim();
     const lastMsgInfo = this.lastMessageTimestamps.get(sessionId);
@@ -2377,7 +2385,6 @@ Logo te respondem! Obrigadaaa 🥰"`;
     await prisma.aIAgentSession.update({
       where: { id: sessionId },
       data: {
-        user_id: userId,
         expires_at: addDays(new Date(), 30),
       },
     });

@@ -44,6 +44,7 @@ import followUpController from "./controller/followUpController";
 import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import chatRealtimeController from "./controller/chatRealtimeController";
+import aiLabController from "./controller/aiLabController";
 import tempFileController from "./controller/tempFileController";
 import { TestPaymentController } from "./controller/testPaymentController";
 
@@ -1110,6 +1111,43 @@ router.delete(
   authenticateToken,
   requireAdmin,
   aiAgentController.clearSessionHistory,
+);
+
+router.post(
+  "/admin/ai/lab/sessions",
+  authenticateToken,
+  requireAdmin,
+  aiLabController.createSession,
+);
+router.get(
+  "/admin/ai/lab/sessions",
+  authenticateToken,
+  requireAdmin,
+  aiLabController.listSessions,
+);
+router.get(
+  "/admin/ai/lab/sessions/:sessionId/messages",
+  authenticateToken,
+  requireAdmin,
+  aiLabController.getSessionMessages,
+);
+router.delete(
+  "/admin/ai/lab/sessions/:sessionId",
+  authenticateToken,
+  requireAdmin,
+  aiLabController.deleteSession,
+);
+router.post(
+  "/admin/ai/lab/chat/stream",
+  authenticateToken,
+  requireAdmin,
+  aiLabController.chatStream,
+);
+router.get(
+  "/admin/ai/lab/link-preview",
+  authenticateToken,
+  requireAdmin,
+  aiLabController.getLinkPreview,
 );
 
 router.post(

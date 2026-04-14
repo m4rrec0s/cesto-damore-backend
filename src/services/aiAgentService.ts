@@ -41,6 +41,48 @@ interface ToolExecutionResult {
   success: boolean;
 }
 
+export type LabTraceEvent =
+  | {
+      type: "state";
+      state: ProcessingState;
+      label: string;
+      timestamp: string;
+    }
+  | {
+      type: "tool_call";
+      toolName: string;
+      input: Record<string, unknown>;
+      timestamp: string;
+    }
+  | {
+      type: "tool_result";
+      toolName: string;
+      success: boolean;
+      output: string;
+      timestamp: string;
+    }
+  | {
+      type: "text_delta";
+      delta: string;
+      output: string;
+      timestamp: string;
+    }
+  | {
+      type: "done";
+      output: string;
+      timestamp: string;
+    }
+  | {
+      type: "warning";
+      message: string;
+      timestamp: string;
+    }
+  | {
+      type: "error";
+      message: string;
+      timestamp: string;
+    };
+
 interface FallbackProcessingResult {
   text: string;
   handoffToHuman: boolean;
@@ -2168,6 +2210,256 @@ Logo te respondem! Obrigadaaa 🥰"`;
     return suggestions[Math.floor(Math.random() * suggestions.length)];
   }
 
+  async createLabSession(userId: string) {
+    const sessionId = `lab-${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const session = await prisma.aIAgentSession.create({
+      data: {
+        id: sessionId,
+        user_id: userId,
+        expires_at: addDays(new Date(), 30),
+      },
+    });
+
+    return session;
+  }
+
+  async listLabSessions(userId: string) {
+    const sessions = await prisma.aIAgentSession.findMany({
+      where: {
+        user_id: userId,
+        id: { startsWith: "lab-" },
+      },
+      orderBy: { created_at: "desc" },
+      select: {
+        id: true,
+        created_at: true,
+        expires_at: true,
+        is_blocked: true,
+        messages: {
+          orderBy: { created_at: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            role: true,
+            content: true,
+            created_at: true,
+          },
+        },
+        _count: {
+          select: { messages: true },
+        },
+      },
+    });
+
+    return sessions.map((session) => ({
+      id: session.id,
+      created_at: session.created_at,
+      expires_at: session.expires_at,
+      is_blocked: session.is_blocked,
+      lastMessage: session.messages[0] || null,
+      totalMessages: session._count.messages,
+    }));
+  }
+
+  async getLabSessionHistory(userId: string, sessionId: string) {
+    const session = await prisma.aIAgentSession.findFirst({
+      where: {
+        id: sessionId,
+        user_id: userId,
+      },
+      select: { id: true },
+    });
+
+    if (!session) {
+      throw new Error("Sessão LAB não encontrada para este usuário");
+    }
+
+    const messages = await prisma.aIAgentMessage.findMany({
+      where: { session_id: sessionId },
+      orderBy: { created_at: "asc" },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        created_at: true,
+      },
+    });
+
+    return messages;
+  }
+
+  async deleteLabSession(userId: string, sessionId: string) {
+    const session = await prisma.aIAgentSession.findFirst({
+      where: {
+        id: sessionId,
+        user_id: userId,
+      },
+      select: { id: true },
+    });
+
+    if (!session) {
+      throw new Error("Sessão LAB não encontrada para este usuário");
+    }
+
+    await prisma.aISessionProductHistory.deleteMany({
+      where: { session_id: sessionId },
+    });
+    await prisma.aIAgentMessage.deleteMany({
+      where: { session_id: sessionId },
+    });
+    await prisma.aIAgentSession.delete({
+      where: { id: sessionId },
+    });
+  }
+
+  private buildLabSystemPrompt(toolsInMCP: { name: string }[]) {
+    const formattedTools = toolsInMCP.map((tool) => `- ${tool.name}`).join("\n");
+    const basePrompts = [
+      PROMPTS.core_identity,
+      PROMPTS.tools_usage
+        .replace("{tools}", formattedTools || "- (sem tools disponíveis)")
+        .replace(
+          "{format_instructions}",
+          "No modo LAB do Manager, você PODE responder em Markdown para facilitar validação visual.",
+        ),
+      PROMPTS.execution_rules,
+      PROMPTS.security_rules,
+      PROMPTS.product_rules,
+      PROMPTS.greeting,
+      PROMPTS.product_search,
+      PROMPTS.product_details,
+      PROMPTS.delivery_rules,
+      PROMPTS.customization,
+      PROMPTS.checkout,
+      PROMPTS.human_transfer,
+    ].join("\n\n");
+
+    return `${basePrompts}
+
+---
+
+## CONTEXTO LAB (MANAGER)
+- Este chat está em modo interno de testes do Manager.
+- Mostre raciocínio operacional apenas via tool calls e resposta final.
+- A interface já exibe streaming incremental; mantenha respostas coesas e progressivas.
+- Preserve as regras de negócio e o uso correto das tools do atendimento real.
+`;
+  }
+
+  async chatLabWithTrace(
+    sessionId: string,
+    userMessage: string,
+    userId: string,
+    customerName: string,
+    emit: (event: LabTraceEvent) => Promise<void> | void,
+  ) {
+    const nowTime = Date.now();
+    const cleanMsg = userMessage.trim();
+    const lastMsgInfo = this.lastMessageTimestamps.get(sessionId);
+    if (
+      lastMsgInfo &&
+      lastMsgInfo.text === cleanMsg &&
+      nowTime - lastMsgInfo.time < 5000
+    ) {
+      await emit({
+        type: "warning",
+        message: "Mensagem duplicada ignorada (janela de 5s).",
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    this.lastMessageTimestamps.set(sessionId, {
+      text: cleanMsg,
+      time: nowTime,
+    });
+
+    const session = await this.getSession(sessionId);
+    await prisma.aIAgentSession.update({
+      where: { id: sessionId },
+      data: {
+        user_id: userId,
+        expires_at: addDays(new Date(), 30),
+      },
+    });
+
+    await prisma.aIAgentMessage.create({
+      data: {
+        session_id: sessionId,
+        role: "user",
+        content: userMessage,
+      },
+    });
+
+    const history = await prisma.aIAgentMessage.findMany({
+      where: { session_id: sessionId },
+      orderBy: { created_at: "asc" },
+    });
+
+    const recentHistory = this.filterHistoryForContext(history);
+    const toolsInMCP = await mcpClientService.listTools();
+    const systemPrompt = this.buildLabSystemPrompt(toolsInMCP);
+
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      ...recentHistory.map((msg) => {
+        const message: any = {
+          role: msg.role,
+          content: msg.content,
+        };
+        if (msg.name) message.name = msg.name;
+        if (msg.tool_call_id) message.tool_call_id = msg.tool_call_id;
+        if (msg.tool_calls) {
+          try {
+            message.tool_calls = JSON.parse(msg.tool_calls);
+          } catch (error) {
+            logger.error(`Erro ao parsear tool_calls da mensagem ${msg.id}`, error);
+          }
+        }
+        return message;
+      }),
+    ];
+
+    const stream = await this.runTwoPhaseProcessing(
+      sessionId,
+      messages,
+      false,
+      false,
+      false,
+      userMessage,
+      null,
+      customerName || "Cliente",
+      session.customer_phone || "",
+      emit,
+    );
+
+    if (!stream) {
+      return;
+    }
+
+    let fullContent = "";
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content || "";
+      if (!delta) continue;
+      fullContent += delta;
+      await emit({
+        type: "text_delta",
+        delta,
+        output: fullContent,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    await this.saveResponse(sessionId, fullContent);
+    await emit({
+      type: "done",
+      output: fullContent,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   async chat(
     sessionId: string,
     userMessage: string,
@@ -2717,6 +3009,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     memorySummary: string | null = null,
     customerName: string = "Cliente",
     customerPhone: string = "",
+    traceEmitter?: (event: LabTraceEvent) => Promise<void> | void,
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -2736,6 +3029,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     }));
 
     logger.info("🔍 FASE 1: Iniciando coleta de informações...");
+    await traceEmitter?.({
+      type: "state",
+      state: ProcessingState.ANALYZING,
+      label: "Analisando contexto da conversa",
+      timestamp: new Date().toISOString(),
+    });
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       logger.info(
@@ -2810,6 +3109,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         logger.info(
           `🛠️ Executando ${responseMessage.tool_calls.length} ferramenta(s)...`,
         );
+        await traceEmitter?.({
+          type: "state",
+          state: ProcessingState.GATHERING_DATA,
+          label: `Executando ${responseMessage.tool_calls.length} tool(s)`,
+          timestamp: new Date().toISOString(),
+        });
 
         messages.push({
           role: "assistant",
@@ -2833,6 +3138,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           const args = JSON.parse(toolCall.function.arguments);
 
           logger.info(`🔧 Chamando: ${name}(${JSON.stringify(args)})`);
+          await traceEmitter?.({
+            type: "tool_call",
+            toolName: name,
+            input: args,
+            timestamp: new Date().toISOString(),
+          });
 
           if (name === "consultarCatalogo" && args.termo) {
             const termoOriginal = args.termo.toString();
@@ -3153,6 +3464,13 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             output: toolOutputText,
             success,
           });
+          await traceEmitter?.({
+            type: "tool_result",
+            toolName: name,
+            success,
+            output: toolOutputText,
+            timestamp: new Date().toISOString(),
+          });
 
           if (name === "consultarCatalogo") {
             try {
@@ -3251,6 +3569,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         "✅ FASE 1 Concluída: Todas as informações necessárias foram coletadas",
       );
       currentState = ProcessingState.READY_TO_RESPOND;
+      await traceEmitter?.({
+        type: "state",
+        state: ProcessingState.READY_TO_RESPOND,
+        label: "Dados coletados. Preparando resposta final",
+        timestamp: new Date().toISOString(),
+      });
       break;
     }
 
@@ -3337,6 +3661,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     }
 
     logger.info("📝 FASE 2: Gerando resposta organizada para o cliente...");
+    await traceEmitter?.({
+      type: "state",
+      state: ProcessingState.SYNTHESIZING,
+      label: "Gerando resposta final em streaming",
+      timestamp: new Date().toISOString(),
+    });
 
     if (toolExecutionResults.length > 0) {
       messages.push({

@@ -1117,37 +1117,37 @@ router.post(
   "/admin/ai/lab/sessions",
   authenticateToken,
   requireAdmin,
-  aiLabController.createSession,
+  (req: Request, res: Response) => aiLabController.createSession(req, res),
 );
 router.get(
   "/admin/ai/lab/sessions",
   authenticateToken,
   requireAdmin,
-  aiLabController.listSessions,
+  (req: Request, res: Response) => aiLabController.listSessions(req, res),
 );
 router.get(
   "/admin/ai/lab/sessions/:sessionId/messages",
   authenticateToken,
   requireAdmin,
-  aiLabController.getSessionMessages,
+  (req: Request, res: Response) => aiLabController.getSessionMessages(req, res),
 );
 router.delete(
   "/admin/ai/lab/sessions/:sessionId",
   authenticateToken,
   requireAdmin,
-  aiLabController.deleteSession,
+  (req: Request, res: Response) => aiLabController.deleteSession(req, res),
 );
 router.post(
   "/admin/ai/lab/chat/stream",
   authenticateToken,
   requireAdmin,
-  aiLabController.chatStream,
+  (req: Request, res: Response) => aiLabController.chatStream(req, res),
 );
 router.get(
   "/admin/ai/lab/link-preview",
   authenticateToken,
   requireAdmin,
-  aiLabController.getLinkPreview,
+  (req: Request, res: Response) => aiLabController.getLinkPreview(req, res),
 );
 
 router.post(

@@ -1273,6 +1273,22 @@ RESPONDA SOMENTE COM JSON VÁLIDO neste formato:
       };
     }
 
+    const isGreetingOrIntroIntent =
+      /\b(oi|ol[áa]|bom dia|boa tarde|boa noite)\b/i.test(messageLower) &&
+      /\b(interesse|informa[cç][aã]o|informacoes|an[uú]ncio|anuncio|quero saber mais)\b/i.test(
+        messageLower,
+      ) &&
+      !/\b(pre[cç]o|valor|frete|entrega|cat[aá]logo|catalogo|op[cç][aã]o|produto espec[ií]fico)\b/i.test(
+        messageLower,
+      );
+    if (isGreetingOrIntroIntent) {
+      return {
+        requiresToolCall: false,
+        shouldOptimizeModel: false,
+        model: this.model,
+      };
+    }
+
     if (messageLength <= 30 && !wasExplicitMatch) {
       return {
         requiresToolCall: false,
@@ -3627,7 +3643,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       const hasToolCalls =
         responseMessage.tool_calls && responseMessage.tool_calls.length > 0;
       const forbiddenInterruption =
-        /(vou (buscar|procurar|verificar|consultar|checar|dar uma|pesquisar)|um moment|aguard[ea]|espera|deixa eu|só um|já volto|ja volto|prosseguimento|atendimento|me chamo ana)/i;
+        /(vou (buscar|procurar|verificar|consultar|checar|dar uma|pesquisar)|um moment|aguard[ea]|espera|deixa eu|só um|ja? volto)/i;
 
       const hasConcreteData =
         /R\$|https?:\/\/|\d{2,}[,\.]\d{2}|cest[ao]|buqu[êe]|caneca|arranjo|flor(es)?/i.test(
@@ -3645,6 +3661,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
       if (
         !hasToolCalls &&
+        requiresToolCall &&
         (responseText === "" || forbiddenInterruption.test(responseText))
       ) {
         logger.warn(

@@ -124,7 +124,7 @@ class AILabController {
   }
 
   async chatStream(req: Request, res: Response) {
-    const { sessionId, message, customerName } = req.body || {};
+    const { sessionId, message, customerName, managerUser } = req.body || {};
 
     if (!sessionId || !message) {
       return res
@@ -155,6 +155,12 @@ class AILabController {
         message,
         userId,
         (customerName || "").toString().trim() || "Cliente",
+        {
+          id: (managerUser?.id || "").toString().trim() || userId,
+          name: (managerUser?.name || "").toString().trim() || null,
+          phone: (managerUser?.phone || "").toString().trim() || null,
+          email: (managerUser?.email || "").toString().trim() || null,
+        },
         writeEvent,
       );
       res.end();

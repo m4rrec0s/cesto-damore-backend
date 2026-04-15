@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
-import OpenAI from "openai";
 import prisma from "../database/prisma";
 import { INTENT_TO_PROMPT, INTENT_KEYWORDS, PROMPTS } from "../config/prompts";
+import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
 import logger from "../utils/logger";
 
 interface OrchestrationRequest {
@@ -61,9 +61,7 @@ interface PromptPriorityInstructionRow {
   display_order: number;
 }
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const openai = createOpenAIClient();
 
 const PROMPT_VARIABLE_SYNTAX = "{{field_name}}";
 const DEFAULT_PROMPT_VARIABLE_FIELDS = [
@@ -404,7 +402,7 @@ Mensagem atual do cliente:
 Qual é a intenção? Responda com UMA PALAVRA apenas (o nome da intenção).`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MODELS.promptOrchestration,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

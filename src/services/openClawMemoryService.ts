@@ -13,10 +13,42 @@ export interface SessionPresentedProduct {
 export interface SessionMemoryState {
   client: {
     name: string | null;
+    recipientName: string | null;
     city: string | null;
     occasion: string | null;
     budget: string | null;
     audience: string | null;
+  };
+  authenticatedUser: {
+    isAuthenticated: boolean;
+    name: string | null;
+    phone: string | null;
+    email: string | null;
+  };
+  conversation: {
+    salesPhase: "DISCOVERY" | "CURATION" | "CUSTOMIZATION" | "CHECKOUT";
+    selectedProductConfirmed: boolean;
+    selectedProductConfirmedAt: string | null;
+    awaitingResponse: string | null;
+    optionPresented: boolean;
+    greetingDone: boolean;
+    contextReiteratedCount: number;
+    lastAssistantQuestion: string | null;
+    lastUserIntent: string | null;
+    urgency: "low" | "medium" | "high" | null;
+    isFirstPurchase: boolean | null;
+    notes: string[];
+  };
+  toolCache: {
+    productDetailsByKey: Record<
+      string,
+      {
+        productName: string;
+        toolOutput: string;
+        turn: number;
+        updatedAt: string;
+      }
+    >;
   };
   presentedProducts: SessionPresentedProduct[];
   focusedProductId: string | null;
@@ -38,10 +70,34 @@ export interface CustomerMemoryState {
 const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
   client: {
     name: null,
+    recipientName: null,
     city: null,
     occasion: null,
     budget: null,
     audience: null,
+  },
+  authenticatedUser: {
+    isAuthenticated: false,
+    name: null,
+    phone: null,
+    email: null,
+  },
+  conversation: {
+    salesPhase: "DISCOVERY",
+    selectedProductConfirmed: false,
+    selectedProductConfirmedAt: null,
+    awaitingResponse: null,
+    optionPresented: false,
+    greetingDone: false,
+    contextReiteratedCount: 0,
+    lastAssistantQuestion: null,
+    lastUserIntent: null,
+    urgency: null,
+    isFirstPurchase: null,
+    notes: [],
+  },
+  toolCache: {
+    productDetailsByKey: {},
   },
   presentedProducts: [],
   focusedProductId: null,
@@ -107,12 +163,39 @@ class OpenClawMemoryService {
   }
 
   private sanitizeSessionMemory(memory: SessionMemoryState): SessionMemoryState {
+    const rawCache = memory?.toolCache?.productDetailsByKey || {};
+    const normalizedCacheEntries = Object.entries(rawCache)
+      .filter(([key, value]) => {
+        if (!key || typeof key !== "string") return false;
+        if (!value || typeof value !== "object") return false;
+        if (typeof (value as any).toolOutput !== "string") return false;
+        if (typeof (value as any).turn !== "number") return false;
+        return true;
+      })
+      .slice(-50);
+
     const sanitized: SessionMemoryState = {
       ...DEFAULT_SESSION_MEMORY,
       ...memory,
       client: {
         ...DEFAULT_SESSION_MEMORY.client,
         ...(memory?.client || {}),
+      },
+      authenticatedUser: {
+        ...DEFAULT_SESSION_MEMORY.authenticatedUser,
+        ...(memory?.authenticatedUser || {}),
+      },
+      conversation: {
+        ...DEFAULT_SESSION_MEMORY.conversation,
+        ...(memory?.conversation || {}),
+        notes: Array.isArray(memory?.conversation?.notes)
+          ? memory.conversation.notes
+              .filter((note) => typeof note === "string" && note.trim().length > 0)
+              .slice(0, 20)
+          : [],
+      },
+      toolCache: {
+        productDetailsByKey: Object.fromEntries(normalizedCacheEntries),
       },
       flags: {
         ...DEFAULT_SESSION_MEMORY.flags,
@@ -128,6 +211,68 @@ class OpenClawMemoryService {
     }
 
     return sanitized;
+  }
+
+  private normalizeText(value: string) {
+    return (value || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private sanitizeCityCandidate(candidate: string | null | undefined) {
+    if (!candidate) return "";
+    const cleaned = candidate
+      .replace(/[^\p{L}\s'’-]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!cleaned) return "";
+    const normalized = this.normalizeText(cleaned);
+    const blocked = new Set([
+      "informacoes",
+      "informacao",
+      "informação",
+      "dados",
+      "detalhes",
+      "ajuda",
+      "duvida",
+      "duvida sobre",
+      "entrega",
+      "presente",
+      "produto",
+      "catalogo",
+      "catálogo",
+      "cidade",
+      "bairro",
+      "endereco",
+      "endereço",
+    ]);
+    if (blocked.has(normalized)) return "";
+    if (cleaned.length < 2 || cleaned.length > 40) return "";
+    return cleaned;
+  }
+
+  private inferUserIntent(message: string) {
+    const normalized = this.normalizeText(message);
+    if (!normalized) return "empty";
+    if (/\b(mais opcoes|mais opçoes|tem outras|outras opcoes|outro modelo)\b/.test(normalized)) {
+      return "ask_more_options";
+    }
+    if (/\b(quero|vou levar|fechar pedido|finalizar|confirmo)\b/.test(normalized)) {
+      return "confirm_purchase";
+    }
+    if (/\b(preco|valor|quanto)\b/.test(normalized)) {
+      return "ask_price";
+    }
+    if (/\b(entrega|frete|cidade|bairro|endereco)\b/.test(normalized)) {
+      return "ask_delivery";
+    }
+    if (/\?$/.test(message.trim()) || /\b(como|qual|quando|onde)\b/.test(normalized)) {
+      return "question";
+    }
+    return "generic";
   }
 
   private formatBudgetValue(raw: string) {
@@ -152,10 +297,32 @@ class OpenClawMemoryService {
 
 ## Cliente
 - nome_inferido: ${memory.client.name || "null"}
+- destinatario_nome: ${memory.client.recipientName || "null"}
 - cidade: ${memory.client.city || "null"}
 - ocasiao: ${memory.client.occasion || "null"}
 - orcamento_estimado: ${memory.client.budget || "null"}
 - publico_presente: ${memory.client.audience || "null"}
+
+## Contexto Conversacional
+- fase_venda: ${memory.conversation.salesPhase}
+- produto_confirmado: ${memory.conversation.selectedProductConfirmed}
+- produto_confirmado_em: ${memory.conversation.selectedProductConfirmedAt || "null"}
+- aguardando_resposta: ${memory.conversation.awaitingResponse || "null"}
+- opcao_apresentada: ${memory.conversation.optionPresented}
+- saudacao_feita: ${memory.conversation.greetingDone}
+- contexto_reiterado: ${memory.conversation.contextReiteratedCount}
+- ultima_pergunta_assistente: ${memory.conversation.lastAssistantQuestion || "null"}
+- ultima_intencao_cliente: ${memory.conversation.lastUserIntent || "null"}
+- urgencia: ${memory.conversation.urgency || "null"}
+- primeira_compra: ${String(memory.conversation.isFirstPurchase)}
+- notas:
+${memory.conversation.notes.map((note) => `  - ${note}`).join("\n") || "  - (nenhuma)"}
+
+## Usuário Autenticado (Manager)
+- autenticado: ${memory.authenticatedUser.isAuthenticated}
+- nome: ${memory.authenticatedUser.name || "null"}
+- telefone: ${memory.authenticatedUser.phone || "null"}
+- email: ${memory.authenticatedUser.email || "null"}
 
 ## Produtos Apresentados
 ${products || "- (nenhum)"}
@@ -258,6 +425,7 @@ ${JSON.stringify(memory)}
   async updateSessionFromUserMessage(sessionId: string, userMessage: string) {
     const memory = await this.getSessionMemory(sessionId);
     const lower = userMessage.toLowerCase();
+    const trimmedMessage = userMessage.trim();
 
     const nameMatch = userMessage.match(
       /(?:meu nome é|meu nome e|me chamo|sou o|sou a)\s+([A-Za-zÀ-ú'’\-]{2,30})/i,
@@ -265,18 +433,29 @@ ${JSON.stringify(memory)}
     if (nameMatch?.[1]) {
       memory.client.name = nameMatch[1].trim();
     }
+    const recipientMatch = userMessage.match(
+      /(?:nome de quem vai receber|nome da (?:m[aã]e|namorada|esposa|pessoa)|destinat[aá]ri[oa]\s*(?:é|e)?|vai receber\s*(?:é|e)?)\s*[:\-]?\s*([A-Za-zÀ-ú'’\-\s]{2,40})/i,
+    );
+    if (recipientMatch?.[1]) {
+      const recipient = recipientMatch[1].trim();
+      if (recipient.length >= 2 && recipient.length <= 40) {
+        memory.client.recipientName = recipient;
+      }
+    }
 
     const cityMatch = userMessage.match(
       /(?:sou de|moro em|entrega em|cidade\s*[:\-]?)\s*([A-Za-zÀ-ú'’\-\s]{2,40})/i,
     );
     if (cityMatch?.[1]) {
-      memory.client.city = cityMatch[1].trim();
+      const sanitizedCity = this.sanitizeCityCandidate(cityMatch[1]);
+      if (sanitizedCity) memory.client.city = sanitizedCity;
     }
     const cityLooseMatch = userMessage.match(
       /(?:aqui em|em)\s+([A-Za-zÀ-ú'’\-\s]{2,40})/i,
     );
     if (!memory.client.city && cityLooseMatch?.[1]) {
-      memory.client.city = cityLooseMatch[1].trim();
+      const sanitizedCity = this.sanitizeCityCandidate(cityLooseMatch[1]);
+      if (sanitizedCity) memory.client.city = sanitizedCity;
     }
 
     const audiencePatterns: Array<[RegExp, string]> = [
@@ -337,6 +516,60 @@ ${JSON.stringify(memory)}
       memory.flags.attemptedPriceManipulation = true;
     }
 
+    const inferredIntent = this.inferUserIntent(userMessage);
+    memory.conversation.lastUserIntent = inferredIntent;
+    if (memory.conversation.awaitingResponse) {
+      memory.conversation.awaitingResponse = null;
+    }
+    const confirmsProduct =
+      /\b(vou levar|vou querer|quero essa|quero esse|fechar pedido|pode finalizar|pode fechar|confirmo)\b/i.test(
+        trimmedMessage,
+      );
+    const asksMoreOptions =
+      /\b(tem outras|mais op[cç][oõ]es|me mostra mais|outra op[cç][aã]o)\b/i.test(
+        trimmedMessage,
+      );
+    if (confirmsProduct && memory.focusedProductId) {
+      memory.conversation.selectedProductConfirmed = true;
+      memory.conversation.selectedProductConfirmedAt = new Date().toISOString();
+      memory.conversation.salesPhase = "CUSTOMIZATION";
+    } else if (asksMoreOptions) {
+      memory.conversation.selectedProductConfirmed = false;
+      memory.conversation.selectedProductConfirmedAt = null;
+      memory.conversation.salesPhase = "CURATION";
+    }
+    if (inferredIntent === "ask_more_options") {
+      memory.conversation.optionPresented = false;
+    }
+    if (
+      /\b(rua|avenida|bairro|cidade|cep|pix|cart[aã]o|cartao|pagamento|entrega)\b/i.test(
+        trimmedMessage,
+      )
+    ) {
+      memory.conversation.salesPhase = "CHECKOUT";
+    } else if (
+      memory.presentedProducts.length > 0 &&
+      memory.conversation.salesPhase === "DISCOVERY"
+    ) {
+      memory.conversation.salesPhase = "CURATION";
+    }
+    if (/\b(urgente|urgencia|urgência|hoje|agora|pra ja|pra já|quanto antes)\b/i.test(trimmedMessage)) {
+      memory.conversation.urgency = "high";
+    } else if (
+      /\b(amanh[aã]|esta semana|essa semana|logo)\b/i.test(trimmedMessage) &&
+      memory.conversation.urgency !== "high"
+    ) {
+      memory.conversation.urgency = "medium";
+    } else if (!memory.conversation.urgency) {
+      memory.conversation.urgency = "low";
+    }
+    if (/\b(primeira vez|nunca comprei|primeiro pedido)\b/i.test(trimmedMessage)) {
+      memory.conversation.isFirstPurchase = true;
+    }
+    if (/\b(j[aá] comprei|pedido anterior|de novo|novamente)\b/i.test(trimmedMessage)) {
+      memory.conversation.isFirstPurchase = false;
+    }
+
     memory.updatedAt = new Date().toISOString();
     await this.saveSessionMemory(sessionId, memory);
   }
@@ -346,10 +579,14 @@ ${JSON.stringify(memory)}
     patch: Partial<SessionMemoryState["client"]>,
   ) {
     const memory = await this.getSessionMemory(sessionId);
+    const sanitizedPatch = { ...patch };
+    if (typeof sanitizedPatch.city === "string") {
+      sanitizedPatch.city = this.sanitizeCityCandidate(sanitizedPatch.city) || null;
+    }
     memory.client = {
       ...memory.client,
       ...Object.fromEntries(
-        Object.entries(patch).filter(([, value]) => {
+        Object.entries(sanitizedPatch).filter(([, value]) => {
           if (typeof value === "string") return value.trim().length > 0;
           return value !== null && value !== undefined;
         }),
@@ -375,6 +612,9 @@ ${JSON.stringify(memory)}
       memory.focusedProductId = focusedProductId;
     } else if (!memory.focusedProductId && memory.presentedProducts[0]) {
       memory.focusedProductId = memory.presentedProducts[0].id;
+    }
+    if (memory.presentedProducts.length > 0 && memory.conversation.salesPhase === "DISCOVERY") {
+      memory.conversation.salesPhase = "CURATION";
     }
     memory.updatedAt = new Date().toISOString();
     await this.saveSessionMemory(sessionId, memory);
@@ -402,6 +642,140 @@ ${JSON.stringify(memory)}
     await this.saveSessionMemory(sessionId, memory);
   }
 
+  async setAuthenticatedUserContext(
+    sessionId: string,
+    user: {
+      name?: string | null;
+      phone?: string | null;
+      email?: string | null;
+    },
+  ) {
+    const memory = await this.getSessionMemory(sessionId);
+    memory.authenticatedUser = {
+      isAuthenticated: true,
+      name: user.name?.trim() || memory.authenticatedUser.name || null,
+      phone: user.phone?.trim() || memory.authenticatedUser.phone || null,
+      email: user.email?.trim() || memory.authenticatedUser.email || null,
+    };
+    if (!memory.client.name && memory.authenticatedUser.name) {
+      memory.client.name = memory.authenticatedUser.name;
+    }
+    memory.updatedAt = new Date().toISOString();
+    await this.saveSessionMemory(sessionId, memory);
+  }
+
+  async registerAssistantResponse(
+    sessionId: string,
+    assistantMessage: string,
+    userMessage: string,
+  ) {
+    const memory = await this.getSessionMemory(sessionId);
+    const normalizedAssistant = this.normalizeText(assistantMessage);
+    const normalizedUser = this.normalizeText(userMessage);
+
+    if (/^(oi|ol[áa]|bom dia|boa tarde|boa noite)\b/i.test(assistantMessage.trim())) {
+      memory.conversation.greetingDone = true;
+    }
+    if (/\?/.test(assistantMessage)) {
+      memory.conversation.lastAssistantQuestion = assistantMessage
+        .split("\n")
+        .find((line) => line.includes("?"))
+        ?.trim()
+        .slice(0, 180) || assistantMessage.slice(0, 180);
+      memory.conversation.awaitingResponse = "question";
+    } else {
+      memory.conversation.awaitingResponse = null;
+    }
+    if (normalizedAssistant.includes("pra sua mae") || normalizedAssistant.includes("para sua mae")) {
+      memory.conversation.contextReiteratedCount += 1;
+    }
+    if (
+      /vai querer|quer levar|gostou dessa|fechamos essa/i.test(assistantMessage) &&
+      /\b(tem outras|outra opcao|mais opcoes)\b/i.test(normalizedUser)
+    ) {
+      memory.conversation.optionPresented = false;
+      if (!memory.conversation.notes.includes("cliente pediu mais opções após confirmação")) {
+        memory.conversation.notes.unshift("cliente pediu mais opções após confirmação");
+      }
+    }
+    if (/opção|opcao|cesta|produto/i.test(assistantMessage)) {
+      memory.conversation.optionPresented = true;
+    }
+    if (/(adicional|caneca personalizada|polaroid|fotos? polaroid)/i.test(assistantMessage)) {
+      memory.conversation.salesPhase = "CUSTOMIZATION";
+    }
+    if (
+      /(?:me passa|me informe|me diz).*(nome.*recebe|bairro|cidade|endere[cç]o|pagamento|pix|cart[aã]o)/i.test(
+        assistantMessage,
+      )
+    ) {
+      memory.conversation.salesPhase = "CHECKOUT";
+    }
+    if (
+      /(pode continuar|quer que eu siga|quer que eu continue)\??/i.test(
+        normalizedAssistant,
+      )
+    ) {
+      if (
+        !memory.conversation.notes.includes(
+          "assistente usou pergunta de continuidade desnecessária",
+        )
+      ) {
+        memory.conversation.notes.unshift(
+          "assistente usou pergunta de continuidade desnecessária",
+        );
+      }
+    }
+    if (
+      memory.client.occasion === "dia_das_maes" &&
+      memory.client.recipientName &&
+      memory.client.name &&
+      this.normalizeText(memory.client.recipientName) === this.normalizeText(memory.client.name)
+    ) {
+      if (!memory.conversation.notes.includes("possível conflito: nome do cliente igual ao destinatário")) {
+        memory.conversation.notes.unshift("possível conflito: nome do cliente igual ao destinatário");
+      }
+    }
+
+    memory.updatedAt = new Date().toISOString();
+    await this.saveSessionMemory(sessionId, memory);
+  }
+
+  async cacheProductDetails(
+    sessionId: string,
+    key: string,
+    productName: string,
+    toolOutput: string,
+    turn: number,
+  ) {
+    const normalizedKey = this.normalizeText(key);
+    if (!normalizedKey || !toolOutput?.trim()) return;
+    const memory = await this.getSessionMemory(sessionId);
+    memory.toolCache.productDetailsByKey[normalizedKey] = {
+      productName: productName?.trim() || key,
+      toolOutput: toolOutput.slice(0, 9000),
+      turn,
+      updatedAt: new Date().toISOString(),
+    };
+    memory.updatedAt = new Date().toISOString();
+    await this.saveSessionMemory(sessionId, memory);
+  }
+
+  async getCachedProductDetails(
+    sessionId: string,
+    key: string,
+    currentTurn: number,
+    maxAgeTurns: number = 10,
+  ) {
+    const normalizedKey = this.normalizeText(key);
+    if (!normalizedKey) return null;
+    const memory = await this.getSessionMemory(sessionId);
+    const cached = memory.toolCache.productDetailsByKey[normalizedKey];
+    if (!cached) return null;
+    if (currentTurn - cached.turn > maxAgeTurns) return null;
+    return cached.toolOutput;
+  }
+
   buildSessionPrompt(memory: SessionMemoryState) {
     const productLines = memory.presentedProducts
       .slice(0, 6)
@@ -414,16 +788,25 @@ ${JSON.stringify(memory)}
       })
       .join("\n");
 
+    const detailsCacheKeys = Object.keys(memory.toolCache.productDetailsByKey || {});
     return `### SESSION_MEMORY_COMPACT
-cliente: cidade=${memory.client.city || "null"}; ocasiao=${memory.client.occasion || "null"}; orcamento=${memory.client.budget || "null"}; publico=${memory.client.audience || "null"}
+cliente: nome=${memory.client.name || "null"}; destinatario=${memory.client.recipientName || "null"}; cidade=${memory.client.city || "null"}; ocasiao=${memory.client.occasion || "null"}; orcamento=${memory.client.budget || "null"}; publico=${memory.client.audience || "null"}
+auth_manager: autenticado=${memory.authenticatedUser.isAuthenticated}; nome=${memory.authenticatedUser.name || "null"}; telefone=${memory.authenticatedUser.phone || "null"}
 produto_em_foco: ${memory.focusedProductId || "null"}
 flags: preco_manipulado=${memory.flags.attemptedPriceManipulation}; transferido=${memory.flags.transferredToHuman}; frete_calculado=${memory.flags.freightCalculated}
+contexto_conversa: fase=${memory.conversation.salesPhase}; produto_confirmado=${memory.conversation.selectedProductConfirmed}; aguardando=${memory.conversation.awaitingResponse || "null"}; opcao_apresentada=${memory.conversation.optionPresented}; saudacao_feita=${memory.conversation.greetingDone}; contexto_reiterado=${memory.conversation.contextReiteratedCount}; ultima_intencao=${memory.conversation.lastUserIntent || "null"}
+cache_tool_get_product_details_keys: ${detailsCacheKeys.slice(0, 8).join(", ") || "nenhum"}
 produtos_apresentados:
 ${productLines || "- nenhum"}
 regras:
 1) "opção N" deve mapear para a mesma opção da memória.
 2) Não trocar nome/preço entre turnos.
-3) Se listar produto, incluir URL da imagem na primeira menção.`;
+3) Se listar produto, incluir URL da imagem na primeira menção.
+4) Evite loop de confirmação: se cliente já respondeu ou pediu mais opções, avance.
+5) Antes de chamar get_product_details, use cache desta memória quando o produto for o mesmo (últimos 10 turnos).
+6) Não repetir saudação/contexto em toda resposta; contextualize só quando necessário.
+7) Se produto_confirmado=true, NÃO refaça busca de catálogo para o mesmo contexto; avance para customização e checkout.
+8) Após confirmação, evite repetir link/imagem/preço técnico do item; conduza para fechamento.`;
   }
 
   async getCustomerMemory(customerPhone: string): Promise<CustomerMemoryState> {

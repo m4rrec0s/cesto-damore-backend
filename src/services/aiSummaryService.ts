@@ -1,17 +1,16 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import statusService from "./statusService";
 import logger from "../utils/logger";
 import prisma from "../database/prisma";
 import { startOfDay, endOfDay, isMonday } from "date-fns";
+import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
 
 class AISummaryService {
     private openai: OpenAI;
-    private model: string = "gpt-4o-mini";
+    private model: string = OPENAI_MODELS.summary;
 
     constructor() {
-        this.openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
-        });
+        this.openai = createOpenAIClient();
     }
 
     async getWeeklySummary(forceRefresh: boolean = false) {

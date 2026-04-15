@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import prisma from "../database/prisma";
 import mcpClientService from "./mcpClientService";
 import openClawMemoryService, {
@@ -7,6 +7,7 @@ import openClawMemoryService, {
 import logger from "../utils/logger";
 import { addDays, addHours, isPast, format } from "date-fns";
 import { PROMPTS } from "../config/prompts";
+import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
 import type { FlowCatalogNode, RouterDecision, DynamicMenuOption } from "../types/flowRouter";
 import deterministicRouter from "./deterministicRouterService";
 
@@ -106,8 +107,8 @@ class AIAgentService {
   private openai: OpenAI;
   private lastMessageTimestamps: Map<string, { text: string; time: number }> =
     new Map();
-  private model: string = "gpt-5.4-mini";
-  private advancedModel: string = "gpt-5-mini";
+  private model: string = OPENAI_MODELS.agentDefault;
+  private advancedModel: string = OPENAI_MODELS.agentAdvanced;
   private fallbackBlockedTools = new Set(
     (process.env.FALLBACK_BLOCKED_MCP_TOOLS || "")
       .split(",")
@@ -116,9 +117,7 @@ class AIAgentService {
   );
 
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    this.openai = createOpenAIClient();
   }
 
   private getLabSessionPrefix(userId: string) {
@@ -249,6 +248,9 @@ class AIAgentService {
       focusedProductId,
       updatedAt: new Date().toISOString(),
       client: existing.client,
+      authenticatedUser: existing.authenticatedUser,
+      conversation: existing.conversation,
+      toolCache: existing.toolCache,
       flags: existing.flags,
     });
   }
@@ -361,6 +363,12 @@ ${markdown}
       .trim();
   }
 
+  private userConfirmedCurrentProduct(userMessage: string) {
+    return /\b(vou levar|vou querer|quero essa|quero esse|pode finalizar|pode fechar|confirmo)\b/i.test(
+      (userMessage || "").toLowerCase(),
+    );
+  }
+
   private async enrichSessionMemoryFromContext(
     sessionId: string,
     userMessage: string,
@@ -446,6 +454,49 @@ ${markdown}
         return focused.name;
       },
     );
+  }
+
+  private async applyConversationStyleGuards(sessionId: string, output: string) {
+    const text = (output || "").trim();
+    if (!text) return output;
+    const memory = await openClawMemoryService.getSessionMemory(sessionId);
+    let guarded = text;
+
+    if (memory.conversation.greetingDone) {
+      guarded = guarded.replace(
+        /^(oi+|ol[áa]|bom dia|boa tarde|boa noite)[!,. ]*\s*/i,
+        "",
+      );
+    }
+
+    if (
+      memory.conversation.lastUserIntent === "ask_more_options" &&
+      /vai querer|quer levar|fechamos essa/i.test(guarded)
+    ) {
+      guarded = guarded.replace(
+        /(?:vai querer|quer levar|fechamos essa)[^?.!]*[?.!]?/gi,
+        "Posso te mostrar outras opções melhores para esse contexto. ",
+      );
+    }
+
+    if (memory.conversation.selectedProductConfirmed) {
+      guarded = guarded
+        .split("\n")
+        .filter(
+          (line) =>
+            !/^https?:\/\//i.test(line.trim()) &&
+            !/^\s*_?op[çc][aã]o\s*\d+.*r\$/i.test(line.toLowerCase()),
+        )
+        .join("\n")
+        .trim();
+    }
+
+    guarded = guarded.replace(
+      /(quer que eu siga|quer que eu continue|pode continuar\??)/gi,
+      "Me passa o nome de quem vai receber, bairro e cidade pra eu agilizar seu pedido.",
+    );
+
+    return guarded.trim() || text;
   }
 
   private formatFallbackMenuText(menuText: string) {
@@ -1628,7 +1679,7 @@ Gere APENAS a mensagem final para o cliente.`;
         .join("\n");
 
       const curationResponse = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: OPENAI_MODELS.agentCuration,
         temperature: 0.1,
         messages: [
           {
@@ -2773,6 +2824,35 @@ Logo te respondem! Obrigadaaa 🥰"`;
    - Emojis apenas quando fizer sentido. Evite coração em mensagens puramente objetivas.
 7) Qualificação mínima:
    - Após interesse em produto, faça 1 pergunta qualificadora curta (ocasião, prazo, faixa de valor ou destinatário).
+8) Anti-loop de confirmação:
+   - Se o cliente responder algo que indique continuidade ("tem outras?", "me mostra mais"), NÃO repita "vai querer essa?".
+   - Avance para novas opções ou próximo passo.
+9) Nome do destinatário com contexto:
+   - Quando a ocasião envolver mãe/família, pergunte de forma explícita e contextualizada.
+   - Exemplo: "Me passa o nome da sua mãe e a cidade de entrega pra eu preparar direitinho?"
+10) Reasoning interno obrigatório:
+   - Antes de responder, avalie mentalmente:
+     (a) o que o cliente pediu agora,
+     (b) qual intenção real,
+     (c) se existe contradição com o histórico,
+     (d) qual próximo passo objetivo sem repetição.
+11) Máquina de estados de venda (obrigatória):
+   - DISCOVERY: entender ocasião/destinatário/faixa.
+   - CURATION: sugerir opções e ajustar.
+   - CUSTOMIZATION: oferecer adicionais uma vez.
+   - CHECKOUT: coletar nome destinatário, bairro/cidade/endereço, data/horário e pagamento.
+   - Se cliente confirmar item ("vou levar"), transicione imediatamente para CUSTOMIZATION/CHECKOUT.
+12) Protocolo vendedor (não catálogo falante):
+   - Não repita link, preço técnico e descrição completa após item confirmado, exceto se cliente pedir.
+   - Não pergunte "quer que eu siga?" mais de uma vez; conduza para coleta objetiva.
+
+## FEW-SHOTS DE CONDUÇÃO COMERCIAL
+1) Cliente: "Vou levar a opção 2."
+   Assistente: "Perfeito! Ótima escolha 💕 Quer incluir caneca personalizada ou fotos polaroides? Se preferir seguir sem adicional, me passa nome de quem recebe, bairro e cidade."
+2) Cliente: "Tem outras?"
+   Assistente: "Claro! Separei outras opções no mesmo estilo, sem repetir as anteriores."
+3) Cliente: "Marcos"
+   Assistente: "Perfeito! Só confirmando: Marcos é quem vai receber ou é o seu nome? Assim deixo o pedido certinho."
 `;
   }
 
@@ -2781,6 +2861,12 @@ Logo te respondem! Obrigadaaa 🥰"`;
     userMessage: string,
     userId: string,
     customerName: string,
+    managerUserContext: {
+      id?: string | null;
+      name?: string | null;
+      phone?: string | null;
+      email?: string | null;
+    } | null,
     emit: (event: LabTraceEvent) => Promise<void> | void,
   ) {
     this.ensureLabSessionOwnership(userId, sessionId);
@@ -2804,6 +2890,13 @@ Logo te respondem! Obrigadaaa 🥰"`;
       text: cleanMsg,
       time: nowTime,
     });
+    if (managerUserContext?.name || managerUserContext?.phone || managerUserContext?.email) {
+      await openClawMemoryService.setAuthenticatedUserContext(sessionId, {
+        name: managerUserContext.name || null,
+        phone: managerUserContext.phone || null,
+        email: managerUserContext.email || null,
+      });
+    }
     await this.enrichSessionMemoryFromContext(sessionId, userMessage);
 
     const session = await this.getSession(sessionId);
@@ -2835,11 +2928,27 @@ Logo te respondem! Obrigadaaa 🥰"`;
           await openClawMemoryService.getCustomerMemory(session.customer_phone),
         )
       : "";
+    const managerContextPrompt =
+      managerUserContext &&
+      (managerUserContext.name || managerUserContext.phone || managerUserContext.email)
+        ? `### MANAGER_AUTH_CONTEXT
+usuário_autenticado: sim
+id: ${managerUserContext.id || userId}
+nome: ${managerUserContext.name || "n/a"}
+telefone: ${managerUserContext.phone || "n/a"}
+email: ${managerUserContext.email || "n/a"}
+regras:
+1) Se já houver nome confiável do usuário autenticado, evite perguntar novamente "qual seu nome?".
+2) Diferencie nome do cliente (quem fala) e nome do destinatário (quem recebe).
+3) Se ocasião for Dia das Mães e houver conflito de nome, peça confirmação explícita antes de assumir destinatário.`
+        : "";
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
-        content: [systemPrompt, customerMemoryPrompt].filter(Boolean).join("\n\n"),
+        content: [systemPrompt, customerMemoryPrompt, managerContextPrompt]
+          .filter(Boolean)
+          .join("\n\n"),
       },
       ...recentHistory.map((msg) => {
         const message: any = {
@@ -3279,9 +3388,6 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
       `🎯 Estratégia: toolRequired=${requiresToolCall}, optimizeModel=${shouldOptimizeModel}, model=${selectedModel}`,
     );
 
-    const originalModel = this.model;
-    this.model = selectedModel;
-
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
@@ -3428,21 +3534,19 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       /cliente (escolheu|demonstrou interesse)/i.test(memory.summary),
     );
 
-    try {
-      return this.runTwoPhaseProcessing(
-        sessionId,
-        messages,
-        hasChosenProduct,
-        isCartEvent,
-        requiresToolCall,
-        userMessage,
-        memory?.summary || null,
-        customerName || "Cliente",
-        phone || "",
-      );
-    } finally {
-      this.model = originalModel;
-    }
+    return this.runTwoPhaseProcessing(
+      sessionId,
+      messages,
+      hasChosenProduct,
+      isCartEvent,
+      requiresToolCall,
+      userMessage,
+      memory?.summary || null,
+      customerName || "Cliente",
+      phone || "",
+      undefined,
+      selectedModel,
+    );
   }
 
   private async runTwoPhaseProcessing(
@@ -3456,6 +3560,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     customerName: string = "Cliente",
     customerPhone: string = "",
     traceEmitter?: (event: LabTraceEvent) => Promise<void> | void,
+    selectedModel: string = this.model,
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -3468,6 +3573,16 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       sessionId,
       currentUserMessage,
     );
+    const currentUserTurn = await prisma.aIAgentMessage.count({
+      where: { session_id: sessionId, role: "user" },
+    });
+    const initialSessionMemory =
+      await openClawMemoryService.getSessionMemory(sessionId);
+    const isProductAlreadyConfirmed =
+      initialSessionMemory.conversation.selectedProductConfirmed &&
+      Boolean(initialSessionMemory.focusedProductId);
+    const userConfirmedInThisTurn =
+      this.userConfirmedCurrentProduct(currentUserMessage);
     if (sessionMemoryPrompt) {
       messages.push({
         role: "system",
@@ -3500,7 +3615,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
       const useRequiredTool = iteration === 0 && requiresToolCall;
       const response = await this.openai.chat.completions.create({
-        model: this.model,
+        model: selectedModel,
         messages,
         tools: formattedTools,
         ...(useRequiredTool ? { tool_choice: "required" as const } : {}),
@@ -3593,6 +3708,9 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
           const name = toolCall.function.name;
           const args = JSON.parse(toolCall.function.arguments);
+          let cachedToolOutput: string | null = null;
+          let productDetailsCacheKey: string | null = null;
+          let productDetailsName = "";
 
           logger.info(`🔧 Chamando: ${name}(${JSON.stringify(args)})`);
           await traceEmitter?.({
@@ -3648,6 +3766,24 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "consultarCatalogo") {
+            if (isProductAlreadyConfirmed || userConfirmedInThisTurn) {
+              const skipMsg = `{"status":"skipped","reason":"product_already_confirmed","message":"Produto já confirmado nesta sessão. Não buscar catálogo novamente. Avance para customização e coleta de dados de checkout."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: skipMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: skipMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
             if (!args.termo || !args.termo.toString().trim()) {
               const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: termo. Pergunte: 'Qual tipo de produto ou ocasião você procura?'"}`;
               messages.push({
@@ -3786,6 +3922,27 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                   focusedProductId: focusedProduct.id,
                   updatedAt: new Date().toISOString(),
                 });
+              }
+            }
+
+            const resolvedName = (args.product_name || focusedProduct?.name || "")
+              .toString()
+              .trim();
+            const resolvedKey = (focusedProduct?.id || resolvedName).toString().trim();
+            if (resolvedKey) {
+              productDetailsCacheKey = resolvedKey;
+              productDetailsName = resolvedName || resolvedKey;
+              const cached = await openClawMemoryService.getCachedProductDetails(
+                sessionId,
+                resolvedKey,
+                currentUserTurn,
+                10,
+              );
+              if (cached) {
+                cachedToolOutput = cached;
+                logger.info(
+                  `♻️ Reutilizando cache de get_product_details para "${resolvedKey}"`,
+                );
               }
             }
           }
@@ -3978,12 +4135,16 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
           let result: any;
           let success = true;
-          try {
-            result = await mcpClientService.callTool(name, args);
-          } catch (error: any) {
-            logger.error(`❌ Erro na tool ${name}: ${error.message}`);
-            result = `Erro ao executar ${name}: ${error.message}`;
-            success = false;
+          if (cachedToolOutput !== null) {
+            result = cachedToolOutput;
+          } else {
+            try {
+              result = await mcpClientService.callTool(name, args);
+            } catch (error: any) {
+              logger.error(`❌ Erro na tool ${name}: ${error.message}`);
+              result = `Erro ao executar ${name}: ${error.message}`;
+              success = false;
+            }
           }
 
           let toolOutputText: string;
@@ -4033,6 +4194,34 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               "transferredToHuman",
               true,
             );
+          }
+          if (
+            name === "get_product_details" &&
+            success &&
+            productDetailsCacheKey &&
+            toolOutputText &&
+            !toolOutputText.startsWith("Erro ao executar")
+          ) {
+            await openClawMemoryService.cacheProductDetails(
+              sessionId,
+              productDetailsCacheKey,
+              productDetailsName || productDetailsCacheKey,
+              toolOutputText,
+              currentUserTurn,
+            );
+            if (
+              productDetailsName &&
+              productDetailsName.trim().toLowerCase() !==
+                productDetailsCacheKey.trim().toLowerCase()
+            ) {
+              await openClawMemoryService.cacheProductDetails(
+                sessionId,
+                productDetailsName,
+                productDetailsName,
+                toolOutputText,
+                currentUserTurn,
+              );
+            }
           }
 
           toolExecutionResults.push({
@@ -4259,7 +4448,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     }
 
     const finalResponse = await this.openai.chat.completions.create({
-      model: this.model,
+      model: selectedModel,
       messages,
       stream: false,
     });
@@ -4282,7 +4471,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       });
 
       const repaired = await this.openai.chat.completions.create({
-        model: this.model,
+        model: selectedModel,
         messages,
         stream: false,
       });
@@ -4291,6 +4480,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     }
 
     finalText = await this.sanitizeProductNameOutput(sessionId, finalText);
+    finalText = await this.applyConversationStyleGuards(sessionId, finalText);
+    await openClawMemoryService.registerAssistantResponse(
+      sessionId,
+      finalText,
+      currentUserMessage,
+    );
 
     return this.buildSyntheticStream(finalText);
   }

@@ -1,8 +1,9 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import prisma from "../database/prisma";
 import mcpClientService from "./mcpClientService";
 import logger from "../utils/logger";
 import { addDays, isPast } from "date-fns";
+import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
 
 enum AttendancePhase {
   CONNECT = "CONNECT",
@@ -35,15 +36,13 @@ interface ToolExecutionResult {
 
 class AIAgentServiceImproved {
   private openai: OpenAI;
-  private model: string = "gpt-4o-mini";
+  private model: string = OPENAI_MODELS.incremental;
 
   private messageQueues: Map<string, QueuedMessage[]> = new Map();
   private processingFlags: Map<string, boolean> = new Map();
 
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    this.openai = createOpenAIClient();
   }
 
   

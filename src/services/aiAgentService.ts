@@ -115,6 +115,7 @@ class AIAgentService {
       .map((name) => name.trim())
       .filter(Boolean),
   );
+  private readonly storeTimeZone = "America/Fortaleza";
 
   constructor() {
     this.openai = createOpenAIClient();
@@ -721,7 +722,7 @@ ${markdown}
   private getSaoPauloContext() {
     const now = new Date();
     const formatter = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Sao_Paulo",
+      timeZone: this.storeTimeZone,
       weekday: "long",
       year: "numeric",
       month: "2-digit",
@@ -738,18 +739,32 @@ ${markdown}
     const weekday = get("weekday");
     const date = `${get("day")}/${get("month")}/${get("year")}`;
     const time = `${get("hour")}:${get("minute")}:${get("second")}`;
+    const isoDate = `${get("year")}-${get("month")}-${get("day")}`;
 
     const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const tomorrowWeekday = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Sao_Paulo",
+      timeZone: this.storeTimeZone,
       weekday: "long",
     }).format(tomorrow);
+    const tomorrowParts = new Intl.DateTimeFormat("pt-BR", {
+      timeZone: this.storeTimeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(tomorrow);
+    const getTomorrow = (type: Intl.DateTimeFormatPartTypes) =>
+      tomorrowParts.find((part) => part.type === type)?.value || "";
+    const tomorrowDate = `${getTomorrow("day")}/${getTomorrow("month")}/${getTomorrow("year")}`;
+    const isoTomorrow = `${getTomorrow("year")}-${getTomorrow("month")}-${getTomorrow("day")}`;
 
     return {
       weekday,
       date,
       time,
+      isoDate,
       tomorrowWeekday,
+      tomorrowDate,
+      isoTomorrow,
       isOpenNow: this.isStoreOpenInSaoPaulo(now),
       businessHoursText:
         "Seg-Sex 08:30-12:00 | 14:00-17:00 | Sábado 08:00-11:00 | Domingo fechado",
@@ -761,14 +776,14 @@ ${markdown}
 
   private isStoreOpenInSaoPaulo(date: Date) {
     const dayOfWeek = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Sao_Paulo",
+      timeZone: this.storeTimeZone,
       weekday: "long",
     })
       .format(date)
       .toLowerCase();
 
     const timeParts = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Sao_Paulo",
+      timeZone: this.storeTimeZone,
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
@@ -788,6 +803,34 @@ ${markdown}
       (currentMinutes >= 8 * 60 + 30 && currentMinutes <= 12 * 60) ||
       (currentMinutes >= 14 * 60 && currentMinutes <= 17 * 60)
     );
+  }
+
+  private normalizeDateForDeliveryTool(dateStr: string, userMessage: string) {
+    const raw = (dateStr || "").trim();
+    const normalizedUser = (userMessage || "").toLowerCase();
+    const context = this.getSaoPauloContext();
+    if (
+      raw.toLowerCase() === "hoje" ||
+      normalizedUser.includes("hoje")
+    ) {
+      return context.isoDate;
+    }
+    if (
+      raw.toLowerCase() === "amanhã" ||
+      raw.toLowerCase() === "amanha" ||
+      normalizedUser.includes("amanhã") ||
+      normalizedUser.includes("amanha")
+    ) {
+      return context.isoTomorrow;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return raw;
+    }
+    const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (brMatch) {
+      return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+    }
+    return raw;
   }
 
   private isBusinessHoursQuestion(normalizedMessage: string) {
@@ -925,7 +968,7 @@ ${markdown}
     ];
 
     if (normalizedMessage.includes("hoje")) {
-      return this.getSaoPauloContext().date;
+      return this.getSaoPauloContext().isoDate;
     }
 
     if (
@@ -933,18 +976,21 @@ ${markdown}
       normalizedMessage.includes("amanhã")
     ) {
       const tomorrow = addDays(now, 1);
-      return new Intl.DateTimeFormat("pt-BR", {
-        timeZone: "America/Sao_Paulo",
+      const parts = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: this.storeTimeZone,
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
-      }).format(tomorrow);
+      }).formatToParts(tomorrow);
+      const get = (type: Intl.DateTimeFormatPartTypes) =>
+        parts.find((part) => part.type === type)?.value || "";
+      return `${get("year")}-${get("month")}-${get("day")}`;
     }
 
     for (let offset = 0; offset <= 6; offset++) {
       const candidate = addDays(now, offset);
       const candidateWeekday = new Intl.DateTimeFormat("pt-BR", {
-        timeZone: "America/Sao_Paulo",
+        timeZone: this.storeTimeZone,
         weekday: "long",
       })
         .format(candidate)
@@ -961,12 +1007,15 @@ ${markdown}
           normalizedMessage.includes(pattern),
         )
       ) {
-        return new Intl.DateTimeFormat("pt-BR", {
-          timeZone: "America/Sao_Paulo",
+        const parts = new Intl.DateTimeFormat("pt-BR", {
+          timeZone: this.storeTimeZone,
           day: "2-digit",
           month: "2-digit",
           year: "numeric",
-        }).format(candidate);
+        }).formatToParts(candidate);
+        const get = (type: Intl.DateTimeFormatPartTypes) =>
+          parts.find((part) => part.type === type)?.value || "";
+        return `${get("year")}-${get("month")}-${get("day")}`;
       }
     }
 
@@ -3220,49 +3269,8 @@ regras:
 
     const sentProductIds = await this.getSentProductsInSession(sessionId);
 
-    const now = new Date();
-    const timeInCampina = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Fortaleza",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(now);
-
-    const dateInCampina = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Fortaleza",
-      weekday: "long",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(now);
-
-    const tomorrowInCampina = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Fortaleza",
-      weekday: "long",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date(now.getTime() + 86400000));
-
-    const dayOfWeek = now
-      .toLocaleDateString("en-US", {
-        timeZone: "America/Fortaleza",
-        weekday: "long",
-      })
-      .toLowerCase();
-    const [h, m] = timeInCampina.split(":").map(Number);
-    const curMin = h * 60 + m;
-    let isOpen = false;
-    if (dayOfWeek === "saturday") {
-      isOpen = curMin >= 8 * 60 && curMin <= 11 * 60;
-    } else if (dayOfWeek !== "sunday") {
-      isOpen =
-        (curMin >= 7 * 60 + 30 && curMin <= 12 * 60) ||
-        (curMin >= 14 * 60 && curMin <= 17 * 60);
-    }
-    const storeStatus = isOpen
-      ? "ABERTA (Atendendo agora ✅)"
-      : "FECHADA (Fora do expediente ⏰)";
+    const spContext = this.getSaoPauloContext();
+    const storeStatus = spContext.storeStatus;
 
     await prisma.aIAgentMessage.create({
       data: {
@@ -3482,8 +3490,8 @@ Se o cliente diz "boa noite", responda naturalmente! Você NÃO precisa validar 
 ### ⚠️ REGRAS SOBRE DATAS E HORÁRIOS:
 1. **⛔ NUNCA deduza, invente ou assuma uma data/horário** se o cliente não falou EXPLICITAMENTE.
 2. Pergunte: "Para qual data você gostaria da entrega?" antes de validar qualquer coisa.
-3. Se o cliente disser "para hoje", use a tool com a data atual (${dateInCampina}).
-4. Se o cliente disser "para amanhã", use a tool com a data de amanhã (${tomorrowInCampina}).
+3. Se o cliente disser "para hoje", use a tool com a data atual em formato ISO (${spContext.isoDate}).
+4. Se o cliente disser "para amanhã", use a tool com a data de amanhã em formato ISO (${spContext.isoTomorrow}).
 5. Se a tool retornar suggested_slots → APRESENTE TODOS ao cliente e PERGUNTE qual ele prefere. NÃO escolha por ele.
 6. O campo estimated_ready_time na resposta da tool é o tempo de PRODUÇÃO, NÃO é o horário de entrega escolhido pelo cliente.
 7. NÃO use validate_delivery_availability antes do cliente informar a data. PERGUNTE PRIMEIRO.
@@ -3510,8 +3518,9 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 - 🏪 **Loja:** ${storeStatus}
 - 💭 **Memória:** ${memory?.summary || "—"}
 
-- ⏰ **Hora:** ${timeInCampina} (${dateInCampina})
-- 📅 **Amanhã:** ${tomorrowInCampina}
+- ⏰ **Hora:** ${spContext.time} (${spContext.weekday}, ${spContext.date})
+- 📅 **Hoje (ISO):** ${spContext.isoDate}
+- 📅 **Amanhã (ISO):** ${spContext.isoTomorrow} (${spContext.tomorrowWeekday}, ${spContext.tomorrowDate})
 - 🛠️ **Tools disponíveis:** ${toolsInMCP.map((t) => t.name).join(", ")}
 - 🛒 **Produtos já mostrados:** ${sentProductIds.join(", ") || "Nenhum"}
 
@@ -3965,7 +3974,11 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "validate_delivery_availability") {
-            const dateStr = args.date_str || args.dateStr || args.date;
+            const dateStr =
+              args.date_str ||
+              args.dateStr ||
+              args.date ||
+              this.resolveRelativeDateHint(currentUserMessage.toLowerCase());
             if (!dateStr) {
               const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: data. Pergunte: 'Para qual data você gostaria da entrega?'"}`;
               messages.push({
@@ -3984,6 +3997,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               });
               continue;
             }
+            args.date_str = this.normalizeDateForDeliveryTool(
+              String(dateStr),
+              currentUserMessage,
+            );
+            delete args.dateStr;
+            delete args.date;
           }
 
           if (name === "get_adicionais" && !hasChosenProduct) {

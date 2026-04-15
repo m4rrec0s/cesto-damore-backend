@@ -1805,33 +1805,149 @@ Responda APENAS com os números das ${targetCount} melhores opções, separados 
     }
   }
 
-  private buildCheckoutContext(sourceText: string): {
+  private isAffirmativeMessage(message: string) {
+    const normalized = (message || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return /^(sim|isso|isso mesmo|ta certo|tudo certo|ok|fechado|pode|pode sim|confirmo|correto|certo)$/.test(
+      normalized,
+    );
+  }
+
+  private extractExplicitPaymentMethod(
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    currentUserMessage: string,
+  ): "PIX" | "CARTAO" | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== "user") continue;
+      const content =
+        typeof msg.content === "string"
+          ? msg.content
+          : Array.isArray(msg.content)
+            ? msg.content
+                .map((entry: any) => (typeof entry?.text === "string" ? entry.text : ""))
+                .join(" ")
+            : "";
+      const normalized = content.toLowerCase();
+      if (/\bpix\b|qrcode|qr code|chave pix|pagar no pix|passar no pix/.test(normalized)) {
+        return "PIX";
+      }
+      if (
+        /cart[aã]o|credito|crédito|debito|débito|pagar no cartao|pagar no cartão/.test(
+          normalized,
+        )
+      ) {
+        return "CARTAO";
+      }
+    }
+
+    if (!this.isAffirmativeMessage(currentUserMessage)) return null;
+    const lastAssistant = [...messages]
+      .reverse()
+      .find((msg) => msg.role === "assistant" && typeof msg.content === "string");
+    const assistantText =
+      lastAssistant && typeof lastAssistant.content === "string"
+        ? lastAssistant.content.toLowerCase()
+        : "";
+    if (assistantText.includes("pix") && !assistantText.includes("cart")) {
+      return "PIX";
+    }
+    if (assistantText.includes("cart") && !assistantText.includes("pix")) {
+      return "CARTAO";
+    }
+    return null;
+  }
+
+  private buildCheckoutContext(
+    sourceText: string,
+    explicitPaymentMethod: "PIX" | "CARTAO" | null,
+  ): {
     context: string;
     hasAll: boolean;
+    missingFields: string[];
+    structured: {
+      productName: string;
+      productPrice: string;
+      deliveryDate: string;
+      deliveryTime: string;
+      address: string;
+      paymentMethod: "PIX" | "CARTAO" | "";
+      isRetirada: boolean;
+    };
   } {
-    const text = sourceText.toLowerCase();
-    const productMatch = text.match(
-      /cesta|cesto|buqu[eê]|produto|caneca|bar|quadro|pelu[cç]ia|rosa|flores/,
-    );
-    const dateMatch = text.match(
-      /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\/\d{1,2}\b|amanh[aã]|hoje|dia\s+\d{1,2}/,
-    );
-    const addressMatch = text.match(
-      /endere[cç]o\s+[^,\n]+|rua\s+[^,\n]+|avenida\s+[^,\n]+|bairro\s+[^,\n]+|cidade\s+[^,\n]+/,
-    );
-    const paymentMatch = text.match(/\bpix\b|cart[aã]o|cr[eé]dito|d[eé]bito/);
+    const text = sourceText || "";
+    const lower = text.toLowerCase();
 
-    const contextParts = [];
-    if (productMatch) contextParts.push(`cesta: ${productMatch[0]}`);
-    if (dateMatch) contextParts.push(`entrega: ${dateMatch[0]}`);
-    if (addressMatch) contextParts.push(`endereco: ${addressMatch[0]}`);
-    if (paymentMatch) contextParts.push(`pagamento: ${paymentMatch[0]}`);
+    const productLineMatch = text.match(
+      /(cesta|cesto|buqu[eê]|produto|caneca|bar|quadro|pelu[cç]ia|rosa|flor[ea]s?)[^\n]{0,120}/i,
+    );
+    const productPriceMatch = text.match(/r\$\s*\d{1,4}[.,]\d{2}/i);
+
+    const dateIso = text.match(/\b\d{4}-\d{2}-\d{2}\b/);
+    const dateBr = text.match(/\b\d{2}\/\d{2}(?:\/\d{4})?\b/);
+    const dateWord = lower.match(/\b(hoje|amanh[aã])\b/);
+    const timeMatch = text.match(/\b([01]?\d|2[0-3]):[0-5]\d\b/);
+
+    const hasStreetLike =
+      /(?:rua|avenida|av\.|r\.)\s+[^\n,]+/i.test(text) ||
+      /(?:bairro|cidade)\s*[:\-]?\s*[^\n,]+/i.test(text) ||
+      /endere[cç]o\s*[:\-]?\s*[^\n]+/i.test(text);
+    const hasNumber = /\b\d{1,5}\b/.test(text);
+    const addressValue = hasStreetLike
+      ? (text.match(
+          /endere[cç]o\s*[:\-]?\s*([^\n]+)|((?:rua|avenida|av\.|r\.)[^\n]+)|((?:cidade|bairro)\s*[:\-]?\s*[^\n]+)/i,
+        )?.[1] ||
+          text.match(
+            /endere[cç]o\s*[:\-]?\s*([^\n]+)|((?:rua|avenida|av\.|r\.)[^\n]+)|((?:cidade|bairro)\s*[:\-]?\s*[^\n]+)/i,
+          )?.[2] ||
+          text.match(
+            /endere[cç]o\s*[:\-]?\s*([^\n]+)|((?:rua|avenida|av\.|r\.)[^\n]+)|((?:cidade|bairro)\s*[:\-]?\s*[^\n]+)/i,
+          )?.[3] ||
+          "")
+          .trim()
+      : "";
+    const hasAddress = hasStreetLike && hasNumber;
+
+    const paymentMethod = explicitPaymentMethod;
+    const isRetirada =
+      /\bretirada\b|\bretirar\b|\bretira(r)? no local\b/i.test(text);
+
+    const missingFields: string[] = [];
+    if (!productLineMatch) missingFields.push("produto");
+    if (!productPriceMatch) missingFields.push("preço");
+    if (!(dateIso || dateBr || dateWord)) missingFields.push("data");
+    if (!timeMatch) missingFields.push("horário");
+    if (!hasAddress) missingFields.push("endereço");
+    if (!paymentMethod) missingFields.push("forma de pagamento");
+
+    const dateValue = dateIso?.[0] || dateBr?.[0] || dateWord?.[0] || "n/a";
+    const timeValue = timeMatch?.[0] || "n/a";
+    const productValue = productLineMatch?.[0] || "n/a";
+    const priceValue = productPriceMatch?.[0] || "n/a";
 
     return {
-      context: contextParts.join(" | "),
-      hasAll: Boolean(
-        productMatch && dateMatch && addressMatch && paymentMatch,
-      ),
+      context: [
+        `Produto: ${productValue} (${priceValue})`,
+        `Entrega: ${dateValue} às ${timeValue}`,
+        `Endereço: ${isRetirada ? "Retirada no local" : addressValue || "n/a"}`,
+        `Pagamento: ${paymentMethod || "n/a"}`,
+      ].join("\n"),
+      hasAll: missingFields.length === 0,
+      missingFields,
+      structured: {
+        productName: productValue,
+        productPrice: priceValue,
+        deliveryDate: dateValue,
+        deliveryTime: timeValue,
+        address: isRetirada ? "Retirada no local" : addressValue || "",
+        paymentMethod: paymentMethod || "",
+        isRetirada,
+      },
     };
   }
 
@@ -2273,15 +2389,29 @@ Logo te respondem! Obrigadaaa 🥰"`;
         resolvedName,
         resolvedPhone,
       );
+      const explicitPaymentMethod = this.extractExplicitPaymentMethod(
+        recentHistory as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+        userMessage,
+      );
+      const normalizedCheckout = this.buildCheckoutContext(
+        structuredContext,
+        explicitPaymentMethod,
+      );
       logger.info(
         `📋 Resumo estruturado do pedido: ${structuredContext.substring(0, 200)}...`,
       );
 
       await mcpClientService.callTool("finalize_checkout", {
-        customer_context: structuredContext,
+        customer_context: normalizedCheckout.context,
         customer_name: resolvedName,
         customer_phone: resolvedPhone,
         session_id: sessionId,
+        product_name: normalizedCheckout.structured.productName,
+        product_price: normalizedCheckout.structured.productPrice,
+        delivery_date: normalizedCheckout.structured.deliveryDate,
+        delivery_time: normalizedCheckout.structured.deliveryTime,
+        delivery_address: normalizedCheckout.structured.address,
+        payment_method: normalizedCheckout.structured.paymentMethod,
       });
     } catch (error: any) {
       logger.error(
@@ -3590,6 +3720,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
     let toolExecutionResults: ToolExecutionResult[] = [];
+    let finalizeAttemptedThisTurn = false;
 
     const shouldExcludeProducts =
       this.shouldExcludeProducts(currentUserMessage);
@@ -3920,6 +4051,35 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               });
               continue;
             }
+            const explicitPaymentMethod = this.extractExplicitPaymentMethod(
+              messages,
+              currentUserMessage,
+            );
+            if (explicitPaymentMethod) {
+              args.payment_method = explicitPaymentMethod;
+            } else if (
+              initialSessionMemory.conversation.salesPhase === "CHECKOUT" ||
+              /\b(finalizar|fechar pedido|resumo|confirmar pedido|tudo certo)\b/i.test(
+                currentUserMessage.toLowerCase(),
+              )
+            ) {
+              const errorMsg = `{"status":"error","error":"payment_not_explicit_for_freight","message":"Para calcular frete final com precisão, confirme primeiro a forma de pagamento: PIX ou Cartão."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
           }
 
           if (name === "get_product_details") {
@@ -4066,6 +4226,26 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "finalize_checkout") {
+            if (finalizeAttemptedThisTurn) {
+              const errorMsg = `{"status":"error","error":"finalize_already_attempted","message":"Finalize já foi tentado neste turno sem novos dados do cliente. Não repita finalize_checkout; colete apenas o campo faltante e aguarde nova resposta do cliente."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
+            finalizeAttemptedThisTurn = true;
+
             const context = (
               args.customer_context ||
               args.customerContext ||
@@ -4077,12 +4257,40 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 typeof msg.content === "string" ? msg.content : "",
               )
               .join(" ");
+            const explicitPaymentMethod = this.extractExplicitPaymentMethod(
+              messages,
+              currentUserMessage,
+            );
             const sourceText = `${memorySummary || ""} ${recentUserText} ${context}`.trim();
-            const { hasAll } = this.buildCheckoutContext(sourceText);
+            const {
+              context: normalizedCheckoutContext,
+              hasAll,
+              missingFields,
+              structured: structuredCheckout,
+            } = this.buildCheckoutContext(sourceText, explicitPaymentMethod);
             const explicitFinalizeIntent =
-              /\b(sim|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|seguir com o pedido|pode fechar|confirmo|confirmar)\b/i.test(
+              /\b(sim|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|seguir com o pedido|pode fechar|confirmo|confirmar|t[aá] tudo certo|tudo certo|isso mesmo|correto|perfeito)\b/i.test(
                 currentUserMessage.toLowerCase(),
               );
+
+            if (!explicitPaymentMethod) {
+              const errorMsg = `{"status":"error","error":"payment_not_explicit","message":"Forma de pagamento ainda não foi informada explicitamente pelo cliente. Pergunte objetivamente: 'Você prefere PIX ou Cartão?' e só depois finalize."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
 
             if (!hasAll || !explicitFinalizeIntent) {
               const errorMsg = `{"status":"error","error":"checkout_not_ready","message":"Checkout ainda não pronto para finalizar. Continue coletando dados obrigatórios e aguarde confirmação explícita do cliente para concluir."}`;
@@ -4106,8 +4314,15 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               continue;
             }
 
-            const contextLower = context.toLowerCase();
-            const contextCityMatch = context.match(
+            args.customer_context = normalizedCheckoutContext;
+            args.product_name = structuredCheckout.productName;
+            args.product_price = structuredCheckout.productPrice;
+            args.delivery_date = structuredCheckout.deliveryDate;
+            args.delivery_time = structuredCheckout.deliveryTime;
+            args.delivery_address = structuredCheckout.address;
+            args.payment_method = structuredCheckout.paymentMethod;
+            const contextLower = normalizedCheckoutContext.toLowerCase();
+            const contextCityMatch = normalizedCheckoutContext.match(
               /(?:cidade|endere[cç]o)[^:\n]*[:\-]?\s*([A-Za-zÀ-ú'’\-\s]{2,40})/i,
             );
             if (contextCityMatch?.[1]) {
@@ -4119,25 +4334,10 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               contextLower.includes("retirada") ||
               contextLower.includes("retirar");
 
-            const checks: Record<string, RegExp> = {
-              "produto (nome e valor R$)":
-                /(?:cesta|produto|buquê|rosa|chocolate|bar|caneca).+?(?:r\$\s*\d+[\.,]\d{2}|\d+[\.,]\d{2})/i,
-              "data de entrega":
-                /entrega:|data:|hoje|amanh[aã]|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/i,
-              "horário da entrega":
-                /(?:às|as|horário:|hora:)\s*\d{1,2}:\d{2}|(?:manhã|tarde|noite)/i,
-              "endereço completo": isRetirada
-                ? /(?:retirada|loja)/i
-                : /(?:rua|avenida|av\.|r\.|endereço|endereco).+?(?:bairro|cidade|cep|complemento)/i,
-              "forma de pagamento":
-                /(?:pix|cartão|cartao|crédito|credito|débito|debito)/i,
-            };
-
-            const missing: string[] = [];
-            for (const [fieldName, pattern] of Object.entries(checks)) {
-              if (!pattern.test(context)) {
-                missing.push(fieldName);
-              }
+            const missing = [...missingFields];
+            if (isRetirada) {
+              const idx = missing.indexOf("endereço");
+              if (idx >= 0) missing.splice(idx, 1);
             }
 
             if (missing.length > 0) {
@@ -4396,14 +4596,21 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         .map((msg) => (typeof msg.content === "string" ? msg.content : ""))
         .join(" ");
       const finalizationIntent =
-        /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento/i.test(
+        /quero essa|quero esse|vou levar|pode finalizar|finaliza|finalizar|fechar pedido|concluir pedido|como compro|como pago|pagamento|t[aá] tudo certo|tudo certo|isso mesmo|confirmo/i.test(
           currentUserMessage.toLowerCase(),
         );
       const sourceText = `${memorySummary || ""} ${recentUserText}`.trim();
-      const { context: checkoutContext, hasAll } =
-        this.buildCheckoutContext(sourceText);
+      const explicitPaymentMethod = this.extractExplicitPaymentMethod(
+        messages,
+        currentUserMessage,
+      );
+      const {
+        context: checkoutContext,
+        hasAll,
+        structured: structuredCheckout,
+      } = this.buildCheckoutContext(sourceText, explicitPaymentMethod);
 
-      if (finalizationIntent && hasAll) {
+      if (finalizationIntent && hasAll && explicitPaymentMethod) {
         const hasFinalize = toolExecutionResults.some(
           (result) => result.toolName === "finalize_checkout",
         );
@@ -4415,6 +4622,12 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               customer_name: customerName,
               customer_phone: customerPhone,
               session_id: sessionId,
+              product_name: structuredCheckout.productName,
+              product_price: structuredCheckout.productPrice,
+              delivery_date: structuredCheckout.deliveryDate,
+              delivery_time: structuredCheckout.deliveryTime,
+              delivery_address: structuredCheckout.address,
+              payment_method: structuredCheckout.paymentMethod,
             });
             toolExecutionResults.push({
               toolName: "finalize_checkout",

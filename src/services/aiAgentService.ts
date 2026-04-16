@@ -2199,59 +2199,79 @@ Logo te respondem! Obrigadaaa 🥰"`;
     customerName: string,
     customerPhone: string,
   ): string {
-    const allText = recentHistory
-      .filter((m) => m.role === "assistant" || m.role === "user")
-      .map((m) => (m.content || "").toString())
-      .join("\n");
+    void recentHistory;
+    void customerName;
+    void customerPhone;
+    const safeText = (assistantContent || "").toString();
 
-    const combined = `${allText}\n${assistantContent}`;
+    const extractLine = (labelRegex: RegExp): string => {
+      const line =
+        safeText
+          .split("\n")
+          .map((part) => part.trim())
+          .find((part) => labelRegex.test(part)) || "";
+      if (!line) return "";
+      return line.replace(labelRegex, "").trim();
+    };
 
-    // Extração com regex mais flexível
-    const productMatch =
-      combined.match(/\*\*(.+?)\*\*\s*[-–]?\s*R\$\s*([\d.,]+)/i) ||
-      combined.match(
-        /([Cc]esta|[Bb]uqu[eê]|[Cc]aneca|[Qq]uadro|[Pp]el[uú]cia|[Ff]lores?|[Rr]osa)\s+([^-\n]*)\s*[-–]\s*R\$\s*([\d.,]+)/i,
+    const productLine = extractLine(/^[-*•\s]*produto\s*:\s*/i);
+    const deliveryLine = extractLine(/^[-*•\s]*(entrega|data)\s*:\s*/i);
+    const timeLine = extractLine(/^[-*•\s]*(hor[aá]rio|hora)\s*:\s*/i);
+    const addressLine = extractLine(/^[-*•\s]*endere[cç]o\s*:\s*/i);
+    const paymentLine = extractLine(/^[-*•\s]*pagamento\s*:\s*/i);
+
+    const productLinePrice =
+      productLine.match(/\(?(R\$\s*[\d.,]+)\)?/i)?.[1] ||
+      safeText.match(/R\$\s*[\d.,]+/i)?.[0] ||
+      "[Valor não especificado]";
+    const productLineName = productLine
+      ? productLine
+          .replace(/\(?(R\$\s*[\d.,]+)\)?/gi, "")
+          .replace(/[-–]\s*R\$\s*[\d.,]+/gi, "")
+          .trim()
+      : "";
+
+    const productFallback =
+      safeText.match(
+        /([Cc]esta|[Bb]uqu[eê]|[Cc]aneca|[Qq]uadro|[Pp]el[uú]cia|[Ff]lores?|[Rr]osa)[^\n]{0,100}/,
+      )?.[0] || "";
+
+    const productName =
+      productLineName || productFallback || "[Produto não especificado]";
+    const productPrice = productLinePrice;
+
+    const dateMatch =
+      deliveryLine.match(/\b\d{4}-\d{2}-\d{2}\b/) ||
+      deliveryLine.match(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/) ||
+      deliveryLine.match(
+        /\b(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)\b/i,
+      ) ||
+      safeText.match(/\b\d{4}-\d{2}-\d{2}\b/) ||
+      safeText.match(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/) ||
+      safeText.match(
+        /\b(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)\b/i,
       );
+    const deliveryDate = dateMatch?.[0] || "[Data não especificada]";
 
-    let productName = "[Produto não especificado]";
-    let productPrice = "[Valor não especificado]";
+    const timeMatch =
+      deliveryLine.match(/\b([01]?\d|2[0-3]):[0-5]\d\b/) ||
+      timeLine.match(/\b([01]?\d|2[0-3]):[0-5]\d\b/) ||
+      safeText.match(/\b([01]?\d|2[0-3]):[0-5]\d\b/);
+    const deliveryTime = timeMatch?.[0] || "[Horário não especificado]";
 
-    if (productMatch) {
-      if (productMatch.length === 3) {
-        productName = productMatch[1].trim();
-        productPrice = productMatch[2].trim();
-      } else if (productMatch.length === 4) {
-        productName = `${productMatch[1]} ${productMatch[2]}`.trim();
-        productPrice = productMatch[3].trim();
-      }
-    }
-
-    const dateMatch = combined.match(/(\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b)/);
-    const deliveryDate =
-      dateMatch?.[1] ||
-      combined.match(
-        /(hoje|amanh[ãa]|segunda|terça|quarta|quinta|sexta|sábado|domingo)/i,
-      )?.[1] ||
-      "[Data não especificada]";
-
-    const timeMatch = combined.match(
-      /(?:às|as|horário:?|hora:?)\s*(\d{1,2}:\d{2}(?:\s*(?:às|a)\s*\d{1,2}:\d{2})?)/i,
-    );
-    const deliveryTime = timeMatch?.[1] || "[Horário não especificado]";
-
-    const addressMatch = combined.match(
-      /(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i,
-    );
-    const isRetirada = /retirada|retirar/i.test(combined);
+    const isRetirada = /retirada|retirar/i.test(`${addressLine} ${safeText}`);
     const address =
-      addressMatch?.[0] ||
+      addressLine ||
+      safeText.match(
+        /(?:rua|avenida|av\.|r\.)\s+[^,\n]+(?:,\s*\d+)?(?:,?\s*[^,\n]+)?(?:,?\s*[^,\n]+)?/i,
+      )?.[0] ||
       (isRetirada ? "RETIRADA NA LOJA" : "[Endereço não especificado]");
 
-    const paymentMatch = combined.match(
+    const paymentSource = paymentLine || safeText;
+    const paymentMatch = paymentSource.match(
       /\b(pix|cart[ãa]o|crédito|cr[eé]dito|débito|debito)\b/i,
     );
-    const payment =
-      paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
+    const payment = paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
 
     const lines = [
       `Pedido: ${productName} - R$ ${productPrice}`,

@@ -140,9 +140,17 @@ class KnowledgeBaseService {
         );
 
         const pdfParseModule = await import("pdf-parse");
-        const pdfParse = (pdfParseModule as any).default || (pdfParseModule as any);
-        const parsed = await pdfParse(buffer);
-        return this.sanitizeText(parsed?.text || "");
+        const PDFParseCtor = (pdfParseModule as any).PDFParse;
+        if (typeof PDFParseCtor !== "function") {
+          throw new Error("pdf-parse não expôs PDFParse no runtime");
+        }
+        const parser = new PDFParseCtor({ data: buffer });
+        try {
+          const parsed = await parser.getText();
+          return this.sanitizeText(parsed?.text || "");
+        } finally {
+          await parser.destroy();
+        }
       }
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });

@@ -117,14 +117,33 @@ class KnowledgeBaseService {
 
     try {
       await fs.writeFile(inputPath, buffer);
-      const { stdout } = await execFileAsync("pdftotext", [
-        "-layout",
-        "-enc",
-        "UTF-8",
-        inputPath,
-        "-",
-      ]);
-      return this.sanitizeText(stdout || "");
+      try {
+        const { stdout } = await execFileAsync("pdftotext", [
+          "-layout",
+          "-enc",
+          "UTF-8",
+          inputPath,
+          "-",
+        ]);
+        return this.sanitizeText(stdout || "");
+      } catch (error: any) {
+        const isMissingBinary =
+          error?.code === "ENOENT" ||
+          /spawn\s+pdftotext\s+ENOENT/i.test(error?.message || "");
+
+        if (!isMissingBinary) {
+          throw error;
+        }
+
+        logger.warn(
+          "[KnowledgeBase] pdftotext não disponível no ambiente. Usando fallback pdf-parse.",
+        );
+
+        const pdfParseModule = await import("pdf-parse");
+        const pdfParse = (pdfParseModule as any).default || (pdfParseModule as any);
+        const parsed = await pdfParse(buffer);
+        return this.sanitizeText(parsed?.text || "");
+      }
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import aiAgentService, { LabTraceEvent } from "../services/aiAgentService";
+import knowledgeBaseService from "../services/knowledgeBaseService";
 import logger from "../utils/logger";
 
 const BLOCKED_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
@@ -254,6 +255,83 @@ class AILabController {
       });
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  async uploadKnowledgeDocument(req: Request, res: Response) {
+    try {
+      const userId = this.getUserId(req);
+      const file = (req as any).file as Express.Multer.File | undefined;
+
+      if (!file) {
+        return res.status(400).json({ error: "Arquivo é obrigatório (field: file)" });
+      }
+
+      const document = await knowledgeBaseService.ingestPdfDocument({
+        buffer: file.buffer,
+        originalName: file.originalname || "documento.pdf",
+        mimeType: file.mimetype || "application/pdf",
+        uploadedBy: userId,
+      });
+
+      return res.json({ document });
+    } catch (error: any) {
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+    }
+  }
+
+  async listKnowledgeDocuments(req: Request, res: Response) {
+    try {
+      this.getUserId(req);
+      const documents = await knowledgeBaseService.listDocuments();
+      return res.json({ documents });
+    } catch (error: any) {
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+    }
+  }
+
+  async deleteKnowledgeDocument(req: Request, res: Response) {
+    try {
+      this.getUserId(req);
+      const { documentId } = req.params;
+      await knowledgeBaseService.deleteDocument(documentId);
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+    }
+  }
+
+  async reindexKnowledgeDocument(req: Request, res: Response) {
+    try {
+      this.getUserId(req);
+      const { documentId } = req.params;
+      const result = await knowledgeBaseService.reindexDocument(documentId);
+      return res.json({ result });
+    } catch (error: any) {
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+    }
+  }
+
+  async searchKnowledge(req: Request, res: Response) {
+    try {
+      this.getUserId(req);
+      const question = (req.body?.question || "").toString();
+      const topK = Number(req.body?.topK || 6);
+      const minScore = Number(req.body?.minScore || 0.35);
+
+      if (!question.trim()) {
+        return res.status(400).json({ error: "Campo obrigatório: question" });
+      }
+
+      const hits = await knowledgeBaseService.searchKnowledge(question, {
+        topK,
+        minScore,
+        documentId: req.body?.documentId ? String(req.body.documentId) : undefined,
+      });
+
+      return res.json({ hits });
+    } catch (error: any) {
+      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
     }
   }
 }

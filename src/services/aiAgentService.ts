@@ -952,6 +952,26 @@ ${markdown}
     };
   }
 
+  private shouldUseKnowledgeRetrievalInLab(userMessage: string) {
+    const text = (userMessage || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    if (!text.trim()) return false;
+
+    const institutionalPatterns = [
+      /quem (e|é) (a|o) cesto|sobre (a|o) cesto|historia da empresa|historia da loja/,
+      /como funciona|qual a politica|politica de|troca|devolu[cç][aã]o|garantia/,
+      /duvida geral|faq|pergunta frequente|informacao institucional/,
+      /horario especial|feriado|atendimento em feriado|funciona no feriado/,
+      /formas de pagamento|pagamento aceito|metodos de pagamento/,
+      /retirada na loja|processo de entrega|regras de entrega|cobertura de entrega/,
+    ];
+
+    return institutionalPatterns.some((pattern) => pattern.test(text));
+  }
+
   private resolveRelativeDateHint(normalizedMessage: string) {
     const now = new Date();
     const weekdays: Array<{ name: string; patterns: string[] }> = [
@@ -3138,6 +3158,16 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const recentHistory = this.filterHistoryForContext(history);
     const toolsInMCP = await mcpClientService.listTools();
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCP);
+    const enableKnowledgeTool = this.shouldUseKnowledgeRetrievalInLab(userMessage);
+
+    if (enableKnowledgeTool) {
+      await emit({
+        type: "warning",
+        message:
+          "Classificador LAB detectou dúvida institucional. query_company_knowledge pode ser usada via MCP neste turno.",
+        timestamp: new Date().toISOString(),
+      });
+    }
     const customerMemoryPrompt = session.customer_phone
       ? openClawMemoryService.buildCustomerPrompt(
           await openClawMemoryService.getCustomerMemory(session.customer_phone),
@@ -3183,6 +3213,14 @@ regras:
       }),
     ];
 
+    if (enableKnowledgeTool) {
+      messages.push({
+        role: "system",
+        content:
+          "POLÍTICA DE RETRIEVAL LAB: se a dúvida envolver políticas, funcionamento da empresa, processos internos ou FAQ institucional, use a tool query_company_knowledge antes de responder. Para perguntas puramente comerciais de produto, não use esta tool.",
+      });
+    }
+
     const stream = await this.runTwoPhaseProcessing(
       sessionId,
       messages,
@@ -3194,6 +3232,7 @@ regras:
       customerName || "Cliente",
       session.customer_phone || "",
       emit,
+      this.model,
     );
 
     if (!stream) {
@@ -3766,8 +3805,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       });
     }
 
-    const tools = await mcpClientService.listTools();
-    const formattedTools = tools.map((t) => ({
+    const mcpTools = await mcpClientService.listTools();
+    const formattedTools = mcpTools.map((t) => ({
       type: "function" as const,
       function: {
         name: t.name,

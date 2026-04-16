@@ -1156,6 +1156,41 @@ router.get(
   requireAdmin,
   (req: Request, res: Response) => aiLabController.getLinkPreview(req, res),
 );
+router.post(
+  "/admin/ai/lab/knowledge/upload",
+  authenticateToken,
+  requireAdmin,
+  uploadAny.single("file"),
+  (req: Request, res: Response) =>
+    aiLabController.uploadKnowledgeDocument(req, res),
+);
+router.get(
+  "/admin/ai/lab/knowledge/documents",
+  authenticateToken,
+  requireAdmin,
+  (req: Request, res: Response) =>
+    aiLabController.listKnowledgeDocuments(req, res),
+);
+router.delete(
+  "/admin/ai/lab/knowledge/documents/:documentId",
+  authenticateToken,
+  requireAdmin,
+  (req: Request, res: Response) =>
+    aiLabController.deleteKnowledgeDocument(req, res),
+);
+router.post(
+  "/admin/ai/lab/knowledge/documents/:documentId/reindex",
+  authenticateToken,
+  requireAdmin,
+  (req: Request, res: Response) =>
+    aiLabController.reindexKnowledgeDocument(req, res),
+);
+router.post(
+  "/admin/ai/lab/knowledge/search",
+  authenticateToken,
+  requireAdmin,
+  (req: Request, res: Response) => aiLabController.searchKnowledge(req, res),
+);
 
 router.post(
   "/ai/orchestrate-prompt",

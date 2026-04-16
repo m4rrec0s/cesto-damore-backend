@@ -350,6 +350,43 @@ model CustomerMemory {
   expires_at     DateTime
 }
 
+model KnowledgeDocument {
+  id              String           @id @default(uuid())
+  title           String
+  source_filename String
+  mime_type       String
+  status          String           @default("active")
+  version         Int              @default(1)
+  total_chunks    Int              @default(0)
+  extracted_text  String
+  uploaded_by     String?
+  created_at      DateTime         @default(now())
+  updated_at      DateTime         @updatedAt
+  chunks          KnowledgeChunk[]
+
+  @@index([status, updated_at])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id              String            @id @default(uuid())
+  document_id     String
+  chunk_index     Int
+  page_number     Int?
+  text_content    String
+  token_estimate  Int               @default(0)
+  embedding       Json
+  embedding_model String
+  content_hash    String
+  created_at      DateTime          @default(now())
+  document        KnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@unique([document_id, chunk_index])
+  @@index([document_id, chunk_index])
+  @@index([content_hash])
+  @@map("knowledge_chunks")
+}
+
 model n8n_vectors {
   id        String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   text      String?

@@ -10,6 +10,7 @@ import { PROMPTS } from "../config/prompts";
 import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
 import type { FlowCatalogNode, RouterDecision, DynamicMenuOption } from "../types/flowRouter";
 import deterministicRouter from "./deterministicRouterService";
+import phaseGateService, { type SalesPhase } from "./phaseGateService";
 
 enum ProcessingState {
   ANALYZING = "ANALYZING",
@@ -119,6 +120,69 @@ class AIAgentService {
 
   constructor() {
     this.openai = createOpenAIClient();
+  }
+
+  private getPhasePrompt(phase: SalesPhase) {
+    switch (phase) {
+      case "DISCOVERY":
+        return PROMPTS.phase_discovery_ana;
+      case "CURATION":
+        return PROMPTS.phase_curation_bianca;
+      case "CUSTOMIZATION":
+        return PROMPTS.phase_customization_lucas;
+      case "CHECKOUT":
+        return PROMPTS.phase_checkout_alice;
+      default:
+        return PROMPTS.phase_discovery_ana;
+    }
+  }
+
+  private getAllowedToolsByPhase(
+    phase: SalesPhase,
+    allTools: Awaited<ReturnType<typeof mcpClientService.listTools>>,
+  ) {
+    const alwaysAllowed = new Set([
+      "query_company_knowledge",
+      "notify_human_support",
+      "save_customer_summary",
+      "get_current_business_hours",
+      "get_active_holidays",
+      "math_calculator",
+    ]);
+
+    const byPhase = {
+      DISCOVERY: new Set([
+        "query_company_knowledge",
+        "get_current_business_hours",
+        "get_active_holidays",
+      ]),
+      CURATION: new Set([
+        "consultarCatalogo",
+        "get_product_details",
+        "query_company_knowledge",
+      ]),
+      CUSTOMIZATION: new Set([
+        "get_product_details",
+        "can_produce_in_time",
+        "validate_delivery_availability",
+        "query_company_knowledge",
+      ]),
+      CHECKOUT: new Set([
+        "get_product_details",
+        "calculate_freight",
+        "validate_delivery_availability",
+        "can_produce_in_time",
+        "math_calculator",
+        "finalize_checkout",
+        "query_company_knowledge",
+      ]),
+    } as const;
+
+    const allowed = new Set<string>([
+      ...Array.from(alwaysAllowed),
+      ...Array.from(byPhase[phase]),
+    ]);
+    return allTools.filter((tool) => allowed.has(tool.name));
   }
 
   private getLabSessionPrefix(userId: string) {
@@ -2963,6 +3027,15 @@ Logo te respondem! Obrigadaaa 🥰"`;
         markdown: sessionMarkdown,
         compact: sessionCompact,
         updated_at: sessionMemory.updatedAt || null,
+        phase: {
+          current: sessionMemory.conversation.salesPhase,
+          agent: sessionMemory.conversation.activeAgentName,
+          transition_reason: sessionMemory.conversation.phaseTransitionReason,
+          executive_summary: sessionMemory.conversation.phaseExecutiveSummary,
+          checklist: sessionMemory.conversation.phaseChecklist,
+          checkout_data: sessionMemory.conversation.checkoutData,
+          customization_decision: sessionMemory.conversation.customizationDecision,
+        },
         completeness: {
           has_name: Boolean(sessionMemory.client.name),
           has_city: Boolean(sessionMemory.client.city),
@@ -3157,8 +3230,19 @@ Logo te respondem! Obrigadaaa 🥰"`;
 
     const recentHistory = this.filterHistoryForContext(history);
     const toolsInMCP = await mcpClientService.listTools();
-    const toolNames = new Set(toolsInMCP.map((tool) => tool.name));
-    const systemPrompt = this.buildLabSystemPrompt(toolsInMCP);
+    const sessionMemoryForPhase =
+      await openClawMemoryService.getSessionMemory(sessionId);
+    const phaseResolution = phaseGateService.resolvePhase(
+      sessionMemoryForPhase,
+      userMessage,
+    );
+    const phasePrompt = this.getPhasePrompt(phaseResolution.phase);
+    const toolsInMCPForPhase = this.getAllowedToolsByPhase(
+      phaseResolution.phase,
+      toolsInMCP,
+    );
+    const toolNames = new Set(toolsInMCPForPhase.map((tool) => tool.name));
+    const systemPrompt = this.buildLabSystemPrompt(toolsInMCPForPhase);
     const enableKnowledgeTool = this.shouldUseKnowledgeRetrievalInLab(userMessage);
 
     if (enableKnowledgeTool) {
@@ -3192,7 +3276,12 @@ regras:
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
-        content: [systemPrompt, customerMemoryPrompt, managerContextPrompt]
+        content: [
+          systemPrompt,
+          `### ORQUESTRAÇÃO_DE_FASE\nfase: ${phaseResolution.phase}\nagente: ${phaseResolution.agentName}\nmotivo: ${phaseResolution.reason}\nchecklist: discovery=${phaseResolution.checklist.discoveryQualified}; produto=${phaseResolution.checklist.productSelected}; customizacao=${phaseResolution.checklist.customizationDecided}; checkout=${phaseResolution.checklist.checkoutDataCollected}\nregra_visibilidade: troca de agente é interna; não mencionar nomes de agentes ao cliente.\n\n${phasePrompt}`,
+          customerMemoryPrompt,
+          managerContextPrompt,
+        ]
           .filter(Boolean)
           .join("\n\n"),
       },
@@ -3238,6 +3327,8 @@ regras:
       emit,
       this.model,
       forceKnowledgeTool ? "query_company_knowledge" : null,
+      phaseResolution.phase,
+      toolsInMCPForPhase,
     );
 
     if (!stream) {
@@ -3500,8 +3591,19 @@ regras:
     );
 
     const toolsInMCP = await mcpClientService.listTools();
+    const sessionMemoryForPhase =
+      await openClawMemoryService.getSessionMemory(sessionId);
+    const phaseResolution = phaseGateService.resolvePhase(
+      sessionMemoryForPhase,
+      userMessage,
+    );
+    const phasePrompt = this.getPhasePrompt(phaseResolution.phase);
+    const toolsInMCPForPhase = this.getAllowedToolsByPhase(
+      phaseResolution.phase,
+      toolsInMCP,
+    );
     const forceKnowledgeTool =
-      toolsInMCP.some((tool) => tool.name === "query_company_knowledge") &&
+      toolsInMCPForPhase.some((tool) => tool.name === "query_company_knowledge") &&
       this.shouldUseKnowledgeRetrievalInLab(userMessage);
 
     let mcpSystemPrompts = "";
@@ -3612,7 +3714,19 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
-        content: `${mcpSystemPrompts}
+         content: `${mcpSystemPrompts}
+
+---
+
+## ORQUESTRAÇÃO DE FASE (OBRIGATÓRIA)
+- fase_atual: ${phaseResolution.phase}
+- agente_ativo: ${phaseResolution.agentName}
+- motivo_fase: ${phaseResolution.reason}
+- checklist: discovery=${phaseResolution.checklist.discoveryQualified}; produto=${phaseResolution.checklist.productSelected}; customizacao=${phaseResolution.checklist.customizationDecided}; checkout=${phaseResolution.checklist.checkoutDataCollected}
+- regra_anti_pulo: só avance para a próxima fase quando checklist da fase atual estiver completo.
+- regra_visibilidade: troca de agente é interna; NÃO informe ao cliente nomes de agentes por fase.
+
+${phasePrompt}
 
 ---
 
@@ -3769,6 +3883,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       undefined,
       selectedModel,
       forceKnowledgeTool ? "query_company_knowledge" : null,
+      phaseResolution.phase,
+      toolsInMCPForPhase,
     );
   }
 
@@ -3785,6 +3901,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     traceEmitter?: (event: LabTraceEvent) => Promise<void> | void,
     selectedModel: string = this.model,
     forcedFirstToolName: string | null = null,
+    currentPhase: SalesPhase = "DISCOVERY",
+    preloadedTools?: Awaited<ReturnType<typeof mcpClientService.listTools>>,
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -3815,7 +3933,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       });
     }
 
-    const mcpTools = await mcpClientService.listTools();
+    const mcpTools = preloadedTools || (await mcpClientService.listTools());
     const formattedTools = mcpTools.map((t) => ({
       type: "function" as const,
       function: {
@@ -3826,6 +3944,9 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     }));
 
     logger.info("🔍 FASE 1: Iniciando coleta de informações...");
+    logger.info(
+      `🧭 Orquestração ativa: fase=${currentPhase}, tools_permitidas=${mcpTools.map((t) => t.name).join(", ")}`,
+    );
     await traceEmitter?.({
       type: "state",
       state: ProcessingState.ANALYZING,
@@ -4317,6 +4438,24 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "finalize_checkout") {
+            if (currentPhase !== "CHECKOUT") {
+              const errorMsg = `{"status":"error","error":"phase_gate_block","message":"Finalize bloqueado: fase atual é ${currentPhase}. Só é permitido finalizar na fase CHECKOUT."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
             if (finalizeAttemptedThisTurn) {
               const errorMsg = `{"status":"error","error":"finalize_already_attempted","message":"Finalize já foi tentado neste turno sem novos dados do cliente. Não repita finalize_checkout; colete apenas o campo faltante e aguarde nova resposta do cliente."}`;
               messages.push({

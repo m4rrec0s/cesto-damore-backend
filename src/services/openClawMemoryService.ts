@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 import logger from "../utils/logger";
+import phaseGateService from "./phaseGateService";
 
 export interface SessionPresentedProduct {
   id: string;
@@ -27,8 +28,24 @@ export interface SessionMemoryState {
   };
   conversation: {
     salesPhase: "DISCOVERY" | "CURATION" | "CUSTOMIZATION" | "CHECKOUT";
+    activeAgentName: "Ana" | "Bianca" | "Lucas" | "Alice";
     selectedProductConfirmed: boolean;
     selectedProductConfirmedAt: string | null;
+    customizationDecision: "pending" | "with_addons" | "without_addons";
+    phaseChecklist: {
+      discoveryQualified: boolean;
+      productSelected: boolean;
+      customizationDecided: boolean;
+      checkoutDataCollected: boolean;
+    };
+    checkoutData: {
+      dateTime: boolean;
+      address: boolean;
+      payment: boolean;
+      confirmed: boolean;
+    };
+    phaseTransitionReason: string | null;
+    phaseExecutiveSummary: string | null;
     awaitingResponse: string | null;
     optionPresented: boolean;
     greetingDone: boolean;
@@ -84,8 +101,24 @@ const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
   },
   conversation: {
     salesPhase: "DISCOVERY",
+    activeAgentName: "Ana",
     selectedProductConfirmed: false,
     selectedProductConfirmedAt: null,
+    customizationDecision: "pending",
+    phaseChecklist: {
+      discoveryQualified: false,
+      productSelected: false,
+      customizationDecided: false,
+      checkoutDataCollected: false,
+    },
+    checkoutData: {
+      dateTime: false,
+      address: false,
+      payment: false,
+      confirmed: false,
+    },
+    phaseTransitionReason: null,
+    phaseExecutiveSummary: null,
     awaitingResponse: null,
     optionPresented: false,
     greetingDone: false,
@@ -188,6 +221,14 @@ class OpenClawMemoryService {
       conversation: {
         ...DEFAULT_SESSION_MEMORY.conversation,
         ...(memory?.conversation || {}),
+        phaseChecklist: {
+          ...DEFAULT_SESSION_MEMORY.conversation.phaseChecklist,
+          ...(memory?.conversation?.phaseChecklist || {}),
+        },
+        checkoutData: {
+          ...DEFAULT_SESSION_MEMORY.conversation.checkoutData,
+          ...(memory?.conversation?.checkoutData || {}),
+        },
         notes: Array.isArray(memory?.conversation?.notes)
           ? memory.conversation.notes
               .filter((note) => typeof note === "string" && note.trim().length > 0)
@@ -281,6 +322,21 @@ class OpenClawMemoryService {
     return cleaned.includes(",") ? cleaned : cleaned.replace(".", ",");
   }
 
+  private applyPhaseResolution(
+    memory: SessionMemoryState,
+    userMessage: string,
+    phaseExecutiveSummary?: string,
+  ) {
+    const resolution = phaseGateService.resolvePhase(memory, userMessage);
+    memory.conversation.salesPhase = resolution.phase;
+    memory.conversation.activeAgentName = resolution.agentName;
+    memory.conversation.phaseChecklist = resolution.checklist;
+    memory.conversation.phaseTransitionReason = resolution.reason;
+    if (phaseExecutiveSummary) {
+      memory.conversation.phaseExecutiveSummary = phaseExecutiveSummary.slice(0, 220);
+    }
+  }
+
   private renderSessionMarkdown(memory: SessionMemoryState) {
     const products = memory.presentedProducts
       .slice(0, 10)
@@ -305,8 +361,22 @@ class OpenClawMemoryService {
 
 ## Contexto Conversacional
 - fase_venda: ${memory.conversation.salesPhase}
+- agente_fase: ${memory.conversation.activeAgentName}
+- transicao_motivo: ${memory.conversation.phaseTransitionReason || "null"}
+- resumo_fase: ${memory.conversation.phaseExecutiveSummary || "null"}
+- checklist_fase:
+  - discovery_qualificado: ${memory.conversation.phaseChecklist.discoveryQualified}
+  - produto_selecionado: ${memory.conversation.phaseChecklist.productSelected}
+  - customizacao_decidida: ${memory.conversation.phaseChecklist.customizationDecided}
+  - checkout_coletado: ${memory.conversation.phaseChecklist.checkoutDataCollected}
 - produto_confirmado: ${memory.conversation.selectedProductConfirmed}
 - produto_confirmado_em: ${memory.conversation.selectedProductConfirmedAt || "null"}
+- customizacao_decisao: ${memory.conversation.customizationDecision}
+- checkout_dados:
+  - data_hora: ${memory.conversation.checkoutData.dateTime}
+  - endereco: ${memory.conversation.checkoutData.address}
+  - pagamento: ${memory.conversation.checkoutData.payment}
+  - confirmado_cliente: ${memory.conversation.checkoutData.confirmed}
 - aguardando_resposta: ${memory.conversation.awaitingResponse || "null"}
 - opcao_apresentada: ${memory.conversation.optionPresented}
 - saudacao_feita: ${memory.conversation.greetingDone}
@@ -532,27 +602,49 @@ ${JSON.stringify(memory)}
     if (confirmsProduct && memory.focusedProductId) {
       memory.conversation.selectedProductConfirmed = true;
       memory.conversation.selectedProductConfirmedAt = new Date().toISOString();
-      memory.conversation.salesPhase = "CUSTOMIZATION";
+      memory.conversation.customizationDecision = "pending";
     } else if (asksMoreOptions) {
       memory.conversation.selectedProductConfirmed = false;
       memory.conversation.selectedProductConfirmedAt = null;
-      memory.conversation.salesPhase = "CURATION";
+      memory.conversation.customizationDecision = "pending";
     }
     if (inferredIntent === "ask_more_options") {
       memory.conversation.optionPresented = false;
     }
-    if (
-      /\b(rua|avenida|bairro|cidade|cep|pix|cart[aã]o|cartao|pagamento|entrega)\b/i.test(
-        trimmedMessage,
-      )
-    ) {
-      memory.conversation.salesPhase = "CHECKOUT";
-    } else if (
-      memory.presentedProducts.length > 0 &&
-      memory.conversation.salesPhase === "DISCOVERY"
-    ) {
-      memory.conversation.salesPhase = "CURATION";
+    if (/\b(amanh[aã]|hoje|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}|(?:[01]?\d|2[0-3]):[0-5]\d)\b/i.test(trimmedMessage)) {
+      memory.conversation.checkoutData.dateTime = true;
     }
+    if (/\b(rua|avenida|bairro|cidade|cep|n[uú]mero|universit[aá]rio)\b/i.test(trimmedMessage)) {
+      memory.conversation.checkoutData.address = true;
+    }
+    if (/\b(pix|cart[aã]o|cartao|cr[eé]dito|debito|d[eé]bito)\b/i.test(trimmedMessage)) {
+      memory.conversation.checkoutData.payment = true;
+    }
+    if (/\b(sim|pode finalizar|t[aá] certo|tudo certo|confirmo)\b/i.test(trimmedMessage)) {
+      memory.conversation.checkoutData.confirmed = true;
+    }
+    if (/\b(sem adicional|sem adicionais|sem personaliza[cç][aã]o|pode seguir sem|n[aã]o quero adicional)\b/i.test(trimmedMessage)) {
+      memory.conversation.customizationDecision = "without_addons";
+    }
+    if (/\b(quero adicional|adiciona|adicionar|personalizar|customizar|com caneca|com polaroid)\b/i.test(trimmedMessage)) {
+      memory.conversation.customizationDecision = "with_addons";
+    }
+
+    const checkoutDataCollected =
+      memory.conversation.checkoutData.dateTime &&
+      memory.conversation.checkoutData.address &&
+      memory.conversation.checkoutData.payment;
+    memory.conversation.phaseChecklist.checkoutDataCollected = checkoutDataCollected;
+
+    this.applyPhaseResolution(memory, trimmedMessage, (() => {
+      const snippets: string[] = [];
+      if (memory.client.occasion) snippets.push(`ocasião: ${memory.client.occasion}`);
+      if (memory.focusedProductId) snippets.push(`produto_foco: ${memory.focusedProductId}`);
+      if (memory.conversation.customizationDecision !== "pending") {
+        snippets.push(`customização: ${memory.conversation.customizationDecision}`);
+      }
+      return snippets.join(" | ") || "fase atual mantida por critérios de gate";
+    })());
     if (/\b(urgente|urgencia|urgência|hoje|agora|pra ja|pra já|quanto antes)\b/i.test(trimmedMessage)) {
       memory.conversation.urgency = "high";
     } else if (
@@ -613,9 +705,13 @@ ${JSON.stringify(memory)}
     } else if (!memory.focusedProductId && memory.presentedProducts[0]) {
       memory.focusedProductId = memory.presentedProducts[0].id;
     }
-    if (memory.presentedProducts.length > 0 && memory.conversation.salesPhase === "DISCOVERY") {
-      memory.conversation.salesPhase = "CURATION";
-    }
+    this.applyPhaseResolution(
+      memory,
+      "catalogo_apresentado",
+      memory.presentedProducts.length > 0
+        ? "catálogo apresentado ao cliente"
+        : "atualização de memória de produtos",
+    );
     memory.updatedAt = new Date().toISOString();
     await this.saveSessionMemory(sessionId, memory);
   }
@@ -702,14 +798,21 @@ ${JSON.stringify(memory)}
       memory.conversation.optionPresented = true;
     }
     if (/(adicional|caneca personalizada|polaroid|fotos? polaroid)/i.test(assistantMessage)) {
-      memory.conversation.salesPhase = "CUSTOMIZATION";
+      if (memory.conversation.selectedProductConfirmed) {
+        memory.conversation.customizationDecision = "pending";
+      }
     }
     if (
       /(?:me passa|me informe|me diz).*(nome.*recebe|bairro|cidade|endere[cç]o|pagamento|pix|cart[aã]o)/i.test(
         assistantMessage,
       )
     ) {
-      memory.conversation.salesPhase = "CHECKOUT";
+      if (
+        memory.conversation.selectedProductConfirmed &&
+        memory.conversation.customizationDecision !== "pending"
+      ) {
+        memory.conversation.checkoutData.address = true;
+      }
     }
     if (
       /(pode continuar|quer que eu siga|quer que eu continue)\??/i.test(
@@ -736,6 +839,16 @@ ${JSON.stringify(memory)}
         memory.conversation.notes.unshift("possível conflito: nome do cliente igual ao destinatário");
       }
     }
+
+    this.applyPhaseResolution(memory, userMessage, (() => {
+      const summary: string[] = [];
+      summary.push(`assistente respondeu na fase ${memory.conversation.salesPhase}`);
+      if (memory.conversation.selectedProductConfirmed) summary.push("produto confirmado");
+      if (memory.conversation.customizationDecision !== "pending") {
+        summary.push(`customização: ${memory.conversation.customizationDecision}`);
+      }
+      return summary.join(" | ");
+    })());
 
     memory.updatedAt = new Date().toISOString();
     await this.saveSessionMemory(sessionId, memory);
@@ -794,7 +907,7 @@ cliente: nome=${memory.client.name || "null"}; destinatario=${memory.client.reci
 auth_manager: autenticado=${memory.authenticatedUser.isAuthenticated}; nome=${memory.authenticatedUser.name || "null"}; telefone=${memory.authenticatedUser.phone || "null"}
 produto_em_foco: ${memory.focusedProductId || "null"}
 flags: preco_manipulado=${memory.flags.attemptedPriceManipulation}; transferido=${memory.flags.transferredToHuman}; frete_calculado=${memory.flags.freightCalculated}
-contexto_conversa: fase=${memory.conversation.salesPhase}; produto_confirmado=${memory.conversation.selectedProductConfirmed}; aguardando=${memory.conversation.awaitingResponse || "null"}; opcao_apresentada=${memory.conversation.optionPresented}; saudacao_feita=${memory.conversation.greetingDone}; contexto_reiterado=${memory.conversation.contextReiteratedCount}; ultima_intencao=${memory.conversation.lastUserIntent || "null"}
+contexto_conversa: fase=${memory.conversation.salesPhase}; agente=${memory.conversation.activeAgentName}; transicao=${memory.conversation.phaseTransitionReason || "null"}; produto_confirmado=${memory.conversation.selectedProductConfirmed}; customizacao=${memory.conversation.customizationDecision}; checklist=[discovery:${memory.conversation.phaseChecklist.discoveryQualified},produto:${memory.conversation.phaseChecklist.productSelected},customizacao:${memory.conversation.phaseChecklist.customizationDecided},checkout:${memory.conversation.phaseChecklist.checkoutDataCollected}]; aguardando=${memory.conversation.awaitingResponse || "null"}; opcao_apresentada=${memory.conversation.optionPresented}; saudacao_feita=${memory.conversation.greetingDone}; contexto_reiterado=${memory.conversation.contextReiteratedCount}; ultima_intencao=${memory.conversation.lastUserIntent || "null"}
 cache_tool_get_product_details_keys: ${detailsCacheKeys.slice(0, 8).join(", ") || "nenhum"}
 produtos_apresentados:
 ${productLines || "- nenhum"}

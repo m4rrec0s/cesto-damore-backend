@@ -3157,6 +3157,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
 
     const recentHistory = this.filterHistoryForContext(history);
     const toolsInMCP = await mcpClientService.listTools();
+    const toolNames = new Set(toolsInMCP.map((tool) => tool.name));
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCP);
     const enableKnowledgeTool = this.shouldUseKnowledgeRetrievalInLab(userMessage);
 
@@ -3164,7 +3165,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
       await emit({
         type: "warning",
         message:
-          "Classificador LAB detectou dúvida institucional. query_company_knowledge pode ser usada via MCP neste turno.",
+          "Classificador LAB detectou dúvida institucional. query_company_knowledge será usada neste turno antes da resposta final.",
         timestamp: new Date().toISOString(),
       });
     }
@@ -3217,22 +3218,26 @@ regras:
       messages.push({
         role: "system",
         content:
-          "POLÍTICA DE RETRIEVAL LAB: se a dúvida envolver políticas, funcionamento da empresa, processos internos ou FAQ institucional, use a tool query_company_knowledge antes de responder. Para perguntas puramente comerciais de produto, não use esta tool.",
+          "POLÍTICA DE RETRIEVAL LAB (OBRIGATÓRIA): se a dúvida envolver políticas, funcionamento da empresa, processos internos ou FAQ institucional, chame query_company_knowledge ANTES de responder. Só responda sem essa tool se a pergunta for puramente de catálogo/produto.",
       });
     }
+
+    const forceKnowledgeTool =
+      enableKnowledgeTool && toolNames.has("query_company_knowledge");
 
     const stream = await this.runTwoPhaseProcessing(
       sessionId,
       messages,
       false,
       false,
-      false,
+      forceKnowledgeTool,
       userMessage,
       null,
       customerName || "Cliente",
       session.customer_phone || "",
       emit,
       this.model,
+      forceKnowledgeTool ? "query_company_knowledge" : null,
     );
 
     if (!stream) {
@@ -3495,6 +3500,9 @@ regras:
     );
 
     const toolsInMCP = await mcpClientService.listTools();
+    const forceKnowledgeTool =
+      toolsInMCP.some((tool) => tool.name === "query_company_knowledge") &&
+      this.shouldUseKnowledgeRetrievalInLab(userMessage);
 
     let mcpSystemPrompts = "";
     try {
@@ -3621,9 +3629,9 @@ As ferramentas (tools) disponíveis são RECURSOS para garantir precisão, NÃO 
 
 ### QUANDO RESPONDER SEM TOOLS (Mostre humanidade):
 💬 **Saudações e pequeno-talk** - "Boa noite!", "E aí, tudo bem?"
-💬 **Perguntas gerais** - horários, localização, conceitos
 💬 **Conversas humanizadas** - cliente quer conversar, não buscar
 💬 **Contexto já fornecido** - cliente já descreveu bem o que quer
+⚠️ **Exceção obrigatória**: dúvida institucional/FAQ/processo da empresa deve usar query_company_knowledge antes da resposta final
 
 ### REGRA DE OURO:
 **Não sacrifique naturalidade por precisão mecanicista.**
@@ -3660,7 +3668,7 @@ Se o cliente diz "boa noite", responda naturalmente! Você NÃO precisa validar 
 | "Quanto é?" | consultarCatalogo | ✅ Sempre (preço real) |
 | "Para qual data?" | validate_delivery_availability | ✅ SOMENTE se o cliente mencionar data/horário |
 | "Boa noite!" | — | ❌ Responda direto |
-| "Qual horário?" | — | ❌ Responda direto |
+| "Qual horário de atendimento?" | query_company_knowledge | ✅ Se for dúvida institucional/FAQ |
 | "Falar com humano" | notify_human_support | ✅ IMEDIATAMENTE (sem coleta de dados) |
 | "Quero comprar!" | finalize_checkout | ✅ Somente com checkout COMPLETO |
 
@@ -3720,7 +3728,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 1. Cliente quer dados reais ou conversa?
 2. Tenho informação confiável?
 3. Minha resposta será natural?
-4. Preço/prazo = sempre ferramenta?`,
+4. Pergunta institucional/FAQ = query_company_knowledge antes de responder?`,
       },
       ...(customerMemoryPrompt
         ? ([{ role: "system", content: customerMemoryPrompt }] as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
@@ -3753,13 +3761,14 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       messages,
       hasChosenProduct,
       isCartEvent,
-      requiresToolCall,
+      requiresToolCall || forceKnowledgeTool,
       userMessage,
       memory?.summary || null,
       customerName || "Cliente",
       phone || "",
       undefined,
       selectedModel,
+      forceKnowledgeTool ? "query_company_knowledge" : null,
     );
   }
 
@@ -3775,6 +3784,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     customerPhone: string = "",
     traceEmitter?: (event: LabTraceEvent) => Promise<void> | void,
     selectedModel: string = this.model,
+    forcedFirstToolName: string | null = null,
   ): Promise<any> {
     const MAX_TOOL_ITERATIONS = 10;
     let currentState = ProcessingState.ANALYZING;
@@ -3829,11 +3839,25 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       );
 
       const useRequiredTool = iteration === 0 && requiresToolCall;
+      const canForceSpecificTool =
+        iteration === 0 &&
+        Boolean(forcedFirstToolName) &&
+        formattedTools.some(
+          (tool) => tool.function.name === (forcedFirstToolName as string),
+        );
+      const toolChoice = canForceSpecificTool
+        ? {
+            type: "function" as const,
+            function: { name: forcedFirstToolName as string },
+          }
+        : useRequiredTool
+          ? ("required" as const)
+          : undefined;
       const response = await this.openai.chat.completions.create({
         model: selectedModel,
         messages,
         tools: formattedTools,
-        ...(useRequiredTool ? { tool_choice: "required" as const } : {}),
+        ...(toolChoice ? { tool_choice: toolChoice as any } : {}),
         stream: false,
       });
 
@@ -3854,6 +3878,14 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           role: "system",
           content:
             "Evento de carrinho detectado. Responda APENAS com tool calls para notify_human_support e block_session, com content vazio.",
+        });
+        continue;
+      }
+
+      if (!hasToolCalls && canForceSpecificTool && forcedFirstToolName) {
+        messages.push({
+          role: "system",
+          content: `Obrigatório neste turno: execute a tool ${forcedFirstToolName} antes da resposta final. Não responda apenas com texto.`,
         });
         continue;
       }

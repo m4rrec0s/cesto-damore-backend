@@ -224,7 +224,10 @@ const PRODUCT_REPLY_CONFIRMATION_PATTERNS: RegExp[] = [
   /\b(quero|vou querer|pode ser|fechou)\b.*\b(essa|esse|isso)\b/i,
 ];
 
-const isAffirmativeProductReply = (rawValue: string, extractedReply: string) => {
+const isAffirmativeProductReply = (
+  rawValue: string,
+  extractedReply: string,
+) => {
   const raw = normalizeText(String(rawValue || ""));
   if (!raw || !raw.includes("respondendo a mensagem")) return false;
 
@@ -443,9 +446,7 @@ const toFlowCatalogNode = (node: FlowNode): FlowCatalogNode => {
   const summary = String(data.summary || data.message || "").trim();
   const listOf = (value: unknown) =>
     Array.isArray(value)
-      ? value
-          .map((item) => String(item || "").trim())
-          .filter(Boolean)
+      ? value.map((item) => String(item || "").trim()).filter(Boolean)
       : [];
   return {
     id: String(node.id || "").trim(),
@@ -455,8 +456,12 @@ const toFlowCatalogNode = (node: FlowNode): FlowCatalogNode => {
     ...(String(data.when_to_use || "").trim()
       ? { when_to_use: String(data.when_to_use).trim() }
       : {}),
-    ...(listOf(data.examples).length > 0 ? { examples: listOf(data.examples) } : {}),
-    ...(listOf(data.keywords).length > 0 ? { keywords: listOf(data.keywords) } : {}),
+    ...(listOf(data.examples).length > 0
+      ? { examples: listOf(data.examples) }
+      : {}),
+    ...(listOf(data.keywords).length > 0
+      ? { keywords: listOf(data.keywords) }
+      : {}),
     ...(String(data.expected_user_state || "").trim()
       ? { expected_user_state: String(data.expected_user_state).trim() }
       : {}),
@@ -691,7 +696,9 @@ export const botFlowService = {
       return false;
     }
 
-    const history = (Array.isArray(session.history) ? session.history : []) as any[];
+    const history = (
+      Array.isArray(session.history) ? session.history : []
+    ) as any[];
     history.push({
       role: "bot",
       text: followUpText,
@@ -794,7 +801,8 @@ export const botFlowService = {
     }
 
     let currentNodeId = session.current_node_id;
-    let node: FlowNode | null = nodes.find((n) => n.id === currentNodeId) || null;
+    let node: FlowNode | null =
+      nodes.find((n) => n.id === currentNodeId) || null;
 
     const resolveNodeDelay = (nodeData: any, fallback = 1500) => {
       if (typeof nodeData?.delayMs === "number" && nodeData.delayMs >= 0) {
@@ -1180,7 +1188,7 @@ export const botFlowService = {
             if (nextPage > totalPages) {
               return [
                 {
-                  text: 'Não tenho mais opções nessa sessão. Se já escolheu, envie: "Já escolhi, seguir para próxima etapa".',
+                  text: 'Não tenho mais opções nessa sessão. Se já escolheu, envie: "Já escolhi - Falar com atendente".',
                 },
               ];
             }
@@ -1199,8 +1207,8 @@ export const botFlowService = {
             const targetId = foundEdge?.target;
             if (!targetId) {
               const menuText = hasMorePages
-                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi, seguir para próxima etapa\n3. Voltar ao menu"
-                : "Escolha uma opção:\n1. Já escolhi, seguir para próxima etapa\n2. Voltar ao menu";
+                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi - Falar com atendente\n3. Voltar ao menu"
+                : "Escolha uma opção:\n1. Já escolhi - Falar com atendente\n2. Voltar ao menu";
               return await sendFallbackResponse(
                 menuText,
                 currentNodeId!,
@@ -1208,7 +1216,9 @@ export const botFlowService = {
                 resolveNodeDelay(node?.data, 1200),
               );
             }
-            node = targetId ? nodes.find((n) => n.id === targetId) || null : null;
+            node = targetId
+              ? nodes.find((n) => n.id === targetId) || null
+              : null;
           } else if (wantsBack) {
             sessionState = { ...sessionState, productSearch: undefined };
             const backEdge = edges.find(
@@ -1218,8 +1228,8 @@ export const botFlowService = {
             );
             if (!backEdge) {
               const menuText = hasMorePages
-                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi, seguir para próxima etapa\n3. Voltar ao menu"
-                : "Escolha uma opção:\n1. Já escolhi, seguir para próxima etapa\n2. Voltar ao menu";
+                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi - Falar com atendente\n3. Voltar ao menu"
+                : "Escolha uma opção:\n1. Já escolhi - Falar com atendente\n2. Voltar ao menu";
               return await sendFallbackResponse(
                 menuText,
                 currentNodeId!,
@@ -1232,10 +1242,10 @@ export const botFlowService = {
             const options = hasMorePages
               ? [
                   "Ver mais opções dessa sessão",
-                  "Já escolhi, seguir para próxima etapa",
+                  "Já escolhi - Falar com atendente",
                   "Voltar ao menu",
                 ]
-              : ["Já escolhi, seguir para próxima etapa", "Voltar ao menu"];
+              : ["Já escolhi - Falar com atendente", "Voltar ao menu"];
             const menuText = `Escolha uma opção:\n${options
               .map((opt, index) => `${index + 1}. ${opt}`)
               .join("\n")}`.trim();
@@ -1302,7 +1312,8 @@ export const botFlowService = {
               resolveNodeDelay(currentNode.data, 1500),
             );
           }
-          const holidaysClosureMessage = await buildActiveHolidayClosureMessage();
+          const holidaysClosureMessage =
+            await buildActiveHolidayClosureMessage();
           if (holidaysClosureMessage) {
             appendMessage(
               holidaysClosureMessage,
@@ -1357,7 +1368,9 @@ export const botFlowService = {
           );
 
           const data = (currentNode.data || {}) as Record<string, any>;
-          const searchTerm = String(data.searchQuery || data.searchPrefix || "").trim();
+          const searchTerm = String(
+            data.searchQuery || data.searchPrefix || "",
+          ).trim();
           const maxResults =
             typeof data.maxResults === "number" && data.maxResults > 0
               ? Math.round(data.maxResults)
@@ -1535,10 +1548,10 @@ export const botFlowService = {
             const options = [];
             if (hasMore) {
               options.push("1. Ver mais opções dessa sessão");
-              options.push("2. Já escolhi, seguir para próxima etapa");
+              options.push("2. Já escolhi - Falar com atendente");
               options.push("3. Voltar ao menu");
             } else {
-              options.push("1. Já escolhi, seguir para próxima etapa");
+              options.push("1. Já escolhi - Falar com atendente");
               options.push("2. Voltar ao menu");
             }
             appendMessage(
@@ -1580,7 +1593,9 @@ export const botFlowService = {
 
         case "blockNode":
           return await activateSilentBlock({
-            botText: String(currentNode.data?.message || currentNode.data?.content || ""),
+            botText: String(
+              currentNode.data?.message || currentNode.data?.content || "",
+            ),
             stateObj: state,
             delayMs: resolveNodeDelay(currentNode.data, 900),
           });

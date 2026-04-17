@@ -144,7 +144,6 @@ class AIAgentService {
     const alwaysAllowed = new Set([
       "query_company_knowledge",
       "notify_human_support",
-      "save_customer_summary",
       "get_current_business_hours",
       "get_active_holidays",
       "math_calculator",
@@ -197,10 +196,23 @@ class AIAgentService {
 
   private extractOptionNumberFromText(text: string) {
     const lower = (text || "").toLowerCase();
-    const match = lower.match(/(?:op[çc][aã]o|opcao|op)\s*(\d{1,2})/i);
-    if (!match?.[1]) return null;
-    const value = Number(match[1]);
-    return Number.isFinite(value) && value > 0 ? value : null;
+    const numericMatch = lower.match(/(?:op[çc][aã]o|opcao|op)\s*(\d{1,2})/i);
+    if (numericMatch?.[1]) {
+      const value = Number(numericMatch[1]);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+
+    const ordinalMap: Array<[RegExp, number]> = [
+      [/\bprimeir[oa]\b/, 1],
+      [/\bsegund[ao]\b/, 2],
+      [/\bterceir[ao]\b/, 3],
+      [/\bquart[ao]\b/, 4],
+      [/\bquint[ao]\b/, 5],
+    ];
+    for (const [pattern, number] of ordinalMap) {
+      if (pattern.test(lower)) return number;
+    }
+    return null;
   }
 
   private parseCatalogProductsFromOutput(
@@ -429,7 +441,7 @@ ${markdown}
   }
 
   private userConfirmedCurrentProduct(userMessage: string) {
-    return /\b(vou levar|vou querer|quero essa|quero esse|pode finalizar|pode fechar|confirmo)\b/i.test(
+    return /\b(vou levar|vou querer|quero essa|quero esse|gostei dessa|gostei dessa\s+(primeira|segunda|terceira|quarta|quinta)|pode finalizar|pode fechar|confirmo)\b/i.test(
       (userMessage || "").toLowerCase(),
     );
   }
@@ -1014,6 +1026,18 @@ ${markdown}
       location: this.isLocationFallbackQuestion(normalizedMessage),
       product: this.isProductFallbackQuestion(normalizedMessage),
     };
+  }
+
+  private isExplicitHumanHandoffRequest(message: string) {
+    const text = (message || "").toLowerCase();
+    return /\b(falar com (um )?(humano|atendente|pessoa)|atendimento humano|quero (um )?atendente|me passa para (o )?atendente|suporte humano)\b/i.test(
+      text,
+    );
+  }
+
+  private isValidCustomerPhone(phone: string | null | undefined) {
+    const digits = (phone || "").replace(/\D/g, "");
+    return digits.length >= 10;
   }
 
   private shouldUseKnowledgeRetrievalInLab(userMessage: string) {
@@ -4396,6 +4420,68 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             continue;
           }
 
+          if (name === "notify_human_support") {
+            const rawReason = (args.reason || "").toString().trim().toLowerCase();
+            const reasonAllowsHandoff =
+              rawReason === "cart_added" ||
+              rawReason === "cliente_quer_atendente" ||
+              rawReason === "pedido_corporativo" ||
+              rawReason === "problema_tecnico" ||
+              rawReason === "tentativa_manipulacao_preco";
+            const explicitHandoffRequest =
+              this.isExplicitHumanHandoffRequest(currentUserMessage);
+            if (!isCartEvent && !reasonAllowsHandoff && !explicitHandoffRequest) {
+              const errorMsg = `{"status":"error","error":"handoff_not_allowed","message":"Não transfira para humano sem pedido explícito do cliente ou evento crítico. Continue o atendimento na fase atual e responda a dúvida com as tools apropriadas."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
+          }
+
+          if (name === "save_customer_summary") {
+            if (!args.customer_phone) {
+              const sessionRec = await prisma.aIAgentSession.findUnique({
+                where: { id: sessionId },
+                select: { customer_phone: true },
+              });
+              if (sessionRec?.customer_phone) {
+                args.customer_phone = sessionRec.customer_phone;
+              } else if (customerPhone) {
+                args.customer_phone = customerPhone;
+              }
+            }
+            if (!this.isValidCustomerPhone(args.customer_phone)) {
+              const skipMsg = `{"status":"skipped","reason":"invalid_customer_phone","message":"Resumo não persistido em memória longa: customer_phone ausente/inválido."}`;
+              messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: skipMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: skipMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
+              });
+              continue;
+            }
+          }
+
           if (name === "notify_human_support" || name === "finalize_checkout") {
             args.session_id = sessionId;
 
@@ -4787,12 +4873,16 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 });
                 customerPhone = sessRec?.customer_phone || "";
               }
-              if (customerPhone) {
+              if (this.isValidCustomerPhone(customerPhone)) {
                 await mcpClientService.callTool("save_customer_summary", {
                   customer_phone: customerPhone,
                   summary: args.customer_context || toolOutputText,
                 });
                 logger.info(`💾 Memória salva para ${customerPhone}`);
+              } else {
+                logger.info(
+                  "ℹ️ Resumo de cliente não salvo: telefone ausente/inválido na sessão",
+                );
               }
             } catch (e) {
               logger.error("❌ Falha ao salvar memória", e);

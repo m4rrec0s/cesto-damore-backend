@@ -735,12 +735,14 @@ export const requireApiKey = (
     ".webmanifest",
     "/webhook/mercadopago",
     "/api/webhook/mercadopago",
+    "/api/uploads/temp",
     "/mercadopago/public-config",
   ];
 
   const startsWithPublic = [
     "/images",
     "/uploads/temp",
+    "/api/uploads/temp",
     "/public",
     "/assets",
     "/static",

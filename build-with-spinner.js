@@ -2,58 +2,42 @@
 
 const { spawn } = require("node:child_process");
 
-const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const startedAt = Date.now();
-let frameIndex = 0;
-let interval = null;
+let progressInterval = null;
+let watchdog = null;
+let finished = false;
 
 const formatSeconds = (ms) => (ms / 1000).toFixed(1);
 
-const writeSpinner = () => {
-  if (!process.stdout.isTTY) return;
-  const frame = frames[frameIndex % frames.length];
-  frameIndex += 1;
-  process.stdout.write(
-    `\r${frame} Validando TypeScript e gerando arquivos em dist...`,
-  );
+const startProgressLogs = () => {
+  process.stdout.write("Validando TypeScript e gerando arquivos em dist...\n");
+  progressInterval = setInterval(() => {
+    if (finished) return;
+    const elapsed = formatSeconds(Date.now() - startedAt);
+    process.stdout.write(`⌛ Build em andamento... ${elapsed}s\n`);
+  }, 10000);
 };
 
-const stopSpinner = () => {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
+const stopProgressLogs = () => {
+  if (progressInterval) {
+    clearInterval(progressInterval);
+    progressInterval = null;
   }
 };
 
-const tsc = spawn("tsc", {
-  stdio: ["inherit", "pipe", "pipe"],
-  shell: process.platform === "win32",
-});
-
-if (process.stdout.isTTY) {
-  writeSpinner();
-  interval = setInterval(writeSpinner, 90);
-} else {
-  process.stdout.write(
-    "Validando TypeScript e gerando arquivos em dist...\n",
-  );
-}
-
-tsc.stdout.on("data", (chunk) => {
-  process.stdout.write(chunk);
-});
-
-tsc.stderr.on("data", (chunk) => {
-  process.stderr.write(chunk);
-});
-
-tsc.on("close", (code) => {
-  stopSpinner();
+const finalize = (code, errorMessage) => {
+  if (finished) return;
+  finished = true;
+  stopProgressLogs();
+  if (watchdog) {
+    clearTimeout(watchdog);
+    watchdog = null;
+  }
   const duration = formatSeconds(Date.now() - startedAt);
 
-  if (process.stdout.isTTY) {
-    process.stdout.write("\r");
-    process.stdout.clearLine(0);
+  if (errorMessage) {
+    process.stderr.write(`❌ ${errorMessage}\n`);
+    process.exit(1);
   }
 
   if (code === 0) {
@@ -63,14 +47,46 @@ tsc.on("close", (code) => {
 
   process.stderr.write(`❌ Build falhou em ${duration}s\n`);
   process.exit(code || 1);
+};
+
+const tsc = spawn("tsc", ["-p", "tsconfig.json"], {
+  stdio: ["inherit", "pipe", "pipe"],
+  shell: process.platform === "win32",
+});
+
+startProgressLogs();
+
+tsc.stdout.on("data", (chunk) => {
+  process.stdout.write(chunk);
+});
+
+tsc.stderr.on("data", (chunk) => {
+  process.stderr.write(chunk);
+});
+
+tsc.on("exit", (code) => {
+  finalize(code);
 });
 
 tsc.on("error", (error) => {
-  stopSpinner();
-  if (process.stdout.isTTY) {
-    process.stdout.write("\r");
-    process.stdout.clearLine(0);
-  }
-  process.stderr.write(`❌ Erro ao executar TypeScript: ${error.message}\n`);
-  process.exit(1);
+  finalize(1, `Erro ao executar TypeScript: ${error.message}`);
 });
+
+tsc.on("close", (code) => {
+  finalize(code);
+});
+
+const killChild = (signal) => {
+  if (finished) return;
+  if (!tsc.killed) {
+    tsc.kill(signal);
+  }
+  finalize(130, `Build interrompido por ${signal}`);
+};
+
+process.on("SIGINT", () => killChild("SIGINT"));
+process.on("SIGTERM", () => killChild("SIGTERM"));
+
+watchdog = setTimeout(() => {
+  killChild("SIGTERM");
+}, 1000 * 60 * 15);

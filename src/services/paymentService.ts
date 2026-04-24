@@ -107,6 +107,7 @@ export interface ProcessTransparentCheckoutData {
 
 export class PaymentService {
   private static notificationSentOrders: Set<string> = new Set();
+  private static customizationReadySentOrders: Set<string> = new Set();
 
   private static customizationValueHasImageAssets(value?: string | null) {
     if (!value) return false;
@@ -202,10 +203,6 @@ export class PaymentService {
           )}`,
         );
 
-        const willNotify =
-          !!finalizeRes.folderUrl ||
-          (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
-
         webhookNotificationService.notifyPaymentUpdate(orderId, {
           status: "approved",
           paymentId,
@@ -216,16 +213,14 @@ export class PaymentService {
           paymentMethod,
         });
 
-        if (willNotify) {
-          await this.sendOrderConfirmationNotificationOnce(
-            orderId,
-            finalizeRes.folderUrl,
-          );
-        } else {
-          logger.warn(
-            `⚠️ Finalização sem link pronto para ${orderId}; SSE enviado e WhatsApp adiado`,
-          );
-        }
+        await this.sendOrderConfirmationNotificationOnce(
+          orderId,
+          finalizeRes.folderUrl,
+        );
+        await this.sendCustomizationReadyNotificationOnce(
+          orderId,
+          finalizeRes.folderUrl,
+        );
       } catch (error) {
         logger.error(
           `⚠️ Erro no pós-processamento assíncrono do pedido ${orderId}:`,
@@ -241,6 +236,14 @@ export class PaymentService {
           }),
           paymentMethod,
         });
+
+        try {
+          await this.sendOrderConfirmationNotificationOnce(orderId);
+        } catch (notifyError) {
+          logger.warn(
+            `⚠️ Falha ao enviar confirmação WhatsApp fallback para ${orderId}: ${notifyError}`,
+          );
+        }
       }
     })();
   }
@@ -299,17 +302,8 @@ export class PaymentService {
       paymentMethod,
     });
 
-    const willNotify =
-      !!finalDriveUrl ||
-      (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
-
-    if (willNotify) {
-      await this.sendOrderConfirmationNotificationOnce(orderId, finalDriveUrl);
-    } else {
-      logger.warn(
-        `⚠️ Recuperação concluída sem link/notificação para ${orderId}; aguardando próxima tentativa`,
-      );
-    }
+    await this.sendOrderConfirmationNotificationOnce(orderId, finalDriveUrl);
+    await this.sendCustomizationReadyNotificationOnce(orderId, finalDriveUrl);
   }
 
   private static scheduleNotificationCacheRelease(orderId: string) {
@@ -319,22 +313,96 @@ export class PaymentService {
     );
   }
 
+  private static scheduleCustomizationReadyCacheRelease(cacheKey: string) {
+    setTimeout(
+      () => PaymentService.customizationReadySentOrders.delete(cacheKey),
+      1000 * 60 * 60,
+    );
+  }
+
+  static async sendCustomizationReadyNotificationOnce(
+    orderId: string,
+    googleDriveUrl?: string,
+  ) {
+    if (!googleDriveUrl) {
+      return false;
+    }
+
+    const cacheKey = `${orderId}:${googleDriveUrl}`;
+    if (PaymentService.customizationReadySentOrders.has(cacheKey)) {
+      logger.info(
+        `🟡 Notificação de customizações prontas já enviada (cache) para ${orderId}, pulando.`,
+      );
+      return false;
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        user: true,
+        items: {
+          include: {
+            product: true,
+            additionals: {
+              include: {
+                additional: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      logger.warn(
+        `⚠️ Pedido ${orderId} não encontrado para notificação de customizações prontas`,
+      );
+      return false;
+    }
+
+    const items: Array<{ name: string; quantity: number; price: number }> = [];
+    order.items.forEach((item) => {
+      items.push({
+        name: item.product.name,
+        quantity: item.quantity,
+        price: Number(item.price),
+      });
+
+      item.additionals.forEach((additional) => {
+        items.push({
+          name: additional.additional.name,
+          quantity: additional.quantity,
+          price: Number(additional.price),
+        });
+      });
+    });
+
+    const notifyResult = await whatsappService.sendCustomizationReadyNotification({
+      orderId: order.id,
+      orderNumber: order.id.substring(0, 8).toUpperCase(),
+      customerName: order.user.name,
+      customerPhone: order.user.phone || undefined,
+      recipientPhone: order.recipient_phone || undefined,
+      purchaseDate: order.created_at,
+      items,
+      googleDriveUrl,
+    });
+
+    if (notifyResult.teamSent || notifyResult.customerSent) {
+      PaymentService.customizationReadySentOrders.add(cacheKey);
+      this.scheduleCustomizationReadyCacheRelease(cacheKey);
+      return true;
+    }
+
+    return false;
+  }
+
   private static async sendOrderConfirmationNotificationOnce(
     orderId: string,
     googleDriveUrl?: string,
   ) {
     const confirmationContext =
       await this.resolveOrderConfirmationDriveContext(orderId, googleDriveUrl);
-
-    if (
-      confirmationContext.hasImageCustomizations &&
-      !confirmationContext.resolvedGoogleDriveUrl
-    ) {
-      logger.warn(
-        `⏳ Adiando confirmação WhatsApp do pedido ${orderId}: link do Drive ainda não disponível`,
-      );
-      return false;
-    }
 
     if (PaymentService.notificationSentOrders.has(orderId)) {
       logger.info(
@@ -1217,6 +1285,10 @@ export class PaymentService {
                   order.id,
                   customizationResult.folderUrl,
                 );
+                await this.sendCustomizationReadyNotificationOnce(
+                  order.id,
+                  customizationResult.folderUrl,
+                );
               } catch (updateErr) {
                 logger.error(
                   `⚠️ Erro ao atualizar ordem com Drive folder:`,
@@ -1938,6 +2010,10 @@ export class PaymentService {
               dbPayment.order_id,
               finalGoogleDriveUrl,
             );
+            await this.sendCustomizationReadyNotificationOnce(
+              dbPayment.order_id,
+              finalGoogleDriveUrl,
+            );
           } catch (err) {
             logger.warn(
               `⚠️ Erro ao enviar notificação após finalização anterior: ${err}`,
@@ -1981,50 +2057,28 @@ export class PaymentService {
               );
             }
 
-            const willNotify =
-              !!finalizeRes.folderUrl ||
-              (finalizeRes.uploadedFiles === 0 && !finalizeRes.base64Detected);
+            webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
+              status: "approved",
+              paymentId: dbPayment.id,
+              mercadoPagoId: paymentId,
+              approvedAt: new Date().toLocaleString("pt-BR", {
+                timeZone: "America/Sao_Paulo",
+              }),
+              paymentMethod: paymentInfo.payment_method_id || undefined,
+            });
 
-            if (willNotify) {
-              webhookNotificationService.notifyPaymentUpdate(
-                dbPayment.order_id,
-                {
-                  status: "approved",
-                  paymentId: dbPayment.id,
-                  mercadoPagoId: paymentId,
-                  approvedAt: new Date().toLocaleString("pt-BR", {
-                    timeZone: "America/Sao_Paulo",
-                  }),
-                  paymentMethod: paymentInfo.payment_method_id || undefined,
-                },
-              );
+            console.log(
+              `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`,
+            );
 
-              console.log(
-                `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`,
-              );
-
-              await this.sendOrderConfirmationNotificationOnce(
-                dbPayment.order_id,
-                googleDriveUrl,
-              );
-            } else {
-              logger.warn(
-                `⚠️ Finalização não retornou link do Drive; pulando envio de notificações para order ${dbPayment.order_id}`,
-              );
-
-              webhookNotificationService.notifyPaymentUpdate(
-                dbPayment.order_id,
-                {
-                  status: "approved",
-                  paymentId: dbPayment.id,
-                  mercadoPagoId: paymentId,
-                  approvedAt: new Date().toLocaleString("pt-BR", {
-                    timeZone: "America/Sao_Paulo",
-                  }),
-                  paymentMethod: paymentInfo.payment_method_id || undefined,
-                },
-              );
-            }
+            await this.sendOrderConfirmationNotificationOnce(
+              dbPayment.order_id,
+              googleDriveUrl,
+            );
+            await this.sendCustomizationReadyNotificationOnce(
+              dbPayment.order_id,
+              googleDriveUrl,
+            );
           } catch (err) {
             logger.error(
               "⚠️ Erro na finalização das customizações antes do envio de notificações:",
@@ -2043,6 +2097,14 @@ export class PaymentService {
             logger.warn(
               `📤 Sent SSE notification despite finalization failure for order ${dbPayment.order_id}`,
             );
+
+            try {
+              await this.sendOrderConfirmationNotificationOnce(dbPayment.order_id);
+            } catch (notifyError) {
+              logger.warn(
+                `⚠️ Falha ao enviar confirmação WhatsApp fallback para ${dbPayment.order_id}: ${notifyError}`,
+              );
+            }
           }
         }
       } else {

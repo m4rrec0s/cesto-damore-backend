@@ -882,6 +882,68 @@ class WhatsAppService {
     }
   }
 
+  async sendCustomizationReadyNotification(data: {
+    orderId: string;
+    orderNumber: string;
+    customerName: string;
+    customerPhone?: string;
+    recipientPhone?: string;
+    purchaseDate: string | Date;
+    items: Array<{ name: string; quantity: number; price: number }>;
+    googleDriveUrl: string;
+  }): Promise<{ teamSent: boolean; customerSent: boolean }> {
+    if (!this.isConfigured()) {
+      logger.warn(
+        "WhatsApp não configurado. Pulando notificação de customizações prontas.",
+      );
+      return { teamSent: false, customerSent: false };
+    }
+
+    const purchaseDateFormatted = this.formatToBrasiliaTime(data.purchaseDate);
+    const customerPhoneLabel = data.customerPhone || "Não informado";
+    const recipientPhoneLabel = data.recipientPhone || "Não informado";
+    const itemsSummary = data.items
+      .map((item) => `• ${item.quantity}x ${item.name}`)
+      .join("\n");
+
+    let teamMessage = `🎨 *CUSTOMIZAÇÕES PRONTAS* 🎨\n\n`;
+    teamMessage += `📁 *Link do Drive (prioritário):*\n${data.googleDriveUrl}\n\n`;
+    teamMessage += `📦 Pedido: #${data.orderNumber}\n`;
+    teamMessage += `👤 Cliente: ${data.customerName}\n`;
+    teamMessage += `📱 Número do cliente: ${customerPhoneLabel}\n`;
+    teamMessage += `🎁 Número do destinatário: ${recipientPhoneLabel}\n`;
+    teamMessage += `📅 Data da compra: ${purchaseDateFormatted}\n\n`;
+    teamMessage += `🛒 Produtos:\n${itemsSummary}\n`;
+
+    let customerMessage = `🎉 *Suas customizações estão prontas!* 🎉\n\n`;
+    customerMessage += `📁 *Link do Drive:*\n${data.googleDriveUrl}\n\n`;
+    customerMessage += `📦 Pedido: #${data.orderNumber}\n`;
+    customerMessage += `👤 Cliente: ${data.customerName}\n`;
+    customerMessage += `📱 Número cadastrado: ${customerPhoneLabel}\n`;
+    customerMessage += `📅 Data da compra: ${purchaseDateFormatted}\n\n`;
+    customerMessage += `🛒 Produtos:\n${itemsSummary}\n\n`;
+    customerMessage += `_Equipe Cesto d'Amore ❤️_`;
+
+    const teamSent = await this.sendMessage(teamMessage);
+
+    let customerSent = false;
+    if (data.customerPhone) {
+      const normalizedPhone = this.normalizePhoneForWhatsApp(data.customerPhone);
+      if (normalizedPhone.length >= 12) {
+        customerSent = await this.sendDirectMessage(
+          normalizedPhone,
+          customerMessage,
+        );
+      } else {
+        logger.warn(
+          `Telefone inválido para notificação de customizações prontas: ${data.customerPhone}`,
+        );
+      }
+    }
+
+    return { teamSent, customerSent };
+  }
+
   private formatToBrasiliaTime(isoDate: string | Date): string {
     const date = typeof isoDate === "string" ? new Date(isoDate) : isoDate;
     return date.toLocaleString("pt-BR", {

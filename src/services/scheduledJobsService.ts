@@ -196,24 +196,10 @@ class ScheduledJobsService {
             logger.info(
               `✅ Link do Drive gerado para pedido ${order.id}: ${result.folderUrl}`,
             );
-
-            if (order.user?.phone) {
-              const whatsappService = (await import("./whatsappService"))
-                .default;
-
-              await whatsappService.sendDirectMessage(
-                order.user.phone,
-                `🎉 *Suas personalizações estão prontas!*\n\n` +
-                  `Pedido: #${order.id.substring(0, 8).toUpperCase()}\n\n` +
-                  `📁 Acesse suas fotos:\n${result.folderUrl}\n\n` +
-                  `_Obrigado pela preferência!_\n` +
-                  `Equipe Cesto d'Amore ❤️`,
-              );
-
-              logger.info(
-                `📱 Notificação WhatsApp enviada para ${order.user.name}`,
-              );
-            }
+            await PaymentService.sendCustomizationReadyNotificationOnce(
+              order.id,
+              result.folderUrl,
+            );
           } else {
             logger.warn(
               `⚠️ Finalização do pedido ${order.id} não gerou link do Drive`,
@@ -294,18 +280,10 @@ class ScheduledJobsService {
         };
       }
 
-      if (order.user?.phone) {
-        const whatsappService = (await import("./whatsappService")).default;
-
-        await whatsappService.sendDirectMessage(
-          order.user.phone,
-          `🎉 *Suas personalizações estão prontas!*\n\n` +
-            `Pedido: #${orderId.substring(0, 8).toUpperCase()}\n\n` +
-            `📁 Acesse suas fotos:\n${result.folderUrl}\n\n` +
-            `_Obrigado pela preferência!_\n` +
-            `Equipe Cesto d'Amore ❤️`,
-        );
-      }
+      await PaymentService.sendCustomizationReadyNotificationOnce(
+        orderId,
+        result.folderUrl,
+      );
 
       return {
         success: true,

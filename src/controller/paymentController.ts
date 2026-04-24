@@ -407,12 +407,17 @@ export class PaymentController {
         }
       }
 
-      await PaymentService.processWebhookNotification(webhookData, headers);
-
-      console.log(
-        "✅ PaymentController.handleWebhook - Processado com sucesso",
-      );
       res.status(200).json({ received: true });
+
+      void PaymentService.processWebhookNotification(webhookData, headers)
+        .then(() => {
+          console.log(
+            "✅ PaymentController.handleWebhook - Processado com sucesso",
+          );
+        })
+        .catch((error) => {
+          logger.error("❌ PaymentController.handleWebhook - Erro assíncrono:", error);
+        });
     } catch (error) {
       logger.error("❌ PaymentController.handleWebhook - Erro:", error);
       res.status(500).json({

@@ -94,7 +94,13 @@ app.use("/uploads/temp", express.static(tempDir));
 const imagesDir = normalizePath(process.env.UPLOAD_DIR, "images");
 
 logger.info(`📂 [Server] Serving images from: ${imagesDir}`);
-app.use("/images", express.static(imagesDir));
+app.use(
+  "/images",
+  express.static(imagesDir, {
+    maxAge: "365d",
+    immutable: true,
+  }),
+);
 
 app.get("/", async (req, res) => {
   return res.json({ message: "Cesto d'Amore Backend is running!" });

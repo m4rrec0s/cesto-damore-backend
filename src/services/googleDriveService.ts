@@ -60,13 +60,14 @@ class GoogleDriveService {
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
     if (!clientId || !clientSecret) {
-      logger.error("❌ GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET não definidos");
-      logger.error(
-        `🔍 GOOGLE_CLIENT_ID: ${clientId ? "definido" : "NÃO DEFINIDO"}`
-      );
-      logger.error(
-        `🔍 GOOGLE_CLIENT_SECRET: ${clientSecret ? "definido" : "NÃO DEFINIDO"}`
-      );
+      logger.error("❌ Credenciais OAuth2 do Google não configuradas");
+      if (process.env.NODE_ENV !== "production") {
+        logger.debug("🔍 Estado das credenciais OAuth2", {
+          hasGoogleClientId: !!clientId,
+          hasGoogleClientSecret: !!clientSecret,
+          hasGoogleRedirectUri: !!redirectUri,
+        });
+      }
       throw new Error("Credenciais OAuth2 do Google não configuradas");
     }
 

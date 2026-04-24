@@ -299,24 +299,31 @@ class OAuthController {
   
 
   async debug(req: Request, res: Response) {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(404).json({ error: "Endpoint não disponível" });
+    }
+
     try {
       const debugInfo = await googleDriveService.debugServiceAccount();
 
       const oauthDebug = {
-        GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
-          ? "definido"
-          : "NÃO DEFINIDO",
-        GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET
-          ? "definido"
-          : "NÃO DEFINIDO",
-        GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || "NÃO DEFINIDO",
+        hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+        hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+        hasGoogleRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
         hasOAuthClient: !!googleDriveService["oauth2Client"],
       };
 
       res.json({
-        serviceAccount: { enabled: false, email: null },
+        serviceAccount: {
+          hasOAuthClient: !!debugInfo?.hasOAuthClient,
+          hasDriveClient: !!debugInfo?.hasDriveClient,
+        },
         oauth: oauthDebug,
-        debug: debugInfo,
+        debug: {
+          tokenObtained: !!debugInfo?.tokenObtained,
+          hasTokenExpiry: !!debugInfo?.tokenExpiry,
+          hasTokenError: !!debugInfo?.tokenError,
+        },
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {

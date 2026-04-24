@@ -230,9 +230,9 @@ const BASE_URL = process.env.BASE_URL;
 initializeSecurityMonitor();
 
 app.listen(PORT, () => {
-  logger.status(`🚀 Server running on ${BASE_URL}`, "green");
+  logger.status(`🚀 Server running`, "green");
   logger.status(`📡 PORT: ${PORT}`, "green");
-  logger.status(`🔗 BASE_URL: ${BASE_URL}`, "green");
+  logger.status(`🔗 BASE_URL: ${BASE_URL ? "[configured]" : "[not set]"}`, "green");
   logger.status(
     `🌐 Environment: ${process.env.NODE_ENV || "development"}`,
     "green",

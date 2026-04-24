@@ -12,8 +12,9 @@ coverage
 *.log
 .idea
 .editorconfig
-# Não ignorar .env - será usado via docker run --env-file
-# .env
+# Nunca enviar segredos para o contexto de build
+.env
+.env.*
 # Não ignorar images e customizations - necessários em produção
 # images/*
 # customizations/*

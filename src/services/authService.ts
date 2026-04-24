@@ -2,6 +2,7 @@ import { auth, createCustomToken } from "../config/firebase";
 import axios from "axios";
 import prisma from "../database/prisma";
 import jwt from "jsonwebtoken";
+import logger from "../utils/logger";
 
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 
@@ -226,7 +227,7 @@ class AuthService {
           },
         });
 
-        console.log(`🔐 [2FA] Código gerado para ${email}: ${twoFactorCode}`);
+        logger.debug(`🔐 [2FA] Código gerado para ${email}`);
 
         return {
           requires2FA: true,

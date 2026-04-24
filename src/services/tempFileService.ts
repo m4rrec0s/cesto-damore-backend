@@ -89,8 +89,7 @@ class TempFileService {
         `✅ Arquivo temporário salvo: ${filename} (${buffer.length} bytes)`,
       );
       logger.info(`   Caminho: ${filepath}`);
-      logger.info(`   URL: ${url}`);
-      logger.info(`   BASE_URL env: ${process.env.BASE_URL || "NOT SET"}`);
+      logger.info(`   URL: /uploads/temp/${filename}`);
 
       return {
         filename,

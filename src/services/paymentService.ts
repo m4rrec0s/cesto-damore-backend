@@ -1910,6 +1910,59 @@ export class PaymentService {
     }
   }
 
+  static async reconcilePendingPixPayments(params?: {
+    limit?: number;
+    maxAgeHours?: number;
+  }) {
+    const limit = Math.max(1, Math.min(params?.limit ?? 20, 100));
+    const maxAgeHours = Math.max(1, Math.min(params?.maxAgeHours ?? 72, 240));
+    const oldestAllowed = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
+
+    const candidates = await prisma.payment.findMany({
+      where: {
+        mercado_pago_id: { not: null },
+        payment_method: "pix",
+        status: {
+          in: ["PENDING", "IN_PROCESS", "IN_MEDIATION", "AUTHORIZED"],
+        },
+        created_at: { gte: oldestAllowed },
+      },
+      select: {
+        id: true,
+        order_id: true,
+        mercado_pago_id: true,
+        status: true,
+      },
+      orderBy: { created_at: "asc" },
+      take: limit,
+    });
+
+    if (candidates.length === 0) {
+      return { scanned: 0, reprocessed: 0 };
+    }
+
+    let reprocessed = 0;
+    for (const candidate of candidates) {
+      try {
+        const mercadoPagoId = candidate.mercado_pago_id;
+        if (!mercadoPagoId) continue;
+
+        const paymentInfo = await this.getPayment(mercadoPagoId);
+        const newStatus = this.mapPaymentStatus(String(paymentInfo?.status || ""));
+        if (newStatus !== candidate.status || paymentInfo?.status === "approved") {
+          await this.processPaymentNotification(mercadoPagoId, paymentInfo);
+          reprocessed++;
+        }
+      } catch (error) {
+        logger.warn(
+          `⚠️ Falha ao reconciliar pagamento PIX ${candidate.mercado_pago_id} (order ${candidate.order_id}): ${error}`,
+        );
+      }
+    }
+
+    return { scanned: candidates.length, reprocessed };
+  }
+
   static async processPaymentNotification(
     paymentId: string,
     mockPaymentData?: any,

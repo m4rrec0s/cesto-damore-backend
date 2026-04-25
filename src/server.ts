@@ -434,8 +434,6 @@ cron.schedule("*/20 * * * *", async () => {
   }
 });
 
-scheduledJobsService.start();
-
 process.on("unhandledRejection", (reason, promise) => {
   logger.error("🛑 Unhandled Rejection at:", promise, "reason:", reason);
 });

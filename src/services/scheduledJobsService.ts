@@ -5,6 +5,7 @@ import trendStatsService from "./trendStatsService";
 
 class ScheduledJobsService {
   private webhookReplayInterval: NodeJS.Timeout | null = null;
+  private pixReconcileInterval: NodeJS.Timeout | null = null;
   private driveRetryInterval: NodeJS.Timeout | null = null;
   private backupCleanupInterval: NodeJS.Timeout | null = null;
   private trendStatsInterval: NodeJS.Timeout | null = null;
@@ -15,6 +16,7 @@ class ScheduledJobsService {
     logger.info("🕐 Iniciando scheduled jobs...");
 
     this.startWebhookReplayJob();
+    this.startPendingPixReconcileJob();
 
     this.startDriveRetryJob();
 
@@ -33,6 +35,11 @@ class ScheduledJobsService {
     if (this.webhookReplayInterval) {
       clearInterval(this.webhookReplayInterval);
       this.webhookReplayInterval = null;
+    }
+
+    if (this.pixReconcileInterval) {
+      clearInterval(this.pixReconcileInterval);
+      this.pixReconcileInterval = null;
     }
 
     if (this.driveRetryInterval) {
@@ -78,6 +85,41 @@ class ScheduledJobsService {
       logger.debug("✅ Verificação de webhooks offline concluída");
     } catch (error) {
       logger.error("❌ Erro ao reprocessar webhooks offline:", error);
+    }
+  }
+
+  private startPendingPixReconcileJob() {
+    const INTERVAL_MS = 60 * 1000;
+
+    logger.info(
+      `💳 Agendando reconciliação PIX pendente (intervalo: ${INTERVAL_MS / 1000}s)`,
+    );
+
+    this.reconcilePendingPixPayments();
+
+    this.pixReconcileInterval = setInterval(() => {
+      this.reconcilePendingPixPayments();
+    }, INTERVAL_MS);
+  }
+
+  private async reconcilePendingPixPayments() {
+    try {
+      const result = await PaymentService.reconcilePendingPixPayments({
+        limit: 30,
+        maxAgeHours: 72,
+      });
+
+      if (result.reprocessed > 0) {
+        logger.info(
+          `✅ Reconciliação PIX: ${result.reprocessed}/${result.scanned} pagamento(s) atualizado(s)`,
+        );
+      } else {
+        logger.debug(
+          `🔍 Reconciliação PIX executada sem mudanças (${result.scanned} verificados)`,
+        );
+      }
+    } catch (error) {
+      logger.error("❌ Erro na reconciliação PIX pendente:", error);
     }
   }
 

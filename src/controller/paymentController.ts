@@ -392,34 +392,21 @@ export class PaymentController {
         webhookData?.resource ||
         null;
       logger.info(
-        "📨 PaymentController.handleWebhook - Iniciando processamento",
+        "🔔 [Webhook MP] Recebido pelo controller",
         { type: incomingType || null, resource: incomingResource || null },
       );
-
-      if (process.env.NODE_ENV !== "production") {
-        try {
-          logger.debug(
-            "📮 Webhook payload (debug):",
-            JSON.stringify(webhookData, null, 2),
-          );
-        } catch (err) {
-          logger.warn("Falha ao imprimir payload do webhook (debug)");
-        }
-      }
 
       res.status(200).json({ received: true });
 
       void PaymentService.processWebhookNotification(webhookData, headers)
         .then(() => {
-          console.log(
-            "✅ PaymentController.handleWebhook - Processado com sucesso",
-          );
+          logger.info("✅ [Webhook MP] Processamento concluído");
         })
         .catch((error) => {
-          logger.error("❌ PaymentController.handleWebhook - Erro assíncrono:", error);
+          logger.error("❌ [Webhook MP] Falha no processamento assíncrono:", error);
         });
     } catch (error) {
-      logger.error("❌ PaymentController.handleWebhook - Erro:", error);
+      logger.error("❌ [Webhook MP] Falha no controller:", error);
       res.status(500).json({
         error: "Falha ao processar webhook",
         details: "Erro interno do servidor",

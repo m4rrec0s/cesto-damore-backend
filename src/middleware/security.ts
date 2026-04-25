@@ -380,44 +380,17 @@ export const validateMercadoPagoWebhook = (
   next: NextFunction,
 ) => {
   try {
-
-    const bodyPreview = req.body
-      ? {
-
-          type:
-            req.body.type || req.body.action?.split(".")[0] || req.body.topic,
-          action: req.body.action,
-          live_mode: req.body.live_mode,
-          paymentId: req.body.data?.id || req.body.resource?.split("/").pop(),
-
-          topic: req.body.topic,
-          resource: req.body.resource,
-
-          hasData: !!req.body.data,
-          keys: Object.keys(req.body),
-        }
-      : "body vazio";
-
-    console.log("🔔 Webhook recebido do Mercado Pago", {
-      headers: {
-        "x-signature": req.headers["x-signature"] ? "presente" : "ausente",
-        "x-request-id": req.headers["x-request-id"] ? "presente" : "ausente",
-      },
-      body: bodyPreview,
-    });
+    logger.info("🔔 [Webhook MP] Webhook recebido");
 
     if (!mercadoPagoConfig.security.enableWebhookValidation) {
-      console.log("⚠️ Validação de webhook desabilitada");
+      logger.warn("🟡 [Webhook MP] Validação de assinatura desabilitada");
       return next();
     }
 
     let { type, data, live_mode, action, resource, topic } = req.body;
 
     if (!type && !action && topic && resource) {
-      console.log("📦 Webhook formato antigo detectado - normalizando", {
-        topic,
-        resource,
-      });
+      logger.info("🔄 [Webhook MP] Normalizando formato legado");
 
       let resourceId: string | null = null;
 
@@ -443,13 +416,7 @@ export const validateMercadoPagoWebhook = (
 
       type = topic;
       data = { id: resourceId } as any;
-      logger.warn(
-        "⚠️ Aceitando formato antigo e normalizando para processamento",
-        {
-          normalizedType: type,
-          normalizedResourceId: resourceId,
-        },
-      );
+      logger.warn("🟡 [Webhook MP] Evento legado normalizado para processamento");
     }
 
     if (!type && action) {
@@ -514,7 +481,7 @@ export const validateMercadoPagoWebhook = (
       }
 
       if (!timestamp || !hash) {
-        logger.warn("Webhook rejeitado - formato de assinatura inválido");
+        logger.warn("🚫 [Webhook MP] Assinatura inválida");
         return res.status(401).json({
           error: "Formato de assinatura inválido",
           code: "INVALID_SIGNATURE_FORMAT",
@@ -526,19 +493,10 @@ export const validateMercadoPagoWebhook = (
       const difference = currentTimestamp - webhookTimestamp;
 
       if (difference > 3600) {
-
-        logger.warn(
-          "⚠️ Webhook com timestamp antigo (possível reprocessamento) - ACEITANDO MESMO ASSIM",
-          {
-            webhookTimestamp,
-            webhookDate: new Date(webhookTimestamp * 1000).toISOString(),
-            currentTimestamp,
-            currentDate: new Date(currentTimestamp * 1000).toISOString(),
-            differenceInMinutes: Math.floor(difference / 60),
-            differenceInHours: Math.floor(difference / 3600),
-            paymentId: data?.id,
-          },
-        );
+        logger.warn("🟡 [Webhook MP] Timestamp antigo recebido (aceito)", {
+          paymentId: data?.id,
+          ageHours: Math.floor(difference / 3600),
+        });
       }
 
       const dataId = data?.id?.toString() || "";
@@ -549,10 +507,8 @@ export const validateMercadoPagoWebhook = (
         .toString(crypto.enc.Hex);
 
       if (hash !== expectedHash) {
-        logger.warn("🚫 [SECURITY] Webhook rejeitado - assinatura inválida", {
+        logger.warn("🚫 [Webhook MP] Assinatura inválida", {
           paymentId: dataId,
-          receivedHash: hash.substring(0, 10) + "...",
-          expectedHash: expectedHash.substring(0, 10) + "...",
         });
 
         return res.status(403).json({
@@ -561,9 +517,8 @@ export const validateMercadoPagoWebhook = (
         });
       }
 
-      console.log("✅ Webhook validado com sucesso (assinatura correta)", {
+      logger.info("✅ [Webhook MP] Assinatura validada", {
         paymentId: dataId,
-        type: type,
       });
     } else {
       logger.warn(

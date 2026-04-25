@@ -1671,13 +1671,9 @@ export class PaymentService {
       }
 
       if (data.action === "payment.created") {
-        logger.info(
-          "Webhook de criação ignorado - aguardando confirmação de pagamento",
-          {
-            action: data.action,
-            paymentId: data.data?.id,
-          },
-        );
+        logger.info("🔔 [Webhook MP] Criação de pagamento recebida", {
+          paymentId: data.data?.id || null,
+        });
         return {
           success: true,
           message: "Webhook de criação ignorado (aguardando payment.updated)",
@@ -1711,12 +1707,8 @@ export class PaymentService {
 
       const webhookFormat = data.topic && data.resource ? "legacy" : "new";
 
-      logger.info("🔔 Webhook recebido", {
-        format: webhookFormat,
-        type: webhookType,
-        action: data.action || null,
+      logger.info("🔔 [Webhook MP] Processando pagamento", {
         paymentId: resourceId,
-        timestamp: data.date_created || data.date || new Date().toISOString(),
       });
 
       const existingLog = await prisma.webhookLog.findFirst({
@@ -1739,10 +1731,9 @@ export class PaymentService {
           const mpStatus = (paymentInfo?.status || "").toLowerCase();
           const dbStatus = dbPayment?.status?.toLowerCase() || null;
           if (mpStatus === "approved" && dbStatus !== "approved") {
-            logger.warn(
-              "⚠️ Webhook marked processed but DB out-of-sync (MP approved, DB not) - reprocessing",
-              { resourceId },
-            );
+            logger.warn("🟡 [Webhook MP] Reprocessando pagamento aprovado", {
+              paymentId: resourceId,
+            });
 
             await this.processPaymentNotification(resourceId);
 
@@ -1763,10 +1754,8 @@ export class PaymentService {
           );
         }
 
-        logger.warn("⚠️ Webhook duplicado ignorado (já processado)", {
+        logger.info("ℹ️ [Webhook MP] Evento duplicado ignorado", {
           paymentId: resourceId,
-          type: webhookType,
-          processedAt: existingLog.created_at,
         });
         return {
           success: true,
@@ -1774,10 +1763,8 @@ export class PaymentService {
         };
       }
 
-      logger.info("Pagamento Recebido 💵: Registrando Log", {
+      logger.info("📝 [Webhook MP] Registrando evento", {
         paymentId: resourceId,
-        type: webhookType,
-        action: data.action || null,
       });
 
       const logEntry = await prisma.webhookLog.create({
@@ -1795,6 +1782,9 @@ export class PaymentService {
       let processedPayment: boolean | undefined = undefined;
       switch (webhookType) {
         case "payment":
+          logger.info("🔄 [Webhook MP] Processando status do pagamento", {
+            paymentId: resourceId,
+          });
           processedPayment = await this.processPaymentNotification(resourceId);
 
           break;
@@ -1802,7 +1792,9 @@ export class PaymentService {
           await this.processMerchantOrderNotification(resourceId);
           break;
         default:
-          logger.info(`ℹ️ Tipo de webhook não processado: ${webhookType}`);
+          logger.info("ℹ️ [Webhook MP] Tipo de evento não processado", {
+            type: webhookType,
+          });
       }
 
       if (processedPayment) {
@@ -1969,20 +1961,15 @@ export class PaymentService {
   ): Promise<boolean> {
     try {
       const paymentInfo = mockPaymentData || (await this.getPayment(paymentId));
-      console.log(
-        `🔔 processPaymentNotification - paymentId=${paymentId} status=${paymentInfo?.status}${mockPaymentData ? " (MOCK)" : ""}`,
-      );
+      logger.info("🔄 [Pagamento] Atualizando status", {
+        paymentId,
+        status: paymentInfo?.status || null,
+      });
 
       const dbPayment = await prisma.payment.findFirst({
         where: { mercado_pago_id: paymentId.toString() },
         include: { order: { include: { user: true } } },
       });
-
-      console.log(
-        `🔎 dbPayment found: ${dbPayment ? dbPayment.id : "null"} status: ${
-          dbPayment ? dbPayment.status : "N/A"
-        }`,
-      );
 
       if (!dbPayment) {
         logger.error("Pagamento não encontrado no banco:", paymentId);
@@ -2016,11 +2003,22 @@ export class PaymentService {
       });
 
       if (updateResult.count === 0) {
-        console.log(
-          `⚠️ Pagamento ${dbPayment.id} já atualizado para ${newStatus} por outro processo - pulando notificações e finalização`,
-        );
+        logger.info("ℹ️ [Pagamento] Status já atualizado anteriormente", {
+          paymentId: dbPayment.id,
+          status: newStatus,
+        });
 
         if (paymentInfo.status === "approved") {
+          webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
+            status: "approved",
+            paymentId: dbPayment.id,
+            mercadoPagoId: paymentId,
+            approvedAt: new Date().toLocaleString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+            }),
+            paymentMethod: paymentInfo.payment_method_id || undefined,
+          });
+
           await this.recoverApprovedOrderPostProcessingIfNeeded({
             orderId: dbPayment.order_id,
             paymentId: dbPayment.id,
@@ -2035,12 +2033,28 @@ export class PaymentService {
       const updatedPayment = await prisma.payment.findUnique({
         where: { id: dbPayment.id },
       });
-      console.log(`💾 DB updated payment ${dbPayment.id} -> ${newStatus}`);
+      logger.info("✅ [Pagamento] Status persistido", {
+        paymentId: dbPayment.id,
+        status: newStatus,
+      });
 
       if (paymentInfo.status === "approved") {
+        logger.info("✅ [Pagamento] Pagamento aprovado", {
+          paymentId,
+          orderId: dbPayment.order_id,
+        });
+
         await orderService.updateOrderStatus(dbPayment.order_id, "PAID", {
           notifyCustomer: false,
         });
+
+        try {
+          await this.sendOrderConfirmationNotificationOnce(dbPayment.order_id);
+        } catch (notifyError) {
+          logger.warn(
+            `⚠️ Falha ao enviar confirmação inicial WhatsApp para ${dbPayment.order_id}: ${notifyError}`,
+          );
+        }
 
         const existingFinalized = await prisma.webhookLog.findFirst({
           where: {
@@ -2058,10 +2072,6 @@ export class PaymentService {
           try {
             const finalGoogleDriveUrl = await this.getOrderGoogleDriveUrl(
               dbPayment.order_id,
-            );
-            await this.sendOrderConfirmationNotificationOnce(
-              dbPayment.order_id,
-              finalGoogleDriveUrl,
             );
             await this.sendCustomizationReadyNotificationOnce(
               dbPayment.order_id,
@@ -2120,14 +2130,6 @@ export class PaymentService {
               paymentMethod: paymentInfo.payment_method_id || undefined,
             });
 
-            console.log(
-              `📤 Notificação SSE enviada - Pedido ${dbPayment.order_id} aprovado`,
-            );
-
-            await this.sendOrderConfirmationNotificationOnce(
-              dbPayment.order_id,
-              googleDriveUrl,
-            );
             await this.sendCustomizationReadyNotificationOnce(
               dbPayment.order_id,
               googleDriveUrl,
@@ -2151,13 +2153,6 @@ export class PaymentService {
               `📤 Sent SSE notification despite finalization failure for order ${dbPayment.order_id}`,
             );
 
-            try {
-              await this.sendOrderConfirmationNotificationOnce(dbPayment.order_id);
-            } catch (notifyError) {
-              logger.warn(
-                `⚠️ Falha ao enviar confirmação WhatsApp fallback para ${dbPayment.order_id}: ${notifyError}`,
-              );
-            }
           }
         }
       } else {

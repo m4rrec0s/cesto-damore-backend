@@ -25,9 +25,9 @@ RUN apt-get update && apt-get install -y \
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Instala dependências com retry estendido
+# Instala dependências de forma determinística e mais rápida
 RUN npm config set registry https://registry.npmjs.org/ && \
-    npm install --verbose --fetch-timeout=600000 --fetch-retries=10
+    npm ci --no-audit --no-fund --fetch-timeout=600000 --fetch-retries=5
 
 # Copia projeto
 COPY . .

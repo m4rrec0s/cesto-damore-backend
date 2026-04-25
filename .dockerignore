@@ -21,3 +21,6 @@ coverage
 
 # Ignorar pasta de dados (será montada como volume)
 data/
+storage/
+tests/
+.serena/

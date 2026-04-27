@@ -440,6 +440,101 @@ const buildMenuText = (baseMessage: string, options: any[]) => {
   return `${trimmedBase}\n\n${optionLines.join("\n")}`.trim();
 };
 
+const toStringList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const parseNodeProductIds = (nodeData: any): string[] => {
+  const rawIds = toStringList(
+    nodeData?.productIds ||
+      nodeData?.pinnedProductIds ||
+      nodeData?.specificProductIds,
+  );
+  if (rawIds.length === 0) return [];
+
+  return rawIds.filter((id, index) => rawIds.indexOf(id) === index);
+};
+
+type ProductSearchMenuOptionAction = "more" | "done" | "back" | "custom";
+type ProductSearchMenuOption = {
+  action: ProductSearchMenuOptionAction;
+  label: string;
+  handleId?: string;
+};
+
+const buildProductSearchMenuOptions = (
+  nodeData: any,
+  hasMorePages: boolean,
+): ProductSearchMenuOption[] => {
+  const moreLabel =
+    String(
+      nodeData?.searchOptionMoreLabel ||
+        nodeData?.moreOptionsLabel ||
+        "Ver mais opções dessa sessão",
+    ).trim() || "Ver mais opções dessa sessão";
+  const doneLabel =
+    String(
+      nodeData?.searchOptionDoneLabel ||
+        nodeData?.doneOptionLabel ||
+        "Já escolhi - Falar com atendente",
+    ).trim() || "Já escolhi - Falar com atendente";
+  const backLabel =
+    String(
+      nodeData?.searchOptionBackLabel ||
+        nodeData?.backToMenuLabel ||
+        "Voltar ao menu",
+    ).trim() || "Voltar ao menu";
+  const extraOptions = toStringList(
+    nodeData?.searchExtraOptions || nodeData?.extraOptions,
+  );
+
+  const options: ProductSearchMenuOption[] = [];
+  if (hasMorePages) {
+    options.push({ action: "more", label: moreLabel });
+  }
+  options.push({ action: "done", label: doneLabel, handleId: "found" });
+  options.push({ action: "back", label: backLabel, handleId: "back_to_menu" });
+
+  extraOptions.forEach((label, index) => {
+    options.push({
+      action: "custom",
+      label,
+      handleId: `option-${index}`,
+    });
+  });
+
+  return options;
+};
+
+const buildProductSearchMenuText = (
+  nodeData: any,
+  hasMorePages: boolean,
+): { options: ProductSearchMenuOption[]; menuText: string } => {
+  const options = buildProductSearchMenuOptions(nodeData, hasMorePages);
+  const menuTitle =
+    String(nodeData?.searchMenuTitle || nodeData?.optionsMenuTitle || "").trim() ||
+    "Escolha uma opção:";
+  const menuText = buildMenuText(
+    menuTitle,
+    options.map((option) => option.label),
+  );
+
+  return { options, menuText };
+};
+
 const toFlowCatalogNode = (node: FlowNode): FlowCatalogNode => {
   const data = (node?.data || {}) as FlowNodeData;
   const title = String(data.title || node.type || "Node").trim();
@@ -1164,18 +1259,29 @@ export const botFlowService = {
             ? parseInt(digitsMatch[0], 10)
             : NaN;
           const hasMorePages = (ctx.page || 1) < (ctx.totalPages || 1);
+          const { options: productSearchOptions, menuText } =
+            buildProductSearchMenuText(node?.data, hasMorePages);
+          const selectedOption =
+            isPureNumericInput && optionMatched > 0
+              ? productSearchOptions[optionMatched - 1]
+              : null;
+          const doneOptionLabel =
+            productSearchOptions.find((option) => option.action === "done")
+              ?.label || "Já escolhi - Falar com atendente";
 
           let wantsMore = false;
           let wantsDone = false;
           let wantsBack = false;
+          let customHandle: string | null = null;
 
-          if (hasMorePages) {
-            wantsMore = isPureNumericInput && optionMatched === 1;
-            wantsDone = isPureNumericInput && optionMatched === 2;
-            wantsBack = isPureNumericInput && optionMatched === 3;
-          } else {
-            wantsDone = isPureNumericInput && optionMatched === 1;
-            wantsBack = isPureNumericInput && optionMatched === 2;
+          if (selectedOption) {
+            wantsMore = selectedOption.action === "more";
+            wantsDone = selectedOption.action === "done";
+            wantsBack = selectedOption.action === "back";
+            customHandle =
+              selectedOption.action === "custom" && selectedOption.handleId
+                ? selectedOption.handleId
+                : null;
           }
 
           if (wantsMore) {
@@ -1188,7 +1294,7 @@ export const botFlowService = {
             if (nextPage > totalPages) {
               return [
                 {
-                  text: 'Não tenho mais opções nessa sessão. Se já escolheu, envie: "Já escolhi - Falar com atendente".',
+                  text: `Não tenho mais opções nessa sessão. Se já escolheu, envie: "${doneOptionLabel}".`,
                 },
               ];
             }
@@ -1206,9 +1312,6 @@ export const botFlowService = {
             );
             const targetId = foundEdge?.target;
             if (!targetId) {
-              const menuText = hasMorePages
-                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi - Falar com atendente\n3. Voltar ao menu"
-                : "Escolha uma opção:\n1. Já escolhi - Falar com atendente\n2. Voltar ao menu";
               return await sendFallbackResponse(
                 menuText,
                 currentNodeId!,
@@ -1227,9 +1330,6 @@ export const botFlowService = {
                 String(e.sourceHandle) === "back_to_menu",
             );
             if (!backEdge) {
-              const menuText = hasMorePages
-                ? "Escolha uma opção:\n1. Ver mais opções dessa sessão\n2. Já escolhi - Falar com atendente\n3. Voltar ao menu"
-                : "Escolha uma opção:\n1. Já escolhi - Falar com atendente\n2. Voltar ao menu";
               return await sendFallbackResponse(
                 menuText,
                 currentNodeId!,
@@ -1238,18 +1338,23 @@ export const botFlowService = {
               );
             }
             node = nodes.find((n) => n.id === backEdge.target) || null;
+          } else if (customHandle) {
+            sessionState = { ...sessionState, productSearch: undefined };
+            const customEdge = edges.find(
+              (e) =>
+                e.source === currentNodeId &&
+                String(e.sourceHandle) === customHandle,
+            );
+            if (!customEdge) {
+              return await sendFallbackResponse(
+                menuText,
+                currentNodeId!,
+                sessionState,
+                resolveNodeDelay(node?.data, 1200),
+              );
+            }
+            node = nodes.find((n) => n.id === customEdge.target) || null;
           } else {
-            const options = hasMorePages
-              ? [
-                  "Ver mais opções dessa sessão",
-                  "Já escolhi - Falar com atendente",
-                  "Voltar ao menu",
-                ]
-              : ["Já escolhi - Falar com atendente", "Voltar ao menu"];
-            const menuText = `Escolha uma opção:\n${options
-              .map((opt, index) => `${index + 1}. ${opt}`)
-              .join("\n")}`.trim();
-
             if (!isNaN(optionMatched)) {
               const invalidText = `Opção inválida. Escolha APENAS NÚMEROS das opções abaixo.\n\n${menuText}`;
               const invalidMessages: MessageResponse[] = [
@@ -1376,12 +1481,14 @@ export const botFlowService = {
               ? Math.round(data.maxResults)
               : null;
           const perPage = 6;
+          const pinnedProductIds = parseNodeProductIds(data);
+          const hasPinnedProducts = pinnedProductIds.length > 0;
 
           const where: any = {};
-          if (data.onlyActive) {
+          if (!hasPinnedProducts && data.onlyActive) {
             where.is_active = true;
           }
-          if (searchTerm) {
+          if (!hasPinnedProducts && searchTerm) {
             const rawSearch = searchTerm.trim();
             const normalized = normalizeSearchTokens(searchTerm);
             const groups = normalized
@@ -1436,19 +1543,22 @@ export const botFlowService = {
               where.OR = searchOrFilters;
             }
           }
-          if (data.categoryId) {
+          if (!hasPinnedProducts && data.categoryId) {
             where.categories = {
               some: { category_id: data.categoryId },
             };
           }
-          if (data.typeId) {
+          if (!hasPinnedProducts && data.typeId) {
             where.type_id = data.typeId;
           }
-          if (typeof data.minPrice === "number") {
+          if (!hasPinnedProducts && typeof data.minPrice === "number") {
             where.price = { ...(where.price || {}), gte: data.minPrice };
           }
-          if (typeof data.maxPrice === "number") {
+          if (!hasPinnedProducts && typeof data.maxPrice === "number") {
             where.price = { ...(where.price || {}), lte: data.maxPrice };
+          }
+          if (hasPinnedProducts) {
+            where.id = { in: pinnedProductIds };
           }
 
           const requestedPage =
@@ -1460,41 +1570,81 @@ export const botFlowService = {
             typeof requestedPage === "number" && requestedPage > 0
               ? Math.round(requestedPage)
               : 1;
-          const count = await prisma.product.count({ where });
-          const total =
-            typeof maxResults === "number"
-              ? Math.min(count, maxResults)
-              : count;
-          const totalPages = Math.max(1, Math.ceil(total / perPage));
-          const safePage = Math.min(Math.max(page, 1), totalPages);
-          const effectiveSkip = (safePage - 1) * perPage;
+          let products: Array<{
+            id: string;
+            name: string;
+            description: string | null;
+            price: number | null;
+            image_url: string | null;
+            production_time: number | null;
+          }> = [];
+          let total = 0;
+          let totalPages = 1;
+          let safePage = 1;
 
-          let take = perPage;
-          if (typeof maxResults === "number") {
-            if (effectiveSkip >= maxResults) {
-              take = 0;
-            } else {
-              take = Math.min(perPage, maxResults - effectiveSkip);
+          if (hasPinnedProducts) {
+            const pinnedProducts = await prisma.product.findMany({
+              where,
+              select: {
+                id: true,
+                name: true,
+                description: true,
+                price: true,
+                image_url: true,
+                production_time: true,
+              },
+            });
+            const byId = new Map(pinnedProducts.map((product) => [product.id, product]));
+            let orderedProducts = pinnedProductIds
+              .map((id) => byId.get(id))
+              .filter(Boolean) as typeof pinnedProducts;
+
+            if (typeof maxResults === "number") {
+              orderedProducts = orderedProducts.slice(0, maxResults);
             }
-          }
 
-          const products =
-            take === 0
-              ? []
-              : await prisma.product.findMany({
-                  where,
-                  take,
-                  skip: effectiveSkip,
-                  orderBy: { price: "desc" },
-                  select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                    price: true,
-                    image_url: true,
-                    production_time: true,
-                  },
-                });
+            total = orderedProducts.length;
+            totalPages = Math.max(1, Math.ceil(total / perPage));
+            safePage = Math.min(Math.max(page, 1), totalPages);
+            const effectiveSkip = (safePage - 1) * perPage;
+            products = orderedProducts.slice(effectiveSkip, effectiveSkip + perPage);
+          } else {
+            const count = await prisma.product.count({ where });
+            total =
+              typeof maxResults === "number"
+                ? Math.min(count, maxResults)
+                : count;
+            totalPages = Math.max(1, Math.ceil(total / perPage));
+            safePage = Math.min(Math.max(page, 1), totalPages);
+            const effectiveSkip = (safePage - 1) * perPage;
+
+            let take = perPage;
+            if (typeof maxResults === "number") {
+              if (effectiveSkip >= maxResults) {
+                take = 0;
+              } else {
+                take = Math.min(perPage, maxResults - effectiveSkip);
+              }
+            }
+
+            products =
+              take === 0
+                ? []
+                : await prisma.product.findMany({
+                    where,
+                    take,
+                    skip: effectiveSkip,
+                    orderBy: { price: "desc" },
+                    select: {
+                      id: true,
+                      name: true,
+                      description: true,
+                      price: true,
+                      image_url: true,
+                      production_time: true,
+                    },
+                  });
+          }
 
           if (products.length === 0) {
             appendMessage(
@@ -1545,17 +1695,12 @@ export const botFlowService = {
             }
 
             const hasMore = safePage < totalPages;
-            const options = [];
-            if (hasMore) {
-              options.push("1. Ver mais opções dessa sessão");
-              options.push("2. Já escolhi - Falar com atendente");
-              options.push("3. Voltar ao menu");
-            } else {
-              options.push("1. Já escolhi - Falar com atendente");
-              options.push("2. Voltar ao menu");
-            }
+            const { menuText } = buildProductSearchMenuText(
+              currentNode.data,
+              hasMore,
+            );
             appendMessage(
-              `Escolha uma opção:\n${options.join("\n")}`,
+              menuText,
               resolveNodeDelay(currentNode.data, 800),
               {
                 type: "menu",

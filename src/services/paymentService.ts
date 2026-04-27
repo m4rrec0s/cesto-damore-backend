@@ -1619,11 +1619,32 @@ export class PaymentService {
       return paymentInfo;
     } catch (error) {
       logger.error("Erro ao buscar pagamento:", error);
-      throw new Error(
-        `Falha ao buscar pagamento: ${
-          error instanceof Error ? error.message : "Erro desconhecido"
-        }`,
+
+      const mpError = error as any;
+      const errorStatus = Number(
+        mpError?.status || mpError?.response?.status || 0,
       );
+      const errorDescription =
+        mpError?.cause?.[0]?.description || mpError?.message || "";
+      const paymentNotFound =
+        errorStatus === 404 ||
+        String(errorDescription).toLowerCase().includes("payment not found");
+
+      if (paymentNotFound) {
+        const notFoundError = new Error(
+          "Falha ao buscar pagamento: Payment not found",
+        ) as any;
+        notFoundError.code = "MP_PAYMENT_NOT_FOUND";
+        notFoundError.status = 404;
+        throw notFoundError;
+      }
+
+      const normalizedMessage =
+        mpError?.message ||
+        mpError?.cause?.[0]?.description ||
+        "Erro desconhecido";
+
+      throw new Error(`Falha ao buscar pagamento: ${normalizedMessage}`);
     }
   }
 
@@ -2027,6 +2048,30 @@ export class PaymentService {
           reprocessed++;
         }
       } catch (error) {
+        const reconciliationError = error as any;
+        const isPaymentNotFound =
+          reconciliationError?.status === 404 ||
+          reconciliationError?.code === "MP_PAYMENT_NOT_FOUND" ||
+          String(reconciliationError?.message || "")
+            .toLowerCase()
+            .includes("payment not found");
+
+        if (isPaymentNotFound) {
+          await prisma.payment.updateMany({
+            where: { id: candidate.id },
+            data: {
+              status: "CANCELLED",
+              last_webhook_at: new Date(),
+              webhook_attempts: { increment: 1 } as any,
+            },
+          });
+
+          logger.warn(
+            `⚠️ Pagamento PIX ${candidate.mercado_pago_id} não encontrado no MP; status local atualizado para CANCELLED (order ${candidate.order_id})`,
+          );
+          continue;
+        }
+
         logger.warn(
           `⚠️ Falha ao reconciliar pagamento PIX ${candidate.mercado_pago_id} (order ${candidate.order_id}): ${error}`,
         );

@@ -95,6 +95,39 @@ export class PaymentController {
     return 500;
   }
 
+  private static sanitizeWebhookPayload(payload: unknown): unknown {
+    const sensitiveKeys = [
+      "token",
+      "authorization",
+      "access_token",
+      "x-signature",
+      "signature",
+    ];
+
+    const walk = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map((item) => walk(item));
+      }
+
+      if (value && typeof value === "object") {
+        return Object.entries(value as Record<string, unknown>).reduce(
+          (acc, [key, currentValue]) => {
+            const shouldMask = sensitiveKeys.some(
+              (sensitiveKey) => key.toLowerCase() === sensitiveKey,
+            );
+            acc[key] = shouldMask ? "[redacted]" : walk(currentValue);
+            return acc;
+          },
+          {} as Record<string, unknown>,
+        );
+      }
+
+      return value;
+    };
+
+    return walk(payload);
+  }
+
   static async createPreference(req: Request, res: Response) {
     try {
       const { orderId, payerEmail, payerName, payerPhone } = req.body;
@@ -391,10 +424,16 @@ export class PaymentController {
         (webhookData?.data && webhookData?.data?.id) ||
         webhookData?.resource ||
         null;
-      logger.info(
-        "🔔 [Webhook MP] Recebido pelo controller",
-        { type: incomingType || null, resource: incomingResource || null },
-      );
+      logger.info("🔔 [Webhook MP] Recebido pelo controller", {
+        type: incomingType || null,
+        resource: incomingResource || null,
+      });
+
+      if (process.env.NODE_ENV !== "production") {
+        logger.info("[webhook mp: payload recebido - dev]", {
+          payload: this.sanitizeWebhookPayload(webhookData),
+        });
+      }
 
       res.status(200).json({ received: true });
 
@@ -403,7 +442,10 @@ export class PaymentController {
           logger.info("✅ [Webhook MP] Processamento concluído");
         })
         .catch((error) => {
-          logger.error("❌ [Webhook MP] Falha no processamento assíncrono:", error);
+          logger.error(
+            "❌ [Webhook MP] Falha no processamento assíncrono:",
+            error,
+          );
         });
     } catch (error) {
       logger.error("❌ [Webhook MP] Falha no controller:", error);

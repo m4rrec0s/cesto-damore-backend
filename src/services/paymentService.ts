@@ -109,6 +109,46 @@ export class PaymentService {
   private static notificationSentOrders: Set<string> = new Set();
   private static customizationReadySentOrders: Set<string> = new Set();
 
+  private static splitPersonName(fullName?: string | null) {
+    const parts = (fullName || "")
+      .split(/\s+/)
+      .filter((part) => /[\p{L}\p{N}]/u.test(part));
+
+    return {
+      firstName: parts[0] || "Cliente",
+      lastName: parts.length > 1 ? parts.slice(1).join(" ") : "Sem Sobrenome",
+    };
+  }
+
+  private static formatOrderShortId(orderId: string) {
+    return orderId.slice(0, 6).toUpperCase();
+  }
+
+  private static formatAmountBRL(amount: number) {
+    return amount.toFixed(2).replace(".", ",");
+  }
+
+  private static resolveCustomerLabel(data: {
+    payerName?: string | null;
+    payerEmail?: string | null;
+    userId?: string | null;
+  }) {
+    return data.payerName || data.payerEmail || data.userId || "cliente";
+  }
+
+  private static logPaymentFlow(params: {
+    customerLabel: string;
+    stage: string;
+    orderId: string;
+    amount: number;
+  }) {
+    logger.info(
+      `[cliente ${params.customerLabel}: ${params.stage} para pedido ${this.formatOrderShortId(
+        params.orderId,
+      )} - R$ ${this.formatAmountBRL(params.amount)}]`,
+    );
+  }
+
   private static customizationValueHasImageAssets(value?: string | null) {
     if (!value) return false;
 
@@ -377,16 +417,17 @@ export class PaymentService {
       });
     });
 
-    const notifyResult = await whatsappService.sendCustomizationReadyNotification({
-      orderId: order.id,
-      orderNumber: order.id.substring(0, 8).toUpperCase(),
-      customerName: order.user.name,
-      customerPhone: order.user.phone || undefined,
-      recipientPhone: order.recipient_phone || undefined,
-      purchaseDate: order.created_at,
-      items,
-      googleDriveUrl,
-    });
+    const notifyResult =
+      await whatsappService.sendCustomizationReadyNotification({
+        orderId: order.id,
+        orderNumber: order.id.substring(0, 8).toUpperCase(),
+        customerName: order.user.name,
+        customerPhone: order.user.phone || undefined,
+        recipientPhone: order.recipient_phone || undefined,
+        purchaseDate: order.created_at,
+        items,
+        googleDriveUrl,
+      });
 
     if (notifyResult.teamSent || notifyResult.customerSent) {
       PaymentService.customizationReadySentOrders.add(cacheKey);
@@ -401,8 +442,10 @@ export class PaymentService {
     orderId: string,
     googleDriveUrl?: string,
   ) {
-    const confirmationContext =
-      await this.resolveOrderConfirmationDriveContext(orderId, googleDriveUrl);
+    const confirmationContext = await this.resolveOrderConfirmationDriveContext(
+      orderId,
+      googleDriveUrl,
+    );
 
     if (PaymentService.notificationSentOrders.has(orderId)) {
       logger.info(
@@ -611,6 +654,20 @@ export class PaymentService {
       await this.ensureOrderTotalsUpToDate(order, summary);
       await this.ensureOrderCustomizationsReady(data.orderId);
 
+      const { firstName, lastName } = this.splitPersonName(data.payerName);
+      const customerLabel = this.resolveCustomerLabel({
+        payerName: data.payerName,
+        payerEmail: data.payerEmail,
+        userId: data.userId,
+      });
+
+      this.logPaymentFlow({
+        customerLabel,
+        stage: "geracao de pagamento",
+        orderId: data.orderId,
+        amount: summary.grandTotal,
+      });
+
       const externalReference =
         data.externalReference || `ORDER_${data.orderId}_${Date.now()}`;
 
@@ -621,6 +678,7 @@ export class PaymentService {
           description: `Pagamento ${
             orderPaymentMethod === "pix" ? "PIX" : "Cartão"
           } - ${order.items.length} item(s)`,
+          category_id: "others",
           quantity: 1,
           unit_price: summary.grandTotal,
         },
@@ -649,11 +707,13 @@ export class PaymentService {
         items: preferenceItems,
         payer: {
           email: data.payerEmail,
-          name: data.payerName,
+          first_name: firstName,
+          last_name: lastName,
           phone: {
             number: data.payerPhone,
           },
         },
+        statement_descriptor: "CESTODAMORE",
         external_reference: externalReference,
         notification_url: `${mercadoPagoConfig.baseUrl}/api/webhook/mercadopago`,
         back_urls: {
@@ -677,6 +737,13 @@ export class PaymentService {
 
       const preferenceResponse = await preference.create({
         body: preferenceData,
+      });
+
+      this.logPaymentFlow({
+        customerLabel,
+        stage: "enviando e processando pagamento",
+        orderId: data.orderId,
+        amount: summary.grandTotal,
       });
 
       const paymentRecord = await prisma.payment.create({
@@ -864,13 +931,23 @@ export class PaymentService {
       await this.ensureOrderTotalsUpToDate(order, summary);
       await this.ensureOrderCustomizationsReady(data.orderId);
 
-      const nameParts = (data.payerName || "")
-        .split(/\s+/)
-        .filter((part) => /[\p{L}\p{N}]/u.test(part));
+      const customerLabel = this.resolveCustomerLabel({
+        payerName: data.payerName,
+        payerEmail: data.payerEmail,
+        userId: data.userId,
+      });
 
-      const payerFirstName = nameParts[0] || "Cliente";
-      const payerLastName =
-        nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Sem Sobrenome";
+      const payerNameParts = this.splitPersonName(data.payerName);
+      const cardholderNameParts = this.splitPersonName(
+        data.cardholderName || data.payerName,
+      );
+
+      this.logPaymentFlow({
+        customerLabel,
+        stage: "geracao de pagamento",
+        orderId: data.orderId,
+        amount: summary.grandTotal,
+      });
 
       const paymentData: any = {
         transaction_amount: roundCurrency(summary.grandTotal),
@@ -880,8 +957,8 @@ export class PaymentService {
         payment_method_id: data.paymentMethodId,
         payer: {
           email: data.payerEmail,
-          first_name: payerFirstName,
-          last_name: payerLastName,
+          first_name: payerNameParts.firstName,
+          last_name: payerNameParts.lastName,
           identification: {
             type: data.payerDocumentType,
             number: data.payerDocument.replace(/\D/g, ""),
@@ -919,17 +996,10 @@ export class PaymentService {
           paymentData.issuer_id = data.issuer_id;
         }
 
-        const cardholderParts = data.cardholderName
-          .split(/\s+/)
-          .filter((part: string) => /[\p{L}\p{N}]/u.test(part));
-
         paymentData.payer = {
           email: data.payerEmail,
-          first_name: cardholderParts[0] || "Cliente",
-          last_name:
-            cardholderParts.length > 1
-              ? cardholderParts.slice(1).join(" ")
-              : "Sem Sobrenome",
+          first_name: cardholderNameParts.firstName,
+          last_name: cardholderNameParts.lastName,
           identification: {
             type: data.payerDocumentType,
             number: data.payerDocument.replace(/\D/g, ""),
@@ -958,6 +1028,13 @@ export class PaymentService {
       const idempotencyKey = `${data.paymentMethodId}-${
         data.orderId
       }-${randomUUID()}`;
+
+      this.logPaymentFlow({
+        customerLabel,
+        stage: "enviando e processando pagamento",
+        orderId: data.orderId,
+        amount: summary.grandTotal,
+      });
 
       const paymentResponse = await payment.create({
         body: paymentData,
@@ -1034,8 +1111,10 @@ export class PaymentService {
           payer_info: {
             id: paymentResponse.payer?.id,
             email: paymentResponse.payer?.email || data.payerEmail,
-            first_name: paymentResponse.payer?.first_name || payerFirstName,
-            last_name: paymentResponse.payer?.last_name || payerLastName,
+            first_name:
+              paymentResponse.payer?.first_name || payerNameParts.firstName,
+            last_name:
+              paymentResponse.payer?.last_name || payerNameParts.lastName,
           },
         }),
       };
@@ -1064,10 +1143,7 @@ export class PaymentService {
           );
         }
         if (mpError.status || mpError.statusCode) {
-          logger.error(
-            "📛 Status HTTP:",
-            mpError.status || mpError.statusCode,
-          );
+          logger.error("📛 Status HTTP:", mpError.status || mpError.statusCode);
         }
       }
 
@@ -1520,22 +1596,25 @@ export class PaymentService {
   static async getPayment(paymentId: string) {
     try {
       // Se o paymentId parece ser um UUID, busca no banco primeiro
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paymentId);
-      
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          paymentId,
+        );
+
       if (isUuid) {
         // É um UUID do nosso banco, busca o mercado_pago_id
         const dbPayment = await prisma.payment.findUnique({
           where: { id: paymentId },
           select: { mercado_pago_id: true },
         });
-        
+
         if (!dbPayment?.mercado_pago_id) {
           throw new Error("Pagamento ainda não possui ID do Mercado Pago");
         }
-        
+
         paymentId = dbPayment.mercado_pago_id;
       }
-      
+
       const paymentInfo = await payment.get({ id: paymentId });
       return paymentInfo;
     } catch (error) {
@@ -1689,6 +1768,7 @@ export class PaymentService {
         (data.data && data.data.id && data.data.id.toString()) ||
         (data.resource && data.resource.toString()) ||
         undefined;
+      const webhookAction = data.action || `${webhookType}.updated`;
 
       if (!resourceId || !webhookType) {
         logger.error("❌ Webhook inválido - sem ID de recurso ou tipo", {
@@ -1705,11 +1785,9 @@ export class PaymentService {
         };
       }
 
-      const webhookFormat = data.topic && data.resource ? "legacy" : "new";
-
-      logger.info("🔔 [Webhook MP] Processando pagamento", {
-        paymentId: resourceId,
-      });
+      logger.info(
+        `[webhook mp: acao ${webhookAction} recurso ${resourceId} tipo ${webhookType}]`,
+      );
 
       const existingLog = await prisma.webhookLog.findFirst({
         where: {
@@ -1782,9 +1860,7 @@ export class PaymentService {
       let processedPayment: boolean | undefined = undefined;
       switch (webhookType) {
         case "payment":
-          logger.info("🔄 [Webhook MP] Processando status do pagamento", {
-            paymentId: resourceId,
-          });
+          logger.info(`[webhook mp: processando pagamento ${resourceId}]`);
           processedPayment = await this.processPaymentNotification(resourceId);
 
           break;
@@ -1940,8 +2016,13 @@ export class PaymentService {
         if (!mercadoPagoId) continue;
 
         const paymentInfo = await this.getPayment(mercadoPagoId);
-        const newStatus = this.mapPaymentStatus(String(paymentInfo?.status || ""));
-        if (newStatus !== candidate.status || paymentInfo?.status === "approved") {
+        const newStatus = this.mapPaymentStatus(
+          String(paymentInfo?.status || ""),
+        );
+        if (
+          newStatus !== candidate.status ||
+          paymentInfo?.status === "approved"
+        ) {
           await this.processPaymentNotification(mercadoPagoId, paymentInfo);
           reprocessed++;
         }
@@ -1977,6 +2058,11 @@ export class PaymentService {
       }
 
       const newStatus = this.mapPaymentStatus(paymentInfo.status as string);
+      const previousStatus = dbPayment.status;
+      const customerLabel =
+        dbPayment.order.user?.name ||
+        dbPayment.order.user?.email ||
+        dbPayment.order.user_id;
 
       const updateResult = await prisma.payment.updateMany({
         where: { id: dbPayment.id, status: { not: newStatus } },
@@ -2033,15 +2119,33 @@ export class PaymentService {
       const updatedPayment = await prisma.payment.findUnique({
         where: { id: dbPayment.id },
       });
-      logger.info("✅ [Pagamento] Status persistido", {
+      logger.info("[pagamento: transicao de status]", {
         paymentId: dbPayment.id,
-        status: newStatus,
+        previousStatus,
+        newStatus,
+      });
+
+      this.logPaymentFlow({
+        customerLabel,
+        stage: `status ${previousStatus.toLowerCase()} -> ${newStatus.toLowerCase()}`,
+        orderId: dbPayment.order_id,
+        amount: Number(
+          updatedPayment?.transaction_amount ||
+            dbPayment.transaction_amount ||
+            0,
+        ),
       });
 
       if (paymentInfo.status === "approved") {
-        logger.info("✅ [Pagamento] Pagamento aprovado", {
-          paymentId,
+        this.logPaymentFlow({
+          customerLabel,
+          stage: "pagamento aprovado 🟢",
           orderId: dbPayment.order_id,
+          amount: Number(
+            updatedPayment?.transaction_amount ||
+              dbPayment.transaction_amount ||
+              0,
+          ),
         });
 
         await orderService.updateOrderStatus(dbPayment.order_id, "PAID", {
@@ -2152,7 +2256,6 @@ export class PaymentService {
             logger.warn(
               `📤 Sent SSE notification despite finalization failure for order ${dbPayment.order_id}`,
             );
-
           }
         }
       } else {

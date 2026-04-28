@@ -154,7 +154,6 @@ class AuthService {
       userName = decoded.name || name;
       googlePicture = decoded.picture || imageUrl;
     } catch (verifyError: any) {
-      console.log("[Google Login] Token não verificado pelo Firebase, decodificando JWT...");
       try {
         const parts = idToken.split('.');
         if (parts.length !== 3) {
@@ -165,9 +164,7 @@ class AuthService {
         userEmail = payload.email || email;
         userName = payload.name || name;
         googlePicture = payload.picture || imageUrl;
-        console.log("[Google Login] UID extraído:", uid);
       } catch (decodeError: any) {
-        console.error("[Google Login] Erro ao decodificar token:", decodeError.message);
         throw new Error("Token inválido");
       }
     }
@@ -210,7 +207,6 @@ class AuthService {
     const sessionToken = await createCustomToken(uid);
     const appToken = createAppJWT(user.id, user.email);
 
-    console.log("[Google Login] Login bem-sucedido para:", userEmail);
     return { idToken, firebaseUid: uid, user, sessionToken, appToken };
   }
 

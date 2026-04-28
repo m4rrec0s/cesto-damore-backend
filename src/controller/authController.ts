@@ -12,12 +12,9 @@ class AuthController {
         return res.status(400).json({ error: "Token do Google é obrigatório" });
       }
 
-      console.log("[Google Login] Token recebido, verificando...");
       const result = await authService.googleLogin({ idToken, ...req.body });
-      console.log("[Google Login] Sucesso:", result.user?.email);
       res.json(result);
     } catch (error: any) {
-      console.error("[Google Login] Erro:", error.message, error.stack);
       if (
         error.message.includes("obrigatório") ||
         error.message.includes("necessários")

@@ -176,15 +176,25 @@ class AuthService {
       throw new Error("firebaseUid não corresponde ao idToken");
 
     let user = await prisma.user.findUnique({ where: { firebaseUId: uid } });
+    
     if (!user) {
-      if (!userEmail || !userName)
-        throw new Error("Email e nome necessários para registrar");
-      user = await this.register({
-        firebaseUid: uid,
-        email: userEmail,
-        name: userName,
-        imageUrl: googlePicture,
-      });
+      const existingByEmail = await prisma.user.findUnique({ where: { email: userEmail } });
+      if (existingByEmail) {
+        existingByEmail.firebaseUId = uid;
+        user = await prisma.user.update({
+          where: { id: existingByEmail.id },
+          data: { firebaseUId: uid, image_url: googlePicture || existingByEmail.image_url },
+        });
+      } else {
+        if (!userEmail || !userName)
+          throw new Error("Email e nome necessários para registrar");
+        user = await this.register({
+          firebaseUid: uid,
+          email: userEmail,
+          name: userName,
+          imageUrl: googlePicture,
+        });
+      }
     }
 
     const updateData: any = { updated_at: new Date() };

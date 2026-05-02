@@ -129,28 +129,42 @@ class ObsidianKnowledgeService {
       updateData.pattern_type = input.patternType;
     }
 
-    const updated = await prisma.kBKnowledgeDocument.update({
-      where: { id },
-      data: updateData,
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const doc = await tx.kBKnowledgeDocument.update({
+        where: { id },
+        data: updateData,
+      });
 
-    const newVersion = (current as any).version + 1;
+      const latest = await tx.kBVersion.findFirst({
+        where: { document_id: id },
+        orderBy: { version: "desc" },
+        select: { version: true },
+      });
+      const newVersion = (latest?.version || 0) + 1;
 
-    await prisma.kBVersion.create({
-      data: {
-        document_id: id,
-        version: newVersion,
-        content: input.content || (current as any).content,
-        changed_by: changedBy,
-        change_reason: `Update to version ${newVersion}`,
-      },
+      await tx.kBVersion.create({
+        data: {
+          document_id: id,
+          version: newVersion,
+          content: input.content || (current as any).content,
+          changed_by: changedBy,
+          change_reason: `Update to version ${newVersion}`,
+        },
+      });
+
+      await tx.kBKnowledgeDocument.update({
+        where: { id },
+        data: { version: newVersion },
+      });
+
+      return doc;
     });
 
     if (input.content) {
       await this.generateEmbedding(id, input.content);
     }
 
-    logger.info(`[ObsidianKB] Updated document: ${id} to version ${newVersion}`);
+    logger.info(`[ObsidianKB] Updated document: ${id}`);
     return updated;
   }
 

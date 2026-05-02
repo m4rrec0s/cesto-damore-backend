@@ -150,19 +150,42 @@ class AIAgentService {
       const approvedDocs = await obsidianKnowledgeService.listDocuments({
         approvalStatus: "approved",
       });
+      const draftDocs = await obsidianKnowledgeService.listDocuments({
+        approvalStatus: "draft",
+      });
       const phaseDocs = await obsidianKnowledgeService.getDocumentsByPhase(phase);
       const titleSet = new Set<string>();
-      [...phaseDocs, ...approvedDocs].forEach((doc: any) => {
+      [...phaseDocs, ...approvedDocs, ...draftDocs].forEach((doc: any) => {
         if (doc?.title) titleSet.add(String(doc.title));
       });
       const availableTitles = Array.from(titleSet).slice(0, 10);
 
       // 2. Get knowledge base context (hybrid search)
-      const kbResults = await obsidianKnowledgeService.hybridSearch(
+      let kbResults = await obsidianKnowledgeService.hybridSearch(
         userMessage,
         3,
         phase,
       );
+      if (!kbResults.length) {
+        kbResults = await obsidianKnowledgeService.hybridSearch(userMessage, 3);
+      }
+
+      const normalizedMsg = (userMessage || "").toLowerCase();
+      const mothersDayHint =
+        /dia das m[aã]es|mae|m[ãa]e|mam[aã]e/.test(normalizedMsg);
+      if (mothersDayHint) {
+        const mdResults = await obsidianKnowledgeService.hybridSearch(
+          "dia das mães mãe mamãe presente",
+          4,
+        );
+        const merged = [...kbResults];
+        for (const item of mdResults) {
+          if (!merged.find((m) => m.documentId === item.documentId)) {
+            merged.push(item);
+          }
+        }
+        kbResults = merged.slice(0, 5);
+      }
 
       let kbContext = "";
       if (availableTitles.length > 0) {

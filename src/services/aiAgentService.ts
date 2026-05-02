@@ -1205,6 +1205,8 @@ ${markdown}
       /horario especial|feriado|atendimento em feriado|funciona no feriado/,
       /formas de pagamento|pagamento aceito|metodos de pagamento/,
       /retirada na loja|processo de entrega|regras de entrega|cobertura de entrega/,
+      /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|consulta(r)? a documenta[cç][aã]o|use a base|knowledge base|acervo/,
+      /dia das m[aã]es|mae|m[ãa]e|mam[aã]e/,
     ];
 
     return institutionalPatterns.some((pattern) => pattern.test(text));
@@ -3417,7 +3419,11 @@ Logo te respondem! Obrigadaaa 🥰"`;
     );
     const toolNames = new Set(toolsInMCPForPhase.map((tool) => tool.name));
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCPForPhase);
-    const enableKnowledgeTool = this.shouldUseKnowledgeRetrievalInLab(userMessage);
+    const explicitDocRequest = /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
+      userMessage || "",
+    );
+    const enableKnowledgeTool =
+      this.shouldUseKnowledgeRetrievalInLab(userMessage) || explicitDocRequest;
 
     if (enableKnowledgeTool) {
       await emit({
@@ -3803,9 +3809,12 @@ regras:
       phaseResolution.phase,
       toolsInMCP,
     );
+    const explicitDocRequest = /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
+      userMessage || "",
+    );
     const forceKnowledgeTool =
       toolsInMCPForPhase.some((tool) => tool.name === "query_company_knowledge") &&
-      this.shouldUseKnowledgeRetrievalInLab(userMessage);
+      (this.shouldUseKnowledgeRetrievalInLab(userMessage) || explicitDocRequest);
 
     let mcpSystemPrompts = "";
     try {
@@ -4250,6 +4259,13 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       if (hasToolCalls && responseMessage.tool_calls) {
         currentState = ProcessingState.GATHERING_DATA;
 
+        await traceEmitter?.({
+          type: "state",
+          state: ProcessingState.GATHERING_DATA,
+          label: "Pensamento: preciso consultar ferramentas antes da resposta final.",
+          timestamp: new Date().toISOString(),
+        });
+
         logger.info(
           `🛠️ Executando ${responseMessage.tool_calls.length} ferramenta(s)...`,
         );
@@ -4295,6 +4311,34 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           if (name === "consultarCatalogo" && args.termo) {
             const termoOriginal = args.termo.toString();
             let termoNormalizado = this.normalizarTermoBusca(termoOriginal);
+
+            const negativeFeedback = /nao sao essas|não são essas|essas nao|essas não|outras op[cç][oõ]es|outras para|nao gostei|não gostei/i.test(
+              (currentUserMessage || "").toLowerCase(),
+            );
+            const mothersDayContext = /dia das m[aã]es|mae|m[ãa]e|mam[aã]e/i.test(
+              (currentUserMessage || "").toLowerCase(),
+            );
+
+            const memoryForCatalog = await openClawMemoryService.getSessionMemory(sessionId);
+            const previouslyShownIds = (memoryForCatalog?.presentedProducts || [])
+              .map((p) => String(p.id))
+              .filter(Boolean);
+            const incomingExcludeIds = Array.isArray(args.exclude_ids)
+              ? args.exclude_ids.map((id: unknown) => String(id))
+              : [];
+            const mergedExcludeIds = Array.from(
+              new Set([...incomingExcludeIds, ...previouslyShownIds]),
+            );
+            if (negativeFeedback || mergedExcludeIds.length > 0) {
+              args.exclude_ids = mergedExcludeIds;
+            }
+
+            if (mothersDayContext) {
+              const currentContext = String(args.contexto || "");
+              if (!/dia das m[aã]es|mae|m[ãa]e|mam[aã]e/i.test(currentContext)) {
+                args.contexto = `${currentContext} dia das mães para mãe, foco em opções temáticas de dia das mães`.trim();
+              }
+            }
 
             if (
               !args.contexto ||

@@ -117,12 +117,21 @@ class ObsidianKnowledgeService {
       throw new Error("Document not found");
     }
 
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date(),
+    };
+    if (typeof input.title === "string") updateData.title = input.title;
+    if (typeof input.content === "string") updateData.content = input.content;
+    if (typeof input.category === "string") updateData.category = input.category;
+    if (Array.isArray(input.phases)) updateData.phases = input.phases;
+    if (Array.isArray(input.tags)) updateData.tags = input.tags;
+    if (typeof input.patternType === "string") {
+      updateData.pattern_type = input.patternType;
+    }
+
     const updated = await prisma.kBKnowledgeDocument.update({
       where: { id },
-      data: {
-        ...input,
-        updated_at: new Date(),
-      },
+      data: updateData,
     });
 
     const newVersion = (current as any).version + 1;

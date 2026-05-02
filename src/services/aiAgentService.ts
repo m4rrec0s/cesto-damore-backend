@@ -146,7 +146,18 @@ class AIAgentService {
     customerPhone?: string,
   ): Promise<string> {
     try {
-      // 1. Get knowledge base context (hybrid search)
+      // 1. Get titles catalog for quick visibility
+      const approvedDocs = await obsidianKnowledgeService.listDocuments({
+        approvalStatus: "approved",
+      });
+      const phaseDocs = await obsidianKnowledgeService.getDocumentsByPhase(phase);
+      const titleSet = new Set<string>();
+      [...phaseDocs, ...approvedDocs].forEach((doc: any) => {
+        if (doc?.title) titleSet.add(String(doc.title));
+      });
+      const availableTitles = Array.from(titleSet).slice(0, 10);
+
+      // 2. Get knowledge base context (hybrid search)
       const kbResults = await obsidianKnowledgeService.hybridSearch(
         userMessage,
         3,
@@ -154,15 +165,30 @@ class AIAgentService {
       );
 
       let kbContext = "";
+      if (availableTitles.length > 0) {
+        kbContext += "\n\n## Documentação disponível\n";
+        availableTitles.forEach((title) => {
+          kbContext += `- ${title}\n`;
+        });
+      }
+
       if (kbResults.length > 0) {
-        kbContext = "\n\n### KNOWLEDGE BASE INSIGHTS (Obsidian-style)\n";
+        kbContext += "\n### KNOWLEDGE BASE INSIGHTS (Obsidian-style)\n";
         kbResults.forEach((result, index) => {
           kbContext += `\n#### ${result.title} (score: ${result.score.toFixed(2)}, source: ${result.source})\n`;
           kbContext += result.content.substring(0, 500) + (result.content.length > 500 ? "...\n" : "\n");
         });
       }
 
-      // 2. Get customer knowledge profile context
+      kbContext += `
+
+## Estrutura de raciocínio curto (obrigatória)
+- Antes da resposta final, defina internamente a próxima ação em 1 frase curta.
+- Se houver incerteza factual, use tool antes de responder.
+- Priorize tool quando a resposta depender de regra, preço, prazo, disponibilidade ou política.
+`;
+
+      // 3. Get customer knowledge profile context
       let customerContext = "";
       if (customerPhone) {
         try {
@@ -179,6 +205,23 @@ class AIAgentService {
       logger.error(`[AIAgent] Error enhancing prompt with knowledge: ${error}`);
       return "";
     }
+  }
+
+  private buildNextActionThought(userMessage: string, knowledgeContext: string) {
+    const lower = (userMessage || "").toLowerCase();
+    if (/pre[cç]o|valor|quanto/.test(lower)) {
+      return "Pensamento: vou validar preço com base na documentação e tools antes de responder.";
+    }
+    if (/entrega|frete|prazo|hor[aá]rio|amanh[ãa]|hoje/.test(lower)) {
+      return "Pensamento: vou validar regra de entrega/horário no acervo e nas tools.";
+    }
+    if (/cat[aá]logo|produto|op[cç][aã]o|cesta|buqu[eê]/.test(lower)) {
+      return "Pensamento: vou buscar opções relevantes e responder com contexto objetivo.";
+    }
+    if ((knowledgeContext || "").includes("## Documentação disponível")) {
+      return "Pensamento: vou checar títulos do acervo disponíveis e usar o mais aderente à pergunta.";
+    }
+    return "Pensamento: vou responder de forma direta e usar tool apenas se necessário para precisão.";
   }
 
   private async persistSessionLearnings(sessionId: string): Promise<void> {
@@ -3388,6 +3431,12 @@ regras:
       sessionId,
       session.customer_phone || undefined,
     );
+    await emit({
+      type: "state",
+      state: ProcessingState.ANALYZING,
+      label: this.buildNextActionThought(userMessage, knowledgeContext),
+      timestamp: new Date().toISOString(),
+    });
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
@@ -3721,6 +3770,12 @@ regras:
       userMessage,
     );
     const phasePrompt = this.getPhasePrompt(phaseResolution.phase);
+    const knowledgeContext = await this.enhancePromptWithKnowledge(
+      userMessage,
+      phaseResolution.phase,
+      sessionId,
+      customerPhone || session.customer_phone || undefined,
+    );
     const toolsInMCPForPhase = this.getAllowedToolsByPhase(
       phaseResolution.phase,
       toolsInMCP,
@@ -3850,6 +3905,8 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
 - regra_visibilidade: troca de agente é interna; NÃO informe ao cliente nomes de agentes por fase.
 
 ${phasePrompt}
+
+${knowledgeContext}
 
 ---
 

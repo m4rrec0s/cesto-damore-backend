@@ -11,6 +11,8 @@ import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
 import type { FlowCatalogNode, RouterDecision, DynamicMenuOption } from "../types/flowRouter";
 import deterministicRouter from "./deterministicRouterService";
 import phaseGateService, { type SalesPhase } from "./phaseGateService";
+import obsidianKnowledgeService from "./obsidianKnowledgeService";
+import customerKnowledgeProfileService from "./customerKnowledgeProfileService";
 
 enum ProcessingState {
   ANALYZING = "ANALYZING",
@@ -134,6 +136,88 @@ class AIAgentService {
         return PROMPTS.phase_checkout_alice;
       default:
         return PROMPTS.phase_discovery_ana;
+    }
+  }
+
+  private async enhancePromptWithKnowledge(
+    userMessage: string,
+    phase: SalesPhase,
+    sessionId: string,
+    customerPhone?: string,
+  ): Promise<string> {
+    try {
+      // 1. Get knowledge base context (hybrid search)
+      const kbResults = await obsidianKnowledgeService.hybridSearch(
+        userMessage,
+        3,
+        phase,
+      );
+
+      let kbContext = "";
+      if (kbResults.length > 0) {
+        kbContext = "\n\n### KNOWLEDGE BASE INSIGHTS (Obsidian-style)\n";
+        kbResults.forEach((result, index) => {
+          kbContext += `\n#### ${result.title} (score: ${result.score.toFixed(2)}, source: ${result.source})\n`;
+          kbContext += result.content.substring(0, 500) + (result.content.length > 500 ? "...\n" : "\n");
+        });
+      }
+
+      // 2. Get customer knowledge profile context
+      let customerContext = "";
+      if (customerPhone) {
+        try {
+          customerContext = await customerKnowledgeProfileService.getCustomerLearningsContext(
+            customerPhone
+          );
+        } catch (error) {
+          logger.warn(`[AIAgent] Failed to get customer knowledge: ${error}`);
+        }
+      }
+
+      return kbContext + "\n\n" + customerContext;
+    } catch (error) {
+      logger.error(`[AIAgent] Error enhancing prompt with knowledge: ${error}`);
+      return "";
+    }
+  }
+
+  private async persistSessionLearnings(sessionId: string): Promise<void> {
+    try {
+      const session = await prisma.aIAgentSession.findUnique({
+        where: { id: sessionId },
+      });
+
+      if (!session) return;
+
+      // Detect patterns and create proposals
+      const lastMessages = await prisma.aIAgentMessage.findMany({
+        where: { session_id: sessionId },
+        orderBy: { created_at: "desc" },
+        take: 10,
+      });
+
+      const lastAssistantMessage = lastMessages.find((m) => m.role === "assistant");
+      if (lastAssistantMessage) {
+        // Dynamically import to avoid circular dependency
+        const patternDetectionService = (await import("./patternDetectionService")).default;
+        await patternDetectionService.detectPatterns(sessionId, lastAssistantMessage.content);
+      }
+
+      // Auto-update customer knowledge profile
+      if (session.customer_phone) {
+        const profile = await prisma.customerKnowledgeProfile.findUnique({
+          where: { customer_phone: session.customer_phone },
+        });
+
+        if (profile?.auto_updates) {
+          const customerKnowledgeService = (await import("./customerKnowledgeProfileService")).default;
+          await customerKnowledgeService.learnFromSession(sessionId);
+        }
+      }
+
+      logger.info(`[AIAgent] Persisted session learnings for: ${sessionId}`);
+    } catch (error) {
+      logger.error(`[AIAgent] Error persisting session learnings: ${error}`);
     }
   }
 
@@ -3287,7 +3371,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
       (managerUserContext.name || managerUserContext.phone || managerUserContext.email)
         ? `### MANAGER_AUTH_CONTEXT
 usuário_autenticado: sim
-id: ${managerUserContext.id || userId}
+id: ${managerUserContext.id}
 nome: ${managerUserContext.name || "n/a"}
 telefone: ${managerUserContext.phone || "n/a"}
 email: ${managerUserContext.email || "n/a"}
@@ -3297,6 +3381,14 @@ regras:
 3) Se ocasião for Dia das Mães e houver conflito de nome, peça confirmação explícita antes de assumir destinatário.`
         : "";
 
+    // Enhance with Knowledge Base (Obsidian-style)
+    const knowledgeContext = await this.enhancePromptWithKnowledge(
+      userMessage,
+      phaseResolution.phase,
+      sessionId,
+      session.customer_phone || undefined,
+    );
+
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
@@ -3305,6 +3397,7 @@ regras:
           `### ORQUESTRAÇÃO_DE_FASE\nfase: ${phaseResolution.phase}\nagente: ${phaseResolution.agentName}\nmotivo: ${phaseResolution.reason}\nchecklist: discovery=${phaseResolution.checklist.discoveryQualified}; produto=${phaseResolution.checklist.productSelected}; customizacao=${phaseResolution.checklist.customizationDecided}; checkout=${phaseResolution.checklist.checkoutDataCollected}\nregra_visibilidade: troca de agente é interna; não mencionar nomes de agentes ao cliente.\n\n${phasePrompt}`,
           customerMemoryPrompt,
           managerContextPrompt,
+          knowledgeContext,
         ]
           .filter(Boolean)
           .join("\n\n"),
@@ -3373,6 +3466,12 @@ regras:
     }
 
     await this.saveResponse(sessionId, fullContent);
+
+    // Persist learnings (async, don't block response)
+    this.persistSessionLearnings(sessionId).catch((err) =>
+      logger.error("[AIAgent] Error persisting learnings:", err),
+    );
+
     await emit({
       type: "done",
       output: fullContent,

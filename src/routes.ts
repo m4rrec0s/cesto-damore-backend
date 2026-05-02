@@ -47,6 +47,8 @@ import chatRealtimeController from "./controller/chatRealtimeController";
 import aiLabController from "./controller/aiLabController";
 import tempFileController from "./controller/tempFileController";
 import { TestPaymentController } from "./controller/testPaymentController";
+import { knowledgeBaseController } from "./controller/knowledgeBaseController";
+import proposalController from "./controller/proposalController";
 
 import {
   upload,
@@ -1396,6 +1398,117 @@ router.post(
 router.post("/bot/chat", botFlowController.handleWebhook);
 router.get("/bot/flow", botFlowController.getFlow);
 router.post("/bot/flow", authenticateToken, requireAdmin, botFlowController.saveFlow);
+
+// ========================================
+// 📝 ROTAS DE PROPOSTAS DE MELHORIA
+// ========================================
+router.get(
+  "/proposals",
+  authenticateToken,
+  requireAdmin,
+  proposalController.index
+);
+router.get(
+  "/proposals/:id",
+  authenticateToken,
+  requireAdmin,
+  proposalController.show
+);
+router.post(
+  "/proposals/:id/approve",
+  authenticateToken,
+  requireAdmin,
+  proposalController.approve
+);
+router.post(
+  "/proposals/:id/reject",
+  authenticateToken,
+  requireAdmin,
+  proposalController.reject
+);
+router.post(
+  "/proposals/:id/implement",
+  authenticateToken,
+  requireAdmin,
+  proposalController.implement
+);
+router.get(
+  "/proposals/stats",
+  authenticateToken,
+  requireAdmin,
+  proposalController.getStats
+);
+router.get(
+  "/proposals/pending/count",
+  authenticateToken,
+  requireAdmin,
+  proposalController.getPendingCount
+);
+
+// ========================================
+// 📚 ROTAS DE KNOWLEDGE BASE (Obsidian-style)
+// ========================================
+router.post(
+  "/kb/documents",
+  authenticateToken,
+  requireAdmin,
+  knowledgeBaseController.create
+);
+router.get(
+  "/kb/documents",
+  authenticateToken,
+  knowledgeBaseController.index
+);
+router.get(
+  "/kb/documents/:id",
+  authenticateToken,
+  knowledgeBaseController.show
+);
+router.put(
+  "/kb/documents/:id",
+  authenticateToken,
+  requireAdmin,
+  knowledgeBaseController.update
+);
+router.delete(
+  "/kb/documents/:id",
+  authenticateToken,
+  requireAdmin,
+  knowledgeBaseController.delete
+);
+router.post(
+  "/kb/documents/:id/approve",
+  authenticateToken,
+  requireAdmin,
+  knowledgeBaseController.approve
+);
+router.post(
+  "/kb/search",
+  authenticateToken,
+  knowledgeBaseController.search
+);
+router.get(
+  "/kb/documents/by-phase/:phase",
+  authenticateToken,
+  knowledgeBaseController.getByPhase
+);
+router.get(
+  "/kb/documents/:id/versions",
+  authenticateToken,
+  knowledgeBaseController.getVersions
+);
+router.post(
+  "/kb/documents/:id/revert/:version",
+  authenticateToken,
+  requireAdmin,
+  knowledgeBaseController.revert
+);
+router.get(
+  "/kb/analytics",
+  authenticateToken,
+  requireAdmin,
+  knowledgeBaseController.getAnalytics
+);
 
 // ========================================
 // 🧪 ROTAS DE TESTE - Simulação de Pagamentos

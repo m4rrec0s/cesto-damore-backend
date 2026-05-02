@@ -680,8 +680,95 @@ model BotFlow {
   edges       Json     @default("[]")
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
-  
+
   BotSession  BotSession[]
+}
+
+model KBKnowledgeDocument {
+  id              String              @id @default(uuid())
+  title           String
+  content         String
+  category        String
+  phases          String[]
+  tags            String[]
+  pattern_type    String?
+  created_by      String
+  approved_by     String?
+  approval_status String              @default("draft")
+  version         Int                 @default(1)
+  embedding_id    String?
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+  versions        KBVersion[]
+  embeddings      KBEmbedding[]
+
+  @@index([category])
+  @@index([approval_status])
+  @@index([phases])
+  @@map("kb_knowledge_documents")
+}
+
+model KBVersion {
+  id              String              @id @default(uuid())
+  document_id     String
+  version         Int
+  content         String
+  changed_by      String
+  change_reason  String?
+  created_at      DateTime            @default(now())
+  document        KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@unique([document_id, version])
+  @@index([document_id])
+  @@map("kb_versions")
+}
+
+model KBEmbedding {
+  id           String              @id @default(uuid())
+  document_id  String
+  vector       String?  // Armazenar como JSON string
+  model        String
+  created_at   DateTime            @default(now())
+  document     KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@index([document_id])
+  @@map("kb_embeddings")
+}
+
+model CustomerKnowledgeProfile {
+  id                 String   @id @default(uuid())
+  customer_phone     String   @unique
+  learnings          String
+  preferred_phrases  String[]
+  common_objections String[]
+  success_patterns  String[]
+  last_updated_by    String
+  auto_updates       Boolean  @default(true)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  @@index([customer_phone])
+  @@map("customer_knowledge_profiles")
+}
+
+model ImprovementProposal {
+  id                 String    @id @default(uuid())
+  session_id         String
+  customer_phone     String?
+  proposal_type      String
+  current_document_id String?
+  suggested_content  String
+  reasoning          String
+  status             String    @default("pending")
+  approved_by        String?
+  approval_notes     String?
+  implemented_at     DateTime?
+  implemented_as_doc_id String?
+  detected_at        DateTime  @default(now())
+
+  @@index([status])
+  @@index([session_id])
+  @@map("improvement_proposals")
 }
 
 model BotSession {

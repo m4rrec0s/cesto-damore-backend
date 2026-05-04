@@ -4455,22 +4455,25 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               continue;
             }
             if (!args.items || !Array.isArray(args.items)) {
-              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro 'items' é obrigatório e deve ser uma lista de buscas ex: items=[{\"value\": \"aniversário\", \"filter_by\": \"all\"}]"}`;
-              messages.push({
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: errorMsg,
-              });
-              await prisma.aIAgentMessage.create({
-                data: {
-                  session_id: sessionId,
-                  role: "tool",
-                  content: errorMsg,
-                  tool_call_id: toolCall.id,
-                  name: name,
-                } as any,
-              });
-              continue;
+              const normalized = this.normalizarTermoBusca(
+                String(currentUserMessage || ""),
+              );
+              const isMothersDay = /dia das m[aã]es/.test(normalized);
+              const extracted = this.extractSearchTerm(
+                normalized,
+                String(currentUserMessage || ""),
+              );
+              args.items = [
+                {
+                  value: isMothersDay
+                    ? "Dia das Mães"
+                    : extracted || normalized,
+                  filter_by: isMothersDay ? "category" : "all",
+                },
+              ];
+              logger.warn(
+                "⚠️ consultarCatalogo sem items. Gerando busca estruturada automática.",
+              );
             }
           }
 

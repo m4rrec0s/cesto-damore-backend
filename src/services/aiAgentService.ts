@@ -8,7 +8,11 @@ import logger from "../utils/logger";
 import { addDays, addHours, isPast, format } from "date-fns";
 import { PROMPTS } from "../config/prompts";
 import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
-import type { FlowCatalogNode, RouterDecision, DynamicMenuOption } from "../types/flowRouter";
+import type {
+  FlowCatalogNode,
+  RouterDecision,
+  DynamicMenuOption,
+} from "../types/flowRouter";
 import deterministicRouter from "./deterministicRouterService";
 import phaseGateService, { type SalesPhase } from "./phaseGateService";
 import obsidianKnowledgeService from "./obsidianKnowledgeService";
@@ -153,7 +157,8 @@ class AIAgentService {
       const draftDocs = await obsidianKnowledgeService.listDocuments({
         approvalStatus: "draft",
       });
-      const phaseDocs = await obsidianKnowledgeService.getDocumentsByPhase(phase);
+      const phaseDocs =
+        await obsidianKnowledgeService.getDocumentsByPhase(phase);
       const titleSet = new Set<string>();
       [...phaseDocs, ...approvedDocs, ...draftDocs].forEach((doc: any) => {
         if (doc?.title) titleSet.add(String(doc.title));
@@ -171,8 +176,9 @@ class AIAgentService {
       }
 
       const normalizedMsg = (userMessage || "").toLowerCase();
-      const mothersDayHint =
-        /dia das m[aã]es|mae|m[ãa]e|mam[aã]e/.test(normalizedMsg);
+      const mothersDayHint = /dia das m[aã]es|mae|m[ãa]e|mam[aã]e/.test(
+        normalizedMsg,
+      );
       if (mothersDayHint) {
         const mdResults = await obsidianKnowledgeService.hybridSearch(
           "dia das mães mãe mamãe presente",
@@ -199,7 +205,9 @@ class AIAgentService {
         kbContext += "\n### KNOWLEDGE BASE INSIGHTS (Obsidian-style)\n";
         kbResults.forEach((result, index) => {
           kbContext += `\n#### ${result.title} (score: ${result.score.toFixed(2)}, source: ${result.source})\n`;
-          kbContext += result.content.substring(0, 500) + (result.content.length > 500 ? "...\n" : "\n");
+          kbContext +=
+            result.content.substring(0, 500) +
+            (result.content.length > 500 ? "...\n" : "\n");
         });
       }
 
@@ -219,9 +227,10 @@ class AIAgentService {
       let customerContext = "";
       if (customerPhone) {
         try {
-          customerContext = await customerKnowledgeProfileService.getCustomerLearningsContext(
-            customerPhone
-          );
+          customerContext =
+            await customerKnowledgeProfileService.getCustomerLearningsContext(
+              customerPhone,
+            );
         } catch (error) {
           logger.warn(`[AIAgent] Failed to get customer knowledge: ${error}`);
         }
@@ -234,7 +243,10 @@ class AIAgentService {
     }
   }
 
-  private buildNextActionThought(userMessage: string, knowledgeContext: string) {
+  private buildNextActionThought(
+    userMessage: string,
+    knowledgeContext: string,
+  ) {
     const lower = (userMessage || "").toLowerCase();
     if (/pre[cç]o|valor|quanto/.test(lower)) {
       return "Pensamento: vou validar preço com base na documentação e tools antes de responder.";
@@ -266,11 +278,18 @@ class AIAgentService {
         take: 10,
       });
 
-      const lastAssistantMessage = lastMessages.find((m) => m.role === "assistant");
+      const lastAssistantMessage = lastMessages.find(
+        (m) => m.role === "assistant",
+      );
       if (lastAssistantMessage) {
         // Dynamically import to avoid circular dependency
-        const patternDetectionService = (await import("./patternDetectionService")).default;
-        await patternDetectionService.detectPatterns(sessionId, lastAssistantMessage.content);
+        const patternDetectionService = (
+          await import("./patternDetectionService")
+        ).default;
+        await patternDetectionService.detectPatterns(
+          sessionId,
+          lastAssistantMessage.content,
+        );
       }
 
       // Auto-update customer knowledge profile
@@ -280,7 +299,9 @@ class AIAgentService {
         });
 
         if (profile?.auto_updates) {
-          const customerKnowledgeService = (await import("./customerKnowledgeProfileService")).default;
+          const customerKnowledgeService = (
+            await import("./customerKnowledgeProfileService")
+          ).default;
           await customerKnowledgeService.learnFromSession(sessionId);
         }
       }
@@ -378,7 +399,12 @@ class AIAgentService {
     const parsedCandidates: any[] = [];
     const pushCandidate = (value: any) => {
       if (!value || typeof value !== "object") return;
-      const arrays = [value.exatos, value.fallback, value.produtos, value.products]
+      const arrays = [
+        value.exatos,
+        value.fallback,
+        value.produtos,
+        value.products,
+      ]
         .filter((entry) => Array.isArray(entry))
         .flat();
       for (const item of arrays) {
@@ -498,8 +524,7 @@ class AIAgentService {
 
     const optionNumber = this.extractOptionNumberFromText(currentUserMessage);
     const focusedProduct =
-      (optionNumber &&
-        memory.presentedProducts[optionNumber - 1]) ||
+      (optionNumber && memory.presentedProducts[optionNumber - 1]) ||
       memory.presentedProducts.find((p) => p.id === memory.focusedProductId) ||
       null;
 
@@ -520,7 +545,8 @@ class AIAgentService {
     const focusedName = focusedProduct?.name || "n/a";
 
     if (userTurns <= 10) {
-      const markdown = await openClawMemoryService.getSessionMemoryMarkdown(sessionId);
+      const markdown =
+        await openClawMemoryService.getSessionMemoryMarkdown(sessionId);
       return `### SESSION_MEMORY_VERBOSE (turnos_usuario=${userTurns})
 ${markdown}
 
@@ -614,7 +640,9 @@ ${markdown}
 
     const memory = await openClawMemoryService.getSessionMemory(sessionId);
     const patch: Partial<
-      Awaited<ReturnType<typeof openClawMemoryService.getSessionMemory>>["client"]
+      Awaited<
+        ReturnType<typeof openClawMemoryService.getSessionMemory>
+      >["client"]
     > = {};
     const cleaned = userMessage.trim();
 
@@ -673,11 +701,16 @@ ${markdown}
     const memory = await openClawMemoryService.getSessionMemory(sessionId);
     if (!memory.presentedProducts.length || !output) return output;
 
-    const knownNames = memory.presentedProducts.map((product) => product.name.trim());
-    const knownNormalized = new Set(knownNames.map((name) => this.normalizeForCompare(name)));
+    const knownNames = memory.presentedProducts.map((product) =>
+      product.name.trim(),
+    );
+    const knownNormalized = new Set(
+      knownNames.map((name) => this.normalizeForCompare(name)),
+    );
     const focused =
-      memory.presentedProducts.find((product) => product.id === memory.focusedProductId) ||
-      memory.presentedProducts[0];
+      memory.presentedProducts.find(
+        (product) => product.id === memory.focusedProductId,
+      ) || memory.presentedProducts[0];
     if (!focused) return output;
 
     return output.replace(
@@ -690,7 +723,10 @@ ${markdown}
     );
   }
 
-  private async applyConversationStyleGuards(sessionId: string, output: string) {
+  private async applyConversationStyleGuards(
+    sessionId: string,
+    output: string,
+  ) {
     const text = (output || "").trim();
     if (!text) return output;
     const memory = await openClawMemoryService.getSessionMemory(sessionId);
@@ -894,10 +930,7 @@ ${markdown}
       const parsed = JSON.parse(content);
       if (!parsed || typeof parsed !== "object") return null;
       const action = String(parsed.action || "").trim();
-      if (
-        action !== "route_node" &&
-        action !== "handoff_human"
-      ) {
+      if (action !== "route_node" && action !== "handoff_human") {
         return null;
       }
       const confidenceValue = Number(parsed.confidence);
@@ -1042,10 +1075,7 @@ ${markdown}
     const raw = (dateStr || "").trim();
     const normalizedUser = (userMessage || "").toLowerCase();
     const context = this.getSaoPauloContext();
-    if (
-      raw.toLowerCase() === "hoje" ||
-      normalizedUser.includes("hoje")
-    ) {
+    if (raw.toLowerCase() === "hoje" || normalizedUser.includes("hoje")) {
       return context.isoDate;
     }
     if (
@@ -1348,12 +1378,17 @@ ${markdown}
         summary: node.summary || "",
         nav_category: node.nav_category || "menu",
         user_friendly_label: node.user_friendly_label || node.title,
-        keywords: Array.isArray(node.keywords) ? node.keywords.slice(0, 10) : [],
+        keywords: Array.isArray(node.keywords)
+          ? node.keywords.slice(0, 10)
+          : [],
       }));
 
     const historyContext = sessionHistory
       .slice(-4)
-      .map((entry) => `${entry.role === "user" ? "Cliente" : "Bot"}: ${entry.text}`)
+      .map(
+        (entry) =>
+          `${entry.role === "user" ? "Cliente" : "Bot"}: ${entry.text}`,
+      )
       .join("\n");
 
     const systemPrompt = `Você é um assistente de navegação da Cesto dAmore. 
@@ -1556,7 +1591,6 @@ RESPONDA SOMENTE COM JSON VÁLIDO neste formato:
       routerDecision: routingDecision,
     };
   }
-
 
   private determineToolStrategy(
     userMessage: string,
@@ -2097,11 +2131,17 @@ Responda APENAS com os números das ${targetCount} melhores opções, separados 
           ? msg.content
           : Array.isArray(msg.content)
             ? msg.content
-                .map((entry: any) => (typeof entry?.text === "string" ? entry.text : ""))
+                .map((entry: any) =>
+                  typeof entry?.text === "string" ? entry.text : "",
+                )
                 .join(" ")
             : "";
       const normalized = content.toLowerCase();
-      if (/\bpix\b|qrcode|qr code|chave pix|pagar no pix|passar no pix/.test(normalized)) {
+      if (
+        /\bpix\b|qrcode|qr code|chave pix|pagar no pix|passar no pix/.test(
+          normalized,
+        )
+      ) {
         return "PIX";
       }
       if (
@@ -2116,7 +2156,9 @@ Responda APENAS com os números das ${targetCount} melhores opções, separados 
     if (!this.isAffirmativeMessage(currentUserMessage)) return null;
     const lastAssistant = [...messages]
       .reverse()
-      .find((msg) => msg.role === "assistant" && typeof msg.content === "string");
+      .find(
+        (msg) => msg.role === "assistant" && typeof msg.content === "string",
+      );
     const assistantText =
       lastAssistant && typeof lastAssistant.content === "string"
         ? lastAssistant.content.toLowerCase()
@@ -2166,23 +2208,25 @@ Responda APENAS com os números das ${targetCount} melhores opções, separados 
       /endere[cç]o\s*[:\-]?\s*[^\n]+/i.test(text);
     const hasNumber = /\b\d{1,5}\b/.test(text);
     const addressValue = hasStreetLike
-      ? (text.match(
-          /endere[cç]o\s*[:\-]?\s*([^\n]+)|((?:rua|avenida|av\.|r\.)[^\n]+)|((?:cidade|bairro)\s*[:\-]?\s*[^\n]+)/i,
-        )?.[1] ||
+      ? (
+          text.match(
+            /endere[cç]o\s*[:\-]?\s*([^\n]+)|((?:rua|avenida|av\.|r\.)[^\n]+)|((?:cidade|bairro)\s*[:\-]?\s*[^\n]+)/i,
+          )?.[1] ||
           text.match(
             /endere[cç]o\s*[:\-]?\s*([^\n]+)|((?:rua|avenida|av\.|r\.)[^\n]+)|((?:cidade|bairro)\s*[:\-]?\s*[^\n]+)/i,
           )?.[2] ||
           text.match(
             /endere[cç]o\s*[:\-]?\s*([^\n]+)|((?:rua|avenida|av\.|r\.)[^\n]+)|((?:cidade|bairro)\s*[:\-]?\s*[^\n]+)/i,
           )?.[3] ||
-          "")
-          .trim()
+          ""
+        ).trim()
       : "";
     const hasAddress = hasStreetLike && hasNumber;
 
     const paymentMethod = explicitPaymentMethod;
-    const isRetirada =
-      /\bretirada\b|\bretirar\b|\bretira(r)? no local\b/i.test(text);
+    const isRetirada = /\bretirada\b|\bretirar\b|\bretira(r)? no local\b/i.test(
+      text,
+    );
 
     const missingFields: string[] = [];
     if (!productLineMatch) missingFields.push("produto");
@@ -2538,7 +2582,8 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const paymentMatch = paymentSource.match(
       /\b(pix|cart[ãa]o|crédito|cr[eé]dito|débito|debito)\b/i,
     );
-    const payment = paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
+    const payment =
+      paymentMatch?.[1]?.toUpperCase() || "[Pagamento não especificado]";
 
     const lines = [
       `Pedido: ${productName} - R$ ${productPrice}`,
@@ -3167,10 +3212,12 @@ Logo te respondem! Obrigadaaa 🥰"`;
       throw new Error("Sessão LAB não encontrada para este usuário");
     }
 
-    const sessionMemory = await openClawMemoryService.getSessionMemory(sessionId);
+    const sessionMemory =
+      await openClawMemoryService.getSessionMemory(sessionId);
     const sessionMarkdown =
       await openClawMemoryService.getSessionMemoryMarkdown(sessionId);
-    const sessionCompact = openClawMemoryService.buildSessionPrompt(sessionMemory);
+    const sessionCompact =
+      openClawMemoryService.buildSessionPrompt(sessionMemory);
 
     let customer = null as null | {
       customer_phone: string;
@@ -3217,7 +3264,8 @@ Logo te respondem! Obrigadaaa 🥰"`;
           executive_summary: sessionMemory.conversation.phaseExecutiveSummary,
           checklist: sessionMemory.conversation.phaseChecklist,
           checkout_data: sessionMemory.conversation.checkoutData,
-          customization_decision: sessionMemory.conversation.customizationDecision,
+          customization_decision:
+            sessionMemory.conversation.customizationDecision,
         },
         completeness: {
           has_name: Boolean(sessionMemory.client.name),
@@ -3255,7 +3303,9 @@ Logo te respondem! Obrigadaaa 🥰"`;
   }
 
   private buildLabSystemPrompt(toolsInMCP: { name: string }[]) {
-    const formattedTools = toolsInMCP.map((tool) => `- ${tool.name}`).join("\n");
+    const formattedTools = toolsInMCP
+      .map((tool) => `- ${tool.name}`)
+      .join("\n");
     const toolNames = new Set(toolsInMCP.map((tool) => tool.name));
     const hasAvailabilityTool =
       toolNames.has("get_product_availability") ||
@@ -3381,7 +3431,11 @@ Logo te respondem! Obrigadaaa 🥰"`;
       text: cleanMsg,
       time: nowTime,
     });
-    if (managerUserContext?.name || managerUserContext?.phone || managerUserContext?.email) {
+    if (
+      managerUserContext?.name ||
+      managerUserContext?.phone ||
+      managerUserContext?.email
+    ) {
       await openClawMemoryService.setAuthenticatedUserContext(sessionId, {
         name: managerUserContext.name || null,
         phone: managerUserContext.phone || null,
@@ -3426,9 +3480,10 @@ Logo te respondem! Obrigadaaa 🥰"`;
     );
     const toolNames = new Set(toolsInMCPForPhase.map((tool) => tool.name));
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCPForPhase);
-    const explicitDocRequest = /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
-      userMessage || "",
-    );
+    const explicitDocRequest =
+      /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
+        userMessage || "",
+      );
     const enableKnowledgeTool =
       this.shouldUseKnowledgeRetrievalInLab(userMessage) || explicitDocRequest;
 
@@ -3447,7 +3502,9 @@ Logo te respondem! Obrigadaaa 🥰"`;
       : "";
     const managerContextPrompt =
       managerUserContext &&
-      (managerUserContext.name || managerUserContext.phone || managerUserContext.email)
+      (managerUserContext.name ||
+        managerUserContext.phone ||
+        managerUserContext.email)
         ? `### MANAGER_AUTH_CONTEXT
 usuário_autenticado: sim
 id: ${managerUserContext.id}
@@ -3498,7 +3555,10 @@ regras:
           try {
             message.tool_calls = JSON.parse(msg.tool_calls);
           } catch (error) {
-            logger.error(`Erro ao parsear tool_calls da mensagem ${msg.id}`, error);
+            logger.error(
+              `Erro ao parsear tool_calls da mensagem ${msg.id}`,
+              error,
+            );
           }
         }
         return message;
@@ -3756,8 +3816,9 @@ regras:
       memory = await this.getCustomerMemory(phone);
       const markdownCustomerMemory =
         await openClawMemoryService.getCustomerMemory(phone);
-      customerMemoryPrompt =
-        openClawMemoryService.buildCustomerPrompt(markdownCustomerMemory);
+      customerMemoryPrompt = openClawMemoryService.buildCustomerPrompt(
+        markdownCustomerMemory,
+      );
     }
 
     const sentProductIds = await this.getSentProductsInSession(sessionId);
@@ -3816,12 +3877,16 @@ regras:
       phaseResolution.phase,
       toolsInMCP,
     );
-    const explicitDocRequest = /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
-      userMessage || "",
-    );
+    const explicitDocRequest =
+      /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
+        userMessage || "",
+      );
     const forceKnowledgeTool =
-      toolsInMCPForPhase.some((tool) => tool.name === "query_company_knowledge") &&
-      (this.shouldUseKnowledgeRetrievalInLab(userMessage) || explicitDocRequest);
+      toolsInMCPForPhase.some(
+        (tool) => tool.name === "query_company_knowledge",
+      ) &&
+      (this.shouldUseKnowledgeRetrievalInLab(userMessage) ||
+        explicitDocRequest);
 
     let mcpSystemPrompts = "";
     try {
@@ -3931,7 +3996,7 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
-         content: `${mcpSystemPrompts}
+        content: `${mcpSystemPrompts}
 
 ---
 
@@ -4064,7 +4129,9 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 4. Pergunta institucional/FAQ = query_company_knowledge antes de responder?`,
       },
       ...(customerMemoryPrompt
-        ? ([{ role: "system", content: customerMemoryPrompt }] as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
+        ? ([
+            { role: "system", content: customerMemoryPrompt },
+          ] as OpenAI.Chat.Completions.ChatCompletionMessageParam[])
         : []),
       ...recentHistory.map((msg) => {
         const message: any = {
@@ -4270,7 +4337,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
         await traceEmitter?.({
           type: "state",
           state: ProcessingState.GATHERING_DATA,
-          label: "Pensamento: preciso consultar ferramentas antes da resposta final.",
+          label:
+            "Pensamento: preciso consultar ferramentas antes da resposta final.",
           timestamp: new Date().toISOString(),
         });
 
@@ -4325,95 +4393,25 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "consultarCatalogo") {
-            const resumo = {
-              termo: args?.termo || "",
-              categorias: args?.categorias || [],
-              tipo_produto: args?.tipo_produto || "",
-              preco_minimo: args?.preco_minimo ?? null,
-              preco_maximo: args?.preco_maximo ?? null,
-            };
+            const items = Array.isArray(args.items) ? args.items : [];
+            const resumo = items
+              .map((it: any) => `${it.filter_by}:${it.value}`)
+              .join(", ");
             await traceEmitter?.({
               type: "warning",
-              message: `Consulta catálogo (filtros): ${JSON.stringify(resumo)}`,
+              message: `Consulta catálogo estruturada: [${resumo}]`,
               timestamp: new Date().toISOString(),
             });
           }
 
-          if (name === "consultarCatalogo" && typeof args.sql === "string") {
-            const sqlSignature = String(args.sql || "").trim().toLowerCase();
-            if (!sqlSignature) {
-              const errorMsg = JSON.stringify(
-                {
-                  status: "error",
-                  error_type: "validation_error",
-                  message:
-                    "consultarCatalogo exige o campo 'sql' com um SELECT válido nas tabelas de catálogo.",
-                },
-                null,
-                2,
-              );
-              messages.push({
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: errorMsg,
-              });
-              await prisma.aIAgentMessage.create({
-                data: {
-                  session_id: sessionId,
-                  role: "tool",
-                  content: errorMsg,
-                  tool_call_id: toolCall.id,
-                  name: name,
-                } as any,
-              });
-              continue;
-            }
-            if (catalogQuerySignatures.has(sqlSignature)) {
-              const duplicateMsg = JSON.stringify(
-                {
-                  status: "duplicate_query",
-                  message:
-                    "A consulta SQL repetiu. Execute uma nova query SQL com filtros diferentes (categoria/tipo/preço/termo).",
-                  sql: sqlSignature,
-                },
-                null,
-                2,
-              );
-              messages.push({
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: duplicateMsg,
-              });
-              await prisma.aIAgentMessage.create({
-                data: {
-                  session_id: sessionId,
-                  role: "tool",
-                  content: duplicateMsg,
-                  tool_call_id: toolCall.id,
-                  name: name,
-                } as any,
-              });
-              continue;
-            }
-            catalogQuerySignatures.add(sqlSignature);
-          }
-
-          if (name === "consultarCatalogo" && args.termo) {
-            const signature = JSON.stringify({
-              termo: args.termo || "",
-              contexto: args.contexto || "",
-              categorias: Array.isArray(args.categorias) ? args.categorias : [],
-              tipo_produto: args.tipo_produto || "",
-              preco_minimo: args.preco_minimo ?? null,
-              preco_maximo: args.preco_maximo ?? null,
-              exclude_ids: Array.isArray(args.exclude_ids) ? args.exclude_ids : [],
-            });
+          if (name === "consultarCatalogo") {
+            const signature = JSON.stringify(args);
             if (catalogQuerySignatures.has(signature)) {
               const dupMsg = JSON.stringify(
                 {
                   status: "duplicate_query",
                   message:
-                    "A última consulta de catálogo repetiu os mesmos filtros. Use a ferramenta 'consultarCatalogo' com parâmetro SQL (não termo/contexto).",
+                    "A consulta estruturada repetiu os mesmos parâmetros. Tente mudar o filtro ou o termo de busca.",
                 },
                 null,
                 2,
@@ -4435,77 +4433,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               continue;
             }
             catalogQuerySignatures.add(signature);
-
-            const termoOriginal = args.termo.toString();
-            let termoNormalizado = this.normalizarTermoBusca(termoOriginal);
-
-            const negativeFeedback = /nao sao essas|não são essas|essas nao|essas não|outras op[cç][oõ]es|outras para|nao gostei|não gostei/i.test(
-              (currentUserMessage || "").toLowerCase(),
-            );
-            const mothersDayContext = /dia das m[aã]es|mae|m[ãa]e|mam[aã]e/i.test(
-              (currentUserMessage || "").toLowerCase(),
-            );
-
-            const memoryForCatalog = await openClawMemoryService.getSessionMemory(sessionId);
-            const previouslyShownIds = (memoryForCatalog?.presentedProducts || [])
-              .map((p) => String(p.id))
-              .filter(Boolean);
-            const incomingExcludeIds = Array.isArray(args.exclude_ids)
-              ? args.exclude_ids.map((id: unknown) => String(id))
-              : [];
-            const mergedExcludeIds = Array.from(
-              new Set([...incomingExcludeIds, ...previouslyShownIds]),
-            );
-            if (negativeFeedback || mergedExcludeIds.length > 0) {
-              args.exclude_ids = mergedExcludeIds;
-            }
-
-            if (mothersDayContext) {
-              const currentContext = String(args.contexto || "");
-              if (!/dia das m[aã]es|mae|m[ãa]e|mam[aã]e/i.test(currentContext)) {
-                args.contexto = `${currentContext} dia das mães para mãe, foco em opções temáticas de dia das mães`.trim();
-              }
-            }
-
-            if (
-              !args.contexto ||
-              args.contexto.toString().trim().split(/\s+/).length < 3
-            ) {
-              const extraContext =
-                (args.contexto || "") + " " + currentUserMessage;
-              args.contexto = extraContext.trim();
-              logger.info(
-                `🧠 Enriquecendo contexto da busca: "${args.contexto}"`,
-              );
-            }
-
-            const wordCount = termoNormalizado
-              .split(/\s+/)
-              .filter(Boolean).length;
-            const needsReduction =
-              termoNormalizado.length > 40 ||
-              wordCount > 6 ||
-              !this.hasCatalogKeyword(termoNormalizado);
-
-            if (needsReduction) {
-              const reduced = this.extractSearchTerm(
-                termoNormalizado,
-                currentUserMessage,
-              );
-              if (reduced && reduced !== termoNormalizado) {
-                logger.info(
-                  `🧭 Termo reduzido: "${termoNormalizado}" → "${reduced}"`,
-                );
-                termoNormalizado = reduced;
-              }
-            }
-
-            if (termoOriginal !== termoNormalizado) {
-              logger.info(
-                `📝 Normalizado: "${termoOriginal}" → "${termoNormalizado}"`,
-              );
-              args.termo = termoNormalizado;
-            }
           }
 
           if (name === "consultarCatalogo") {
@@ -4527,8 +4454,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               });
               continue;
             }
-            if (!args.termo && (!args.sql || !args.sql.toString().trim())) {
-              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: usar campo 'sql' com SELECT. Exemplo: SELECT * FROM public.\"Product\" WHERE name ILIKE '%pascoa%'"}`;
+            if (!args.items || !Array.isArray(args.items)) {
+              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro 'items' é obrigatório e deve ser uma lista de buscas ex: items=[{\"value\": \"aniversário\", \"filter_by\": \"all\"}]"}`;
               messages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
@@ -4544,76 +4471,6 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 } as any,
               });
               continue;
-            }
-
-            if (
-              args.preco_maximo !== undefined &&
-              args.precoMaximo === undefined
-            ) {
-            }
-            if (
-              args.exclude_product_ids !== undefined &&
-              args.exclude_ids === undefined
-            ) {
-              args.exclude_ids = args.exclude_product_ids;
-            }
-            if (args.precoMaximo !== undefined) {
-              args.preco_maximo = args.precoMaximo;
-              delete args.precoMaximo;
-            }
-            if (args.precoMinimo !== undefined) {
-              args.preco_minimo = args.precoMinimo;
-              delete args.precoMinimo;
-            }
-            if (
-              typeof args.exclude_ids === "string" &&
-              args.exclude_ids.trim().length > 0
-            ) {
-              args.exclude_ids = [args.exclude_ids.trim()];
-            }
-            if (!Array.isArray(args.exclude_ids)) {
-              args.exclude_ids = [];
-            }
-            delete args.exclude_product_ids;
-
-            if (shouldExcludeProducts) {
-              try {
-                const sessionProducts =
-                  await this.getSentProductsInSession(sessionId);
-                if (sessionProducts.length > 0) {
-                  const existing = Array.isArray(args.exclude_ids)
-                    ? args.exclude_ids
-                    : [];
-                  const merged = [
-                    ...new Set([...existing, ...sessionProducts]),
-                  ];
-                  args.exclude_ids = merged;
-                  logger.info(
-                    `📦 Auto-excluindo ${merged.length} produtos ja apresentados`,
-                  );
-                }
-              } catch (e) {
-                logger.warn(
-                  "⚠️ Erro ao buscar produtos da sessao para exclusao",
-                  e,
-                );
-              }
-            }
-
-            const ragContext = [memorySummary, currentUserMessage]
-              .filter((text) => {
-                if (!text) return false;
-                const lower = text.toString().toLowerCase();
-                if (lower.includes("[interno]")) return false;
-                if (lower.includes("carrinho")) return false;
-                if (lower.includes("adicionou produto")) return false;
-                if (lower.includes("cart_added")) return false;
-                return true;
-              })
-              .join(" ")
-              .trim();
-            if (ragContext && !args.contexto) {
-              args.contexto = ragContext.slice(0, 600);
             }
           }
 
@@ -4670,9 +4527,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
           if (name === "get_product_details") {
             const memory = await this.getSessionProductMemory(sessionId);
-            const optionNumber = this.extractOptionNumberFromText(
-              currentUserMessage,
-            );
+            const optionNumber =
+              this.extractOptionNumberFromText(currentUserMessage);
             const focusedByOption =
               optionNumber && memory?.presentedProducts[optionNumber - 1]
                 ? memory.presentedProducts[optionNumber - 1]
@@ -4685,7 +4541,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 
             if (
               focusedProduct &&
-              (!args.product_name || /\b(op[çc][aã]o|opcao|op)\b/i.test(String(args.product_name)))
+              (!args.product_name ||
+                /\b(op[çc][aã]o|opcao|op)\b/i.test(String(args.product_name)))
             ) {
               args.product_name = focusedProduct.name;
               if (memory) {
@@ -4697,19 +4554,26 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               }
             }
 
-            const resolvedName = (args.product_name || focusedProduct?.name || "")
+            const resolvedName = (
+              args.product_name ||
+              focusedProduct?.name ||
+              ""
+            )
               .toString()
               .trim();
-            const resolvedKey = (focusedProduct?.id || resolvedName).toString().trim();
+            const resolvedKey = (focusedProduct?.id || resolvedName)
+              .toString()
+              .trim();
             if (resolvedKey) {
               productDetailsCacheKey = resolvedKey;
               productDetailsName = resolvedName || resolvedKey;
-              const cached = await openClawMemoryService.getCachedProductDetails(
-                sessionId,
-                resolvedKey,
-                currentUserTurn,
-                10,
-              );
+              const cached =
+                await openClawMemoryService.getCachedProductDetails(
+                  sessionId,
+                  resolvedKey,
+                  currentUserTurn,
+                  10,
+                );
               if (cached) {
                 cachedToolOutput = cached;
                 logger.info(
@@ -4771,7 +4635,10 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "notify_human_support") {
-            const rawReason = (args.reason || "").toString().trim().toLowerCase();
+            const rawReason = (args.reason || "")
+              .toString()
+              .trim()
+              .toLowerCase();
             const reasonAllowsHandoff =
               rawReason === "cart_added" ||
               rawReason === "cliente_quer_atendente" ||
@@ -4780,7 +4647,11 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               rawReason === "tentativa_manipulacao_preco";
             const explicitHandoffRequest =
               this.isExplicitHumanHandoffRequest(currentUserMessage);
-            if (!isCartEvent && !reasonAllowsHandoff && !explicitHandoffRequest) {
+            if (
+              !isCartEvent &&
+              !reasonAllowsHandoff &&
+              !explicitHandoffRequest
+            ) {
               const errorMsg = `{"status":"error","error":"handoff_not_allowed","message":"Não transfira para humano sem pedido explícito do cliente ou evento crítico. Continue o atendimento na fase atual e responda a dúvida com as tools apropriadas."}`;
               messages.push({
                 role: "tool",
@@ -4927,7 +4798,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               messages,
               currentUserMessage,
             );
-            const sourceText = `${memorySummary || ""} ${recentUserText} ${context}`.trim();
+            const sourceText =
+              `${memorySummary || ""} ${recentUserText} ${context}`.trim();
             const {
               context: normalizedCheckoutContext,
               hasAll,
@@ -5069,8 +4941,14 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           );
 
           if (name === "calculate_freight" && success) {
-            const freightCity =
-              (args.city || args.cityName || args.city_name || "").toString().trim();
+            const freightCity = (
+              args.city ||
+              args.cityName ||
+              args.city_name ||
+              ""
+            )
+              .toString()
+              .trim();
             if (freightCity) {
               await openClawMemoryService.patchSessionClientData(sessionId, {
                 city: freightCity,
@@ -5453,8 +5331,9 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           session.customer_phone,
           content,
         );
-      const compactSummary =
-        openClawMemoryService.buildCustomerSummaryForDb(customerMarkdownMemory);
+      const compactSummary = openClawMemoryService.buildCustomerSummaryForDb(
+        customerMarkdownMemory,
+      );
 
       await prisma.customerMemory.upsert({
         where: { customer_phone: session.customer_phone },

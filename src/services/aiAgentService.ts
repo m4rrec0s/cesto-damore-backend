@@ -4123,10 +4123,11 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
     currentPhase: SalesPhase = "DISCOVERY",
     preloadedTools?: Awaited<ReturnType<typeof mcpClientService.listTools>>,
   ): Promise<any> {
-    const MAX_TOOL_ITERATIONS = 10;
+    const MAX_TOOL_ITERATIONS = 6;
     let currentState = ProcessingState.ANALYZING;
     let toolExecutionResults: ToolExecutionResult[] = [];
     let finalizeAttemptedThisTurn = false;
+    const catalogQuerySignatures = new Set<string>();
 
     const shouldExcludeProducts =
       this.shouldExcludeProducts(currentUserMessage);
@@ -4339,6 +4340,25 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           }
 
           if (name === "consultarCatalogo" && args.termo) {
+            const signature = JSON.stringify({
+              termo: args.termo || "",
+              contexto: args.contexto || "",
+              categorias: Array.isArray(args.categorias) ? args.categorias : [],
+              tipo_produto: args.tipo_produto || "",
+              preco_minimo: args.preco_minimo ?? null,
+              preco_maximo: args.preco_maximo ?? null,
+              exclude_ids: Array.isArray(args.exclude_ids) ? args.exclude_ids : [],
+            });
+            if (catalogQuerySignatures.has(signature)) {
+              messages.push({
+                role: "system",
+                content:
+                  "A última consulta de catálogo repetiu os mesmos filtros. Faça NOVA consulta com query diferente (ajuste categoria/tipo/preço/contexto/exclude_ids).",
+              });
+              continue;
+            }
+            catalogQuerySignatures.add(signature);
+
             const termoOriginal = args.termo.toString();
             let termoNormalizado = this.normalizarTermoBusca(termoOriginal);
 

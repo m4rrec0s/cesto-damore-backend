@@ -4342,18 +4342,56 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
           if (name === "consultarCatalogo" && typeof args.sql === "string") {
             const sqlSignature = String(args.sql || "").trim().toLowerCase();
             if (!sqlSignature) {
+              const errorMsg = JSON.stringify(
+                {
+                  status: "error",
+                  error_type: "validation_error",
+                  message:
+                    "consultarCatalogo exige o campo 'sql' com um SELECT válido nas tabelas de catálogo.",
+                },
+                null,
+                2,
+              );
               messages.push({
-                role: "system",
-                content:
-                  "consultarCatalogo exige o campo sql com um SELECT válido nas tabelas de catálogo.",
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: errorMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: errorMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
               });
               continue;
             }
             if (catalogQuerySignatures.has(sqlSignature)) {
+              const duplicateMsg = JSON.stringify(
+                {
+                  status: "duplicate_query",
+                  message:
+                    "A consulta SQL repetiu. Execute uma nova query SQL com filtros diferentes (categoria/tipo/preço/termo).",
+                  sql: sqlSignature,
+                },
+                null,
+                2,
+              );
               messages.push({
-                role: "system",
-                content:
-                  "A consulta SQL de catálogo repetiu. Faça outra query SQL com filtros diferentes (categoria/tipo/preço/termo).",
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: duplicateMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: duplicateMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
               });
               continue;
             }
@@ -4371,10 +4409,28 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               exclude_ids: Array.isArray(args.exclude_ids) ? args.exclude_ids : [],
             });
             if (catalogQuerySignatures.has(signature)) {
+              const dupMsg = JSON.stringify(
+                {
+                  status: "duplicate_query",
+                  message:
+                    "A última consulta de catálogo repetiu os mesmos filtros. Use a ferramenta 'consultarCatalogo' com parâmetro SQL (não termo/contexto).",
+                },
+                null,
+                2,
+              );
               messages.push({
-                role: "system",
-                content:
-                  "A última consulta de catálogo repetiu os mesmos filtros. Faça NOVA consulta com query diferente (ajuste categoria/tipo/preço/contexto/exclude_ids).",
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: dupMsg,
+              });
+              await prisma.aIAgentMessage.create({
+                data: {
+                  session_id: sessionId,
+                  role: "tool",
+                  content: dupMsg,
+                  tool_call_id: toolCall.id,
+                  name: name,
+                } as any,
               });
               continue;
             }
@@ -4471,8 +4527,8 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               });
               continue;
             }
-            if (!args.termo || !args.termo.toString().trim()) {
-              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: termo. Pergunte: 'Qual tipo de produto ou ocasião você procura?'"}`;
+            if (!args.termo && (!args.sql || !args.sql.toString().trim())) {
+              const errorMsg = `{"status":"error","error":"missing_params","message":"Parâmetro ausente: usar campo 'sql' com SELECT. Exemplo: SELECT * FROM public.\"Product\" WHERE name ILIKE '%pascoa%'"}`;
               messages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,

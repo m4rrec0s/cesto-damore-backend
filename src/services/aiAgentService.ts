@@ -209,6 +209,10 @@ class AIAgentService {
 - Antes da resposta final, defina internamente a próxima ação em 1 frase curta.
 - Se houver incerteza factual, use tool antes de responder.
 - Priorize tool quando a resposta depender de regra, preço, prazo, disponibilidade ou política.
+
+## Ferramentas de busca de catálogo
+- Para busca avançada de produtos, você pode usar query_catalog_sql (SOMENTE SELECT) com filtros de preço/tipo/categoria.
+- Se query_catalog_sql não retornar resultados, faça fallback para consultarCatalogo com contexto rico.
 `;
 
       // 3. Get customer knowledge profile context
@@ -307,16 +311,19 @@ class AIAgentService {
       ]),
       CURATION: new Set([
         "consultarCatalogo",
+        "query_catalog_sql",
         "get_product_details",
         "query_company_knowledge",
       ]),
       CUSTOMIZATION: new Set([
+        "query_catalog_sql",
         "get_product_details",
         "can_produce_in_time",
         "validate_delivery_availability",
         "query_company_knowledge",
       ]),
       CHECKOUT: new Set([
+        "query_catalog_sql",
         "get_product_details",
         "calculate_freight",
         "validate_delivery_availability",

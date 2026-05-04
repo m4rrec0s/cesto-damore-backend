@@ -270,7 +270,7 @@ class AIAgentService {
       });
 
       if (!session) return;
-// Auto-update customer knowledge profile
+      // Auto-update customer knowledge profile
       if (session.customer_phone) {
         const profile = await prisma.customerKnowledgeProfile.findUnique({
           where: { customer_phone: session.customer_phone },
@@ -4432,27 +4432,40 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               });
               continue;
             }
+            // Mapeia legacy arguments para `items`
             if (!args.items || !Array.isArray(args.items)) {
-              const normalized = this.normalizarTermoBusca(
-                String(currentUserMessage || ""),
-              );
-              const isMothersDay = /dia das m[aã]es/.test(normalized);
-              const extracted = this.extractSearchTerm(
-                normalized,
-                String(currentUserMessage || ""),
-              );
-              args.items = [
-                {
-                  value: isMothersDay
-                    ? "Dia das Mães"
-                    : extracted || normalized,
-                  filter_by: isMothersDay ? "category" : "all",
-                },
-              ];
+              if (args.value || args.filter_by) {
+                args.items = [
+                  {
+                    value: args.value,
+                    filter_by: args.filter_by || "all",
+                  },
+                ];
+              } else {
+                const normalized = this.normalizarTermoBusca(
+                  String(currentUserMessage || ""),
+                );
+                const isMothersDay = /dia das m[aã]es/.test(normalized);
+                const extracted = this.extractSearchTerm(
+                  normalized,
+                  String(currentUserMessage || ""),
+                );
+                args.items = [
+                  {
+                    value: isMothersDay
+                      ? "Dia das Mães"
+                      : extracted || normalized,
+                    filter_by: isMothersDay ? "category" : "all",
+                  },
+                ];
+              }
               logger.warn(
                 "⚠️ consultarCatalogo sem items. Gerando busca estruturada automática.",
               );
             }
+            // Remove chaves proibidas pelo Pydantic Schema do mcp_server.py
+            delete args.value;
+            delete args.filter_by;
           }
 
           if (name === "calculate_freight") {

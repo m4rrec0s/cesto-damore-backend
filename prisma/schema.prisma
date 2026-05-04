@@ -751,25 +751,6 @@ model CustomerKnowledgeProfile {
   @@map("customer_knowledge_profiles")
 }
 
-model ImprovementProposal {
-  id                 String    @id @default(uuid())
-  session_id         String
-  customer_phone     String?
-  proposal_type      String
-  current_document_id String?
-  suggested_content  String
-  reasoning          String
-  status             String    @default("pending")
-  approved_by        String?
-  approval_notes     String?
-  implemented_at     DateTime?
-  implemented_as_doc_id String?
-  detected_at        DateTime  @default(now())
-
-  @@index([status])
-  @@index([session_id])
-  @@map("improvement_proposals")
-}
 
 model BotSession {
   id              String   @id @default(uuid())

@@ -270,29 +270,7 @@ class AIAgentService {
       });
 
       if (!session) return;
-
-      // Detect patterns and create proposals
-      const lastMessages = await prisma.aIAgentMessage.findMany({
-        where: { session_id: sessionId },
-        orderBy: { created_at: "desc" },
-        take: 10,
-      });
-
-      const lastAssistantMessage = lastMessages.find(
-        (m) => m.role === "assistant",
-      );
-      if (lastAssistantMessage) {
-        // Dynamically import to avoid circular dependency
-        const patternDetectionService = (
-          await import("./patternDetectionService")
-        ).default;
-        await patternDetectionService.detectPatterns(
-          sessionId,
-          lastAssistantMessage.content,
-        );
-      }
-
-      // Auto-update customer knowledge profile
+// Auto-update customer knowledge profile
       if (session.customer_phone) {
         const profile = await prisma.customerKnowledgeProfile.findUnique({
           where: { customer_phone: session.customer_phone },

@@ -4315,6 +4315,29 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             timestamp: new Date().toISOString(),
           });
 
+          if (name === "query_catalog_sql" && typeof args?.sql === "string") {
+            await traceEmitter?.({
+              type: "warning",
+              message: `SQL catálogo: ${String(args.sql).slice(0, 220)}`,
+              timestamp: new Date().toISOString(),
+            });
+          }
+
+          if (name === "consultarCatalogo") {
+            const resumo = {
+              termo: args?.termo || "",
+              categorias: args?.categorias || [],
+              tipo_produto: args?.tipo_produto || "",
+              preco_minimo: args?.preco_minimo ?? null,
+              preco_maximo: args?.preco_maximo ?? null,
+            };
+            await traceEmitter?.({
+              type: "warning",
+              message: `Consulta catálogo (filtros): ${JSON.stringify(resumo)}`,
+              timestamp: new Date().toISOString(),
+            });
+          }
+
           if (name === "consultarCatalogo" && args.termo) {
             const termoOriginal = args.termo.toString();
             let termoNormalizado = this.normalizarTermoBusca(termoOriginal);

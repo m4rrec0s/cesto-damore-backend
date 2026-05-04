@@ -4339,6 +4339,27 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             });
           }
 
+          if (name === "consultarCatalogo" && typeof args.sql === "string") {
+            const sqlSignature = String(args.sql || "").trim().toLowerCase();
+            if (!sqlSignature) {
+              messages.push({
+                role: "system",
+                content:
+                  "consultarCatalogo exige o campo sql com um SELECT válido nas tabelas de catálogo.",
+              });
+              continue;
+            }
+            if (catalogQuerySignatures.has(sqlSignature)) {
+              messages.push({
+                role: "system",
+                content:
+                  "A consulta SQL de catálogo repetiu. Faça outra query SQL com filtros diferentes (categoria/tipo/preço/termo).",
+              });
+              continue;
+            }
+            catalogQuerySignatures.add(sqlSignature);
+          }
+
           if (name === "consultarCatalogo" && args.termo) {
             const signature = JSON.stringify({
               termo: args.termo || "",

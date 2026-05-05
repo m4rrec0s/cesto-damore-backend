@@ -350,6 +350,7 @@ class OrderService {
                 grand_total: true,
                 created_at: true,
                 recipient_phone: true,
+                delivery_date: true,
                 user: {
                   select: {
                     id: true,

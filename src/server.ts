@@ -19,6 +19,7 @@ import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
 import followUpService from "./services/followUpService";
+import reservationService from "./services/reservationService";
 import { apiRateLimit, requireApiKey, initializeSecurityMonitor } from "./middleware/security";
 import path from "path";
 
@@ -431,6 +432,17 @@ cron.schedule("*/20 * * * *", async () => {
       "❌ [Cron] Erro na limpeza de imagens órfãs DYNAMIC_LAYOUT:",
       error,
     );
+  }
+});
+
+cron.schedule("*/5 * * * *", async () => {
+  try {
+    const cleaned = await reservationService.cleanupExpiredReservations();
+    if (cleaned > 0) {
+      logger.info(`🧹 [Cron] Reservas expiradas limpas: ${cleaned}`);
+    }
+  } catch (error) {
+    logger.error("❌ [Cron] Erro ao limpar reservas expiradas:", error);
   }
 });
 

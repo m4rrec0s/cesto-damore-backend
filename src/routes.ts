@@ -49,6 +49,7 @@ import tempFileController from "./controller/tempFileController";
 import { TestPaymentController } from "./controller/testPaymentController";
 import { knowledgeBaseController } from "./controller/knowledgeBaseController";
 import reservationService from "./services/reservationService";
+import inventoryController from "./controller/inventoryController";
 
 import {
   upload,
@@ -1348,6 +1349,25 @@ router.get(
   authenticateToken,
   requireAdmin,
   reportController.getCriticalStock,
+);
+
+router.get(
+  "/admin/inventory",
+  authenticateToken,
+  requireAdmin,
+  inventoryController.list,
+);
+router.post(
+  "/admin/inventory/adjust",
+  authenticateToken,
+  requireAdmin,
+  inventoryController.adjust,
+);
+router.get(
+  "/admin/inventory/movements",
+  authenticateToken,
+  requireAdmin,
+  inventoryController.history,
 );
 
 router.get(

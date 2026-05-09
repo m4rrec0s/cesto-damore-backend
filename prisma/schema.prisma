@@ -29,6 +29,7 @@ model User {
   dynamicLayouts        DynamicLayout[]
   orders                Order[]
   tempUploads           TempUpload[]
+  inventoryMovements    InventoryMovement[]
 }
 
 model Product {
@@ -53,6 +54,7 @@ model Product {
   categories             ProductCategory[]
   components             ProductComponent[]
   stockReservationItems  StockReservationItem[]
+  inventoryMovements     InventoryMovement[]
 
   @@index([embedding], map: "idx_product_embedding")
   @@index([embedding], map: "product_embedding_idx")
@@ -302,6 +304,28 @@ model Item {
   additionals          ProductAdditional[]
   components           ProductComponent[]
   stockReservationItems StockReservationItem[]
+  inventoryMovements    InventoryMovement[]
+}
+
+model InventoryMovement {
+  id          String   @id @default(uuid())
+  product_id  String?
+  item_id     String?
+  type        String
+  quantity    Int
+  reason      String
+  admin_id    String?
+  created_at  DateTime @default(now())
+
+  product Product? @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  item    Item?    @relation(fields: [item_id], references: [id], onDelete: SetNull)
+  admin   User?    @relation(fields: [admin_id], references: [id], onDelete: SetNull)
+
+  @@index([product_id])
+  @@index([item_id])
+  @@index([admin_id])
+  @@index([created_at])
+  @@index([type])
 }
 
 model Customization {

@@ -3,22 +3,12 @@ FROM node:20-slim AS builder
 
 WORKDIR /code
 
-# Instalar dependências do sistema
-RUN apt-get update && apt-get install -y \
+# Dependências mínimas para build de módulos nativos (quando necessário)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
-    libvips-dev \
-    libfftw3-dev \
-    build-essential \
-    libcairo2-dev \
-    libjpeg-dev \
-    libpango1.0-dev \
-    libgif-dev \
-    libpixman-1-dev \
-    libfreetype6-dev \
-    curl \
-    git \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copia package files
@@ -38,6 +28,9 @@ RUN npx prisma generate
 # Compila TypeScript
 RUN npm run build
 
+# Remove dependências de desenvolvimento para copiar apenas runtime
+RUN npm prune --omit=dev
+
 
 # ========================
 # Stage 2: Production
@@ -45,10 +38,11 @@ RUN npm run build
 FROM node:20-slim
 
 # Instalar dependências de runtime
-RUN apt-get update && apt-get install -y \
-    libvips-dev \
-    libfftw3-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libvips42 \
+    libfftw3-3 \
     libc6 \
+    ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

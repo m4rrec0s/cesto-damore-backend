@@ -52,6 +52,7 @@ model Product {
   additionals            ProductAdditional[]
   categories             ProductCategory[]
   components             ProductComponent[]
+  stockReservationItems  StockReservationItem[]
 
   @@index([embedding], map: "idx_product_embedding")
   @@index([embedding], map: "product_embedding_idx")
@@ -122,6 +123,7 @@ model Order {
   user                              User        @relation(fields: [user_id], references: [id])
   items                             OrderItem[]
   payment                           Payment?
+  stockReservation                  StockReservation?
 }
 
 model OrderItem {
@@ -177,6 +179,39 @@ model WebhookLog {
   created_at             DateTime @default(now())
   finalization_attempts  Int      @default(0)
   finalization_succeeded Boolean? @default(false)
+}
+
+model StockReservation {
+  id              String                  @id @default(uuid())
+  order_id        String                  @unique
+  reserved_at     DateTime                @default(now())
+  expires_at      DateTime
+  released_at     DateTime?
+  cancelled_at    DateTime?
+  status          String                  @default("active")
+  items           StockReservationItem[]
+  order           Order                   @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([status, expires_at])
+  @@index([order_id])
+  @@index([expires_at])
+}
+
+model StockReservationItem {
+  id                 String            @id @default(uuid())
+  reservation_id     String
+  product_id         String?
+  item_id            String?
+  quantity_reserved  Int
+  item_type          String
+
+  reservation        StockReservation  @relation(fields: [reservation_id], references: [id], onDelete: Cascade)
+  product            Product?          @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  item               Item?             @relation(fields: [item_id], references: [id], onDelete: SetNull)
+
+  @@index([reservation_id])
+  @@index([product_id])
+  @@index([item_id])
 }
 
 model FeedConfiguration {
@@ -266,6 +301,7 @@ model Item {
   orderItems           OrderItemAdditional[]
   additionals          ProductAdditional[]
   components           ProductComponent[]
+  stockReservationItems StockReservationItem[]
 }
 
 model Customization {

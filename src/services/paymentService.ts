@@ -9,6 +9,7 @@ import whatsappService from "./whatsappService";
 import orderCustomizationService from "./orderCustomizationService";
 import { webhookNotificationService } from "./webhookNotificationService";
 import orderService from "./orderService";
+import reservationService from "./reservationService";
 import alertService from "./alertService";
 import logger from "../utils/logger";
 
@@ -2197,6 +2198,20 @@ export class PaymentService {
           notifyCustomer: false,
         });
 
+        // Confirm stock reservation when payment is approved
+        try {
+          await reservationService.confirmReservation(dbPayment.order_id);
+          logger.info(
+            `✅ Stock reservation confirmed for order ${dbPayment.order_id}`,
+          );
+        } catch (reservationError: any) {
+          logger.error(
+            `⚠️ Error confirming reservation for order ${dbPayment.order_id}:`,
+            reservationError.message,
+          );
+          // Don't block payment processing if reservation confirmation fails
+        }
+
         try {
           await this.sendOrderConfirmationNotificationOnce(dbPayment.order_id);
         } catch (notifyError) {
@@ -2317,6 +2332,20 @@ export class PaymentService {
       }
 
       if (["cancelled", "rejected"].includes(paymentInfo.status as string)) {
+        // Release stock reservation when payment is cancelled or rejected
+        try {
+          await reservationService.releaseReservation(dbPayment.order_id);
+          logger.info(
+            `✅ Stock reservation released for order ${dbPayment.order_id} (payment ${paymentInfo.status})`,
+          );
+        } catch (reservationError: any) {
+          logger.error(
+            `⚠️ Error releasing reservation for order ${dbPayment.order_id}:`,
+            reservationError.message,
+          );
+          // Don't block order update if reservation release fails
+        }
+
         await prisma.order.update({
           where: { id: dbPayment.order_id },
           data: { status: "CANCELED", pending_owner_key: null },

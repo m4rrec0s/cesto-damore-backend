@@ -1,5 +1,6 @@
 import prisma from "../database/prisma";
 import stockService from "./stockService";
+import reservationService from "./reservationService";
 import whatsappService from "./whatsappService";
 import productComponentService from "./productComponentService";
 import customerManagementService from "./customerManagementService";
@@ -1018,6 +1019,28 @@ class OrderService {
         `✅ [OrderService.createOrder] inserted items in ${createDuration}ms, createdItems=${createdItems.length}, additionals=${additionalsBatch.length}, customizations=${customizationsBatch.length}`,
       );
 
+      // Create stock reservation if not draft
+      if (!data.is_draft) {
+        try {
+          const expirationMinutes = paymentMethod === "pix" ? 15 : 30;
+          await reservationService.createReservation(
+            created.id,
+            items,
+            expirationMinutes,
+          );
+          logger.info(
+            `✅ Stock reservation created for order ${created.id} (${expirationMinutes} minutes)`,
+          );
+        } catch (reservationError: any) {
+          logger.error(
+            `❌ Error creating reservation for order ${created.id}:`,
+            reservationError.message,
+          );
+          // Don't block order creation if reservation fails
+          // But log it for monitoring
+        }
+      }
+
       try {
         const orderWithUser = await this.getOrderById(created.id);
         if (orderWithUser?.user?.phone) {
@@ -1678,6 +1701,30 @@ class OrderService {
         );
       }
       throw error;
+    }
+
+    // Update or recreate stock reservation if order has payment method
+    if (order.payment_method) {
+      try {
+        // Release old reservation
+        await reservationService.releaseReservation(orderId);
+        logger.info(`✅ Old reservation released for order ${orderId}`);
+
+        // Create new reservation with updated items
+        const expirationMinutes = order.payment_method === "pix" ? 15 : 30;
+        await reservationService.createReservation(
+          orderId,
+          items,
+          expirationMinutes,
+        );
+        logger.info(`✅ New stock reservation created for order ${orderId}`);
+      } catch (reservationError: any) {
+        logger.error(
+          `⚠️ Error updating reservation for order ${orderId}:`,
+          reservationError.message,
+        );
+        // Don't block order update if reservation fails
+      }
     }
 
     console.log(

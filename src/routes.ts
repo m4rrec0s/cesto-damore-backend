@@ -48,6 +48,7 @@ import aiLabController from "./controller/aiLabController";
 import tempFileController from "./controller/tempFileController";
 import { TestPaymentController } from "./controller/testPaymentController";
 import { knowledgeBaseController } from "./controller/knowledgeBaseController";
+import reservationService from "./services/reservationService";
 
 import {
   upload,
@@ -321,7 +322,10 @@ router.get("/items", itemController.index);
 router.get("/items/available", itemController.getAvailable);
 router.get("/items/customizable", itemController.getWithCustomizations);
 router.get("/items/components", itemController.getComponents);
-router.get("/items/components/:id/products", itemController.getProductsByComponent);
+router.get(
+  "/items/components/:id/products",
+  itemController.getProductsByComponent,
+);
 router.get("/items/:id", itemController.show);
 router.post(
   "/items",
@@ -1262,6 +1266,77 @@ router.get(
   },
 );
 
+router.get("/stock/availability", async (req: Request, res: Response) => {
+  try {
+    const { product_ids, item_ids } = req.query;
+    const productIds = product_ids ? (product_ids as string).split(",") : [];
+    const itemIds = item_ids ? (item_ids as string).split(",") : [];
+
+    if (productIds.length === 0 && itemIds.length === 0) {
+      return res.status(400).json({
+        error:
+          "Either product_ids or item_ids query parameter must be provided",
+      });
+    }
+
+    const result: any = {
+      products: {},
+      items: {},
+    };
+
+    // Get available stock for each product
+    for (const productId of productIds) {
+      const availableStock =
+        await reservationService.getAvailableStock(productId);
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: { stock_quantity: true },
+      });
+
+      result.products[productId] = {
+        physical: product?.stock_quantity || 0,
+        reserved: Math.max(0, (product?.stock_quantity || 0) - availableStock),
+        available: availableStock,
+        status:
+          availableStock === 0
+            ? "out_of_stock"
+            : availableStock < 30
+              ? "low_stock"
+              : "in_stock",
+      };
+    }
+
+    // Get available stock for each item
+    for (const itemId of itemIds) {
+      const availableStock = await reservationService.getAvailableStock(
+        undefined,
+        itemId,
+      );
+      const item = await prisma.item.findUnique({
+        where: { id: itemId },
+        select: { stock_quantity: true },
+      });
+
+      result.items[itemId] = {
+        physical: item?.stock_quantity || 0,
+        reserved: Math.max(0, (item?.stock_quantity || 0) - availableStock),
+        available: availableStock,
+        status:
+          availableStock === 0
+            ? "out_of_stock"
+            : availableStock < 30
+              ? "low_stock"
+              : "in_stock",
+      };
+    }
+
+    res.json(result);
+  } catch (error: any) {
+    logger.error("Error getting stock availability:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get(
   "/reports/stock",
   authenticateToken,
@@ -1393,11 +1468,14 @@ router.post(
   },
 );
 
-
 router.post("/bot/chat", botFlowController.handleWebhook);
 router.get("/bot/flow", botFlowController.getFlow);
-router.post("/bot/flow", authenticateToken, requireAdmin, botFlowController.saveFlow);
-
+router.post(
+  "/bot/flow",
+  authenticateToken,
+  requireAdmin,
+  botFlowController.saveFlow,
+);
 
 // ========================================
 // 📚 ROTAS DE KNOWLEDGE BASE (Obsidian-style)
@@ -1406,62 +1484,54 @@ router.post(
   "/kb/documents",
   authenticateToken,
   requireAdmin,
-  knowledgeBaseController.create
+  knowledgeBaseController.create,
 );
-router.get(
-  "/kb/documents",
-  authenticateToken,
-  knowledgeBaseController.index
-);
+router.get("/kb/documents", authenticateToken, knowledgeBaseController.index);
 router.get(
   "/kb/documents/:id",
   authenticateToken,
-  knowledgeBaseController.show
+  knowledgeBaseController.show,
 );
 router.put(
   "/kb/documents/:id",
   authenticateToken,
   requireAdmin,
-  knowledgeBaseController.update
+  knowledgeBaseController.update,
 );
 router.delete(
   "/kb/documents/:id",
   authenticateToken,
   requireAdmin,
-  knowledgeBaseController.delete
+  knowledgeBaseController.delete,
 );
 router.post(
   "/kb/documents/:id/approve",
   authenticateToken,
   requireAdmin,
-  knowledgeBaseController.approve
+  knowledgeBaseController.approve,
 );
-router.post(
-  "/kb/search",
-  authenticateToken,
-  knowledgeBaseController.search
-);
+router.post("/kb/search", authenticateToken, knowledgeBaseController.search);
 router.get(
   "/kb/documents/by-phase/:phase",
   authenticateToken,
-  knowledgeBaseController.getByPhase
+  knowledgeBaseController.getByPhase,
 );
 router.get(
   "/kb/documents/:id/versions",
   authenticateToken,
-  knowledgeBaseController.getVersions
+  knowledgeBaseController.getVersions,
 );
 router.post(
   "/kb/documents/:id/revert/:version",
   authenticateToken,
   requireAdmin,
-  knowledgeBaseController.revert
+  knowledgeBaseController.revert,
 );
 router.get(
   "/kb/analytics",
   authenticateToken,
   requireAdmin,
-  knowledgeBaseController.getAnalytics
+  knowledgeBaseController.getAnalytics,
 );
 
 // ========================================

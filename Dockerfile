@@ -40,7 +40,7 @@ FROM node:20-slim
 # Instalar dependências de runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libvips42 \
-    libfftw3-3 \
+    libfftw3-double3 \
     libc6 \
     ca-certificates \
     curl \

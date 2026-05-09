@@ -1,22 +1,17 @@
+## syntax=docker/dockerfile:1.7
+
 # Stage 1: Build
 FROM node:20-slim AS builder
 
 WORKDIR /code
-
-# Dependências mínimas para build de módulos nativos (quando necessário)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copia package files
 COPY package*.json ./
 COPY tsconfig.json ./
 
 # Instala dependências de forma determinística e mais rápida
-RUN npm config set registry https://registry.npmjs.org/ && \
+RUN --mount=type=cache,target=/root/.npm \
+    npm config set registry https://registry.npmjs.org/ && \
     npm ci --no-audit --no-fund --fetch-timeout=600000 --fetch-retries=5
 
 # Copia projeto
@@ -37,14 +32,8 @@ RUN npm prune --omit=dev
 # ========================
 FROM node:20-slim
 
-# Instalar dependências de runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libvips42 \
-    libfftw3-double3 \
-    libc6 \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Garante uso do libvips empacotado pelo sharp (evita dependências APT em runtime)
+ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
 
 WORKDIR /usr/src/app
 

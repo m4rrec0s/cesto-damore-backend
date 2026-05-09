@@ -44,7 +44,7 @@
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "file-type": "^21.3.4",
-    "firebase-admin": "^13.8.0",
+    "firebase-admin": "^10.3.0",
     "geoip-lite": "^1.1.7",
     "google-auth-library": "^10.6.2",
     "googleapis": "^159.0.0",

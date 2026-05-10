@@ -219,6 +219,10 @@ class ProductService {
       normalized.stock_quantity = this.normalizeStockQuantity(
         normalized.stock_quantity,
       );
+      normalized.stock_mode = this.normalizeStockMode(
+        normalized.stock_mode,
+        Array.isArray(components) && components.length > 0,
+      );
       normalized.production_time = this.normalizeProductionTime(
         normalized.production_time,
       );
@@ -310,6 +314,12 @@ class ProductService {
       if (normalized.production_time !== undefined) {
         normalized.production_time = this.normalizeProductionTime(
           normalized.production_time,
+        );
+      }
+      if (normalized.stock_mode !== undefined || Array.isArray(components)) {
+        normalized.stock_mode = this.normalizeStockMode(
+          normalized.stock_mode,
+          Array.isArray(components) && components.length > 0,
         );
       }
       if (normalized.is_active !== undefined) {
@@ -618,6 +628,16 @@ class ProductService {
     }
 
     throw new Error("Tempo de produção deve ser um número");
+  }
+
+  private normalizeStockMode(
+    stockMode: any,
+    hasComponents: boolean,
+  ): "PRODUCT_ONLY" | "COMPONENTS_ONLY" {
+    if (stockMode === "PRODUCT_ONLY" || stockMode === "COMPONENTS_ONLY") {
+      return stockMode;
+    }
+    return hasComponents ? "COMPONENTS_ONLY" : "PRODUCT_ONLY";
   }
 
   private normalizeBoolean(value: any, defaultValue?: boolean): boolean {

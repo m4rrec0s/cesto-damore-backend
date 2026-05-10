@@ -13,6 +13,7 @@ export interface Product {
   discount?: number | null;
   type_id: string;
   production_time?: number | null;
+  stock_mode?: "PRODUCT_ONLY" | "COMPONENTS_ONLY";
   categories: { category: { id: string; name: string } }[];
 }
 
@@ -26,6 +27,7 @@ export type CreateProductInput = {
   image?: Express.Multer.File;
   type_id: string;
   production_time?: number | null;
+  stock_mode?: "PRODUCT_ONLY" | "COMPONENTS_ONLY";
   categories: string[];
   additionals?: string[];
 };

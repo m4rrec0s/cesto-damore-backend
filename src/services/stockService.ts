@@ -47,6 +47,7 @@ class StockService {
           id: true,
           name: true,
           stock_quantity: true,
+          stock_mode: true,
           components: {
             include: {
               item: true,
@@ -60,7 +61,11 @@ class StockService {
       throw new Error(`Produto ${productId} não encontrado`);
     }
 
-    if (product.components.length > 0) {
+    const stockMode =
+      product.stock_mode ||
+      (product.components.length > 0 ? "COMPONENTS_ONLY" : "PRODUCT_ONLY");
+
+    if (stockMode === "COMPONENTS_ONLY") {
       await productComponentService.decrementComponentsStock(
         productId,
         quantity,
@@ -192,13 +197,16 @@ class StockService {
           WHERE product_id = ${item.product_id}
         `;
 
+        const productMeta = await prisma.product.findUnique({
+          where: { id: item.product_id },
+          select: { stock_mode: true },
+        });
         const hasComponents = Number(componentCount[0]?.count || 0) > 0;
+        const stockMode =
+          productMeta?.stock_mode ||
+          (hasComponents ? "COMPONENTS_ONLY" : "PRODUCT_ONLY");
 
-        if (hasComponents) {
-          logger.info(
-            `⚠️ Produto ${item.product_id} usa sistema de components - validação de estoque via components (já feita anteriormente)`,
-          );
-        } else {
+        if (stockMode === "PRODUCT_ONLY") {
           const productResult = await prisma.$queryRaw<
             Array<{
               name: string;
@@ -218,6 +226,15 @@ class StockService {
                 `Produto ${product.name}: estoque insuficiente (disponível: ${product.stock_quantity})`,
               );
             }
+          }
+        } else {
+          const availableStock = await this.getProductAvailableStock(
+            item.product_id,
+          );
+          if (availableStock < item.quantity) {
+            errors.push(
+              `Produto ${item.product_id}: estoque insuficiente via componentes (disponível: ${availableStock})`,
+            );
           }
         }
       } catch (error) {
@@ -286,13 +303,16 @@ class StockService {
           WHERE product_id = ${item.product_id}
         `;
 
+        const productMeta = await prisma.product.findUnique({
+          where: { id: item.product_id },
+          select: { stock_mode: true },
+        });
         const hasComponents = Number(componentCount[0]?.count || 0) > 0;
+        const stockMode =
+          productMeta?.stock_mode ||
+          (hasComponents ? "COMPONENTS_ONLY" : "PRODUCT_ONLY");
 
-        if (hasComponents) {
-          logger.info(
-            `⚠️ Product ${item.product_id} uses component system - stock validation via components`,
-          );
-        } else {
+        if (stockMode === "PRODUCT_ONLY") {
           // Get available stock considering reservations
           const availableStock = await this.getProductAvailableStock(
             item.product_id,
@@ -306,6 +326,20 @@ class StockService {
 
             errors.push(
               `Product ${product?.name || item.product_id}: insufficient stock (available: ${availableStock})`,
+            );
+          }
+        } else {
+          const availableStock = await this.getProductAvailableStock(
+            item.product_id,
+          );
+
+          if (availableStock < item.quantity) {
+            const product = await prisma.product.findUnique({
+              where: { id: item.product_id },
+              select: { name: true },
+            });
+            errors.push(
+              `Product ${product?.name || item.product_id}: insufficient component stock (available: ${availableStock})`,
             );
           }
         }

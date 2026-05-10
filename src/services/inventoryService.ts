@@ -1,18 +1,14 @@
 import prisma from "../database/prisma";
 import reservationService from "./reservationService";
 
-export type InventoryEntityType = "product" | "item";
-
 export interface InventoryListFilters {
   page?: number;
   perPage?: number;
   search?: string;
   status?: "in_stock" | "low_stock" | "out_of_stock";
-  entityType?: InventoryEntityType | "all";
 }
 
 export interface InventoryAdjustInput {
-  entityType: InventoryEntityType;
   entityId: string;
   operation: "increment" | "decrement" | "set" | "zero";
   quantity?: number;
@@ -32,62 +28,23 @@ class InventoryService {
     const perPage = Math.min(100, Math.max(1, filters.perPage || 20));
     const search = (filters.search || "").trim();
 
-    const productWhere: any = {};
     const itemWhere: any = {};
 
     if (search) {
-      productWhere.name = { contains: search, mode: "insensitive" };
       itemWhere.name = { contains: search, mode: "insensitive" };
     }
 
-    const includeProducts = !filters.entityType || filters.entityType === "all" || filters.entityType === "product";
-    const includeItems = !filters.entityType || filters.entityType === "all" || filters.entityType === "item";
-
-    const [products, items] = await Promise.all([
-      includeProducts
-        ? prisma.product.findMany({
-            where: productWhere,
-            select: {
-              id: true,
-              name: true,
-              stock_quantity: true,
-              type_id: true,
-              type: { select: { name: true } },
-            },
-            orderBy: { name: "asc" },
-          })
-        : Promise.resolve([]),
-      includeItems
-        ? prisma.item.findMany({
-            where: itemWhere,
-            select: {
-              id: true,
-              name: true,
-              stock_quantity: true,
-              type: true,
-            },
-            orderBy: { name: "asc" },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const mappedProducts = await Promise.all(
-      products.map(async (product) => {
-        const available = await reservationService.getAvailableStock(product.id);
-        const physical = product.stock_quantity || 0;
-        const reserved = Math.max(0, physical - available);
-        return {
-          id: product.id,
-          entityType: "product" as const,
-          name: product.name,
-          category: product.type?.name || "-",
-          physical,
-          reserved,
-          available,
-          status: this.computeStatus(available),
-        };
-      }),
-    );
+    const items = await prisma.item.findMany({
+      where: itemWhere,
+      select: {
+        id: true,
+        name: true,
+        stock_quantity: true,
+        type: true,
+        image_url: true,
+      },
+      orderBy: { name: "asc" },
+    });
 
     const mappedItems = await Promise.all(
       items.map(async (item) => {
@@ -96,9 +53,9 @@ class InventoryService {
         const reserved = Math.max(0, physical - available);
         return {
           id: item.id,
-          entityType: "item" as const,
           name: item.name,
           category: item.type || "-",
+          image_url: item.image_url || null,
           physical,
           reserved,
           available,
@@ -107,7 +64,7 @@ class InventoryService {
       }),
     );
 
-    let combined = [...mappedProducts, ...mappedItems];
+    let combined = [...mappedItems];
 
     if (filters.status) {
       combined = combined.filter((entry) => entry.status === filters.status);
@@ -140,118 +97,62 @@ class InventoryService {
       let newStock = 0;
       let movementQuantity = 0;
 
-      if (input.entityType === "product") {
-        const rows = await tx.$queryRaw<Array<{ stock_quantity: number | null }>>`
-          SELECT stock_quantity
-          FROM "Product"
-          WHERE id = ${input.entityId}
-          FOR UPDATE
-        `;
+      const rows = await tx.$queryRaw<Array<{ stock_quantity: number | null }>>`
+        SELECT stock_quantity
+        FROM "Item"
+        WHERE id = ${input.entityId}
+        FOR UPDATE
+      `;
 
-        if (!rows.length) {
-          throw new Error("Produto não encontrado");
-        }
-
-        currentStock = rows[0].stock_quantity || 0;
-
-        switch (input.operation) {
-          case "increment":
-            movementQuantity = quantity;
-            newStock = currentStock + quantity;
-            break;
-          case "decrement":
-            movementQuantity = -quantity;
-            newStock = Math.max(0, currentStock - quantity);
-            break;
-          case "zero":
-            movementQuantity = -currentStock;
-            newStock = 0;
-            break;
-          case "set":
-            movementQuantity = quantity - currentStock;
-            newStock = quantity;
-            break;
-          default:
-            throw new Error("Operação inválida");
-        }
-
-        await tx.product.update({
-          where: { id: input.entityId },
-          data: { stock_quantity: newStock },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            product_id: input.entityId,
-            type:
-              input.operation === "increment"
-                ? "manual_increment"
-                : input.operation === "decrement"
-                  ? "manual_decrement"
-                  : "adjustment",
-            quantity: movementQuantity,
-            reason: input.reason.trim(),
-            admin_id: input.adminId,
-          },
-        });
-      } else {
-        const rows = await tx.$queryRaw<Array<{ stock_quantity: number | null }>>`
-          SELECT stock_quantity
-          FROM "Item"
-          WHERE id = ${input.entityId}
-          FOR UPDATE
-        `;
-
-        if (!rows.length) {
-          throw new Error("Item não encontrado");
-        }
-
-        currentStock = rows[0].stock_quantity || 0;
-
-        switch (input.operation) {
-          case "increment":
-            movementQuantity = quantity;
-            newStock = currentStock + quantity;
-            break;
-          case "decrement":
-            movementQuantity = -quantity;
-            newStock = Math.max(0, currentStock - quantity);
-            break;
-          case "zero":
-            movementQuantity = -currentStock;
-            newStock = 0;
-            break;
-          case "set":
-            movementQuantity = quantity - currentStock;
-            newStock = quantity;
-            break;
-          default:
-            throw new Error("Operação inválida");
-        }
-
-        await tx.item.update({
-          where: { id: input.entityId },
-          data: { stock_quantity: newStock },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            item_id: input.entityId,
-            type:
-              input.operation === "increment"
-                ? "manual_increment"
-                : input.operation === "decrement"
-                  ? "manual_decrement"
-                  : "adjustment",
-            quantity: movementQuantity,
-            reason: input.reason.trim(),
-            admin_id: input.adminId,
-          },
-        });
+      if (!rows.length) {
+        throw new Error("Item não encontrado");
       }
 
+      currentStock = rows[0].stock_quantity || 0;
+
+      switch (input.operation) {
+        case "increment":
+          movementQuantity = quantity;
+          newStock = currentStock + quantity;
+          break;
+        case "decrement":
+          movementQuantity = -quantity;
+          newStock = Math.max(0, currentStock - quantity);
+          break;
+        case "zero":
+          movementQuantity = -currentStock;
+          newStock = 0;
+          break;
+        case "set":
+          movementQuantity = quantity - currentStock;
+          newStock = quantity;
+          break;
+        default:
+          throw new Error("Operação inválida");
+      }
+
+      await tx.item.update({
+        where: { id: input.entityId },
+        data: { stock_quantity: newStock },
+      });
+
+      await tx.inventoryMovement.create({
+        data: {
+          item_id: input.entityId,
+          type:
+            input.operation === "increment"
+              ? "manual_increment"
+              : input.operation === "decrement"
+                ? "manual_decrement"
+                : "adjustment",
+          quantity: movementQuantity,
+          reason: input.reason.trim(),
+          admin_id: input.adminId,
+        },
+      });
+
       return {
-        entityType: input.entityType,
+        entityType: "item",
         entityId: input.entityId,
         previous: currentStock,
         current: newStock,
@@ -263,7 +164,6 @@ class InventoryService {
   }
 
   async getMovementHistory(params: {
-    productId?: string;
     itemId?: string;
     page?: number;
     perPage?: number;
@@ -272,7 +172,6 @@ class InventoryService {
     const perPage = Math.min(100, Math.max(1, params.perPage || 20));
 
     const where: any = {};
-    if (params.productId) where.product_id = params.productId;
     if (params.itemId) where.item_id = params.itemId;
 
     const [movements, total] = await Promise.all([

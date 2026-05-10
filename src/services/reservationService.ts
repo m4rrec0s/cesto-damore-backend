@@ -12,6 +12,69 @@ interface OrderItemData {
 }
 
 class ReservationService {
+  private async resolveProductStockMode(
+    productId: string,
+    tx: any = prisma,
+  ): Promise<"PRODUCT_ONLY" | "COMPONENTS_ONLY"> {
+    const [product, componentCount] = await Promise.all([
+      tx.product.findUnique({
+        where: { id: productId },
+        select: { stock_mode: true },
+      }),
+      tx.productComponent.count({
+        where: { product_id: productId },
+      }),
+    ]);
+
+    if (!product) {
+      throw new Error(`Product ${productId} not found`);
+    }
+
+    if (product.stock_mode === "PRODUCT_ONLY") {
+      return "PRODUCT_ONLY";
+    }
+    if (product.stock_mode === "COMPONENTS_ONLY") {
+      return "COMPONENTS_ONLY";
+    }
+
+    return componentCount > 0 ? "COMPONENTS_ONLY" : "PRODUCT_ONLY";
+  }
+
+  private async ensureItemReservationAvailability(
+    tx: any,
+    itemId: string,
+    requestedQuantity: number,
+  ): Promise<void> {
+    const itemData = (await tx.$queryRaw`
+      SELECT stock_quantity FROM "Item"
+      WHERE id = ${itemId}
+      FOR UPDATE
+    `) as any[];
+
+    if (!itemData || itemData.length === 0) {
+      throw new Error(`Item ${itemId} not found`);
+    }
+
+    const [{ total_reserved: item_reserved }] = (await tx.$queryRaw`
+      SELECT COALESCE(SUM(quantity_reserved), 0)::INTEGER as total_reserved
+      FROM "StockReservationItem" sri
+      JOIN "StockReservation" sr ON sri.reservation_id = sr.id
+      WHERE sri.item_id = ${itemId}
+      AND sr.status = 'active'
+      AND sr.expires_at > now()
+    `) as any[];
+
+    const itemPhysicalStock = itemData[0].stock_quantity || 0;
+    const itemAvailableStock = itemPhysicalStock - item_reserved;
+
+    if (itemAvailableStock < requestedQuantity) {
+      throw new Error(
+        `Insufficient stock for item ${itemId}. ` +
+          `Available: ${itemAvailableStock}, Requested: ${requestedQuantity}`,
+      );
+    }
+  }
+
   /**
    * Creates a stock reservation for an order with automatic expiration
    */
@@ -26,100 +89,104 @@ class ReservationService {
       // Use transaction with Serializable isolation to prevent race conditions
       await prisma.$transaction(
         async (tx: any) => {
-          // Process each item in the order
+          const reservation = await tx.stockReservation.upsert({
+            where: { order_id: orderId },
+            update: {
+              expires_at: expiresAt,
+              status: "active",
+            },
+            create: {
+              order_id: orderId,
+              expires_at: expiresAt,
+              status: "active",
+            },
+          });
+
+          // Process each order product
           for (const item of items) {
-            // Lock product row to ensure consistency
-            const product = (await tx.$queryRaw`
-              SELECT stock_quantity FROM "Product"
-              WHERE id = ${item.product_id}
-              FOR UPDATE
-            `) as any[];
+            const stockMode = await this.resolveProductStockMode(
+              item.product_id,
+              tx,
+            );
 
-            if (!product || product.length === 0) {
-              throw new Error(`Product ${item.product_id} not found`);
-            }
+            if (stockMode === "PRODUCT_ONLY") {
+              const product = (await tx.$queryRaw`
+                SELECT stock_quantity FROM "Product"
+                WHERE id = ${item.product_id}
+                FOR UPDATE
+              `) as any[];
 
-            // Get total reserved quantity for this product
-            const [{ total_reserved }] = (await tx.$queryRaw`
-              SELECT COALESCE(SUM(quantity_reserved), 0)::INTEGER as total_reserved
-              FROM "StockReservationItem" sri
-              JOIN "StockReservation" sr ON sri.reservation_id = sr.id
-              WHERE sri.product_id = ${item.product_id}
-              AND sr.status = 'active'
-              AND sr.expires_at > now()
-            `) as any[];
+              const [{ total_reserved }] = (await tx.$queryRaw`
+                SELECT COALESCE(SUM(quantity_reserved), 0)::INTEGER as total_reserved
+                FROM "StockReservationItem" sri
+                JOIN "StockReservation" sr ON sri.reservation_id = sr.id
+                WHERE sri.product_id = ${item.product_id}
+                AND sr.status = 'active'
+                AND sr.expires_at > now()
+              `) as any[];
 
-            const physicalStock = product[0].stock_quantity || 0;
-            const availableStock = physicalStock - total_reserved;
+              const physicalStock = product[0].stock_quantity || 0;
+              const availableStock = physicalStock - total_reserved;
 
-            if (availableStock < item.quantity) {
-              throw new Error(
-                `Insufficient stock for product ${item.product_id}. ` +
-                  `Available: ${availableStock}, Requested: ${item.quantity}`,
-              );
-            }
+              if (availableStock < item.quantity) {
+                throw new Error(
+                  `Insufficient stock for product ${item.product_id}. ` +
+                    `Available: ${availableStock}, Requested: ${item.quantity}`,
+                );
+              }
 
-            // Create reservation item for product
-            await tx.stockReservationItem.create({
-              data: {
-                reservation: {
-                  connectOrCreate: {
-                    where: { order_id: orderId },
-                    create: {
-                      order_id: orderId,
-                      expires_at: expiresAt,
-                      status: "active",
-                    },
-                  },
+              await tx.stockReservationItem.create({
+                data: {
+                  reservation_id: reservation.id,
+                  product_id: item.product_id,
+                  quantity_reserved: item.quantity,
+                  item_type: "product",
                 },
-                product_id: item.product_id,
-                quantity_reserved: item.quantity,
-                item_type: "product",
-              },
-            });
+              });
+            } else {
+              const components = await tx.productComponent.findMany({
+                where: { product_id: item.product_id },
+                select: { item_id: true, quantity: true },
+              });
+
+              if (!components.length) {
+                throw new Error(
+                  `Product ${item.product_id} is COMPONENTS_ONLY but has no components`,
+                );
+              }
+
+              for (const component of components) {
+                const requested = component.quantity * item.quantity;
+                await this.ensureItemReservationAvailability(
+                  tx,
+                  component.item_id,
+                  requested,
+                );
+
+                await tx.stockReservationItem.create({
+                  data: {
+                    reservation_id: reservation.id,
+                    item_id: component.item_id,
+                    quantity_reserved: requested,
+                    item_type: "component",
+                  },
+                });
+              }
+            }
 
             // Process additionals if present
             if (item.additionals && item.additionals.length > 0) {
               for (const additional of item.additionals) {
-                // Lock item row
-                const itemData = (await tx.$queryRaw`
-                  SELECT stock_quantity FROM "Item"
-                  WHERE id = ${additional.additional_id}
-                  FOR UPDATE
-                `) as any[];
-
-                if (!itemData || itemData.length === 0) {
-                  throw new Error(
-                    `Additional item ${additional.additional_id} not found`,
-                  );
-                }
-
-                // Get reserved quantity for this item
-                const [{ total_reserved: item_reserved }] = (await tx.$queryRaw`
-                  SELECT COALESCE(SUM(quantity_reserved), 0)::INTEGER as total_reserved
-                  FROM "StockReservationItem" sri
-                  JOIN "StockReservation" sr ON sri.reservation_id = sr.id
-                  WHERE sri.item_id = ${additional.additional_id}
-                  AND sr.status = 'active'
-                  AND sr.expires_at > now()
-                `) as any[];
-
-                const itemPhysicalStock = itemData[0].stock_quantity || 0;
-                const itemAvailableStock = itemPhysicalStock - item_reserved;
-
-                if (itemAvailableStock < additional.quantity) {
-                  throw new Error(
-                    `Insufficient stock for additional item ${additional.additional_id}. ` +
-                      `Available: ${itemAvailableStock}, Requested: ${additional.quantity}`,
-                  );
-                }
+                await this.ensureItemReservationAvailability(
+                  tx,
+                  additional.additional_id,
+                  additional.quantity,
+                );
 
                 // Create reservation item for additional
                 await tx.stockReservationItem.create({
                   data: {
-                    reservation_id: (await tx.stockReservation.findUnique({
-                      where: { order_id: orderId },
-                    }))!.id,
+                    reservation_id: reservation.id,
                     item_id: additional.additional_id,
                     quantity_reserved: additional.quantity,
                     item_type: "additional",
@@ -272,7 +339,7 @@ class ReservationService {
         const product = await withRetry(() =>
           prisma.product.findUnique({
             where: { id: productId },
-            select: { stock_quantity: true },
+            select: { stock_quantity: true, stock_mode: true },
           }),
         );
 
@@ -280,18 +347,55 @@ class ReservationService {
           return 0;
         }
 
-        const physicalStock = product.stock_quantity || 0;
+        const componentCount = await prisma.productComponent.count({
+          where: { product_id: productId },
+        });
+        const stockMode =
+          product.stock_mode ||
+          (componentCount > 0 ? "COMPONENTS_ONLY" : "PRODUCT_ONLY");
 
-        const [{ total_reserved }] = (await prisma.$queryRaw`
-          SELECT COALESCE(SUM(quantity_reserved), 0)::INTEGER as total_reserved
-          FROM "StockReservationItem" sri
-          JOIN "StockReservation" sr ON sri.reservation_id = sr.id
-          WHERE sri.product_id = ${productId}
-          AND sr.status = 'active'
-          AND sr.expires_at > now()
-        `) as any[];
+        if (stockMode === "PRODUCT_ONLY") {
+          const physicalStock = product.stock_quantity || 0;
 
-        return physicalStock - total_reserved;
+          const [{ total_reserved }] = (await prisma.$queryRaw`
+            SELECT COALESCE(SUM(quantity_reserved), 0)::INTEGER as total_reserved
+            FROM "StockReservationItem" sri
+            JOIN "StockReservation" sr ON sri.reservation_id = sr.id
+            WHERE sri.product_id = ${productId}
+            AND sr.status = 'active'
+            AND sr.expires_at > now()
+          `) as any[];
+
+          return physicalStock - total_reserved;
+        }
+
+        const components = await prisma.productComponent.findMany({
+          where: { product_id: productId },
+          select: { item_id: true, quantity: true, item: { select: { stock_quantity: true } } },
+        });
+
+        if (!components.length) {
+          return 0;
+        }
+
+        const componentAvailability = await Promise.all(
+          components.map(async (component) => {
+            const [{ total_reserved }] = (await prisma.$queryRaw`
+              SELECT COALESCE(SUM(quantity_reserved), 0)::INTEGER as total_reserved
+              FROM "StockReservationItem" sri
+              JOIN "StockReservation" sr ON sri.reservation_id = sr.id
+              WHERE sri.item_id = ${component.item_id}
+              AND sr.status = 'active'
+              AND sr.expires_at > now()
+            `) as any[];
+
+            const physical = component.item.stock_quantity || 0;
+            const availableForComponent = Math.max(0, physical - total_reserved);
+            return Math.floor(availableForComponent / component.quantity);
+          }),
+        );
+
+        return Math.min(...componentAvailability);
       } else if (itemId) {
         const item = await withRetry(() =>
           prisma.item.findUnique({

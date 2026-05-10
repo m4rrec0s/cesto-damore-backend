@@ -39,6 +39,7 @@ model Product {
   price                  Float
   discount               Float?                 @default(0)
   stock_quantity         Int?
+  stock_mode             String                 @default("PRODUCT_ONLY")
   is_active              Boolean                @default(true)
   image_url              String?
   allows_customization   Boolean                @default(false)

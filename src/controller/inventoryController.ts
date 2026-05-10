@@ -14,14 +14,12 @@ class InventoryController {
         | "low_stock"
         | "out_of_stock"
         | undefined;
-      const entityType = req.query.entity_type as "product" | "item" | "all" | undefined;
 
       const result = await inventoryService.listInventory({
         page,
         perPage,
         search,
         status,
-        entityType,
       });
 
       return res.json(result);
@@ -33,17 +31,16 @@ class InventoryController {
 
   async adjust(req: AuthenticatedRequest, res: Response) {
     try {
-      const { entity_type, entity_id, operation, quantity, reason } = req.body;
+      const { entity_id, operation, quantity, reason } = req.body;
       const adminId = req.user?.id;
 
-      if (!entity_type || !entity_id || !operation || !reason) {
+      if (!entity_id || !operation || !reason) {
         return res.status(400).json({
-          error: "Campos obrigatórios: entity_type, entity_id, operation, reason",
+          error: "Campos obrigatórios: entity_id, operation, reason",
         });
       }
 
       const result = await inventoryService.adjustStock({
-        entityType: entity_type,
         entityId: entity_id,
         operation,
         quantity,
@@ -68,13 +65,11 @@ class InventoryController {
     try {
       const page = parseInt(req.query.page as string, 10) || 1;
       const perPage = parseInt(req.query.per_page as string, 10) || 20;
-      const productId = req.query.product_id as string | undefined;
       const itemId = req.query.item_id as string | undefined;
 
       const result = await inventoryService.getMovementHistory({
         page,
         perPage,
-        productId,
         itemId,
       });
 

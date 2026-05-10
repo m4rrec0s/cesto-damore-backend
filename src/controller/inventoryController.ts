@@ -31,7 +31,7 @@ class InventoryController {
 
   async adjust(req: AuthenticatedRequest, res: Response) {
     try {
-      const { entity_id, operation, quantity, reason } = req.body;
+      const { entity_type, entity_id, operation, quantity, reason } = req.body;
       const adminId = req.user?.id;
 
       if (!entity_id || !operation || !reason) {
@@ -41,6 +41,7 @@ class InventoryController {
       }
 
       const result = await inventoryService.adjustStock({
+        entityType: entity_type,
         entityId: entity_id,
         operation,
         quantity,

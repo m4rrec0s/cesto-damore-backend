@@ -9,6 +9,7 @@ export interface InventoryListFilters {
 }
 
 export interface InventoryAdjustInput {
+  entityType?: "item" | "product";
   entityId: string;
   operation: "increment" | "decrement" | "set" | "zero";
   quantity?: number;
@@ -29,22 +30,39 @@ class InventoryService {
     const search = (filters.search || "").trim();
 
     const itemWhere: any = {};
+    const productWhere: any = {
+      stock_mode: "PRODUCT_ONLY",
+    };
 
     if (search) {
       itemWhere.name = { contains: search, mode: "insensitive" };
+      productWhere.name = { contains: search, mode: "insensitive" };
     }
 
-    const items = await prisma.item.findMany({
-      where: itemWhere,
-      select: {
-        id: true,
-        name: true,
-        stock_quantity: true,
-        type: true,
-        image_url: true,
-      },
-      orderBy: { name: "asc" },
-    });
+    const [items, products] = await Promise.all([
+      prisma.item.findMany({
+        where: itemWhere,
+        select: {
+          id: true,
+          name: true,
+          stock_quantity: true,
+          type: true,
+          image_url: true,
+        },
+        orderBy: { name: "asc" },
+      }),
+      prisma.product.findMany({
+        where: productWhere,
+        select: {
+          id: true,
+          name: true,
+          stock_quantity: true,
+          image_url: true,
+          type: { select: { name: true } },
+        },
+        orderBy: { name: "asc" },
+      }),
+    ]);
 
     const mappedItems = await Promise.all(
       items.map(async (item) => {
@@ -52,6 +70,7 @@ class InventoryService {
         const physical = item.stock_quantity || 0;
         const reserved = Math.max(0, physical - available);
         return {
+          entity_type: "item",
           id: item.id,
           name: item.name,
           category: item.type || "-",
@@ -64,7 +83,26 @@ class InventoryService {
       }),
     );
 
-    let combined = [...mappedItems];
+    const mappedProducts = await Promise.all(
+      products.map(async (product) => {
+        const available = await reservationService.getAvailableStock(product.id);
+        const physical = product.stock_quantity || 0;
+        const reserved = Math.max(0, physical - available);
+        return {
+          entity_type: "product",
+          id: product.id,
+          name: product.name,
+          category: product.type?.name || "-",
+          image_url: product.image_url || null,
+          physical,
+          reserved,
+          available,
+          status: this.computeStatus(available),
+        };
+      }),
+    );
+
+    let combined = [...mappedProducts, ...mappedItems];
 
     if (filters.status) {
       combined = combined.filter((entry) => entry.status === filters.status);
@@ -97,15 +135,25 @@ class InventoryService {
       let newStock = 0;
       let movementQuantity = 0;
 
-      const rows = await tx.$queryRaw<Array<{ stock_quantity: number | null }>>`
-        SELECT stock_quantity
-        FROM "Item"
-        WHERE id = ${input.entityId}
-        FOR UPDATE
-      `;
+      const entityType = input.entityType || "item";
+      const rows = entityType === "product"
+        ? await tx.$queryRaw<Array<{ stock_quantity: number | null }>>`
+            SELECT stock_quantity
+            FROM "Product"
+            WHERE id = ${input.entityId}
+            FOR UPDATE
+          `
+        : await tx.$queryRaw<Array<{ stock_quantity: number | null }>>`
+            SELECT stock_quantity
+            FROM "Item"
+            WHERE id = ${input.entityId}
+            FOR UPDATE
+          `;
 
       if (!rows.length) {
-        throw new Error("Item não encontrado");
+        throw new Error(
+          entityType === "product" ? "Produto não encontrado" : "Item não encontrado",
+        );
       }
 
       currentStock = rows[0].stock_quantity || 0;
@@ -131,14 +179,22 @@ class InventoryService {
           throw new Error("Operação inválida");
       }
 
-      await tx.item.update({
-        where: { id: input.entityId },
-        data: { stock_quantity: newStock },
-      });
+      if (entityType === "product") {
+        await tx.product.update({
+          where: { id: input.entityId },
+          data: { stock_quantity: newStock },
+        });
+      } else {
+        await tx.item.update({
+          where: { id: input.entityId },
+          data: { stock_quantity: newStock },
+        });
+      }
 
       await tx.inventoryMovement.create({
         data: {
-          item_id: input.entityId,
+          product_id: entityType === "product" ? input.entityId : undefined,
+          item_id: entityType === "item" ? input.entityId : undefined,
           type:
             input.operation === "increment"
               ? "manual_increment"
@@ -152,7 +208,7 @@ class InventoryService {
       });
 
       return {
-        entityType: "item",
+        entityType,
         entityId: input.entityId,
         previous: currentStock,
         current: newStock,

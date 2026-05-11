@@ -21,7 +21,7 @@ export interface ConversationTurn {
 
 export interface ConversationCheckpoint {
   turnsProcessed: number;
-  keyTopics: Map<string, string>; // topic -> summary
+  keyTopics: Map<string, string>;
   createdAt: number;
 }
 
@@ -33,8 +33,9 @@ export interface CompressionResult {
   compressed: {
     turnCount: number;
     tokenCount: number;
-    checkpoint: ConversationCheckpoint;
+    checkpoint?: ConversationCheckpoint;
   };
+  checkpoint?: string;
   savings: {
     tokensSaved: number;
     percentSaved: number;
@@ -62,7 +63,7 @@ export class ContextCompressorService {
     turns: ConversationTurn[],
     maxTurnsToKeep: number = 10,
     compressionThreshold: number = 0.8
-  ): ConversationResult {
+  ): CompressionResult {
     const originalTokens = TokenEstimator.estimate(
       turns.map(t => t.content).join("\n")
     ).tokenEstimate;
@@ -72,7 +73,6 @@ export class ContextCompressorService {
       return {
         original: { turnCount: turns.length, tokenCount: originalTokens },
         compressed: { turnCount: turns.length, tokenCount: originalTokens },
-        checkpoint: null,
         savings: { tokensSaved: 0, percentSaved: 0 }
       };
     }
@@ -217,7 +217,7 @@ ${topics}
    * Hash para detectar turnas idênticas
    */
   private _hashTurn(turn: ConversationTurn): string {
-    const content = turn.content.substring(0, 100); // Primeiros 100 chars
+    const content = turn.content.substring(0, 100);
     return `${turn.role}:${content}`;
   }
 
@@ -252,13 +252,6 @@ ${topics}
       return "🚨 EMERGÊNCIA: Comprima IMEDIATAMENTE. Contexto em >90%.";
     }
   }
-}
-
-export interface CompressionResult {
-  original: { turnCount: number; tokenCount: number };
-  compressed: { turnCount: number; tokenCount: number; checkpoint?: ConversationCheckpoint };
-  checkpoint?: string;
-  savings: { tokensSaved: number; percentSaved: number };
 }
 
 export default ContextCompressorService.getInstance();

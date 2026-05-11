@@ -11,7 +11,7 @@ import type { IToolResult } from "../types/tools";
 
 interface CacheEntry<T = any> {
   result: IToolResult<T>;
-  expiresAt: number; // timestamp em ms
+  expiresAt: number;
   createdAt: number;
   hitCount: number;
 }
@@ -19,8 +19,8 @@ interface CacheEntry<T = any> {
 class ToolCache {
   private cache: Map<string, CacheEntry> = new Map();
   private readonly MAX_CACHE_SIZE = 1000;
-  private readonly DEFAULT_TTL = 300; // 5 minutos em segundos
-  private cleanupInterval: NodeJS.Timer | null = null;
+  private readonly DEFAULT_TTL = 300;
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     this.startCleanupTimer();
@@ -29,42 +29,29 @@ class ToolCache {
   /**
    * Gera chave de cache: hash(toolName + JSON(input))
    */
-  private generateCacheKey(toolName: string, input: Record<string, any>): string {
-    const key = `${toolName}:${JSON.stringify(input)}`;
-    return crypto.createHash("md5").update(key).digest("hex");
+  private generateKey(toolName: string, input: any): string {
+    const combined = `${toolName}:${JSON.stringify(input)}`;
+    return crypto.createHash("md5").update(combined).digest("hex");
   }
 
   /**
-   * Obtém resultado do cache se existir e não expirou
+   * Busca resultado em cache
    */
-  get<T = any>(
-    toolName: string,
-    input: Record<string, any>
-  ): IToolResult<T> | null {
-    const key = this.generateCacheKey(toolName, input);
+  get<T = any>(toolName: string, input: any): IToolResult<T> | null {
+    const key = this.generateKey(toolName, input);
     const entry = this.cache.get(key);
 
     if (!entry) {
       return null;
     }
 
-    // Verifica se expirou
     if (Date.now() > entry.expiresAt) {
       this.cache.delete(key);
       return null;
     }
 
-    // Marca como acessado
     entry.hitCount++;
-    logger.debug(
-      `[ToolCache] HIT: ${toolName} (hits=${entry.hitCount})`
-    );
-
-    // Retorna com flag de cache
-    return {
-      ...entry.result,
-      fromCache: true,
-    };
+    return entry.result as IToolResult<T>;
   }
 
   /**
@@ -72,101 +59,68 @@ class ToolCache {
    */
   set<T = any>(
     toolName: string,
-    input: Record<string, any>,
+    input: any,
     result: IToolResult<T>,
-    ttlSeconds?: number
+    ttlSeconds: number = this.DEFAULT_TTL
   ): void {
-    // Não cachea resultados de erro
-    if (!result.success) {
-      return;
-    }
-
-    const key = this.generateCacheKey(toolName, input);
-    const ttl = ttlSeconds ?? this.DEFAULT_TTL;
-
-    // Se cache está cheio, remove oldest com menos hits
     if (this.cache.size >= this.MAX_CACHE_SIZE) {
-      let oldestKey = "";
-      let oldestScore = Infinity;
-
-      for (const [k, v] of this.cache.entries()) {
-        const score = v.hitCount > 0 ? v.createdAt : 0;
-        if (score < oldestScore) {
-          oldestScore = score;
-          oldestKey = k;
-        }
-      }
-
-      if (oldestKey) {
-        this.cache.delete(oldestKey);
-      }
+      this.evictOldest();
     }
 
-    const entry: CacheEntry = {
-      result: { ...result, fromCache: false },
-      expiresAt: Date.now() + ttl * 1000,
-      createdAt: Date.now(),
+    const key = this.generateKey(toolName, input);
+    const now = Date.now();
+    
+    this.cache.set(key, {
+      result,
+      expiresAt: now + ttlSeconds * 1000,
+      createdAt: now,
       hitCount: 0,
-    };
-
-    this.cache.set(key, entry);
-    logger.debug(
-      `[ToolCache] STORE: ${toolName} (ttl=${ttl}s, size=${this.cache.size})`
-    );
+    });
   }
 
   /**
-   * Limpa cache para uma tool específica
+   * Remove entrada expirada
    */
-  invalidateTool(toolName: string): number {
-    let count = 0;
-    for (const [key] of this.cache.entries()) {
-      if (key.startsWith(`${toolName}:`)) {
-        this.cache.delete(key);
-        count++;
-      }
-    }
-    logger.info(`[ToolCache] Invalidated ${count} entries for tool: ${toolName}`);
-    return count;
+  invalidate(toolName: string, input: any): void {
+    const key = this.generateKey(toolName, input);
+    this.cache.delete(key);
   }
 
   /**
    * Limpa todo o cache
    */
   clear(): void {
-    const size = this.cache.size;
     this.cache.clear();
-    logger.info(`[ToolCache] Cleared ${size} entries`);
   }
 
   /**
-   * Remove entradas expiradas (executado periodicamente)
+   * Remove entrada mais antiga (LRU)
    */
-  private cleanup(): void {
-    const now = Date.now();
-    let expiredCount = 0;
+  private evictOldest(): void {
+    let oldest: [string, CacheEntry] | null = null;
 
-    for (const [key, entry] of this.cache.entries()) {
-      if (now > entry.expiresAt) {
-        this.cache.delete(key);
-        expiredCount++;
+    for (const [key, entry] of this.cache) {
+      if (!oldest || entry.createdAt < oldest[1].createdAt) {
+        oldest = [key, entry];
       }
     }
 
-    if (expiredCount > 0) {
-      logger.debug(
-        `[ToolCache] Cleanup: removed ${expiredCount} expired entries`
-      );
+    if (oldest) {
+      this.cache.delete(oldest[0]);
     }
   }
 
   /**
-   * Inicia timer de limpeza periódica
+   * Inicia timer de limpeza periódica (a cada 60s)
    */
   private startCleanupTimer(): void {
-    // Cleanup a cada 60 segundos
     this.cleanupInterval = setInterval(() => {
-      this.cleanup();
+      const now = Date.now();
+      for (const [key, entry] of Array.from(this.cache.entries())) {
+        if (now > entry.expiresAt) {
+          this.cache.delete(key);
+        }
+      }
     }, 60000);
   }
 
@@ -183,36 +137,13 @@ class ToolCache {
   /**
    * Retorna estatísticas do cache
    */
-  getStats(): {
-    size: number;
-    maxSize: number;
-    hitRate: number;
-    avgTTL: number;
-    topHits: Array<{ key: string; hits: number }>;
-  } {
-    let totalHits = 0;
-    let totalTTL = 0;
-    const topHits: Array<{ key: string; hits: number }> = [];
-
-    for (const [key, entry] of this.cache.entries()) {
-      totalHits += entry.hitCount;
-      totalTTL += entry.expiresAt - entry.createdAt;
-      topHits.push({ key, hits: entry.hitCount });
-    }
-
-    topHits.sort((a, b) => b.hits - a.hits);
-
+  getStats(): { size: number; maxSize: number } {
     return {
       size: this.cache.size,
       maxSize: this.MAX_CACHE_SIZE,
-      hitRate: this.cache.size > 0 ? totalHits / this.cache.size : 0,
-      avgTTL: this.cache.size > 0 ? totalTTL / this.cache.size / 1000 : 0,
-      topHits: topHits.slice(0, 5),
     };
   }
 }
 
-// Singleton
-const toolCache = new ToolCache();
-
-export default toolCache;
+export const toolCacheService = new ToolCache();
+export default toolCacheService;

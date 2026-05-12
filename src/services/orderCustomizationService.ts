@@ -102,6 +102,13 @@ class OrderCustomizationService {
     });
 
     const targetRuleId = this.normalizeRuleId(ruleId);
+    const targetDedupKey = this.getCustomizationDedupKey({
+      customizationId: targetRuleId,
+      componentId,
+      customizationType: input.customizationType,
+      title: input.title,
+      data: input.customizationData,
+    });
     const mappedCustomizations = allCustomizations.map((c) => {
       const val = this.parseCustomizationData(c.value);
       const parsedComponentRaw = val.componentId || val.component_id || null;
@@ -127,16 +134,36 @@ class OrderCustomizationService {
             : "",
         title:
           typeof val.title === "string" ? val.title.trim().toLowerCase() : "",
+        dedupKey: this.getCustomizationDedupKey({
+          customizationId: c.customization_id,
+          componentId: parsedComponent,
+          customizationType:
+            (val.customization_type as string) ||
+            (val.customizationType as string) ||
+            undefined,
+          title: val.title,
+          label:
+            val.label_selected ||
+            val.selected_item_label ||
+            val.selected_option_label,
+          data: val,
+        }),
       };
     });
+
+    let existing = mappedCustomizations.find(
+      (c) => c.dedupKey === targetDedupKey,
+    )?.record;
 
     const sameRuleCandidates = mappedCustomizations.filter(
       (c) => c.normalizedRuleId && c.normalizedRuleId === targetRuleId,
     );
 
-    let existing = sameRuleCandidates.find(
-      (c) => c.componentId === componentId,
-    )?.record;
+    if (!existing) {
+      existing = sameRuleCandidates.find(
+        (c) => c.componentId === componentId,
+      )?.record;
+    }
 
     // Backward compatibility: older rows may not have componentId persisted.
     if (!existing && componentId) {
@@ -438,6 +465,20 @@ class OrderCustomizationService {
     }
   }
 
+  private getNormalizedCustomizationType(
+    rawType: unknown,
+    data?: Record<string, any>,
+  ): string {
+    const dataType =
+      typeof data?.customization_type === "string"
+        ? data.customization_type
+        : typeof data?.customizationType === "string"
+          ? data.customizationType
+          : "";
+    const type = String(rawType || dataType || "TEXT").trim().toUpperCase();
+    return type;
+  }
+
   async getOrderReviewData(orderId: string) {
     const orderItems = await prisma.orderItem.findMany({
       where: { order_id: orderId },
@@ -506,43 +547,78 @@ class OrderCustomizationService {
         }
       }
 
-      const seen = new Set<string>();
+      const latestCustomizations = await this.getLatestCustomizationsByIdentity(
+        item.customizations,
+      );
+
       const filledCustomizations = (
         await Promise.all(
-          item.customizations.map(async (c: any) => {
+          latestCustomizations.map(async (c: any) => {
             const parsedValue = this.parseCustomizationData(c.value);
-            const type = (c.customization_type ||
-              parsedValue.customization_type ||
-              "TEXT") as string;
+            const type = this.getNormalizedCustomizationType(
+              c.customization_type,
+              parsedValue,
+            );
+            const fileCheck = await this.validateCustomizationFiles(
+              parsedValue,
+              type,
+            );
+            const isValid = this.isCustomizationValid(type, parsedValue) && fileCheck.valid;
+            const ruleId =
+              this.normalizeRuleId(c.customization_id) ||
+              this.normalizeRuleId(parsedValue.customizationRuleId) ||
+              this.normalizeRuleId(parsedValue.customization_id) ||
+              this.normalizeRuleId(parsedValue.ruleId);
 
-            const fileCheck = await this.validateCustomizationFiles(parsedValue);
-            if (!this.isCustomizationValid(type, parsedValue) || !fileCheck.valid) {
+            const componentId =
+              (parsedValue.componentId as string) ||
+              (parsedValue.component_id as string) ||
+              "";
+            const normalizedTitle = String(
+              parsedValue.title ||
+                parsedValue.label_selected ||
+                parsedValue.selected_item_label ||
+                parsedValue.selected_option_label ||
+                "",
+            )
+              .trim()
+              .toLowerCase();
+
+            const matchedAvailable = allAvailable.find((available) => {
+              const availableId = this.normalizeRuleId(available.id);
+              const availableName = String(available.name || "")
+                .trim()
+                .toLowerCase();
+              const availableComponentId = String(
+                available.componentId || available.itemId || "",
+              );
+              const componentMatches =
+                !availableComponentId ||
+                !componentId ||
+                availableComponentId === componentId;
+              if (!componentMatches) return false;
+              if (ruleId && availableId && availableId === ruleId) return true;
+              return !!normalizedTitle && normalizedTitle === availableName;
+            });
+
+            // Evita renderizar "lixo histórico" que não corresponde mais a nenhuma regra ativa.
+            if (!matchedAvailable) {
               return null;
             }
-
-            const ruleId =
-              c.customization_id ||
-              parsedValue.customizationRuleId ||
-              parsedValue.customization_id ||
-              "default";
 
             return {
               id: c.id,
               order_item_id: c.order_item_id,
-              customization_id: ruleId,
+              customization_id: ruleId || matchedAvailable.id,
+              matched_customization_id: matchedAvailable.id,
               value: parsedValue,
-              componentId: parsedValue.componentId,
+              componentId: componentId || matchedAvailable.componentId,
+              is_valid: isValid,
+              invalid_reason: isValid ? undefined : fileCheck.reason || "Customização inválida",
             };
           }),
         )
-      ).filter((c: any) => {
-        if (!c) return false;
-
-        const key = `${c.customization_id}-${c.componentId || "default"}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+      ).filter((c: any) => !!c);
 
         return {
           orderItemId: item.id,
@@ -1898,6 +1974,7 @@ class OrderCustomizationService {
   private getCustomizationDedupKey(input: {
     customizationId?: string | null;
     componentId?: string | null;
+    customizationType?: string | null;
     title?: string | null;
     label?: string | null;
     data?: Record<string, any>;
@@ -1919,8 +1996,12 @@ class OrderCustomizationService {
     const componentId = String(
       input.componentId || data.componentId || data.component_id || "default",
     );
+    const type = this.getNormalizedCustomizationType(
+      input.customizationType || data.customization_type || data.customizationType,
+      data,
+    );
 
-    return `${normalizedRuleId || normalizedTitle || "default"}:${componentId}`;
+    return `${type}:${normalizedRuleId || normalizedTitle || "default"}:${componentId}`;
   }
 
   private async cleanupDuplicateOrderItemCustomizations(
@@ -1943,6 +2024,10 @@ class OrderCustomizationService {
       const key = this.getCustomizationDedupKey({
         customizationId: customization.customization_id,
         componentId: (parsed.componentId as string) || (parsed.component_id as string) || undefined,
+        customizationType:
+          (parsed.customization_type as string) ||
+          (parsed.customizationType as string) ||
+          undefined,
         title: parsed.title,
         label:
           parsed.label_selected ||
@@ -1989,6 +2074,10 @@ class OrderCustomizationService {
       const key = this.getCustomizationDedupKey({
         customizationId: customization.customization_id,
         componentId: (parsed.componentId as string) || (parsed.component_id as string) || undefined,
+        customizationType:
+          (parsed.customization_type as string) ||
+          (parsed.customizationType as string) ||
+          undefined,
         title: parsed.title,
         label:
           parsed.label_selected ||
@@ -2043,7 +2132,10 @@ class OrderCustomizationService {
       filled.title.toLowerCase() === required.name.toLowerCase() ||
       filled.label.toLowerCase() === required.name.toLowerCase();
 
-    return componentMatches && (byId || byName);
+    if (!componentMatches) return false;
+    if (byId) return true;
+    if (filledRuleId) return false;
+    return byName;
   }
 
   private hasMeaningfulCustomizationData(data: Record<string, any>): boolean {
@@ -2108,13 +2200,100 @@ class OrderCustomizationService {
     return Array.from(urls);
   }
 
+  private collectActiveUrlsByType(
+    data: Record<string, any>,
+    customizationType: string,
+  ): string[] {
+    const urls = new Set<string>();
+    const add = (value?: string | null) => {
+      if (typeof value === "string" && value.trim().length > 0) {
+        urls.add(value.trim());
+      }
+    };
+
+    if (customizationType === "IMAGES") {
+      if (Array.isArray(data.photos)) {
+        data.photos.forEach((photo: any) => {
+          if (typeof photo === "string") {
+            add(photo);
+            return;
+          }
+          add(photo?.preview_url);
+          add(photo?.url);
+        });
+      }
+      if (Array.isArray(data.previews)) {
+        data.previews.forEach((preview: any) => {
+          if (typeof preview === "string") add(preview);
+        });
+      }
+      if (Array.isArray(data.images)) {
+        data.images.forEach((image: any) => {
+          if (typeof image === "string") {
+            add(image);
+            return;
+          }
+          add(image?.preview_url);
+          add(image?.url);
+          add(image?.source);
+        });
+      }
+      return Array.from(urls);
+    }
+
+    if (customizationType === "DYNAMIC_LAYOUT") {
+      add(data.final_artwork?.preview_url);
+      add(data.finalArtwork?.preview_url);
+      add(data.final_artwork?.url);
+      add(data.finalArtwork?.url);
+      add(data.image?.preview_url);
+      add(data.image?.url);
+      add(data.previewUrl);
+      if (typeof data.text === "string") {
+        const textValue = data.text.trim();
+        if (
+          textValue.startsWith("/uploads/") ||
+          textValue.startsWith("http://") ||
+          textValue.startsWith("https://") ||
+          textValue.startsWith("blob:") ||
+          textValue.startsWith("data:")
+        ) {
+          add(textValue);
+        }
+      }
+      if (Array.isArray(data.final_artworks)) {
+        data.final_artworks.forEach((artwork: any) => {
+          add(artwork?.preview_url);
+          add(artwork?.url);
+        });
+      }
+      if (Array.isArray(data.images)) {
+        data.images.forEach((image: any) => {
+          add(image?.preview_url);
+          add(image?.url);
+          add(image?.source);
+        });
+      }
+      return Array.from(urls);
+    }
+
+    return this.collectCandidateUrls(data);
+  }
+
   private async validateCustomizationFiles(
     data: Record<string, any>,
+    rawCustomizationType?: string,
   ): Promise<{ valid: boolean; reason?: string }> {
-    const customizationType = String(
-      data?.customization_type || data?.customizationType || "",
+    const customizationType = this.getNormalizedCustomizationType(
+      rawCustomizationType,
+      data,
     );
-    const urls = this.collectCandidateUrls(data);
+
+    if (customizationType === "MULTIPLE_CHOICE" || customizationType === "TEXT") {
+      return { valid: true };
+    }
+
+    const urls = this.collectActiveUrlsByType(data, customizationType);
 
     if (
       (customizationType === "IMAGES" || customizationType === "DYNAMIC_LAYOUT") &&
@@ -2126,22 +2305,39 @@ class OrderCustomizationService {
       };
     }
 
+    let hasValidUrl = false;
+    let firstInvalidReason: string | undefined;
+
     for (const rawUrl of urls) {
       if (!rawUrl || rawUrl.startsWith("blob:") || rawUrl.startsWith("data:")) {
-        return {
-          valid: false,
-          reason: "Arquivo ainda está local (blob/base64)",
-        };
+        firstInvalidReason = firstInvalidReason || "Arquivo ainda está local (blob/base64)";
+        continue;
       }
 
       const exists = await this.checkUrlExistsOnStorage(rawUrl);
-      if (!exists) {
-        return {
-          valid: false,
-          reason: `Arquivo não encontrado no armazenamento: ${rawUrl}`,
-        };
+      if (exists) {
+        hasValidUrl = true;
+        continue;
       }
+
+      firstInvalidReason =
+        firstInvalidReason || `Arquivo não encontrado no armazenamento: ${rawUrl}`;
     }
+
+    if (hasValidUrl) {
+      return { valid: true };
+    }
+
+    if (
+      customizationType === "IMAGES" ||
+      customizationType === "DYNAMIC_LAYOUT"
+    ) {
+      return {
+        valid: false,
+        reason: firstInvalidReason || "Arquivo de imagem ausente ou não persistido no pedido",
+      };
+    }
+
     return { valid: true };
   }
 

@@ -14,7 +14,8 @@
     "backfill:pending-owner-key": "ts-node src/scripts/backfillPendingOwnerKey.ts",
     "cleanup:test-sessions": "ts-node tests/cleanup-test-sessions.ts",
     "test:incremental": "ts-node tests/test-incremental-chat.ts",
-    "test:tool-split": "ts-node tests/test-tool-split-and-curation.ts"
+    "test:tool-split": "ts-node tests/test-tool-split-and-curation.ts",
+    "validate:customizations": "ts-node src/scripts/validateOrderCustomizations.ts"
   },
   "author": "marrecos",
   "license": "ISC",

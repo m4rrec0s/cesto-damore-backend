@@ -547,8 +547,15 @@ class OrderCustomizationService {
         }
       }
 
+      const sanitizedCustomizations =
+        await this.sanitizePersistedCustomizationsForReview(
+          item.id,
+          item.customizations,
+          allAvailable,
+        );
+
       const latestCustomizations = await this.getLatestCustomizationsByIdentity(
-        item.customizations,
+        sanitizedCustomizations,
       );
 
       const filledCustomizations = (
@@ -564,42 +571,20 @@ class OrderCustomizationService {
               type,
             );
             const isValid = this.isCustomizationValid(type, parsedValue) && fileCheck.valid;
+            const matchedAvailable = this.findMatchedAvailableCustomization(
+              allAvailable,
+              parsedValue,
+              c.customization_id,
+            );
             const ruleId =
               this.normalizeRuleId(c.customization_id) ||
               this.normalizeRuleId(parsedValue.customizationRuleId) ||
               this.normalizeRuleId(parsedValue.customization_id) ||
               this.normalizeRuleId(parsedValue.ruleId);
-
             const componentId =
               (parsedValue.componentId as string) ||
               (parsedValue.component_id as string) ||
               "";
-            const normalizedTitle = String(
-              parsedValue.title ||
-                parsedValue.label_selected ||
-                parsedValue.selected_item_label ||
-                parsedValue.selected_option_label ||
-                "",
-            )
-              .trim()
-              .toLowerCase();
-
-            const matchedAvailable = allAvailable.find((available) => {
-              const availableId = this.normalizeRuleId(available.id);
-              const availableName = String(available.name || "")
-                .trim()
-                .toLowerCase();
-              const availableComponentId = String(
-                available.componentId || available.itemId || "",
-              );
-              const componentMatches =
-                !availableComponentId ||
-                !componentId ||
-                availableComponentId === componentId;
-              if (!componentMatches) return false;
-              if (ruleId && availableId && availableId === ruleId) return true;
-              return !!normalizedTitle && normalizedTitle === availableName;
-            });
 
             // Evita renderizar "lixo histórico" que não corresponde mais a nenhuma regra ativa.
             if (!matchedAvailable) {
@@ -1831,8 +1816,19 @@ class OrderCustomizationService {
 
     for (const item of orderItems) {
       const requiredRules = this.getRequiredCustomizationDescriptors(item);
+      const availableForSanitization = requiredRules.map((required) => ({
+        id: required.id,
+        name: required.name,
+        componentId: required.componentId,
+      }));
+      const sanitizedCustomizations =
+        await this.sanitizePersistedCustomizationsForReview(
+          item.id,
+          item.customizations,
+          availableForSanitization,
+        );
       const latestCustomizations = await this.getLatestCustomizationsByIdentity(
-        item.customizations,
+        sanitizedCustomizations,
       );
       const parsedCustomizations = await Promise.all(
         latestCustomizations.map(async (custom) => {
@@ -2060,6 +2056,106 @@ class OrderCustomizationService {
     await prisma.orderItemCustomization.deleteMany({
       where: { id: { in: [...idsToDelete] } },
     });
+  }
+
+  private findMatchedAvailableCustomization(
+    allAvailable: any[],
+    parsedValue: Record<string, any>,
+    dbCustomizationId?: string | null,
+  ) {
+    const ruleId =
+      this.normalizeRuleId(dbCustomizationId) ||
+      this.normalizeRuleId(parsedValue.customizationRuleId) ||
+      this.normalizeRuleId(parsedValue.customization_id) ||
+      this.normalizeRuleId(parsedValue.ruleId);
+    const componentId =
+      (parsedValue.componentId as string) ||
+      (parsedValue.component_id as string) ||
+      "";
+    const normalizedTitle = String(
+      parsedValue.title ||
+        parsedValue.label_selected ||
+        parsedValue.selected_item_label ||
+        parsedValue.selected_option_label ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+
+    return allAvailable.find((available) => {
+      const availableId = this.normalizeRuleId(available.id);
+      const availableName = String(available.name || "")
+        .trim()
+        .toLowerCase();
+      const availableComponentId = String(
+        available.componentId || available.itemId || "",
+      );
+      const componentMatches =
+        !availableComponentId ||
+        !componentId ||
+        availableComponentId === componentId;
+      if (!componentMatches) return false;
+      if (ruleId && availableId && availableId === ruleId) return true;
+      return !!normalizedTitle && normalizedTitle === availableName;
+    });
+  }
+
+  private async sanitizePersistedCustomizationsForReview(
+    orderItemId: string,
+    customizations: any[],
+    allAvailable: any[],
+  ) {
+    if (!Array.isArray(customizations) || customizations.length === 0) {
+      return [];
+    }
+
+    const latestCustomizations =
+      await this.getLatestCustomizationsByIdentity(customizations);
+    const latestIds = new Set(latestCustomizations.map((c) => c.id));
+    const idsToDelete = new Set<string>();
+    const sanitizedCustomizations: any[] = [];
+
+    for (const customization of customizations) {
+      if (!latestIds.has(customization.id)) {
+        idsToDelete.add(customization.id);
+      }
+    }
+
+    for (const customization of latestCustomizations) {
+      if (allAvailable.length === 0) {
+        sanitizedCustomizations.push(customization);
+        continue;
+      }
+
+      const parsedValue = this.parseCustomizationData(customization.value);
+      const matchedAvailable = this.findMatchedAvailableCustomization(
+        allAvailable,
+        parsedValue,
+        customization.customization_id,
+      );
+
+      if (!matchedAvailable) {
+        idsToDelete.add(customization.id);
+        continue;
+      }
+
+      sanitizedCustomizations.push(customization);
+    }
+
+    if (idsToDelete.size > 0) {
+      await prisma.orderItemCustomization.deleteMany({
+        where: {
+          order_item_id: orderItemId,
+          id: { in: [...idsToDelete] },
+        },
+      });
+
+      logger.info(
+        `🧹 [getOrderReviewData] Sanitizadas ${idsToDelete.size} customizações inválidas/duplicadas do item ${orderItemId}`,
+      );
+    }
+
+    return sanitizedCustomizations;
   }
 
   private async getLatestCustomizationsByIdentity(customizations: any[]) {

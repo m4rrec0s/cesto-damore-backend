@@ -1,5 +1,5 @@
-import prisma from "../database/prisma";
-import logger from "../utils/logger";
+import prisma from "../../database/prisma";
+import logger from "../../utils/logger";
 import { createOpenAIClient } from "../config/openai";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
@@ -12,7 +12,11 @@ export type KBDocumentCategory =
   | "troubleshooting"
   | "general";
 
-export type SalesPhase = "DISCOVERY" | "CURATION" | "CUSTOMIZATION" | "CHECKOUT";
+export type SalesPhase =
+  | "DISCOVERY"
+  | "CURATION"
+  | "CUSTOMIZATION"
+  | "CHECKOUT";
 
 export type KBApprovalStatus = "draft" | "approved" | "archived";
 
@@ -63,7 +67,12 @@ class ObsidianKnowledgeService {
   private openai = createOpenAIClient();
 
   private cosineSimilarity(a: number[], b: number[]) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || a.length === 0) {
+    if (
+      !Array.isArray(a) ||
+      !Array.isArray(b) ||
+      a.length !== b.length ||
+      a.length === 0
+    ) {
       return -1;
     }
     let dot = 0;
@@ -108,7 +117,11 @@ class ObsidianKnowledgeService {
     return document;
   }
 
-  async updateDocument(id: string, input: UpdateKBDocumentInput, changedBy: string) {
+  async updateDocument(
+    id: string,
+    input: UpdateKBDocumentInput,
+    changedBy: string,
+  ) {
     const current = await prisma.kBKnowledgeDocument.findUnique({
       where: { id },
     });
@@ -122,7 +135,8 @@ class ObsidianKnowledgeService {
     };
     if (typeof input.title === "string") updateData.title = input.title;
     if (typeof input.content === "string") updateData.content = input.content;
-    if (typeof input.category === "string") updateData.category = input.category;
+    if (typeof input.category === "string")
+      updateData.category = input.category;
     if (Array.isArray(input.phases)) updateData.phases = input.phases;
     if (Array.isArray(input.tags)) updateData.tags = input.tags;
     if (typeof input.patternType === "string") {
@@ -228,7 +242,7 @@ class ObsidianKnowledgeService {
   async searchSimilarDocuments(
     query: string,
     topK: number = 5,
-    phase?: SalesPhase
+    phase?: SalesPhase,
   ): Promise<KBHybridSearchResult[]> {
     const embeddingResponse = await this.openai.embeddings.create({
       model: EMBEDDING_MODEL,
@@ -256,7 +270,9 @@ class ObsidianKnowledgeService {
     const results: KBHybridSearchResult[] = [];
 
     for (const doc of documents) {
-      const vectorStr = (doc as any).embeddings[0]?.vector as string | undefined;
+      const vectorStr = (doc as any).embeddings[0]?.vector as
+        | string
+        | undefined;
       if (!vectorStr) continue;
 
       let vector: number[];
@@ -286,12 +302,18 @@ class ObsidianKnowledgeService {
   async hybridSearch(
     query: string,
     topK: number = 5,
-    phase?: SalesPhase
+    phase?: SalesPhase,
   ): Promise<KBHybridSearchResult[]> {
-    const vectorResults = await this.searchSimilarDocuments(query, topK * 2, phase);
+    const vectorResults = await this.searchSimilarDocuments(
+      query,
+      topK * 2,
+      phase,
+    );
 
     const queryLower = query.toLowerCase();
-    const keywords = queryLower.split(/\s+/).filter((w: string) => w.length > 2);
+    const keywords = queryLower
+      .split(/\s+/)
+      .filter((w: string) => w.length > 2);
 
     const where: any = {
       approval_status: "approved",
@@ -365,7 +387,11 @@ class ObsidianKnowledgeService {
     });
   }
 
-  async revertToVersion(documentId: string, version: number, revertedBy: string) {
+  async revertToVersion(
+    documentId: string,
+    version: number,
+    revertedBy: string,
+  ) {
     const targetVersion = await prisma.kBVersion.findFirst({
       where: { document_id: documentId, version },
     });
@@ -400,7 +426,9 @@ class ObsidianKnowledgeService {
 
     await this.generateEmbedding(documentId, (targetVersion as any).content);
 
-    logger.info(`[ObsidianKB] Reverted document ${documentId} to version ${version}`);
+    logger.info(
+      `[ObsidianKB] Reverted document ${documentId} to version ${version}`,
+    );
   }
 
   private async generateEmbedding(documentId: string, content: string) {
@@ -425,7 +453,9 @@ class ObsidianKnowledgeService {
           },
         });
 
-        logger.info(`[ObsidianKB] Generated embedding for document: ${documentId}`);
+        logger.info(
+          `[ObsidianKB] Generated embedding for document: ${documentId}`,
+        );
       }
     } catch (error) {
       logger.error(`[ObsidianKB] Failed to generate embedding: ${error}`);
@@ -450,14 +480,14 @@ class ObsidianKnowledgeService {
           ...acc,
           [curr.category]: curr._count,
         }),
-        {}
+        {},
       ),
       byStatus: byPhase.reduce(
         (acc: any, curr: any) => ({
           ...acc,
           [curr.approval_status]: curr._count,
         }),
-        {}
+        {},
       ),
     };
   }

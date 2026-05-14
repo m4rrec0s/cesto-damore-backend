@@ -20,6 +20,7 @@ import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
 import followUpService from "./services/followUpService";
 import reservationService from "./services/reservationService";
+import { pingRedisHealth } from "./jobs/jobQueues";
 import { apiRateLimit, requireApiKey, initializeSecurityMonitor } from "./middleware/security";
 import path from "path";
 
@@ -244,6 +245,18 @@ app.listen(PORT, () => {
     `🌐 Environment: ${process.env.NODE_ENV || "development"}`,
     "green",
   );
+  (async () => {
+    try {
+      const redisOk = await pingRedisHealth();
+      logger.info(
+        redisOk
+          ? "✅ Redis (BullMQ): conexão verificada"
+          : "ℹ️ Redis (BullMQ): REDIS_URL ausente ou indisponível — jobs rodam inline",
+      );
+    } catch (e) {
+      logger.warn(`⚠️ Redis healthcheck falhou: ${e}`);
+    }
+  })();
   (async () => {
     try {
       await PaymentService.replayStoredWebhooks();

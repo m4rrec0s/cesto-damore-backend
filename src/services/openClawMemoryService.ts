@@ -9,6 +9,7 @@ export interface SessionPresentedProduct {
   name: string;
   price: number | null;
   imageUrl: string | null;
+  highlights?: string[];
 }
 
 export interface SessionMemoryState {
@@ -54,6 +55,8 @@ export interface SessionMemoryState {
     lastUserIntent: string | null;
     urgency: "low" | "medium" | "high" | null;
     isFirstPurchase: boolean | null;
+    /** Incrementado quando o cliente volta a mencionar o produto em foco (sinal de intenção). */
+    productReturnCount: number;
     notes: string[];
   };
   toolCache: {
@@ -127,6 +130,7 @@ const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
     lastUserIntent: null,
     urgency: null,
     isFirstPurchase: null,
+    productReturnCount: 0,
     notes: [],
   },
   toolCache: {
@@ -588,6 +592,31 @@ ${JSON.stringify(memory)}
 
     const inferredIntent = this.inferUserIntent(userMessage);
     memory.conversation.lastUserIntent = inferredIntent;
+    if (memory.focusedProductId && memory.presentedProducts?.length) {
+      const focused = memory.presentedProducts.find(
+        (p) => p.id === memory.focusedProductId,
+      );
+      if (focused?.name) {
+        const nameNorm = this.normalizeText(focused.name);
+        const msgNorm = this.normalizeText(userMessage);
+        const minSlice = 6;
+        let hit = false;
+        for (let i = 0; i <= nameNorm.length - minSlice; i++) {
+          if (msgNorm.includes(nameNorm.slice(i, i + minSlice))) {
+            hit = true;
+            break;
+          }
+        }
+        const returnCue =
+          /\b(essa|este|mesma|mesmo|ainda|volta|voltei|primeir[oa]|op[cç][aã]o\s*1)\b/i.test(
+            userMessage,
+          );
+        if (hit && returnCue) {
+          memory.conversation.productReturnCount =
+            (memory.conversation.productReturnCount ?? 0) + 1;
+        }
+      }
+    }
     if (memory.conversation.awaitingResponse) {
       memory.conversation.awaitingResponse = null;
     }

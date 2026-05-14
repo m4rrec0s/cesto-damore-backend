@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import aiAgentService, { LabTraceEvent } from "../services/aiAgentService";
-import knowledgeBaseService from "../services/knowledgeBaseService";
-import logger from "../utils/logger";
+import aiAgentService, { LabTraceEvent } from "../service/aiAgentService";
+import knowledgeBaseService from "../service/knowledgeBaseService";
+import logger from "../../utils/logger";
 
 const BLOCKED_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
@@ -59,7 +59,10 @@ class AILabController {
 
   private resolveErrorStatus(error: any) {
     const message = (error?.message || "").toString().toLowerCase();
-    if (message.includes("não autenticado") || message.includes("nao autenticado")) {
+    if (
+      message.includes("não autenticado") ||
+      message.includes("nao autenticado")
+    ) {
       return 401;
     }
     if (
@@ -77,7 +80,9 @@ class AILabController {
       const session = await aiAgentService.createLabSession(userId);
       return res.json({ session });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -87,7 +92,9 @@ class AILabController {
       const sessions = await aiAgentService.listLabSessions(userId);
       return res.json({ sessions });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -95,10 +102,15 @@ class AILabController {
     try {
       const userId = this.getUserId(req);
       const { sessionId } = req.params;
-      const messages = await aiAgentService.getLabSessionHistory(userId, sessionId);
+      const messages = await aiAgentService.getLabSessionHistory(
+        userId,
+        sessionId,
+      );
       return res.json({ messages });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -109,7 +121,9 @@ class AILabController {
       await aiAgentService.deleteLabSession(userId, sessionId);
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -117,10 +131,15 @@ class AILabController {
     try {
       const userId = this.getUserId(req);
       const { sessionId } = req.params;
-      const snapshot = await aiAgentService.getLabMemorySnapshot(userId, sessionId);
+      const snapshot = await aiAgentService.getLabMemorySnapshot(
+        userId,
+        sessionId,
+      );
       return res.json(snapshot);
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -193,7 +212,9 @@ class AILabController {
     }
 
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-      return res.status(400).json({ error: "Apenas URLs http(s) são permitidas" });
+      return res
+        .status(400)
+        .json({ error: "Apenas URLs http(s) são permitidas" });
     }
 
     if (BLOCKED_HOSTS.has(parsedUrl.hostname.toLowerCase())) {
@@ -210,12 +231,15 @@ class AILabController {
         signal: controller.signal,
         headers: {
           "User-Agent": "CestoDAMore-LabPreview/1.0",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
       });
 
       const finalUrl = response.url || parsedUrl.toString();
-      const contentType = (response.headers.get("content-type") || "").toLowerCase();
+      const contentType = (
+        response.headers.get("content-type") || ""
+      ).toLowerCase();
 
       if (contentType.startsWith("image/")) {
         return res.json({
@@ -238,7 +262,8 @@ class AILabController {
         extractMetaTag(html, "twitter:description") ||
         extractMetaTag(html, "description");
       const imageCandidate =
-        extractMetaTag(html, "og:image") || extractMetaTag(html, "twitter:image");
+        extractMetaTag(html, "og:image") ||
+        extractMetaTag(html, "twitter:image");
       const image = normalizePreviewUrl(imageCandidate, finalUrl);
 
       return res.json({
@@ -264,7 +289,9 @@ class AILabController {
       const file = (req as any).file as Express.Multer.File | undefined;
 
       if (!file) {
-        return res.status(400).json({ error: "Arquivo é obrigatório (field: file)" });
+        return res
+          .status(400)
+          .json({ error: "Arquivo é obrigatório (field: file)" });
       }
 
       const document = await knowledgeBaseService.ingestPdfDocument({
@@ -276,7 +303,9 @@ class AILabController {
 
       return res.json({ document });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -286,7 +315,9 @@ class AILabController {
       const documents = await knowledgeBaseService.listDocuments();
       return res.json({ documents });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -297,7 +328,9 @@ class AILabController {
       await knowledgeBaseService.deleteDocument(documentId);
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -308,7 +341,9 @@ class AILabController {
       const result = await knowledgeBaseService.reindexDocument(documentId);
       return res.json({ result });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 
@@ -326,12 +361,16 @@ class AILabController {
       const hits = await knowledgeBaseService.searchKnowledge(question, {
         topK,
         minScore,
-        documentId: req.body?.documentId ? String(req.body.documentId) : undefined,
+        documentId: req.body?.documentId
+          ? String(req.body.documentId)
+          : undefined,
       });
 
       return res.json({ hits });
     } catch (error: any) {
-      return res.status(this.resolveErrorStatus(error)).json({ error: error.message });
+      return res
+        .status(this.resolveErrorStatus(error))
+        .json({ error: error.message });
     }
   }
 }

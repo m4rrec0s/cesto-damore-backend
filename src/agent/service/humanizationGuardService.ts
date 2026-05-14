@@ -1,12 +1,10 @@
 /**
  * 🛡️ PHASE 3: HumanizationGuard Service
- * 
+ *
  * Valida respostas da IA contra guidelines de humanização.
  * Detecta: linguagem robótica, emojis excessivos, erros de formatação,
  * vazamento de contexto interno, pressão de venda inadequada.
  */
-
-import { HUMANIZATION, PERSONA_BY_PHASE, TONE_BY_SENTIMENT } from "../config/humanization";
 
 export interface ValidationResult {
   isValid: boolean;
@@ -35,7 +33,7 @@ export class HumanizationGuardService {
   validate(
     response: string,
     phase: string,
-    customerContext?: { sentiment?: string; product_count?: number }
+    customerContext?: { sentiment?: string; product_count?: number },
   ): ValidationResult {
     const violations: string[] = [];
     const warnings: string[] = [];
@@ -86,7 +84,9 @@ export class HumanizationGuardService {
 
     // 7. Gerar sugestões de melhoria
     if (score < 0.8) {
-      suggestions.push(...this._suggestImprovements(response, phase, violations));
+      suggestions.push(
+        ...this._suggestImprovements(response, phase, violations),
+      );
     }
 
     return {
@@ -95,7 +95,7 @@ export class HumanizationGuardService {
       violations,
       warnings,
       suggestions,
-      phase
+      phase,
     };
   }
 
@@ -104,7 +104,7 @@ export class HumanizationGuardService {
    */
   private _checkRobotic(
     response: string,
-    phase: string
+    phase: string,
   ): { violations: string[]; warnings: string[] } {
     const violations: string[] = [];
     const warnings: string[] = [];
@@ -120,18 +120,26 @@ export class HumanizationGuardService {
       /consultando o banco de dados/,
       /aguarde enquanto/,
       /como posso ajudá-?lo|como posso ajuda-lo/,
-      /estou aqui para/
+      /estou aqui para/,
     ];
 
-    roboticPatterns.forEach(pattern => {
+    roboticPatterns.forEach((pattern) => {
       if (pattern.test(lower)) {
-        violations.push(`Linguagem robótica detectada: "${response.substring(0, 50)}..."`);
+        violations.push(
+          `Linguagem robótica detectada: "${response.substring(0, 50)}..."`,
+        );
       }
     });
 
     // Checklist de patterns que indicam robotismo
-    const roboticSpeech = ["será feito", "processo", "solicitar", "requisição", "sistema"];
-    const matches = roboticSpeech.filter(p => lower.includes(p)).length;
+    const roboticSpeech = [
+      "será feito",
+      "processo",
+      "solicitar",
+      "requisição",
+      "sistema",
+    ];
+    const matches = roboticSpeech.filter((p) => lower.includes(p)).length;
     if (matches >= 2) {
       warnings.push("Resposta parece muito técnica/formal para esta fase");
     }
@@ -142,7 +150,10 @@ export class HumanizationGuardService {
   /**
    * Detecta emojis excessivos
    */
-  private _checkEmojis(response: string, phase: string): { violation?: string; warning?: string } {
+  private _checkEmojis(
+    response: string,
+    phase: string,
+  ): { violation?: string; warning?: string } {
     const emojiRegex = /[\p{Emoji}]/gu;
     const emojiCount = (response.match(emojiRegex) || []).length;
     const lineCount = response.split("\n").length;
@@ -150,14 +161,14 @@ export class HumanizationGuardService {
     // Máximo 2 emojis por mensagem
     if (emojiCount > 2) {
       return {
-        violation: `Emojis excessivos (${emojiCount}, máximo 2)`
+        violation: `Emojis excessivos (${emojiCount}, máximo 2)`,
       };
     }
 
     // Em checkout, deve ter ✅
     if (phase === "CHECKOUT" && !response.includes("✅") && emojiCount === 0) {
       return {
-        warning: "Checkout sem emoji de confirmação (recomendado ✅)"
+        warning: "Checkout sem emoji de confirmação (recomendado ✅)",
       };
     }
 
@@ -177,12 +188,14 @@ export class HumanizationGuardService {
       /\[pensar\]|\[think\]/,
       /\{.*\}/, // JSON structures
       /json|api|endpoint/,
-      /memory|context|token/
+      /memory|context|token/,
     ];
 
-    internalPatterns.forEach(pattern => {
+    internalPatterns.forEach((pattern) => {
       if (pattern.test(lower)) {
-        violations.push(`Contexto interno vaza: "${response.substring(0, 50)}..."`);
+        violations.push(
+          `Contexto interno vaza: "${response.substring(0, 50)}..."`,
+        );
       }
     });
 
@@ -197,12 +210,16 @@ export class HumanizationGuardService {
 
     // Markdown de imagem proibido
     if (/!\[.*?\]\(.*?\)/.test(response)) {
-      violations.push("Markdown de imagem proibido: ![alt](url). Use apenas URL pura.");
+      violations.push(
+        "Markdown de imagem proibido: ![alt](url). Use apenas URL pura.",
+      );
     }
 
     // Markdown de link proibido
     if (/\[https?:\/\/.*?\]\(.*?\)|\[.*?\]\(https?:.*?\)/.test(response)) {
-      violations.push("Markdown de link proibido: [texto](url). Use apenas URL pura.");
+      violations.push(
+        "Markdown de link proibido: [texto](url). Use apenas URL pura.",
+      );
     }
 
     // Headers markdown
@@ -212,7 +229,9 @@ export class HumanizationGuardService {
 
     // Code blocks
     if (/```/.test(response)) {
-      violations.push("Code blocks (```) proibidos. Use negrito (*) ou itálico (_)");
+      violations.push(
+        "Code blocks (```) proibidos. Use negrito (*) ou itálico (_)",
+      );
     }
 
     // Tabelas markdown
@@ -226,7 +245,10 @@ export class HumanizationGuardService {
   /**
    * Detecta pressão de venda inadequada
    */
-  private _checkSalesPressure(response: string, phase: string): string | undefined {
+  private _checkSalesPressure(
+    response: string,
+    phase: string,
+  ): string | undefined {
     const lower = response.toLowerCase();
 
     const pressurePatterns = [
@@ -234,18 +256,18 @@ export class HumanizationGuardService {
       /última chance|sem tempo|expira/,
       /garantido|100% seguro/,
       /não perca/,
-      /todos querem/
+      /todos querem/,
     ];
 
     // Em DISCOVERY, pressão é muito inadequada
     if (phase === "DISCOVERY") {
-      if (pressurePatterns.some(p => p.test(lower))) {
+      if (pressurePatterns.some((p) => p.test(lower))) {
         return "Pressão de venda inadequada para fase DISCOVERY (qualificação)";
       }
     }
 
     // Em geral, avisar se há linguagem agressiva
-    if (pressurePatterns.filter(p => p.test(lower)).length >= 2) {
+    if (pressurePatterns.filter((p) => p.test(lower)).length >= 2) {
       return "Pressão de venda detectada. Use tom mais consultivo.";
     }
 
@@ -260,11 +282,14 @@ export class HumanizationGuardService {
     const charCount = response.length;
 
     // Guidelines de comprimento por fase
-    const guidelines: Record<string, { minLines: number; maxLines: number; minChars: number; maxChars: number }> = {
+    const guidelines: Record<
+      string,
+      { minLines: number; maxLines: number; minChars: number; maxChars: number }
+    > = {
       DISCOVERY: { minLines: 1, maxLines: 3, minChars: 10, maxChars: 200 },
       CURATION: { minLines: 1, maxLines: 5, minChars: 20, maxChars: 400 },
       CUSTOMIZATION: { minLines: 1, maxLines: 4, minChars: 15, maxChars: 300 },
-      CHECKOUT: { minLines: 1, maxLines: 3, minChars: 10, maxChars: 200 }
+      CHECKOUT: { minLines: 1, maxLines: 3, minChars: 10, maxChars: 200 },
     };
 
     const guide = guidelines[phase] || guidelines.DISCOVERY;
@@ -286,30 +311,45 @@ export class HumanizationGuardService {
   private _suggestImprovements(
     response: string,
     phase: string,
-    violations: string[]
+    violations: string[],
   ): string[] {
     const suggestions: string[] = [];
 
-    if (violations.some(v => v.includes("robótica"))) {
-      suggestions.push("Varíe linguagem: use conversação natural, não templates");
-      suggestions.push("Adicione validação emocional ('Que legal!', 'Entendi!')");
+    if (violations.some((v) => v.includes("robótica"))) {
+      suggestions.push(
+        "Varíe linguagem: use conversação natural, não templates",
+      );
+      suggestions.push(
+        "Adicione validação emocional ('Que legal!', 'Entendi!')",
+      );
     }
 
-    if (violations.some(v => v.includes("emoji"))) {
+    if (violations.some((v) => v.includes("emoji"))) {
       suggestions.push("Use 2 emojis máximo. Prefira de emoção (😊, 💕, 🥰)");
     }
 
-    if (violations.some(v => v.includes("interno"))) {
-      suggestions.push("Remova termos internos: tool, MCP, agente, memory, token");
-      suggestions.push("Fale como cliente falaria: 'Deixa eu buscar', não 'Acionando tool'");
+    if (violations.some((v) => v.includes("interno"))) {
+      suggestions.push(
+        "Remova termos internos: tool, MCP, agente, memory, token",
+      );
+      suggestions.push(
+        "Fale como cliente falaria: 'Deixa eu buscar', não 'Acionando tool'",
+      );
     }
 
-    if (violations.some(v => v.includes("WhatsApp"))) {
-      suggestions.push("Respeite limitações do WhatsApp: URL pura, negrito (*), itálico (_)");
+    if (violations.some((v) => v.includes("WhatsApp"))) {
+      suggestions.push(
+        "Respeite limitações do WhatsApp: URL pura, negrito (*), itálico (_)",
+      );
     }
 
-    if (phase === "DISCOVERY" && violations.some(v => v.includes("pressão"))) {
-      suggestions.push("DISCOVERY é qualificação, não venda. Pergunte, não presse");
+    if (
+      phase === "DISCOVERY" &&
+      violations.some((v) => v.includes("pressão"))
+    ) {
+      suggestions.push(
+        "DISCOVERY é qualificação, não venda. Pergunte, não presse",
+      );
     }
 
     return suggestions;
@@ -328,7 +368,11 @@ export class HumanizationGuardService {
       return "happy";
     }
 
-    if (/não entendi|como funciona|explica|confuso|dúvida|qual diferença/.test(lower)) {
+    if (
+      /não entendi|como funciona|explica|confuso|dúvida|qual diferença/.test(
+        lower,
+      )
+    ) {
       return "confused";
     }
 

@@ -4,10 +4,13 @@
  */
 
 import type { SalesPhase } from "../services/phaseGateService";
+import type { EmotionalState } from "./emotionalState";
 
 // ============================================================================
 // TOOL DEFINITIONS & REGISTRY
 // ============================================================================
+
+export type ToolCallCostLevel = "low" | "medium" | "high";
 
 /**
  * Interface para definição de uma ferramenta (Tool) do MCP
@@ -22,6 +25,12 @@ export interface IToolDefinition {
 
   /** Fases de venda onde essa tool é permitida */
   allowedPhases: SalesPhase[];
+
+  /** Se vazio/omitido, permitido em qualquer estado emocional */
+  allowedEmotionalStates?: EmotionalState[];
+
+  /** Custo relativo por chamada (orçamento por turno em toolRegistryService) */
+  callCost?: ToolCallCostLevel;
 
   /** Prioridade relativa (0-100, maior = mais importante) */
   priority: number;

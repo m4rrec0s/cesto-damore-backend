@@ -1,5 +1,5 @@
-import prisma from "../database/prisma";
-import logger from "../utils/logger";
+import prisma from "../../database/prisma";
+import logger from "../../utils/logger";
 import { createOpenAIClient } from "../config/openai";
 import obsidianKnowledgeService from "./obsidianKnowledgeService";
 
@@ -51,7 +51,9 @@ class CustomerKnowledgeProfileService {
       });
 
       if (!session?.customer_phone) {
-        logger.warn(`[CustomerKnowledgeProfile] No customer phone for session: ${sessionId}`);
+        logger.warn(
+          `[CustomerKnowledgeProfile] No customer phone for session: ${sessionId}`,
+        );
         return;
       }
 
@@ -64,18 +66,28 @@ class CustomerKnowledgeProfileService {
       const hasObjections = this.detectObjections(messages);
 
       if (!hasConversion && !hasObjections) {
-        logger.info(`[CustomerKnowledgeProfile] No significant learning from session: ${sessionId}`);
+        logger.info(
+          `[CustomerKnowledgeProfile] No significant learning from session: ${sessionId}`,
+        );
         return;
       }
 
       const learnings = await this.extractLearnings(messages);
 
-      await this.updateProfile(session.customer_phone, learnings, hasConversion);
+      await this.updateProfile(
+        session.customer_phone,
+        learnings,
+        hasConversion,
+      );
       await this.updateGeneralKnowledge(learnings, hasConversion);
 
-      logger.info(`[CustomerKnowledgeProfile] Learned from session: ${sessionId}`);
+      logger.info(
+        `[CustomerKnowledgeProfile] Learned from session: ${sessionId}`,
+      );
     } catch (error) {
-      logger.error(`[CustomerKnowledgeProfile] Error learning from session: ${error}`);
+      logger.error(
+        `[CustomerKnowledgeProfile] Error learning from session: ${error}`,
+      );
     }
   }
 
@@ -95,7 +107,7 @@ class CustomerKnowledgeProfileService {
     ];
 
     return assistantMessages.some((msg) =>
-      conversionIndicators.some((indicator) => msg.includes(indicator))
+      conversionIndicators.some((indicator) => msg.includes(indicator)),
     );
   }
 
@@ -114,7 +126,7 @@ class CustomerKnowledgeProfileService {
     ];
 
     const objectionCount = userMessages.filter((msg) =>
-      objectionIndicators.some((indicator) => msg.includes(indicator))
+      objectionIndicators.some((indicator) => msg.includes(indicator)),
     ).length;
 
     return objectionCount >= 2;
@@ -153,7 +165,9 @@ Retorne JSON com:
       const content = response.choices[0]?.message?.content || "{}";
       return JSON.parse(content) as Learning;
     } catch (error) {
-      logger.warn(`[CustomerKnowledgeProfile] Failed to extract learnings: ${error}`);
+      logger.warn(
+        `[CustomerKnowledgeProfile] Failed to extract learnings: ${error}`,
+      );
       return {
         patterns: [],
         successfulPhrases: [],
@@ -168,12 +182,12 @@ Retorne JSON com:
   private async updateProfile(
     customerPhone: string,
     learnings: Learning,
-    isConversion: boolean
+    isConversion: boolean,
   ): Promise<void> {
     const profile = await this.getOrCreateProfile(customerPhone);
 
     const currentLearnings: Learning = JSON.parse(
-      profile.learnings || '{"patterns":[]}'
+      profile.learnings || '{"patterns":[]}',
     );
 
     const mergedLearnings: Learning = {
@@ -181,16 +195,28 @@ Retorne JSON com:
         ...new Set([...currentLearnings.patterns, ...learnings.patterns]),
       ].slice(0, 20),
       successfulPhrases: [
-        ...new Set([...currentLearnings.successfulPhrases, ...learnings.successfulPhrases]),
+        ...new Set([
+          ...currentLearnings.successfulPhrases,
+          ...learnings.successfulPhrases,
+        ]),
       ].slice(0, 15),
       objectionsHandled: [
-        ...new Set([...currentLearnings.objectionsHandled, ...learnings.objectionsHandled]),
+        ...new Set([
+          ...currentLearnings.objectionsHandled,
+          ...learnings.objectionsHandled,
+        ]),
       ].slice(0, 15),
       upsellsThatWorked: [
-        ...new Set([...currentLearnings.upsellsThatWorked, ...learnings.upsellsThatWorked]),
+        ...new Set([
+          ...currentLearnings.upsellsThatWorked,
+          ...learnings.upsellsThatWorked,
+        ]),
       ].slice(0, 10),
       preferredProducts: [
-        ...new Set([...currentLearnings.preferredProducts, ...learnings.preferredProducts]),
+        ...new Set([
+          ...currentLearnings.preferredProducts,
+          ...learnings.preferredProducts,
+        ]),
       ].slice(0, 10),
       preferences: {
         ...currentLearnings.preferences,
@@ -213,7 +239,9 @@ Retorne JSON com:
     ].slice(0, 15);
 
     const updatedSuccessPatterns = isConversion
-      ? [...new Set([...profile.success_patterns, ...learnings.patterns])].slice(0, 15)
+      ? [
+          ...new Set([...profile.success_patterns, ...learnings.patterns]),
+        ].slice(0, 15)
       : profile.success_patterns;
 
     await prisma.customerKnowledgeProfile.update({
@@ -230,12 +258,11 @@ Retorne JSON com:
 
   private async updateGeneralKnowledge(
     learnings: Learning,
-    isConversion: boolean
+    isConversion: boolean,
   ): Promise<void> {
     if (learnings.objectionsHandled.length > 0) {
-      const existingDocs = await obsidianKnowledgeService.getDocumentsByCategory(
-        "objection"
-      );
+      const existingDocs =
+        await obsidianKnowledgeService.getDocumentsByCategory("objection");
 
       if (existingDocs.length === 0) {
         await obsidianKnowledgeService.createDocument({
@@ -250,7 +277,9 @@ Retorne JSON com:
     }
 
     if (isConversion && learnings.patterns.length > 0) {
-      logger.info(`[CustomerKnowledgeProfile] Session resulted in conversion, updating success patterns`);
+      logger.info(
+        `[CustomerKnowledgeProfile] Session resulted in conversion, updating success patterns`,
+      );
     }
   }
 
@@ -302,11 +331,11 @@ ${objections.map((o, i) => `${i + 1}. ${o}`).join("\n")}
 
   async updatePreferences(
     customerPhone: string,
-    preferences: Record<string, string>
+    preferences: Record<string, string>,
   ): Promise<void> {
     const profile = await this.getOrCreateProfile(customerPhone);
     const currentLearnings: Learning = JSON.parse(
-      profile.learnings || '{"preferences":{}}'
+      profile.learnings || '{"preferences":{}}',
     );
 
     const updatedLearnings = {

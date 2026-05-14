@@ -9,8 +9,12 @@
  */
 
 import type { IToolDefinition } from "../types/tools";
+import type { EmotionalState } from "../types/emotionalState";
 import type { SalesPhase } from "./phaseGateService";
 import logger from "../utils/logger";
+
+const CALL_COST_NUMERIC: Record<NonNullable<IToolDefinition["callCost"]>, number> =
+  { low: 1, medium: 3, high: 6 };
 
 const TOOL_DEFINITIONS: IToolDefinition[] = [
   // ========================================================================
@@ -20,6 +24,7 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "query_company_knowledge",
     description: "Consulta base de conhecimento da empresa",
     allowedPhases: ["DISCOVERY", "CURATION", "CUSTOMIZATION", "CHECKOUT"],
+    callCost: "medium",
     priority: 90,
     inputSchema: {
       type: "object",
@@ -38,6 +43,7 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "notify_human_support",
     description: "Escalate para suporte humano",
     allowedPhases: ["DISCOVERY", "CURATION", "CUSTOMIZATION", "CHECKOUT"],
+    callCost: "low",
     priority: 95,
     inputSchema: {
       type: "object",
@@ -115,6 +121,8 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     description:
       "Busca estruturada no catálogo de produtos com query expansion",
     allowedPhases: ["CURATION", "CUSTOMIZATION", "CHECKOUT"],
+    callCost: "high",
+    allowedEmotionalStates: ["animado", "indeciso", "frustrado"],
     priority: 100,
     inputSchema: {
       type: "object",
@@ -133,6 +141,17 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
           },
         },
         top_k_per_item: { type: "number" },
+        context: {
+          type: "object",
+          description:
+            "Opcional: ocasião, orçamento, tags, destinatário (merchandising)",
+          properties: {
+            occasion: { type: "string" },
+            budget_hint: { type: "string" },
+            boost_tags: { type: "array", items: { type: "string" } },
+            recipient: { type: "string" },
+          },
+        },
       },
       required: ["items"],
     },
@@ -146,6 +165,8 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "query_catalog_sql",
     description: "Busca SQL avançada no catálogo (SELECT only)",
     allowedPhases: ["CURATION", "CUSTOMIZATION", "CHECKOUT"],
+    callCost: "medium",
+    allowedEmotionalStates: ["animado", "indeciso", "frustrado"],
     priority: 85,
     inputSchema: {
       type: "object",
@@ -165,13 +186,14 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "get_product_details",
     description: "Obter detalhes completos de um produto",
     allowedPhases: ["CURATION", "CUSTOMIZATION", "CHECKOUT"],
+    callCost: "medium",
     priority: 80,
     inputSchema: {
       type: "object",
       properties: {
-        product_id: { type: "string" },
+        product_name: { type: "string" },
       },
-      required: ["product_id"],
+      required: ["product_name"],
     },
     fallbackBehavior: "optional",
     cacheable: true,
@@ -186,14 +208,16 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "can_produce_in_time",
     description: "Verificar se produto pode ser feito no prazo",
     allowedPhases: ["CUSTOMIZATION", "CHECKOUT"],
+    callCost: "medium",
     priority: 90,
     inputSchema: {
       type: "object",
       properties: {
-        product_id: { type: "string" },
-        desired_date: { type: "string", description: "YYYY-MM-DD" },
+        product_name: { type: "string" },
+        delivery_date: { type: "string", description: "DD/MM/YYYY" },
+        delivery_time: { type: "string", description: "HH:MM" },
       },
-      required: ["product_id", "desired_date"],
+      required: ["product_name", "delivery_date", "delivery_time"],
     },
     fallbackBehavior: "required",
     cacheable: true,
@@ -205,14 +229,16 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "validate_delivery_availability",
     description: "Validar disponibilidade de entrega",
     allowedPhases: ["CUSTOMIZATION", "CHECKOUT"],
+    callCost: "medium",
     priority: 85,
     inputSchema: {
       type: "object",
       properties: {
-        address: { type: "string" },
-        date: { type: "string", description: "YYYY-MM-DD" },
+        date_str: { type: "string", description: "YYYY-MM-DD" },
+        time_str: { type: "string", description: "HH:MM opcional" },
+        production_time_hours: { type: "number" },
       },
-      required: ["address", "date"],
+      required: ["date_str"],
     },
     fallbackBehavior: "optional",
     cacheable: true,
@@ -227,14 +253,15 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "calculate_freight",
     description: "Calcular valor de frete",
     allowedPhases: ["CHECKOUT"],
+    callCost: "low",
     priority: 95,
     inputSchema: {
       type: "object",
       properties: {
-        address: { type: "string" },
-        product_ids: { type: "array", items: { type: "string" } },
+        city: { type: "string" },
+        payment_method: { type: "string" },
       },
-      required: ["address", "product_ids"],
+      required: ["city"],
     },
     fallbackBehavior: "required",
     cacheable: true,
@@ -246,20 +273,129 @@ const TOOL_DEFINITIONS: IToolDefinition[] = [
     name: "finalize_checkout",
     description: "Finalizar e confirmar compra",
     allowedPhases: ["CHECKOUT"],
+    callCost: "high",
     priority: 100,
     inputSchema: {
       type: "object",
       properties: {
-        product_id: { type: "string" },
-        date: { type: "string" },
-        address: { type: "string" },
-        payment_method: { type: "string", enum: ["PIX", "CARTAO"] },
+        customer_context: { type: "string" },
+        customer_name: { type: "string" },
+        customer_phone: { type: "string" },
+        session_id: { type: "string" },
+        product_name: { type: "string" },
+        product_price: { type: "string" },
+        delivery_date: { type: "string" },
+        delivery_time: { type: "string" },
+        delivery_address: { type: "string" },
+        payment_method: { type: "string" },
       },
-      required: ["product_id", "date", "address", "payment_method"],
+      required: ["customer_context"],
     },
     fallbackBehavior: "required",
     cacheable: false,
     category: "checkout",
+  },
+
+  // Presentes no MCP mas não expostas ao LLM principal (uso interno / compat)
+  {
+    name: "save_customer_summary",
+    description: "Persistir resumo do cliente (uso controlado pelo backend)",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
+  },
+  {
+    name: "block_session",
+    description: "Bloquear sessão (fluxos especiais)",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
+  },
+  {
+    name: "check_mcp_health",
+    description: "Healthcheck MCP",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
+  },
+  {
+    name: "reset_mcp_cache",
+    description: "Reset cache MCP",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
+  },
+  {
+    name: "rank_products_for_curation",
+    description: "Ranking interno de curadoria",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "product_search",
+  },
+  {
+    name: "get_full_catalog",
+    description: "Catálogo completo",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "product_search",
+  },
+  {
+    name: "validate_price_manipulation",
+    description: "Validação anti-manipulação de preço",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
+  },
+  {
+    name: "list_available_menus",
+    description: "Menus de fluxo",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
+  },
+  {
+    name: "change_flow_node",
+    description: "Alterar nó de fluxo",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
+  },
+  {
+    name: "route_to_flow_node",
+    description: "Roteamento de fluxo",
+    allowedPhases: [],
+    priority: 0,
+    inputSchema: { type: "object", properties: {} },
+    fallbackBehavior: "optional",
+    cacheable: false,
+    category: "admin",
   },
 ];
 
@@ -378,5 +514,73 @@ class ToolRegistry {
 
 // Singleton
 const toolRegistry = new ToolRegistry();
+
+export function estimateToolNumericCost(def: IToolDefinition): number {
+  return CALL_COST_NUMERIC[def.callCost ?? "low"];
+}
+
+export type McpToolShape = {
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+};
+
+/**
+ * Intersecta tools retornadas pelo MCP com metadados do registry (fase, emoção, custo).
+ * Tools sem entrada no registry são bloqueadas (com log).
+ */
+export function filterMcpToolsForAgentContext(
+  mcpTools: McpToolShape[],
+  phase: SalesPhase,
+  emotion: EmotionalState,
+  options?: { costBudget?: number; sessionId?: string },
+): McpToolShape[] {
+  const emotionFilterOn = process.env.EMOTION_TOOL_FILTER === "true";
+  const budget =
+    options?.costBudget ??
+    Number(process.env.TOOL_COST_BUDGET_PER_TURN || "1000");
+  let spent = 0;
+  const out: McpToolShape[] = [];
+  const sid = options?.sessionId;
+
+  for (const tool of mcpTools) {
+    const def = toolRegistry.getTool(tool.name);
+    if (!def) {
+      logger.warn(
+        `[ToolGate] not_in_registry name=${tool.name} phase=${phase}${sid ? ` session=${sid}` : ""}`,
+      );
+      continue;
+    }
+    if (!def.allowedPhases.length) {
+      continue;
+    }
+    if (!def.allowedPhases.includes(phase)) {
+      logger.info(
+        `[ToolGate] blocked=phase name=${tool.name} phase=${phase}${sid ? ` session=${sid}` : ""}`,
+      );
+      continue;
+    }
+    if (
+      emotionFilterOn &&
+      def.allowedEmotionalStates?.length &&
+      !def.allowedEmotionalStates.includes(emotion)
+    ) {
+      logger.info(
+        `[ToolGate] blocked=emotion name=${tool.name} emotion=${emotion}${sid ? ` session=${sid}` : ""}`,
+      );
+      continue;
+    }
+    const cost = estimateToolNumericCost(def);
+    if (spent + cost > budget) {
+      logger.info(
+        `[ToolGate] blocked=cost_cap name=${tool.name} spent=${spent} add=${cost} budget=${budget}${sid ? ` session=${sid}` : ""}`,
+      );
+      continue;
+    }
+    spent += cost;
+    out.push(tool);
+  }
+  return out;
+}
 
 export default toolRegistry;

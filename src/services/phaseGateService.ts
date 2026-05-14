@@ -1,4 +1,8 @@
 import type { SessionMemoryState } from "./openClawMemoryService";
+import {
+  buildPurchaseIntentSignals,
+  purchaseIntentScore,
+} from "../agent/intent/purchaseIntentScore";
 
 export type SalesPhase = "DISCOVERY" | "CURATION" | "CUSTOMIZATION" | "CHECKOUT";
 export type PhaseAgentName = "Ana" | "Bianca" | "Lucas" | "Alice";
@@ -15,6 +19,12 @@ export type PhaseResolution = {
   agentName: PhaseAgentName;
   checklist: PhaseChecklist;
   reason: string;
+};
+
+export type PhaseResolutionWithIntent = PhaseResolution & {
+  purchaseIntentScore: number;
+  /** Quando PHASE_SCORE_GATE_ENABLED, pode sugerir acelerar próxima fase (somente orientação ao modelo). */
+  suggestedPhase?: SalesPhase;
 };
 
 class PhaseGateService {
@@ -109,6 +119,64 @@ class PhaseGateService {
       reason: checklist.checkoutDataCollected
         ? "checkout_pronto_para_confirmacao"
         : "coleta_checkout_em_andamento",
+    };
+  }
+
+  /**
+   * Mesmo gate de fase + score de intenção (0–100). Com PHASE_SCORE_GATE_ENABLED,
+   * pode promover fase quando checklist já permite avanço e o score é alto.
+   */
+  resolvePhaseWithIntent(
+    memory: SessionMemoryState,
+    userMessage: string,
+  ): PhaseResolutionWithIntent {
+    const base = this.resolvePhase(memory, userMessage);
+    const pr = memory.conversation.productReturnCount ?? 0;
+    const purchaseIntentScoreValue = purchaseIntentScore(
+      buildPurchaseIntentSignals(userMessage, pr),
+    );
+    let suggested: SalesPhase | undefined;
+    if (purchaseIntentScoreValue > 65) {
+      if (
+        base.checklist.customizationDecided &&
+        base.checklist.productSelected &&
+        base.checklist.discoveryQualified
+      ) {
+        suggested = "CHECKOUT";
+      } else if (
+        base.checklist.productSelected &&
+        base.checklist.discoveryQualified
+      ) {
+        suggested = "CUSTOMIZATION";
+      } else if (base.checklist.discoveryQualified) {
+        suggested = "CURATION";
+      }
+    }
+
+    let phase = base.phase;
+    let agentName = base.agentName;
+    let reason = base.reason;
+    if (process.env.PHASE_SCORE_GATE_ENABLED === "true") {
+      if (
+        purchaseIntentScoreValue > 65 &&
+        base.checklist.discoveryQualified &&
+        base.checklist.productSelected &&
+        base.checklist.customizationDecided &&
+        base.phase === "CUSTOMIZATION"
+      ) {
+        phase = "CHECKOUT";
+        agentName = this.getAgentName("CHECKOUT");
+        reason = `${base.reason};intent_score_${purchaseIntentScoreValue}`;
+      }
+    }
+
+    return {
+      ...base,
+      phase,
+      agentName,
+      reason,
+      purchaseIntentScore: purchaseIntentScoreValue,
+      suggestedPhase: suggested,
     };
   }
 }

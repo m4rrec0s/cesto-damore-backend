@@ -4,8 +4,8 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
-import prisma from "../database/prisma";
-import logger from "../utils/logger";
+import prisma from "../../database/prisma";
+import logger from "../../utils/logger";
 import { createOpenAIClient } from "../config/openai";
 
 const execFileAsync = promisify(execFile);
@@ -32,7 +32,9 @@ const KNOWLEDGE_EMBEDDING_MODEL =
   "text-embedding-3-small";
 const CHUNK_SIZE = Number(process.env.OPENAI_KNOWLEDGE_CHUNK_SIZE || 2400);
 const CHUNK_OVERLAP = Number(process.env.OPENAI_KNOWLEDGE_CHUNK_OVERLAP || 350);
-const SEARCH_SCAN_LIMIT = Number(process.env.OPENAI_KNOWLEDGE_SCAN_LIMIT || 300);
+const SEARCH_SCAN_LIMIT = Number(
+  process.env.OPENAI_KNOWLEDGE_SCAN_LIMIT || 300,
+);
 
 class KnowledgeBaseService {
   private readonly openai = createOpenAIClient();
@@ -55,7 +57,11 @@ class KnowledgeBaseService {
   }
 
   private splitIntoChunks(pages: Array<{ pageNumber: number; text: string }>) {
-    const chunks: Array<{ chunkIndex: number; pageNumber: number | null; text: string }> = [];
+    const chunks: Array<{
+      chunkIndex: number;
+      pageNumber: number | null;
+      text: string;
+    }> = [];
     let chunkIndex = 0;
 
     for (const page of pages) {
@@ -179,7 +185,12 @@ class KnowledgeBaseService {
   }
 
   private cosineSimilarity(a: number[], b: number[]) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || a.length === 0) {
+    if (
+      !Array.isArray(a) ||
+      !Array.isArray(b) ||
+      a.length !== b.length ||
+      a.length === 0
+    ) {
       return -1;
     }
 
@@ -220,12 +231,16 @@ class KnowledgeBaseService {
       throw new Error("PDF sem conteúdo útil após chunking");
     }
 
-    const vectors = await this.createEmbeddings(chunks.map((chunk) => chunk.text));
+    const vectors = await this.createEmbeddings(
+      chunks.map((chunk) => chunk.text),
+    );
     if (vectors.length !== chunks.length) {
       throw new Error("Falha ao gerar embeddings de todos os chunks");
     }
 
-    const baseTitle = (input.originalName || "Documento").replace(/\.pdf$/i, "").trim();
+    const baseTitle = (input.originalName || "Documento")
+      .replace(/\.pdf$/i, "")
+      .trim();
     const title = baseTitle || "Documento";
 
     const document = await prisma.knowledgeDocument.create({
@@ -250,12 +265,14 @@ class KnowledgeBaseService {
         token_estimate: this.estimateTokens(chunk.text),
         embedding: vectors[index] || [],
         embedding_model: KNOWLEDGE_EMBEDDING_MODEL,
-        content_hash: this.hashText(`${document.id}:${chunk.chunkIndex}:${chunk.text}`),
+        content_hash: this.hashText(
+          `${document.id}:${chunk.chunkIndex}:${chunk.text}`,
+        ),
       })),
     });
 
     logger.info(
-      `[KnowledgeBase] Documento ingerido: ${document.id} (${chunks.length} chunks)`
+      `[KnowledgeBase] Documento ingerido: ${document.id} (${chunks.length} chunks)`,
     );
 
     return {
@@ -311,7 +328,9 @@ class KnowledgeBaseService {
       throw new Error("Documento sem conteúdo para reindexação");
     }
 
-    const vectors = await this.createEmbeddings(chunks.map((chunk) => chunk.text));
+    const vectors = await this.createEmbeddings(
+      chunks.map((chunk) => chunk.text),
+    );
 
     await prisma.$transaction([
       prisma.knowledgeChunk.deleteMany({ where: { document_id: documentId } }),
@@ -331,7 +350,9 @@ class KnowledgeBaseService {
           token_estimate: this.estimateTokens(chunk.text),
           embedding: vectors[index] || [],
           embedding_model: KNOWLEDGE_EMBEDDING_MODEL,
-          content_hash: this.hashText(`${documentId}:${chunk.chunkIndex}:${chunk.text}`),
+          content_hash: this.hashText(
+            `${documentId}:${chunk.chunkIndex}:${chunk.text}`,
+          ),
         })),
       }),
     ]);

@@ -24,8 +24,9 @@ import tempUploadController from "./controller/tempUploadController";
 import oauthController from "./controller/oauthController";
 import { botFlowController } from "./controller/botFlowController";
 
+import agentLogsController from "./controller/agentLogsController";
 import statusController from "./controller/statusController";
-import aiSummaryService from "./services/aiSummaryService";
+import aiSummaryService from "./agent/service/aiSummaryService";
 import { PaymentService } from "./services/paymentService";
 import logger from "./utils/logger";
 import googleDriveService from "./services/googleDriveService";
@@ -36,18 +37,17 @@ import layoutBaseController from "./controller/layoutBaseController";
 import dynamicLayoutController from "./controller/dynamicLayoutController";
 import elementBankController from "./controller/elementBankController";
 import customerManagementController from "./controller/customerManagementController";
-import aiProductController from "./controller/aiProductController";
-import aiAgentController from "./controller/aiAgentController";
-import * as promptOrchestrationController from "./controller/promptOrchestrationController";
+import aiAgentController from "./agent/controller/aiAgentController";
+import * as promptOrchestrationController from "./agent/controller/promptOrchestrationController";
 import holidayController from "./controller/holidayController";
 import followUpController from "./controller/followUpController";
 import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import chatRealtimeController from "./controller/chatRealtimeController";
-import aiLabController from "./controller/aiLabController";
+import aiLabController from "./agent/controller/aiLabController";
 import tempFileController from "./controller/tempFileController";
 import { TestPaymentController } from "./controller/testPaymentController";
-import { knowledgeBaseController } from "./controller/knowledgeBaseController";
+import { knowledgeBaseController } from "./agent/controller/knowledgeBaseController";
 import reservationService from "./services/reservationService";
 import inventoryController from "./controller/inventoryController";
 
@@ -1051,37 +1051,6 @@ router.get(
   chatRealtimeController.streamSessionMessages,
 );
 
-router.post(
-  "/ai/agent/chat-incremental",
-  async (req: Request, res: Response) => {
-    try {
-      const { sessionId, message, customerPhone, customerName } = req.body;
-
-      if (!sessionId || !message || !customerPhone) {
-        return res.status(400).json({
-          error: "Missing required fields: sessionId, message, customerPhone",
-        });
-      }
-
-      const aiAgentServiceIncremental = (
-        await import("./services/aiAgentServiceIncremental")
-      ).default;
-
-      const result = await aiAgentServiceIncremental.chatIncremental(
-        sessionId,
-        message,
-        customerPhone,
-        customerName,
-      );
-
-      return res.json(result);
-    } catch (error: any) {
-      logger.error("❌ Error in /ai/agent/chat-incremental:", error);
-      return res.status(500).json({ error: error.message });
-    }
-  },
-);
-
 router.get(
   "/admin/ai/agent/sessions",
   authenticateToken,
@@ -1247,9 +1216,6 @@ router.delete(
   requireAdmin,
   promptOrchestrationController.deletePromptPriorityOverrideHandler,
 );
-
-router.get("/ai/products/light", aiProductController.getLightweightProducts);
-router.get("/ai/products/detail/:id", aiProductController.getProductDetail);
 
 router.get(
   "/admin/ai/summary",
@@ -1575,5 +1541,9 @@ if (process.env.NODE_ENV !== "production") {
   );
   logger.info("🧪 Rotas de teste de pagamento habilitadas");
 }
-
+// Agent Logs Routes (admin only)
+router.get("/agent-logs", authenticateToken, requireAdmin, agentLogsController.getAgentLogs);
+router.get("/agent-logs/events", authenticateToken, requireAdmin, agentLogsController.getAvailableEvents);
+router.get("/agent-logs/stats", authenticateToken, requireAdmin, agentLogsController.getAgentLogStats);
+router.get("/agent-logs/export", authenticateToken, requireAdmin, agentLogsController.exportAgentLogs);
 export default router;

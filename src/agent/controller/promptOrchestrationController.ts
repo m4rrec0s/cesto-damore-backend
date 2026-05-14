@@ -1,8 +1,8 @@
 import { Router, Request, Response } from "express";
-import prisma from "../database/prisma";
+import prisma from "../../database/prisma";
 import { INTENT_TO_PROMPT, INTENT_KEYWORDS, PROMPTS } from "../config/prompts";
 import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
-import logger from "../utils/logger";
+import logger from "../../utils/logger";
 
 interface OrchestrationRequest {
   customer_phone: string;

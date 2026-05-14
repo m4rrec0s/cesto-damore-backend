@@ -2,8 +2,8 @@ import { Request, Response } from "express";
 import obsidianKnowledgeService, {
   type KBDocumentCategory,
   type SalesPhase,
-} from "../services/obsidianKnowledgeService";
-import logger from "../utils/logger";
+} from "../service/obsidianKnowledgeService";
+import logger from "../../utils/logger";
 
 const KB_DOCUMENT_CATEGORIES = [
   "faq",
@@ -40,7 +40,7 @@ export const knowledgeBaseController = {
       }
 
       const validPhases = phases.filter((p: string) =>
-        SALES_PHASES.includes(p)
+        SALES_PHASES.includes(p),
       );
       if (validPhases.length === 0) {
         return res.status(400).json({
@@ -63,7 +63,9 @@ export const knowledgeBaseController = {
       res.status(201).json({ document });
     } catch (error: any) {
       logger.error("[KnowledgeBase] Create error:", error);
-      res.status(500).json({ error: error.message || "Failed to create document" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to create document" });
     }
   },
 
@@ -77,13 +79,15 @@ export const knowledgeBaseController = {
       const document = await obsidianKnowledgeService.updateDocument(
         id,
         { title, content, category, phases, tags, patternType },
-        userId
+        userId,
       );
 
       res.json({ document });
     } catch (error: any) {
       logger.error("[KnowledgeBase] Update error:", error);
-      res.status(500).json({ error: error.message || "Failed to update document" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to update document" });
     }
   },
 
@@ -99,7 +103,9 @@ export const knowledgeBaseController = {
       res.json({ document });
     } catch (error: any) {
       logger.error("[KnowledgeBase] Show error:", error);
-      res.status(500).json({ error: error.message || "Failed to get document" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to get document" });
     }
   },
 
@@ -123,7 +129,9 @@ export const knowledgeBaseController = {
       res.json({ documents });
     } catch (error: any) {
       logger.error("[KnowledgeBase] Index error:", error);
-      res.status(500).json({ error: error.message || "Failed to list documents" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to list documents" });
     }
   },
 
@@ -134,7 +142,9 @@ export const knowledgeBaseController = {
       res.json({ success: true });
     } catch (error: any) {
       logger.error("[KnowledgeBase] Delete error:", error);
-      res.status(500).json({ error: error.message || "Failed to delete document" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to delete document" });
     }
   },
 
@@ -147,11 +157,16 @@ export const knowledgeBaseController = {
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const document = await obsidianKnowledgeService.approveDocument(id, userId);
+      const document = await obsidianKnowledgeService.approveDocument(
+        id,
+        userId,
+      );
       res.json({ document });
     } catch (error: any) {
       logger.error("[KnowledgeBase] Approve error:", error);
-      res.status(500).json({ error: error.message || "Failed to approve document" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to approve document" });
     }
   },
 
@@ -166,7 +181,7 @@ export const knowledgeBaseController = {
       const results = await obsidianKnowledgeService.hybridSearch(
         query,
         topK ? parseInt(topK as string, 10) : 5,
-        phase as SalesPhase | undefined
+        phase as SalesPhase | undefined,
       );
 
       res.json({ results });
@@ -187,13 +202,15 @@ export const knowledgeBaseController = {
       }
 
       const documents = await obsidianKnowledgeService.getDocumentsByPhase(
-        phase as SalesPhase
+        phase as SalesPhase,
       );
 
       res.json({ documents });
     } catch (error: any) {
       logger.error("[KnowledgeBase] GetByPhase error:", error);
-      res.status(500).json({ error: error.message || "Failed to get documents" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to get documents" });
     }
   },
 
@@ -204,7 +221,9 @@ export const knowledgeBaseController = {
       res.json({ versions });
     } catch (error: any) {
       logger.error("[KnowledgeBase] GetVersions error:", error);
-      res.status(500).json({ error: error.message || "Failed to get versions" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to get versions" });
     }
   },
 
@@ -216,7 +235,7 @@ export const knowledgeBaseController = {
       await obsidianKnowledgeService.revertToVersion(
         id,
         parseInt(version, 10),
-        userId
+        userId,
       );
 
       res.json({ success: true });
@@ -232,7 +251,9 @@ export const knowledgeBaseController = {
       res.json(analytics);
     } catch (error: any) {
       logger.error("[KnowledgeBase] Analytics error:", error);
-      res.status(500).json({ error: error.message || "Failed to get analytics" });
+      res
+        .status(500)
+        .json({ error: error.message || "Failed to get analytics" });
     }
   },
 };

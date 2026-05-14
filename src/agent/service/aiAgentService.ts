@@ -1,10 +1,16 @@
 import type OpenAI from "openai";
-import prisma from "../database/prisma";
-import mcpClientService from "./mcpClientService";
+import prisma from "../../database/prisma";
+import mcpClientService from "../../services/mcpClientService";
+import { filterMcpToolsForAgentContext } from "../../services/toolRegistryService";
 import openClawMemoryService, {
   type SessionPresentedProduct,
-} from "./openClawMemoryService";
-import logger from "../utils/logger";
+} from "../../services/openClawMemoryService";
+import logger from "../../utils/logger";
+import {
+  commercialLogger,
+  getCommercialLogPaths,
+  tailLogLinesContaining,
+} from "../../utils/commercialLogger";
 import { addDays, addHours, isPast, format } from "date-fns";
 import { PROMPTS } from "../config/prompts";
 import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
@@ -12,11 +18,29 @@ import type {
   FlowCatalogNode,
   RouterDecision,
   DynamicMenuOption,
-} from "../types/flowRouter";
-import deterministicRouter from "./deterministicRouterService";
-import phaseGateService, { type SalesPhase } from "./phaseGateService";
-import obsidianKnowledgeService from "./obsidianKnowledgeService";
-import customerKnowledgeProfileService from "./customerKnowledgeProfileService";
+} from "../../types/flowRouter";
+import type { EmotionalState } from "../../types/emotionalState";
+import {
+  buildEmotionalTonePromptBlock,
+  classifyEmotionHeuristic,
+} from "../emotion/emotionClassifier";
+import {
+  CHECKOUT_HUMANIZED_BLOCK,
+  CURATION_NARRATIVE_BLOCK,
+  MID_SESSION_SUMMARY_HINT,
+  PHASE_BRIDGE_HINTS,
+} from "../config/conversationNudges";
+import { defaultMemoryProvider } from "../memory/compositeMemoryProvider";
+import {
+  formatInternalCoTForPrompt,
+  runInternalCoT,
+} from "../orchestration/internalCoT";
+import deterministicRouter from "../../services/deterministicRouterService";
+import phaseGateService, {
+  type SalesPhase,
+} from "../../services/phaseGateService";
+import obsidianKnowledgeService from "../service/obsidianKnowledgeService";
+import customerKnowledgeProfileService from "../service/customerKnowledgeProfileService";
 
 enum ProcessingState {
   ANALYZING = "ANALYZING",
@@ -114,6 +138,8 @@ class AIAgentService {
   private openai: OpenAI;
   private lastMessageTimestamps: Map<string, { text: string; time: number }> =
     new Map();
+  /** Throttle save_customer_summary disparos do backend (pós notify/finalize). */
+  private lastSaveCustomerSummaryAt = new Map<string, number>();
   private model: string = OPENAI_MODELS.agentDefault;
   private advancedModel: string = OPENAI_MODELS.agentAdvanced;
   private fallbackBlockedTools = new Set(
@@ -265,6 +291,15 @@ class AIAgentService {
 
   private async persistSessionLearnings(sessionId: string): Promise<void> {
     try {
+      const { enqueuePostSessionLearnings } = await import("../../jobs/jobQueues");
+      if (await enqueuePostSessionLearnings(sessionId)) {
+        logger.info(`[AIAgent] post-session learnings queued: ${sessionId}`);
+        return;
+      }
+    } catch (e) {
+      logger.warn(`[AIAgent] fila indisponível, persistindo learnings inline: ${e}`);
+    }
+    try {
       const session = await prisma.aIAgentSession.findUnique({
         where: { id: sessionId },
       });
@@ -278,7 +313,7 @@ class AIAgentService {
 
         if (profile?.auto_updates) {
           const customerKnowledgeService = (
-            await import("./customerKnowledgeProfileService")
+            await import("../service/customerKnowledgeProfileService")
           ).default;
           await customerKnowledgeService.learnFromSession(sessionId);
         }
@@ -293,51 +328,15 @@ class AIAgentService {
   private getAllowedToolsByPhase(
     phase: SalesPhase,
     allTools: Awaited<ReturnType<typeof mcpClientService.listTools>>,
+    emotion: EmotionalState = "animado",
+    sessionId?: string,
   ) {
-    const alwaysAllowed = new Set([
-      "query_company_knowledge",
-      "notify_human_support",
-      "get_current_business_hours",
-      "get_active_holidays",
-      "math_calculator",
-    ]);
-
-    const byPhase = {
-      DISCOVERY: new Set([
-        "query_company_knowledge",
-        "get_current_business_hours",
-        "get_active_holidays",
-      ]),
-      CURATION: new Set([
-        "consultarCatalogo",
-        "query_catalog_sql",
-        "get_product_details",
-        "query_company_knowledge",
-      ]),
-      CUSTOMIZATION: new Set([
-        "query_catalog_sql",
-        "get_product_details",
-        "can_produce_in_time",
-        "validate_delivery_availability",
-        "query_company_knowledge",
-      ]),
-      CHECKOUT: new Set([
-        "query_catalog_sql",
-        "get_product_details",
-        "calculate_freight",
-        "validate_delivery_availability",
-        "can_produce_in_time",
-        "math_calculator",
-        "finalize_checkout",
-        "query_company_knowledge",
-      ]),
-    } as const;
-
-    const allowed = new Set<string>([
-      ...Array.from(alwaysAllowed),
-      ...Array.from(byPhase[phase]),
-    ]);
-    return allTools.filter((tool) => allowed.has(tool.name));
+    return filterMcpToolsForAgentContext(
+      allTools as { name: string }[],
+      phase,
+      emotion,
+      { sessionId },
+    ) as Awaited<ReturnType<typeof mcpClientService.listTools>>;
   }
 
   private getLabSessionPrefix(userId: string) {
@@ -427,11 +426,16 @@ class AIAgentService {
           item.url ||
           null;
 
+        const highlights = Array.isArray(item.highlights)
+          ? item.highlights.map((h: unknown) => String(h)).filter(Boolean)
+          : undefined;
+
         return {
           id: String(idRaw),
           name: String(nameRaw),
           price: Number.isFinite(numericPrice) ? numericPrice : null,
           imageUrl: imageUrl ? String(imageUrl) : null,
+          ...(highlights?.length ? { highlights } : {}),
         } as SessionPresentedProduct;
       })
       .filter((item): item is SessionPresentedProduct => Boolean(item));
@@ -1344,7 +1348,7 @@ ${markdown}
     currentNodeId: string | null;
     sessionHistory: Array<{ role: string; text: string }>;
     flowCatalog: FlowCatalogNode[];
-  }): Promise<import("../types/flowRouter").DynamicMenuOption[]> {
+  }): Promise<import("../../types/flowRouter").DynamicMenuOption[]> {
     const spContext = this.getSaoPauloContext();
     const compactCatalog = (Array.isArray(flowCatalog) ? flowCatalog : [])
       .filter((node) => node.type !== "startNode" && node.type !== "blockNode")
@@ -1485,10 +1489,10 @@ RESPONDA SOMENTE COM JSON VÁLIDO neste formato:
 
   private getFallbackDynamicMenu(
     flowCatalog: FlowCatalogNode[],
-  ): import("../types/flowRouter").DynamicMenuOption[] {
+  ): import("../../types/flowRouter").DynamicMenuOption[] {
     const productNode = this.findBestProductMenuNode(flowCatalog);
 
-    const options: import("../types/flowRouter").DynamicMenuOption[] = [];
+    const options: import("../../types/flowRouter").DynamicMenuOption[] = [];
 
     if (productNode) {
       options.push({
@@ -3206,7 +3210,7 @@ Logo te respondem! Obrigadaaa 🥰"`;
     };
 
     if (session.customer_phone) {
-      const customerMemory = await openClawMemoryService.getCustomerMemory(
+      const profile = await defaultMemoryProvider.loadCustomerProfileCompact(
         session.customer_phone,
       );
       const customerMarkdown =
@@ -3221,13 +3225,24 @@ Logo te respondem! Obrigadaaa 🥰"`;
       customer = {
         customer_phone: session.customer_phone,
         markdown: customerMarkdown,
-        compact: openClawMemoryService.buildCustomerPrompt(customerMemory),
+        compact: profile.mergedPromptBlock,
         db_summary: dbMemory?.summary || null,
         db_expires_at: dbMemory?.expires_at
           ? dbMemory.expires_at.toISOString()
           : null,
       };
     }
+
+    const logPaths = getCommercialLogPaths();
+    const tailMax = Math.min(
+      80,
+      Math.max(5, Number(process.env.AGENT_LOG_TAIL_MAX_LINES || "28")),
+    );
+    const [tail_agent, tail_conversion, tail_sessions] = await Promise.all([
+      tailLogLinesContaining(logPaths.agent, sessionId, tailMax),
+      tailLogLinesContaining(logPaths.conversion, sessionId, tailMax),
+      tailLogLinesContaining(logPaths.sessions, sessionId, tailMax),
+    ]);
 
     return {
       session: {
@@ -3244,6 +3259,8 @@ Logo te respondem! Obrigadaaa 🥰"`;
           checkout_data: sessionMemory.conversation.checkoutData,
           customization_decision:
             sessionMemory.conversation.customizationDecision,
+          product_return_count:
+            sessionMemory.conversation.productReturnCount ?? 0,
         },
         completeness: {
           has_name: Boolean(sessionMemory.client.name),
@@ -3254,6 +3271,13 @@ Logo te respondem! Obrigadaaa 🥰"`;
         },
       },
       customer,
+      agent_logs: {
+        ...logPaths,
+        tail_agent,
+        tail_conversion,
+        tail_sessions,
+        note: "Logs comerciais em JSONL (uma entrada por linha). Tail busca pelo sessionId nos últimos bytes do arquivo.",
+      },
     };
   }
 
@@ -3447,14 +3471,24 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const toolsInMCP = await mcpClientService.listTools();
     const sessionMemoryForPhase =
       await openClawMemoryService.getSessionMemory(sessionId);
-    const phaseResolution = phaseGateService.resolvePhase(
+    const phaseResolution = phaseGateService.resolvePhaseWithIntent(
       sessionMemoryForPhase,
       userMessage,
     );
+    const emotionalState = classifyEmotionHeuristic(userMessage);
+    void commercialLogger.conversion("purchase_intent_scored", {
+      sessionId,
+      score: phaseResolution.purchaseIntentScore,
+      phase: phaseResolution.phase,
+      suggestedPhase: phaseResolution.suggestedPhase ?? null,
+      emotion: emotionalState,
+    });
     const phasePrompt = this.getPhasePrompt(phaseResolution.phase);
     const toolsInMCPForPhase = this.getAllowedToolsByPhase(
       phaseResolution.phase,
       toolsInMCP,
+      emotionalState,
+      sessionId,
     );
     const toolNames = new Set(toolsInMCPForPhase.map((tool) => tool.name));
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCPForPhase);
@@ -3474,9 +3508,11 @@ Logo te respondem! Obrigadaaa 🥰"`;
       });
     }
     const customerMemoryPrompt = session.customer_phone
-      ? openClawMemoryService.buildCustomerPrompt(
-          await openClawMemoryService.getCustomerMemory(session.customer_phone),
-        )
+      ? (
+          await defaultMemoryProvider.loadCustomerProfileCompact(
+            session.customer_phone,
+          )
+        ).mergedPromptBlock
       : "";
     const managerContextPrompt =
       managerUserContext &&
@@ -3509,15 +3545,32 @@ regras:
       timestamp: new Date().toISOString(),
     });
 
+    const labMidSummary =
+      recentHistory.length >= 8 &&
+      sessionMemoryForPhase.client.occasion &&
+      sessionMemoryForPhase.client.budget &&
+      sessionMemoryForPhase.client.recipientName
+        ? MID_SESSION_SUMMARY_HINT
+        : "";
+    let labPhaseNudge = "";
+    if (phaseResolution.phase === "CURATION") labPhaseNudge = CURATION_NARRATIVE_BLOCK;
+    else if (phaseResolution.phase === "CHECKOUT")
+      labPhaseNudge = `${CHECKOUT_HUMANIZED_BLOCK}\n\n${PHASE_BRIDGE_HINTS}`;
+    else if (phaseResolution.phase === "DISCOVERY")
+      labPhaseNudge = PHASE_BRIDGE_HINTS;
+
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
         content: [
           systemPrompt,
-          `### ORQUESTRAÇÃO_DE_FASE\nfase: ${phaseResolution.phase}\nagente: ${phaseResolution.agentName}\nmotivo: ${phaseResolution.reason}\nchecklist: discovery=${phaseResolution.checklist.discoveryQualified}; produto=${phaseResolution.checklist.productSelected}; customizacao=${phaseResolution.checklist.customizationDecided}; checkout=${phaseResolution.checklist.checkoutDataCollected}\nregra_visibilidade: troca de agente é interna; não mencionar nomes de agentes ao cliente.\n\n${phasePrompt}`,
+          `### ORQUESTRAÇÃO_DE_FASE\nfase: ${phaseResolution.phase}\nagente: ${phaseResolution.agentName}\nmotivo: ${phaseResolution.reason}\nchecklist: discovery=${phaseResolution.checklist.discoveryQualified}; produto=${phaseResolution.checklist.productSelected}; customizacao=${phaseResolution.checklist.customizationDecided}; checkout=${phaseResolution.checklist.checkoutDataCollected}\nintent_score: ${phaseResolution.purchaseIntentScore}${phaseResolution.suggestedPhase ? `\nsuggested_phase: ${phaseResolution.suggestedPhase}` : ""}\nregra_visibilidade: troca de agente é interna; não mencionar nomes de agentes ao cliente.\n\n${phasePrompt}`,
+          buildEmotionalTonePromptBlock(emotionalState),
           customerMemoryPrompt,
           managerContextPrompt,
           knowledgeContext,
+          labPhaseNudge,
+          labMidSummary,
         ]
           .filter(Boolean)
           .join("\n\n"),
@@ -3792,11 +3845,8 @@ regras:
     let customerMemoryPrompt = "";
     if (phone) {
       memory = await this.getCustomerMemory(phone);
-      const markdownCustomerMemory =
-        await openClawMemoryService.getCustomerMemory(phone);
-      customerMemoryPrompt = openClawMemoryService.buildCustomerPrompt(
-        markdownCustomerMemory,
-      );
+      const profile = await defaultMemoryProvider.loadCustomerProfileCompact(phone);
+      customerMemoryPrompt = profile.mergedPromptBlock;
     }
 
     const sentProductIds = await this.getSentProductsInSession(sessionId);
@@ -3840,10 +3890,18 @@ regras:
     const toolsInMCP = await mcpClientService.listTools();
     const sessionMemoryForPhase =
       await openClawMemoryService.getSessionMemory(sessionId);
-    const phaseResolution = phaseGateService.resolvePhase(
+    const phaseResolution = phaseGateService.resolvePhaseWithIntent(
       sessionMemoryForPhase,
       userMessage,
     );
+    const emotionalState = classifyEmotionHeuristic(userMessage);
+    void commercialLogger.conversion("purchase_intent_scored", {
+      sessionId,
+      score: phaseResolution.purchaseIntentScore,
+      phase: phaseResolution.phase,
+      suggestedPhase: phaseResolution.suggestedPhase ?? null,
+      emotion: emotionalState,
+    });
     const phasePrompt = this.getPhasePrompt(phaseResolution.phase);
     const knowledgeContext = await this.enhancePromptWithKnowledge(
       userMessage,
@@ -3854,6 +3912,8 @@ regras:
     const toolsInMCPForPhase = this.getAllowedToolsByPhase(
       phaseResolution.phase,
       toolsInMCP,
+      emotionalState,
+      sessionId,
     );
     const explicitDocRequest =
       /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
@@ -3971,6 +4031,22 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
       `🎯 Estratégia: toolRequired=${requiresToolCall}, optimizeModel=${shouldOptimizeModel}, model=${selectedModel}`,
     );
 
+    const midSessionSummaryHint =
+      history.length >= 8 &&
+      sessionMemoryForPhase.client.occasion &&
+      sessionMemoryForPhase.client.budget &&
+      sessionMemoryForPhase.client.recipientName
+        ? `\n\n${MID_SESSION_SUMMARY_HINT}`
+        : "";
+    let phaseConversationNudge = "";
+    if (phaseResolution.phase === "CURATION") {
+      phaseConversationNudge = `\n\n${CURATION_NARRATIVE_BLOCK}`;
+    } else if (phaseResolution.phase === "CHECKOUT") {
+      phaseConversationNudge = `\n\n${CHECKOUT_HUMANIZED_BLOCK}\n\n${PHASE_BRIDGE_HINTS}`;
+    } else if (phaseResolution.phase === "DISCOVERY") {
+      phaseConversationNudge = `\n\n${PHASE_BRIDGE_HINTS}`;
+    }
+
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
@@ -3983,10 +4059,15 @@ Se cliente hesitar ou mudar de ideia: volte ao catálogo naturalmente.
 - agente_ativo: ${phaseResolution.agentName}
 - motivo_fase: ${phaseResolution.reason}
 - checklist: discovery=${phaseResolution.checklist.discoveryQualified}; produto=${phaseResolution.checklist.productSelected}; customizacao=${phaseResolution.checklist.customizationDecided}; checkout=${phaseResolution.checklist.checkoutDataCollected}
+- intent_score: ${phaseResolution.purchaseIntentScore}${phaseResolution.suggestedPhase ? `\n- suggested_phase: ${phaseResolution.suggestedPhase}` : ""}
 - regra_anti_pulo: só avance para a próxima fase quando checklist da fase atual estiver completo.
 - regra_visibilidade: troca de agente é interna; NÃO informe ao cliente nomes de agentes por fase.
 
+${buildEmotionalTonePromptBlock(emotionalState)}
+
 ${phasePrompt}
+${phaseConversationNudge}
+${midSessionSummaryHint}
 
 ${knowledgeContext}
 
@@ -4094,7 +4175,7 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
 - ⏰ **Hora:** ${spContext.time} (${spContext.weekday}, ${spContext.date})
 - 📅 **Hoje (ISO):** ${spContext.isoDate}
 - 📅 **Amanhã (ISO):** ${spContext.isoTomorrow} (${spContext.tomorrowWeekday}, ${spContext.tomorrowDate})
-- 🛠️ **Tools disponíveis:** ${toolsInMCP.map((t) => t.name).join(", ")}
+- 🛠️ **Tools disponíveis (filtradas por fase):** ${toolsInMCPForPhase.map((t) => t.name).join(", ")}
 - 🛒 **Produtos já mostrados:** ${sentProductIds.join(", ") || "Nenhum"}
 
 ---
@@ -4134,9 +4215,38 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       /cliente (escolheu|demonstrou interesse)/i.test(memory.summary),
     );
 
+    let messagesForAgent = messages;
+    if (!isCartEvent) {
+      const cot = await runInternalCoT(this.openai, {
+        userMessage,
+        phase: phaseResolution.phase,
+        emotion: emotionalState,
+        intentScore: phaseResolution.purchaseIntentScore,
+        memoryCompact: (customerMemoryPrompt || "").slice(0, 900),
+      });
+      if (cot) {
+        void commercialLogger.agent("internal_cot", { sessionId, cot });
+        messagesForAgent = messages.map((m, idx) => {
+          if (idx !== 0 || m.role !== "system") return m;
+          const prev =
+            typeof m.content === "string"
+              ? m.content
+              : Array.isArray(m.content)
+                ? (m.content as { text?: string }[])
+                    .map((c) => c.text || "")
+                    .join("\n")
+                : "";
+          return {
+            role: "system",
+            content: `${prev}\n\n${formatInternalCoTForPrompt(cot)}`,
+          };
+        });
+      }
+    }
+
     return this.runTwoPhaseProcessing(
       sessionId,
-      messages,
+      messagesForAgent,
       hasChosenProduct,
       isCartEvent,
       requiresToolCall || forceKnowledgeTool,
@@ -4934,6 +5044,13 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
             `✅ Resultado: ${toolOutputText.substring(0, 100)}${toolOutputText.length > 100 ? "..." : ""}`,
           );
 
+          if (name === "finalize_checkout" && success) {
+            void commercialLogger.conversion("checkout_initiated", {
+              sessionId,
+              blocked: toolOutputText.includes('"status":"error"'),
+            });
+          }
+
           if (name === "calculate_freight" && success) {
             const freightCity = (
               args.city ||
@@ -4968,6 +5085,10 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
               "transferredToHuman",
               true,
             );
+            void commercialLogger.conversion("human_handoff", {
+              sessionId,
+              reason: String((args as { reason?: string }).reason || ""),
+            });
           }
           if (
             name === "get_product_details" &&
@@ -5040,6 +5161,10 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                   if (product.id) {
                     await this.recordProductSent(sessionId, product.id);
                     logger.info(`✅ Rastreado produto ${product.id}`);
+                    void commercialLogger.conversion("product_viewed", {
+                      sessionId,
+                      productId: String(product.id),
+                    });
                   }
                 }
               }
@@ -5096,10 +5221,21 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
                 customerPhone = sessRec?.customer_phone || "";
               }
               if (this.isValidCustomerPhone(customerPhone)) {
-                await mcpClientService.callTool("save_customer_summary", {
-                  customer_phone: customerPhone,
-                  summary: args.customer_context || toolOutputText,
-                });
+                const minMs = Number(
+                  process.env.SAVE_CUSTOMER_SUMMARY_MIN_MS || "120000",
+                );
+                const last = this.lastSaveCustomerSummaryAt.get(sessionId) || 0;
+                if (Date.now() - last >= minMs) {
+                  await mcpClientService.callTool("save_customer_summary", {
+                    customer_phone: customerPhone,
+                    summary: args.customer_context || toolOutputText,
+                  });
+                  this.lastSaveCustomerSummaryAt.set(sessionId, Date.now());
+                } else {
+                  logger.info(
+                    `[AIAgent] save_customer_summary skipped (throttle) session=${sessionId}`,
+                  );
+                }
                 logger.info(`💾 Memória salva para ${customerPhone}`);
               } else {
                 logger.info(

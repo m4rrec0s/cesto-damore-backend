@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import aiAgentService from "../services/aiAgentService";
-import n8nChatHistoryService from "../services/n8nChatHistoryService";
-import logger from "../utils/logger";
+import aiAgentService from "../service/aiAgentService";
+import n8nChatHistoryService from "../../services/n8nChatHistoryService";
+import logger from "../../utils/logger";
 
 class AIAgentController {
   async chat(req: Request, res: Response) {
@@ -29,10 +29,7 @@ class AIAgentController {
         "[Interno] O cliente adicionou um produto ao carrinho pessoal.";
     }
 
-    if (
-      resolvedMessage &&
-      /evento\s*=\s*cart_added/i.test(resolvedMessage)
-    ) {
+    if (resolvedMessage && /evento\s*=\s*cart_added/i.test(resolvedMessage)) {
       resolvedMessage =
         "[Interno] O cliente adicionou um produto ao carrinho pessoal.";
     }

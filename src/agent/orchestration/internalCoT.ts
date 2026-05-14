@@ -31,26 +31,28 @@ export async function runInternalCoT(
     const controller = new AbortController();
     const timeoutMs = Number(process.env.INTERNAL_COT_TIMEOUT_MS || "4000");
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const completion = await openai.chat.completions.create({
-      model: OPENAI_MODELS.promptOrchestration,
-      temperature: 0.2,
-      max_tokens: 220,
-      messages: [
-        { role: "system", content: INTERNAL_COT_SYSTEM },
-        {
-          role: "user",
-          content: JSON.stringify({
-            user_message: params.userMessage,
-            phase: params.phase,
-            emotion: params.emotion,
-            intent_score: params.intentScore,
-            memory_compact: params.memoryCompact,
-          }),
-        },
-      ],
-      response_format: { type: "json_object" },
-      signal: controller.signal,
-    });
+    const completion = await openai.chat.completions.create(
+      {
+        model: OPENAI_MODELS.promptOrchestration,
+        temperature: 0.2,
+        max_tokens: 220,
+        messages: [
+          { role: "system", content: INTERNAL_COT_SYSTEM },
+          {
+            role: "user",
+            content: JSON.stringify({
+              user_message: params.userMessage,
+              phase: params.phase,
+              emotion: params.emotion,
+              intent_score: params.intentScore,
+              memory_compact: params.memoryCompact,
+            }),
+          },
+        ],
+        response_format: { type: "json_object" },
+      },
+      { signal: controller.signal },
+    );
     clearTimeout(timer);
     const raw = completion.choices[0]?.message?.content?.trim();
     if (!raw) return null;

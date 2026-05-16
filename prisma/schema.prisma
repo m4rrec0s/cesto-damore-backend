@@ -393,6 +393,7 @@ model AIAgentMessage {
   session_id     String
   role           String
   content        String
+  metadata       String?
   name           String?
   tool_call_id   String?
   created_at     DateTime       @default(now())

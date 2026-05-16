@@ -14,6 +14,8 @@ export type InternalCoTResult = {
   product_in_focus: string;
   customer_signal: string;
   strategy: string;
+  emotionalState?: EmotionalState;
+  intentScore?: number;
 };
 
 export async function runInternalCoT(
@@ -70,6 +72,8 @@ export async function runInternalCoT(
       product_in_focus: String(parsed.product_in_focus),
       customer_signal: String(parsed.customer_signal),
       strategy: String(parsed.strategy),
+      emotionalState: parsed.emotionalState,
+      intentScore: parsed.intentScore,
     };
   } catch (e) {
     logger.warn(`[internalCoT] skipped: ${e}`);

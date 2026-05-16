@@ -1,21 +1,30 @@
 import type { EmotionalState } from "../../types/emotionalState";
 
 export function classifyEmotionHeuristic(text: string): EmotionalState {
-  const t = (text || "").toLowerCase();
+  const t = (text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
   if (
-    /\b(rápido|rápida|urgente|corre|já estou atrasad|sem tempo|logo)\b/.test(t)
+    /\b(urgente|corre|ja estou atrasad\w*|sem tempo|logo|preciso ja)\b/.test(
+      t,
+    ) ||
+    /\b(rapido|rapida)\b.*\b(hoje|agora|ja)\b/.test(t)
   ) {
     return "apressado";
   }
   if (
-    /\b(não entendi|nao entendi|problema|ruim|péssimo|pessimo|reclama|irritad|absurdo)\b/.test(
+    /\b(nao entendi|problema|ruim|pessimo|reclama|irritad|absurdo|horrivel|demor|errado)\b/.test(
       t,
     )
   ) {
     return "frustrado";
   }
   if (
-    /\b(não sei|nao sei|talvez| ou |entre |duvid|dúvid|indecis)\b/.test(t)
+    /\b(nao sei|talvez|indecis\w*|duvid\w*|qual deles|nao tenho certeza|entre um|entre uma|ou esse|ou essa|poderia ser)\b/.test(
+      t,
+    )
   ) {
     return "indeciso";
   }

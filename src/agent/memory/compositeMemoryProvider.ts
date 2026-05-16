@@ -10,12 +10,14 @@ function buildMergedBlock(fileBlock: string, dbSummary: string | null): string {
 
 export class CompositeMemoryProvider implements IMemoryProvider {
   async loadCustomerProfileCompact(phone: string): Promise<CustomerProfileCompact> {
-    const fileMem = await openClawMemoryService.getCustomerMemory(phone);
+    const [fileMem, row] = await Promise.all([
+      openClawMemoryService.getCustomerMemory(phone),
+      prisma.customerMemory.findUnique({
+        where: { customer_phone: phone },
+        select: { summary: true },
+      }),
+    ]);
     const fileBlock = openClawMemoryService.buildCustomerPrompt(fileMem);
-    const row = await prisma.customerMemory.findUnique({
-      where: { customer_phone: phone },
-      select: { summary: true },
-    });
     const dbSummary = row?.summary ?? null;
     return {
       fileBlock,
@@ -27,10 +29,21 @@ export class CompositeMemoryProvider implements IMemoryProvider {
   async appendMicropreference(phone: string, entry: string): Promise<void> {
     const trimmed = entry.trim();
     if (!trimmed || !phone) return;
+
+    const normalizedEntry = trimmed.replace(/^pref:/i, "");
+    const prefLine = `pref:${normalizedEntry}`;
+    const prefKey = prefLine.split("=")[0];
     const memory = await openClawMemoryService.getCustomerMemory(phone);
-    const line = `pref:${trimmed}`;
-    const prefs = memory.inferredPreferences.filter((p) => p !== line);
-    prefs.unshift(line);
+    const existingSameValue = memory.inferredPreferences.some(
+      (pref) => pref === prefLine || pref.startsWith(`${prefLine} @ `),
+    );
+    if (existingSameValue) return;
+
+    const stampedLine = `${prefLine} @ ${new Date().toISOString()}`;
+    const prefs = memory.inferredPreferences.filter(
+      (p) => !p.startsWith(`${prefKey}=`),
+    );
+    prefs.unshift(stampedLine);
     memory.inferredPreferences = prefs.slice(0, 30);
     memory.lastUpdatedAt = new Date().toISOString();
     await openClawMemoryService.saveCustomerMemory(phone, memory);

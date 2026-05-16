@@ -4,6 +4,7 @@ import mcpClientService from "../../services/mcpClientService";
 import { filterMcpToolsForAgentContext } from "../../services/toolRegistryService";
 import openClawMemoryService, {
   type SessionPresentedProduct,
+  type SessionMemoryState,
 } from "../../services/openClawMemoryService";
 import logger from "../../utils/logger";
 import {
@@ -291,13 +292,16 @@ class AIAgentService {
 
   private async persistSessionLearnings(sessionId: string): Promise<void> {
     try {
-      const { enqueuePostSessionLearnings } = await import("../../jobs/jobQueues");
+      const { enqueuePostSessionLearnings } =
+        await import("../../jobs/jobQueues");
       if (await enqueuePostSessionLearnings(sessionId)) {
         logger.info(`[AIAgent] post-session learnings queued: ${sessionId}`);
         return;
       }
     } catch (e) {
-      logger.warn(`[AIAgent] fila indisponível, persistindo learnings inline: ${e}`);
+      logger.warn(
+        `[AIAgent] fila indisponível, persistindo learnings inline: ${e}`,
+      );
     }
     try {
       const session = await prisma.aIAgentSession.findUnique({
@@ -325,22 +329,48 @@ class AIAgentService {
     }
   }
 
-  private getAllowedToolsByPhase(
-    phase: SalesPhase,
-    allTools: Awaited<ReturnType<typeof mcpClientService.listTools>>,
-    emotion: EmotionalState = "animado",
-    sessionId?: string,
-  ) {
-    return filterMcpToolsForAgentContext(
-      allTools as { name: string }[],
-      phase,
-      emotion,
-      { sessionId },
-    ) as Awaited<ReturnType<typeof mcpClientService.listTools>>;
-  }
-
   private getLabSessionPrefix(userId: string) {
     return `lab-${userId}-`;
+  }
+
+  private normalizeMicroprefValue(value: string | null): string | null {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim();
+    return normalized.length ? normalized : null;
+  }
+
+  private async persistMidSessionMicropreferences(
+    phone: string | null | undefined,
+    sessionMemory: SessionMemoryState,
+  ): Promise<void> {
+    if (!phone) return;
+
+    const occasion = this.normalizeMicroprefValue(
+      sessionMemory.client.occasion,
+    );
+    const budget = this.normalizeMicroprefValue(sessionMemory.client.budget);
+    const recipient = this.normalizeMicroprefValue(
+      sessionMemory.client.recipientName,
+    );
+
+    if (occasion) {
+      await defaultMemoryProvider.appendMicropreference(
+        phone,
+        `occasion=${occasion}`,
+      );
+    }
+    if (budget) {
+      await defaultMemoryProvider.appendMicropreference(
+        phone,
+        `budget_hint=${budget}`,
+      );
+    }
+    if (recipient) {
+      await defaultMemoryProvider.appendMicropreference(
+        phone,
+        `recipient=${recipient}`,
+      );
+    }
   }
 
   private ensureLabSessionOwnership(userId: string, sessionId: string) {
@@ -2449,10 +2479,13 @@ Logo te respondem! Obrigadaaa 🥰"`;
       });
 
       const recentMessages = messages.reverse();
-      const userMessages = recentMessages
-        .filter((m) => m.role === "user")
-        .slice(-5)
-        .map((m) => m.content);
+      const userMessages: string[] = [];
+      for (const message of recentMessages) {
+        if (message.role === "user") {
+          userMessages.push(message.content);
+          if (userMessages.length >= 5) break;
+        }
+      }
 
       if (userMessages.length === 0) {
         return `${customerName} adicionou um produto ao carrinho. Encaminhar para atendimento especializado.`;
@@ -2962,7 +2995,11 @@ Logo te respondem! Obrigadaaa 🥰"`;
       where: { session_id: sessionId },
       select: { product_id: true },
     });
-    return sentProducts.map((sp) => sp.product_id);
+    const productIds: string[] = [];
+    for (const sentProduct of sentProducts) {
+      productIds.push(sentProduct.product_id);
+    }
+    return productIds;
   }
 
   async listSessions() {
@@ -2979,31 +3016,31 @@ Logo te respondem! Obrigadaaa 🥰"`;
       },
     });
 
-    const sessionsWithCustomer = await Promise.all(
-      sessions.map(async (session) => {
-        if (session.customer_phone) {
-          const customer = await prisma.customer.findUnique({
-            where: { number: session.customer_phone },
-            select: { name: true },
-          });
-          return {
-            ...session,
-            customer: customer || undefined,
-          };
-        }
-        return session;
-      }),
-    );
+    const sessionsWithCustomer = [];
+    for (const session of sessions) {
+      if (session.customer_phone) {
+        const customer = await prisma.customer.findUnique({
+          where: { number: session.customer_phone },
+          select: { name: true },
+        });
+        sessionsWithCustomer.push({
+          ...session,
+          customer: customer || undefined,
+        });
+        continue;
+      }
+      sessionsWithCustomer.push(session);
+    }
 
-    return sessionsWithCustomer.sort((a, b) => {
+    return sessionsWithCustomer.sort((sessionA, sessionB) => {
       const dateA =
-        a._count.messages > 0
-          ? new Date(a.messages[0].created_at).getTime()
-          : new Date(a.created_at).getTime();
+        sessionA._count.messages > 0
+          ? new Date(sessionA.messages[0].created_at).getTime()
+          : new Date(sessionA.created_at).getTime();
       const dateB =
-        b._count.messages > 0
-          ? new Date(b.messages[0].created_at).getTime()
-          : new Date(b.created_at).getTime();
+        sessionB._count.messages > 0
+          ? new Date(sessionB.messages[0].created_at).getTime()
+          : new Date(sessionB.created_at).getTime();
       return dateB - dateA;
     });
   }
@@ -3146,14 +3183,18 @@ Logo te respondem! Obrigadaaa 🥰"`;
       },
     });
 
-    return sessions.map((session) => ({
-      id: session.id,
-      created_at: session.created_at,
-      expires_at: session.expires_at,
-      is_blocked: session.is_blocked,
-      lastMessage: session.messages[0] || null,
-      totalMessages: session._count.messages,
-    }));
+    const items = [];
+    for (const session of sessions) {
+      items.push({
+        id: session.id,
+        created_at: session.created_at,
+        expires_at: session.expires_at,
+        is_blocked: session.is_blocked,
+        lastMessage: session.messages[0] || null,
+        totalMessages: session._count.messages,
+      });
+    }
+    return items;
   }
 
   async getLabSessionHistory(userId: string, sessionId: string) {
@@ -3471,6 +3512,10 @@ Logo te respondem! Obrigadaaa 🥰"`;
     const toolsInMCP = await mcpClientService.listTools();
     const sessionMemoryForPhase =
       await openClawMemoryService.getSessionMemory(sessionId);
+    await this.persistMidSessionMicropreferences(
+      session.customer_phone,
+      sessionMemoryForPhase,
+    );
     const phaseResolution = phaseGateService.resolvePhaseWithIntent(
       sessionMemoryForPhase,
       userMessage,
@@ -3484,12 +3529,12 @@ Logo te respondem! Obrigadaaa 🥰"`;
       emotion: emotionalState,
     });
     const phasePrompt = this.getPhasePrompt(phaseResolution.phase);
-    const toolsInMCPForPhase = this.getAllowedToolsByPhase(
+    const toolsInMCPForPhase = filterMcpToolsForAgentContext(
+      toolsInMCP as { name: string }[],
       phaseResolution.phase,
-      toolsInMCP,
       emotionalState,
-      sessionId,
-    );
+      { sessionId },
+    ) as Awaited<ReturnType<typeof mcpClientService.listTools>>;
     const toolNames = new Set(toolsInMCPForPhase.map((tool) => tool.name));
     const systemPrompt = this.buildLabSystemPrompt(toolsInMCPForPhase);
     const explicitDocRequest =
@@ -3553,7 +3598,8 @@ regras:
         ? MID_SESSION_SUMMARY_HINT
         : "";
     let labPhaseNudge = "";
-    if (phaseResolution.phase === "CURATION") labPhaseNudge = CURATION_NARRATIVE_BLOCK;
+    if (phaseResolution.phase === "CURATION")
+      labPhaseNudge = CURATION_NARRATIVE_BLOCK;
     else if (phaseResolution.phase === "CHECKOUT")
       labPhaseNudge = `${CHECKOUT_HUMANIZED_BLOCK}\n\n${PHASE_BRIDGE_HINTS}`;
     else if (phaseResolution.phase === "DISCOVERY")
@@ -3845,7 +3891,8 @@ regras:
     let customerMemoryPrompt = "";
     if (phone) {
       memory = await this.getCustomerMemory(phone);
-      const profile = await defaultMemoryProvider.loadCustomerProfileCompact(phone);
+      const profile =
+        await defaultMemoryProvider.loadCustomerProfileCompact(phone);
       customerMemoryPrompt = profile.mergedPromptBlock;
     }
 
@@ -3854,7 +3901,7 @@ regras:
     const spContext = this.getSaoPauloContext();
     const storeStatus = spContext.storeStatus;
 
-    await prisma.aIAgentMessage.create({
+    const createdUserMessage = await prisma.aIAgentMessage.create({
       data: {
         session_id: sessionId,
         role: "user",
@@ -3890,6 +3937,7 @@ regras:
     const toolsInMCP = await mcpClientService.listTools();
     const sessionMemoryForPhase =
       await openClawMemoryService.getSessionMemory(sessionId);
+    await this.persistMidSessionMicropreferences(phone, sessionMemoryForPhase);
     const phaseResolution = phaseGateService.resolvePhaseWithIntent(
       sessionMemoryForPhase,
       userMessage,
@@ -3909,12 +3957,12 @@ regras:
       sessionId,
       customerPhone || session.customer_phone || undefined,
     );
-    const toolsInMCPForPhase = this.getAllowedToolsByPhase(
+    const toolsInMCPForPhase = filterMcpToolsForAgentContext(
+      toolsInMCP as { name: string }[],
       phaseResolution.phase,
-      toolsInMCP,
       emotionalState,
-      sessionId,
-    );
+      { sessionId },
+    ) as Awaited<ReturnType<typeof mcpClientService.listTools>>;
     const explicitDocRequest =
       /leia a documenta[cç][aã]o|ler a documenta[cç][aã]o|use a documenta[cç][aã]o|knowledge base|acervo/i.test(
         userMessage || "",
@@ -4226,20 +4274,22 @@ Máximo: 2 produtos por vez. Excluir automáticamente se pedir "mais".
       });
       if (cot) {
         void commercialLogger.agent("internal_cot", { sessionId, cot });
-        messagesForAgent = messages.map((m, idx) => {
-          if (idx !== 0 || m.role !== "system") return m;
-          const prev =
-            typeof m.content === "string"
-              ? m.content
-              : Array.isArray(m.content)
-                ? (m.content as { text?: string }[])
-                    .map((c) => c.text || "")
-                    .join("\n")
-                : "";
-          return {
-            role: "system",
-            content: `${prev}\n\n${formatInternalCoTForPrompt(cot)}`,
-          };
+        const cotMessage: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
+          role: "system",
+          content: `## ANÁLISE INTERNA DESTA RODADA (não revelar ao cliente)\n${formatInternalCoTForPrompt(cot)}`,
+        };
+        messagesForAgent = [messages[0], cotMessage, ...messages.slice(1)];
+        await prisma.aIAgentMessage.update({
+          where: { id: createdUserMessage.id },
+          data: {
+            metadata: JSON.stringify({
+              cot_phase: cot.phase_focus,
+              cot_emotion: cot.emotionalState,
+              cot_intent_score: cot.intentScore,
+              cot_strategy: cot.strategy,
+              cot_focus_product: cot.product_in_focus ?? null,
+            }),
+          },
         });
       }
     }

@@ -2,6 +2,7 @@ import path from "path";
 import { Router, Request, Response } from "express";
 import googleDriveService from "../services/googleDriveService";
 import { upload } from "../config/multer";
+import crypto from "crypto";
 import {
   PrintFileType,
   PrintJobFile,
@@ -56,6 +57,7 @@ const handlePrintSimulatorUpload = async (
   const orderId = makeOrderId();
   let unsubscribe: (() => void) | null = null;
   let unsubFileStatus: (() => void) | null = null;
+  let finish: (() => void) = () => { res.end(); };
 
   try {
     const customerNameRaw =
@@ -165,6 +167,40 @@ const handlePrintSimulatorUpload = async (
       status: "pending",
       message: "Job adicionado a fila",
     });
+
+    let closeTimeout: ReturnType<typeof setTimeout> | null = null;
+    let unsubCompleted: (() => void) | null = null;
+    let finished = false;
+    finish = (): void => {
+      if (finished) return;
+      finished = true;
+      if (closeTimeout) clearTimeout(closeTimeout);
+      unsubCompleted?.();
+      unsubFileStatus?.();
+      unsubscribe?.();
+      res.end();
+    };
+
+    closeTimeout = setTimeout(() => {
+      sendSse(res, {
+        jobId: orderId,
+        status: "info",
+        message: "Acompanhe o status no agente de impressao",
+      });
+      finish();
+    }, 60_000);
+
+    unsubCompleted = printAgentHub.on("job-completed", (event: { jobId: string }) => {
+      if (event.jobId === orderId) {
+        sendSse(res, {
+          jobId: orderId,
+          status: "printed",
+          message: "Job concluido pelo agente",
+        });
+        finish();
+      }
+    });
+
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     sendSse(res, {
@@ -173,9 +209,7 @@ const handlePrintSimulatorUpload = async (
       message: "Falha na simulacao de pedido",
       error: message,
     });
-    unsubFileStatus?.();
-    unsubscribe?.();
-    res.end();
+    finish?.();
   }
 };
 

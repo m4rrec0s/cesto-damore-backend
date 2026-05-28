@@ -40,6 +40,7 @@ RUN mkdir -p images/customizations \
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node --from=builder /code/node_modules ./node_modules
 COPY --chown=node:node --from=builder /code/dist ./dist
+COPY --chown=node:node --from=builder /code/public ./public
 COPY --chown=node:node --from=builder /code/node_modules/.prisma ./node_modules/.prisma
 COPY --chown=node:node --from=builder /code/prisma ./prisma
 COPY --chown=node:node google-drive-token.json* ./

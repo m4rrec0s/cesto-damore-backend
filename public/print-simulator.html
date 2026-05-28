@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cesto d'Amore - Simulador de Impressao</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f7f8;
+        --panel: #ffffff;
+        --text: #202124;
+        --muted: #656b73;
+        --line: #d9dde3;
+        --accent: #0f766e;
+        --accent-dark: #115e59;
+        --accent-light: #ccfbf1;
+        --danger: #b42318;
+        --danger-bg: #fef2f2;
+        --ok: #067647;
+        --ok-bg: #ecfdf5;
+        --warning: #b45309;
+        --warning-bg: #fffbeb;
+        --info: #1c64f2;
+        --info-bg: #eff6ff;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        width: min(920px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0;
+      }
+
+      h1 { margin: 0 0 4px; font-size: 24px; font-weight: 700; }
+      p { margin: 0; color: var(--muted); font-size: 14px; }
+
+      .printer-panel, form, .events { margin-top: 20px; }
+
+      .printer-panel, form, .events, .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+      }
+
+      .printer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .printer-header h2 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+      .printer-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .printer-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .printer-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+
+      .printer-chip:hover { border-color: var(--accent); }
+      .printer-chip.selected {
+        background: var(--accent-light);
+        border-color: var(--accent);
+        color: var(--accent-dark);
+        font-weight: 650;
+      }
+
+      .printer-chip.pdf-fallback {
+        background: var(--warning-bg);
+        border-color: var(--warning);
+        color: var(--warning);
+      }
+
+      .printer-chip.pdf-fallback.selected {
+        background: var(--warning);
+        color: #fff;
+      }
+
+      label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 650; }
+
+      input, select, button { font: inherit; }
+
+      input[type="text"], input[type="file"], select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--text);
+        padding: 10px 12px;
+      }
+
+      .field { margin-bottom: 16px; }
+
+      .file-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 160px;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .file-row:first-child { border-top: 0; }
+
+      .file-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        font-weight: 700;
+        padding: 10px 16px;
+        white-space: nowrap;
+      }
+
+      button:hover { background: var(--accent-dark); }
+      button:disabled { cursor: not-allowed; opacity: 0.6; }
+      button.secondary { background: #e5e7eb; color: var(--text); }
+      button.secondary:hover { background: #d1d5db; }
+      button.danger { background: var(--danger); }
+      button.danger:hover { background: #991b1b; }
+
+      .events h2 { margin: 0 0 12px; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+      .event-list { display: grid; gap: 6px; }
+
+      .event {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px;
+        align-items: start;
+        border-left: 3px solid var(--line);
+        padding: 8px 10px;
+        background: #fafafa;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .event-icon { font-size: 14px; line-height: 1.4; }
+      .event-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+      .event.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+      .event.ok .event-text { color: var(--ok); }
+      .event.failed { border-left-color: var(--danger); background: var(--danger-bg); }
+      .event.failed .event-text { color: var(--danger); }
+      .event.warning { border-left-color: var(--warning); background: var(--warning-bg); }
+      .event.warning .event-text { color: var(--warning); }
+      .event.info { border-left-color: var(--info); background: var(--info-bg); }
+      .event.info .event-text { color: var(--info); }
+      .event.loading { border-left-color: var(--accent); }
+      .event.loading .event-icon { animation: pulse 1s infinite; }
+
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+      .status-bar {
+        margin-top: 12px;
+        padding: 10px 14px;
+        background: var(--info-bg);
+        border: 1px solid #bfdbfe;
+        border-radius: 6px;
+        font-size: 13px;
+        color: var(--info);
+        display: none;
+      }
+
+      .status-bar.visible { display: block; }
+      .status-bar.error { background: var(--danger-bg); border-color: #fecaca; color: var(--danger); }
+      .status-bar.success { background: var(--ok-bg); border-color: #a7f3d0; color: var(--ok); }
+
+      @media (max-width: 640px) {
+        main { width: min(100vw - 20px, 920px); padding: 18px 0; }
+        .file-row { grid-template-columns: 1fr; }
+        .printer-header { flex-direction: column; align-items: stretch; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Simulador de Pedido para Impressao</h1>
+      <p>Envie imagens de teste ao Drive e acompanhe o job ate a confirmacao do agente.</p>
+
+      <section class="printer-panel" id="printer-panel">
+        <div class="printer-header">
+          <h2>Agente de Impressao</h2>
+          <span class="printer-status" id="agent-status">
+            <span id="agent-dot" style="color:#ef4444">&#9679;</span>
+            <span id="agent-label">Desconectado</span>
+          </span>
+        </div>
+
+        <div id="printer-content">
+          <div style="color:var(--muted);font-size:13px;">Aguardando conexao do agente...</div>
+        </div>
+
+        <div class="status-bar" id="status-bar"></div>
+
+        <div class="actions" id="printer-actions" style="display:none;">
+          <button type="button" class="secondary" id="btn-check-printers">Verificar Impressoras</button>
+          <button type="button" class="secondary" id="btn-pdf-fallback">Usar PDF (Fallback)</button>
+        </div>
+      </section>
+
+      <form id="simulator-form">
+        <div class="field">
+          <label for="customerName">Nome do cliente</label>
+          <input id="customerName" name="customerName" type="text" required />
+        </div>
+
+        <div class="field">
+          <label for="files">Arquivos de imagem</label>
+          <input id="files" name="files" type="file" accept="image/png,image/jpeg" multiple required />
+        </div>
+
+        <div id="file-types"></div>
+
+        <div class="actions">
+          <button id="submit-button" type="submit">Simular Pedido</button>
+        </div>
+      </form>
+
+      <section class="events" aria-live="polite">
+        <h2>Status do Job</h2>
+        <div id="events" class="event-list">
+          <div class="event"><span class="event-icon">&#9679;</span><span class="event-text">Aguardando envio...</span></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const API = {
+        async getAgentStatus() {
+          const r = await fetch("/api/admin/print/agent-status");
+          return r.json();
+        },
+        async authorizePrinter(printer) {
+          const r = await fetch("/api/admin/print/authorize-printer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ printer }),
+          });
+          return r.json();
+        },
+        async requestPrinterCheck() {
+          const r = await fetch("/api/admin/print/request-printer-check", { method: "POST" });
+          return r.json();
+        },
+      };
+
+      const TIMEOUT_MS = 90_000;
+      const form = document.getElementById("simulator-form");
+      const filesInput = document.getElementById("files");
+      const fileTypes = document.getElementById("file-types");
+      const events = document.getElementById("events");
+      const submitButton = document.getElementById("submit-button");
+
+      const agentDot = document.getElementById("agent-dot");
+      const agentLabel = document.getElementById("agent-label");
+      const printerContent = document.getElementById("printer-content");
+      const printerActions = document.getElementById("printer-actions");
+      const statusBar = document.getElementById("status-bar");
+      const btnCheckPrinters = document.getElementById("btn-check-printers");
+      const btnPdfFallback = document.getElementById("btn-pdf-fallback");
+
+      let aborted = false;
+      let pollInterval = null;
+
+      function setAgentStatus(connected, printers) {
+        if (connected) {
+          agentDot.style.color = "#067647";
+          agentLabel.textContent = "Conectado";
+        } else {
+          agentDot.style.color = "#ef4444";
+          agentLabel.textContent = "Desconectado";
+        }
+        renderPrinterPanel(connected, printers);
+      }
+
+      function renderPrinterPanel(connected, printers) {
+        if (!connected) {
+          printerContent.innerHTML = '<div style="color:var(--muted);font-size:13px;">Aguardando conexao do agente...</div>';
+          printerActions.style.display = "none";
+          return;
+        }
+
+        printerActions.style.display = "flex";
+        let html = "";
+
+        if (printers.available && printers.printers.length > 0) {
+          html += `<div style="font-size:13px;font-weight:650;margin-bottom:8px;">Impressoras Detectadas:</div>`;
+          html += `<div class="printer-list">`;
+          for (const p of printers.printers) {
+            const sel = printers.selectedPrinter === p ? " selected" : "";
+            html += `<span class="printer-chip${sel}" data-printer="${p}">\uD83D\uDD28 ${p}</span>`;
+          }
+          html += `</div>`;
+        } else {
+          html += `<div style="font-size:13px;color:var(--muted);">Nenhuma impressora detectada no sistema.</div>`;
+        }
+
+        html += `<div style="margin-top:10px;font-size:13px;">`;
+        if (printers.selectedPrinter) {
+          const label = printers.selectedPrinter === "pdf_fallback"
+            ? "PDF (Fallback)"
+            : printers.selectedPrinter;
+          html += `\u2705 Impressora autorizada: <strong>${label}</strong>`;
+        } else {
+          html += `\u23F3 Nenhuma impressora autorizada ainda. Selecione uma ou escolha PDF fallback.`;
+        }
+        html += `</div>`;
+
+        printerContent.innerHTML = html;
+
+        document.querySelectorAll(".printer-chip[data-printer]").forEach((chip) => {
+          chip.addEventListener("click", async () => {
+            const printer = chip.dataset.printer;
+            await authorizePrinter(printer);
+          });
+        });
+      }
+
+      function clearPrinterChips() {
+        document.querySelectorAll(".printer-chip").forEach((c) => c.classList.remove("selected"));
+      }
+
+      async function authorizePrinter(printer) {
+        showStatus("Autorizando impressora: " + printer + "...", "");
+        const result = await API.authorizePrinter(printer);
+        if (result.success) {
+          showStatus("Impressora autorizada: " + printer, "success");
+          await refreshStatus();
+        } else {
+          showStatus("Erro: " + (result.error || "Falha ao autorizar"), "error");
+        }
+      }
+
+      async function refreshStatus() {
+        try {
+          const data = await API.getAgentStatus();
+          setAgentStatus(data.isConnected, data.printers);
+          return data;
+        } catch (e) {
+          setAgentStatus(false, { available: false, printers: [] });
+          return null;
+        }
+      }
+
+      function showStatus(msg, type) {
+        statusBar.textContent = msg;
+        statusBar.className = "status-bar visible";
+        if (type) statusBar.classList.add(type);
+        if (type !== "error") {
+          setTimeout(() => { statusBar.className = "status-bar"; }, 4000);
+        }
+      }
+
+      function addEvent(message, status, fileIndex) {
+        const placeholder = events.querySelector(".event");
+        if (placeholder && placeholder.textContent.trim() === "Aguardando envio...") {
+          events.innerHTML = "";
+        }
+
+        const icons = {
+          ok: "\u2705", failed: "\u274C", warning: "\u26A0\uFE0F",
+          info: "\u2139\uFE0F", loading: "\u23F3",
+        };
+        let icon = icons[status] || "\u25CF";
+        let className = "event";
+        if (status === "printed" || status === "received" || status === "sent" || status === "downloaded" || status === "pdf_generated") className += " ok";
+        else if (status === "failed" || (status === "pending" && message.toLowerCase().includes("falhou"))) className += " failed";
+        else if (status === "warning" || status === "generating_pdf") className += " warning";
+        else if (status === "info" || status === "downloading") className += " info";
+        else if (status === "loading" || status === "pending") className += " loading";
+
+        if (status === "downloading") icon = "\u2B07\uFE0F";
+        if (status === "downloaded") icon = "\u2705";
+        if (status === "generating_pdf") icon = "\uDDF9\uFE0F";
+        if (status === "pdf_generated") icon = "\uDDF9\uFE0F\u2705";
+        if (status === "moving") icon = "\uD83D\uDCC2";
+        if (status === "printed") icon = "\uD83D\uDDBC\uFE0F\u2705";
+
+        const prefix = fileIndex !== undefined && fileIndex !== null ? `[Arquivo ${fileIndex + 1}] ` : "";
+
+        const item = document.createElement("div");
+        item.className = className;
+        item.innerHTML = `<span class="event-icon">${icon}</span><span class="event-text">${prefix}${message}</span>`;
+        events.prepend(item);
+      }
+
+      function readSseChunk(buffer, onEvent) {
+        const blocks = buffer.split("\n\n");
+        const remainder = blocks.pop() || "";
+
+        for (const block of blocks) {
+          const dataLine = block.split("\n").find((line) => line.startsWith("data: "));
+          if (!dataLine) continue;
+          try {
+            onEvent(JSON.parse(dataLine.slice(6)));
+          } catch (error) {
+            addEvent("Falha ao ler evento do servidor", "failed");
+          }
+        }
+        return remainder;
+      }
+
+      function renderFileTypes() {
+        fileTypes.innerHTML = "";
+        const files = Array.from(filesInput.files || []);
+        for (const file of files) {
+          const row = document.createElement("div");
+          row.className = "file-row";
+          const name = document.createElement("div");
+          name.className = "file-name";
+          name.textContent = file.name;
+          const select = document.createElement("select");
+          select.name = "fileTypes";
+          select.required = true;
+          for (const type of ["polaroid", "quadro", "cartao"]) {
+            const option = document.createElement("option");
+            option.value = type;
+            option.textContent = type;
+            select.appendChild(option);
+          }
+          row.appendChild(name);
+          row.appendChild(select);
+          fileTypes.appendChild(row);
+        }
+      }
+
+      filesInput.addEventListener("change", renderFileTypes);
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        aborted = false;
+        submitButton.disabled = true;
+        submitButton.textContent = "Processando...";
+        events.innerHTML = "";
+        addEvent("Enviando arquivos...", "loading");
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          aborted = true;
+          controller.abort();
+          addEvent("Tempo limite excedido (90s)", "failed");
+        }, TIMEOUT_MS);
+
+        const formData = new FormData();
+        formData.append("customerName", document.getElementById("customerName").value);
+        const files = Array.from(filesInput.files || []);
+        const selectors = Array.from(document.querySelectorAll("select[name='fileTypes']"));
+        files.forEach((file) => formData.append("files", file));
+        selectors.forEach((select) => formData.append("fileTypes", select.value));
+
+        try {
+          const response = await fetch("/api/admin/print-simulator", {
+            method: "POST", body: formData, signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok || !response.body) {
+            throw new Error(response.status >= 400 && response.status < 500
+              ? "Falha na requisicao" : "Servidor recusou a simulacao");
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const result = await reader.read();
+            if (result.done) break;
+            buffer += decoder.decode(result.value, { stream: true });
+            buffer = readSseChunk(buffer, (payload) => {
+              const text = payload.error
+                ? `${payload.message}: ${payload.error}`
+                : payload.message;
+              addEvent(text, payload.status, payload.fileIndex);
+            });
+          }
+        } catch (error) {
+          if (aborted) return;
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          addEvent(error instanceof Error ? error.message : "Falha inesperada", "failed");
+        } finally {
+          clearTimeout(timeoutId);
+          submitButton.disabled = false;
+          submitButton.textContent = "Simular Pedido";
+        }
+      });
+
+      btnCheckPrinters.addEventListener("click", async () => {
+        btnCheckPrinters.disabled = true;
+        showStatus("Solicitando verificacao de impressoras...", "");
+        await API.requestPrinterCheck();
+        setTimeout(async () => {
+          await refreshStatus();
+          btnCheckPrinters.disabled = false;
+        }, 2000);
+      });
+
+      btnPdfFallback.addEventListener("click", () => authorizePrinter("pdf_fallback"));
+
+      async function init() {
+        await refreshStatus();
+        pollInterval = setInterval(refreshStatus, 5000);
+      }
+
+      init();
+    </script>
+  </body>
+</html>

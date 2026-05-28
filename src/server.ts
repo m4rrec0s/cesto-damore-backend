@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import http from "http";
 import { validateEnv } from "./utils/envValidator";
 
 validateEnv();
@@ -23,6 +24,8 @@ import reservationService from "./services/reservationService";
 import { pingRedisHealth } from "./jobs/jobQueues";
 import { apiRateLimit, requireApiKey, initializeSecurityMonitor } from "./middleware/security";
 import path from "path";
+import { setupPrintAgentWebSocket } from "./routes/ws-print-agent";
+import { printQueueService } from "./services/print-queue.service";
 
 const app = express();
 
@@ -92,6 +95,10 @@ const tempDir = normalizePath(process.env.TEMP_UPLOADS_DIR, "storage/temp");
 
 logger.info(`📂 [Server] Serving temp files from: ${tempDir}`);
 app.use("/uploads/temp", express.static(tempDir));
+
+const publicDir = path.join(__dirname, "../public");
+logger.info(`📂 [Server] Serving public files from: ${publicDir}`);
+app.use(express.static(publicDir));
 
 const imagesDir = normalizePath(process.env.UPLOAD_DIR, "images");
 
@@ -234,10 +241,17 @@ cron.schedule("*/10 * * * *", async () => {
 const PORT = process.env.PORT || 3333;
 const BASE_URL = process.env.BASE_URL;
 
+const server = http.createServer(app);
+
+setupPrintAgentWebSocket(server);
+printQueueService.start().catch((error) => {
+  logger.error("❌ [PrintQueue] Falha ao inicializar fila de impressão:", error);
+});
+
 // Inicializa o monitoramento de segurança
 initializeSecurityMonitor();
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   logger.status(`🚀 Server running`, "green");
   logger.status(`📡 PORT: ${PORT}`, "green");
   logger.status(`🔗 BASE_URL: ${BASE_URL ? "[configured]" : "[not set]"}`, "green");

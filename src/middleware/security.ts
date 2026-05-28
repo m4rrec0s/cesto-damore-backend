@@ -692,6 +692,9 @@ export const requireApiKey = (
     "/api/webhook/mercadopago",
     "/api/uploads/temp",
     "/mercadopago/public-config",
+    "/print-test",
+    "/admin/print-simulator",
+    "/api/admin/print-simulator",
   ];
 
   const startsWithPublic = [
@@ -702,6 +705,9 @@ export const requireApiKey = (
     "/assets",
     "/static",
     "/test/", // Rotas de teste (ainda requerem JWT, mas não API key)
+    "/api/print-test/", // Rotas de teste de impressão
+    "/api/print/files/", // Download URLs para o agente de impressao
+    "/api/admin/print/", // Rotas administrativas de impressao
   ];
 
   // Verifica se é um path público
@@ -717,12 +723,17 @@ export const requireApiKey = (
     req.headers["api-key"] ||
     req.headers["x-ai-api-key"] ||
     req.query.api_key;
-  const validKey = process.env.API_KEY || process.env.AI_AGENT_API_KEY;
+  const validKeys = [
+    process.env.API_KEY,
+    process.env.AI_AGENT_API_KEY,
+    process.env.PRINT_AGENT_KEY,
+    process.env.AGENT_KEY,
+  ].filter((key): key is string => Boolean(key));
   const normalizedApiKey = Array.isArray(apiKeyHeader)
-    ? apiKeyHeader[0]
+    ? String(apiKeyHeader[0] || "")
     : apiKeyHeader?.toString?.() || "";
 
-  if (!validKey) {
+  if (validKeys.length === 0) {
     logger.error("❌ API_KEY não configurada no servidor");
     return res.status(500).json({
       error: "Erro de configuração de segurança",
@@ -730,7 +741,7 @@ export const requireApiKey = (
     });
   }
 
-  if (normalizedApiKey !== validKey) {
+  if (!validKeys.includes(normalizedApiKey)) {
     const clientIP = req.ip || req.connection.remoteAddress || "unknown";
     
     // Registra o padrão de requisição

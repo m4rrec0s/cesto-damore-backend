@@ -1546,4 +1546,26 @@ router.get("/agent-logs", authenticateToken, requireAdmin, agentLogsController.g
 router.get("/agent-logs/events", authenticateToken, requireAdmin, agentLogsController.getAvailableEvents);
 router.get("/agent-logs/stats", authenticateToken, requireAdmin, agentLogsController.getAgentLogStats);
 router.get("/agent-logs/export", authenticateToken, requireAdmin, agentLogsController.exportAgentLogs);
+
+// ========================================
+// 🖨️ ROTAS DE TESTE - Impressão via WebSocket
+// ========================================
+import { createPrintTestRoutes } from "./routes/printTest";
+import { createPrintSimulatorRoutes } from "./routes/print-simulator";
+if (process.env.NODE_ENV !== "production") {
+  createPrintTestRoutes(router);
+  logger.info("🖨️ Rotas de teste de impressão habilitadas");
+}
+
+createPrintSimulatorRoutes(router);
+logger.info("🖨️ Rotas do simulador de impressão habilitadas");
+
+// ========================================
+// 🖨️ INTERFACE DE TESTE - HTML
+// ========================================
+router.get("/print-test", (req, res) => {
+  const filePath = path.join(__dirname, "../public/print-test.html");
+  res.sendFile(filePath);
+});
+
 export default router;

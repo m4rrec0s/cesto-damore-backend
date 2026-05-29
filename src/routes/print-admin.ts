@@ -234,9 +234,27 @@ export function createPrintAdminRoutes(router: Router): void {
           for (const cust of item.customizations) {
             let finalValue = cust.value;
 
-            // Wrap TEXT values in JSON for compatibility with finalization
             if (cust.type === "TEXT" && !cust.value.startsWith("{")) {
               finalValue = JSON.stringify({ text: cust.value });
+            }
+
+            if (cust.type === "DYNAMIC_LAYOUT" && cust.value) {
+              const layout = await prisma.dynamicLayout.findFirst({
+                where: { name: cust.value },
+                select: { id: true, name: true },
+              });
+              if (layout) {
+                finalValue = JSON.stringify({
+                  selected_item_label: layout.name,
+                  layout_id: layout.id,
+                  text: "https://placehold.co/400x400?text=Layout",
+                  image: { preview_url: "https://placehold.co/400x400?text=Layout" },
+                });
+              } else {
+                finalValue = JSON.stringify({
+                  selected_item_label: cust.value,
+                });
+              }
             }
 
             await prisma.orderItemCustomization.create({

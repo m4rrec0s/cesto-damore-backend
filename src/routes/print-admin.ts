@@ -5,6 +5,7 @@ import prisma from "../database/prisma";
 import { dispatchPrintForOrder } from "../services/printDispatchService";
 import orderCustomizationService from "../services/orderCustomizationService";
 import logger from "../utils/logger";
+import { authenticateToken, requireAdmin } from "../middleware/security";
 
 export function createPrintAdminRoutes(router: Router): void {
   // GET /api/print/agent-status - returns agent connection status
@@ -39,16 +40,8 @@ export function createPrintAdminRoutes(router: Router): void {
     res.json(job);
   });
 
-  // POST /api/dev/simulate-print - simulates print flow bypassing payment
-  router.post("/api/dev/simulate-print", async (req, res) => {
-    if (
-      process.env.NODE_ENV === "production" &&
-      !process.env.ALLOW_PRINT_SIMULATOR
-    ) {
-      res.status(400).json({ error: "Simulador desabilitado em produção" });
-      return;
-    }
-
+  // POST /api/simulator/simulate-print - simulates print flow bypassing payment
+  router.post("/api/simulator/simulate-print", authenticateToken, requireAdmin, async (req, res) => {
     const { orderId, giftMessage } = req.body as {
       orderId?: string;
       giftMessage?: string;
@@ -131,8 +124,8 @@ export function createPrintAdminRoutes(router: Router): void {
   // 🧪 PROTÓTIPO - Simulador de Pedido (sem pedidos reais)
   // ========================================
 
-  // GET /api/dev/simulate-products - returns up to 6 products with customizations
-  router.get("/api/dev/simulate-products", async (_req, res) => {
+  // GET /api/simulator/simulate-products - returns up to 6 products with customizations
+  router.get("/api/simulator/simulate-products", authenticateToken, requireAdmin, async (_req, res) => {
     try {
       const products = await prisma.product.findMany({
         take: 6,
@@ -162,16 +155,8 @@ export function createPrintAdminRoutes(router: Router): void {
     }
   });
 
-  // POST /api/dev/simulate-prototype - creates prototype order and processes it
-  router.post("/api/dev/simulate-prototype", async (req, res) => {
-    if (
-      process.env.NODE_ENV === "production" &&
-      !process.env.ALLOW_PRINT_SIMULATOR
-    ) {
-      res.status(400).json({ error: "Simulador desabilitado em produção" });
-      return;
-    }
-
+  // POST /api/simulator/simulate-prototype - creates prototype order and processes it
+  router.post("/api/simulator/simulate-prototype", authenticateToken, requireAdmin, async (req, res) => {
     const { items, giftMessage } = req.body as {
       items?: Array<{
         productId: string;

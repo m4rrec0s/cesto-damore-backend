@@ -5,23 +5,6 @@ import type { WSOutboundMessage, PrintJobPayload } from "../types/printJob";
 import { printAgentHub } from "../routes/ws-print-agent";
 
 class PrintAgentWSManager {
-  private oncePrinterStatus: ((printers: string[]) => void) | null = null;
-
-  async requestPrinterList(): Promise<string[]> {
-    if (!this.isConnected()) return [];
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve([]), 10_000);
-      this.oncePrinterStatus = (printers) => {
-        clearTimeout(timeout);
-        resolve(printers);
-      };
-      this.send({
-        type: "CHECK_PRINTER",
-        timestamp: new Date().toISOString(),
-      });
-    });
-  }
-
   register(socket: WebSocket, clientId: string): void {
     printAgentHub.setAgentSocket(socket);
 
@@ -96,10 +79,6 @@ class PrintAgentWSManager {
         const available = parsed.available === true;
         const printers = Array.isArray(parsed.printers) ? parsed.printers.filter((p): p is string => typeof p === "string") : [];
         logger.info({ available, printers }, "print_agent_printer_status");
-        if (this.oncePrinterStatus) {
-          this.oncePrinterStatus(printers);
-          this.oncePrinterStatus = null;
-        }
         break;
       }
 

@@ -1,4 +1,5 @@
 import type { Router } from "express";
+import { printAgentHub } from "./ws-print-agent";
 import { printAgentWSManager } from "../services/printAgentWSManager";
 import prisma from "../database/prisma";
 import { dispatchPrintForOrder } from "../services/printDispatchService";
@@ -18,7 +19,7 @@ export function createPrintAdminRoutes(router: Router): void {
       res.json({ printers: [], agentConnected: false });
       return;
     }
-    const printers = await printAgentWSManager.requestPrinterList();
+    const printers = await printAgentHub.requestPrinterList();
     res.json({ printers, agentConnected: true });
   });
 

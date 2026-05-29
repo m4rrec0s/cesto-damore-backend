@@ -188,6 +188,23 @@ export class PrintAgentHub {
     this.sendRaw({ type: "CHECK_PRINTER" });
   }
 
+  requestPrinterList(): Promise<string[]> {
+    if (!this.isConnected()) return Promise.resolve([]);
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.events.off("printers-updated", onUpdate);
+        resolve([]);
+      }, 10_000);
+      const onUpdate = (info: AgentPrinterInfo) => {
+        clearTimeout(timeout);
+        this.events.off("printers-updated", onUpdate);
+        resolve(info.printers);
+      };
+      this.events.on("printers-updated", onUpdate);
+      this.sendRaw({ type: "CHECK_PRINTER" });
+    });
+  }
+
   authorizePrinter(printerName: string): { success: boolean; error?: string } {
     if (!this.isConnected()) {
       return { success: false, error: "Agente não conectado" };

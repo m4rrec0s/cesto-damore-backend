@@ -3,22 +3,14 @@ import { Router, Request, Response } from "express";
 import googleDriveService from "../services/googleDriveService";
 import { upload } from "../config/multer";
 import crypto from "crypto";
-import {
-  PrintFileType,
-  PrintJobFile,
-  PrintJobPayload,
-  printAgentHub,
-} from "./ws-print-agent";
+import type { PrintJobFile, PrintJobPayload } from "../types/printJob";
+import { printAgentHub } from "./ws-print-agent";
 import {
   PrintStatusEvent,
   printQueueService,
 } from "../services/print-queue.service";
 
-const validPrintTypes: PrintFileType[] = ["polaroid", "quadro", "cartao"];
-
-const isPrintFileType = (value: string): value is PrintFileType => {
-  return validPrintTypes.includes(value as PrintFileType);
-};
+const ALLOWED_TYPES = ["foto", "carta", "outro"] as const;
 
 const normalizeBodyList = (value: unknown): string[] => {
   if (Array.isArray(value)) {
@@ -76,7 +68,7 @@ const handlePrintSimulatorUpload = async (
       throw new Error("Envie pelo menos uma imagem JPG ou PNG");
     }
 
-    if (types.length !== files.length || types.some((type) => !isPrintFileType(type))) {
+    if (types.length !== files.length || types.some((type) => !ALLOWED_TYPES.includes(type as typeof ALLOWED_TYPES[number]))) {
       throw new Error("Selecione um tipo valido para cada arquivo");
     }
 
@@ -108,7 +100,6 @@ const handlePrintSimulatorUpload = async (
     };
 
     unsubscribe = printQueueService.onStatus(orderId, onStatus);
-    console.log(`[DIAG] onStatus registered orderId=${orderId}`);
 
     unsubFileStatus = printAgentHub.on("file-status", onFileStatus);
 
@@ -119,16 +110,16 @@ const handlePrintSimulatorUpload = async (
 
     const folderName = `${customerName} - ${orderId}`;
     const driveFolderId = await googleDriveService.createFolder(folderName);
-    const typeFolders = new Map<PrintFileType, string>();
+    const typeFolders = new Map<string, string>();
 
-    for (const type of validPrintTypes) {
+    for (const type of ALLOWED_TYPES) {
       const folderId = await googleDriveService.createFolder(type, driveFolderId);
       typeFolders.set(type, folderId);
     }
 
     const uploadedFiles: PrintJobFile[] = [];
     for (const [index, file] of files.entries()) {
-      const type = types[index] as PrintFileType;
+      const type = types[index] as string;
       const typeFolderId = typeFolders.get(type);
       if (!typeFolderId) {
         throw new Error(`Pasta do tipo ${type} nao criada`);
@@ -144,7 +135,10 @@ const handlePrintSimulatorUpload = async (
       uploadedFiles.push({
         name: uploaded.name || file.originalname,
         driveFileId: uploaded.id,
-        type,
+        subfolderName: type,
+        type: type as PrintJobFile['type'],
+        sizeConfig: { widthMm: 100, heightMm: 150, label: 'A6 / 10x15cm' },
+        printerRole: type === 'carta' ? 'letter' : 'photo',
       });
     }
 
@@ -155,6 +149,7 @@ const handlePrintSimulatorUpload = async (
     });
 
     const payload: PrintJobPayload = {
+      jobId: orderId,
       orderId,
       customerName,
       driveFolderId,

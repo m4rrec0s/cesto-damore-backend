@@ -11,6 +11,7 @@ import { webhookNotificationService } from "./webhookNotificationService";
 import orderService from "./orderService";
 import reservationService from "./reservationService";
 import alertService from "./alertService";
+import { dispatchPrintForOrder } from "./printDispatchService";
 import logger from "../utils/logger";
 
 type OrderWithPaymentDetails = Prisma.OrderGetPayload<{
@@ -2237,6 +2238,31 @@ export class PaymentService {
             const finalGoogleDriveUrl = await this.getOrderGoogleDriveUrl(
               dbPayment.order_id,
             );
+
+            if (finalGoogleDriveUrl) {
+              try {
+                const orderInfo = await prisma.order.findUnique({
+                  where: { id: dbPayment.order_id },
+                  select: {
+                    google_drive_folder_id: true,
+                    user: { select: { name: true } },
+                  },
+                });
+                if (orderInfo?.google_drive_folder_id) {
+                  await dispatchPrintForOrder(
+                    dbPayment.order_id,
+                    orderInfo.google_drive_folder_id,
+                    orderInfo.user?.name || "Cliente",
+                  );
+                }
+              } catch (printErr) {
+                logger.error(
+                  { err: printErr, orderId: dbPayment.order_id },
+                  "print_job_enqueue_failed",
+                );
+              }
+            }
+
             await this.sendCustomizationReadyNotificationOnce(
               dbPayment.order_id,
               finalGoogleDriveUrl,
@@ -2260,6 +2286,21 @@ export class PaymentService {
             );
 
             googleDriveUrl = finalizeRes.folderUrl;
+
+            try {
+              if (finalizeRes.folderId) {
+                await dispatchPrintForOrder(
+                  dbPayment.order_id,
+                  finalizeRes.folderId,
+                  dbPayment.order.user?.name || "Cliente",
+                );
+              }
+            } catch (printErr) {
+              logger.error(
+                { err: printErr, orderId: dbPayment.order_id },
+                "print_job_enqueue_failed",
+              );
+            }
 
             await prisma.webhookLog.updateMany({
               where: { resource_id: paymentId, topic: "payment" },

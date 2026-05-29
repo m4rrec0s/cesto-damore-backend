@@ -10,19 +10,19 @@ datasource db {
 }
 
 model User {
-  id                    String          @id @default(uuid())
+  id                    String              @id @default(uuid())
   name                  String
-  email                 String          @unique
-  firebaseUId           String?         @unique
+  email                 String              @unique
+  firebaseUId           String?             @unique
   image_url             String?
   phone                 String?
   address               String?
   city                  String?
   state                 String?
   zip_code              String?
-  role                  String          @default("client")
-  created_at            DateTime        @default(now())
-  updated_at            DateTime        @updatedAt
+  role                  String              @default("client")
+  created_at            DateTime            @default(now())
+  updated_at            DateTime            @updatedAt
   document              String?
   two_factor_code       String?
   two_factor_expires_at DateTime?
@@ -99,33 +99,34 @@ model ProductAdditional {
 }
 
 model Order {
-  id                                String      @id @default(uuid())
+  id                                String            @id @default(uuid())
   user_id                           String
-  pending_owner_key                 String?     @unique
-  status                            OrderStatus @default(PENDING)
-  discount                          Float       @default(0)
-  total                             Float       @map("total_price")
+  pending_owner_key                 String?           @unique
+  status                            OrderStatus       @default(PENDING)
+  discount                          Float             @default(0)
+  total                             Float             @map("total_price")
   delivery_address                  String?
   delivery_date                     DateTime?
   shipping_price                    Float?
   payment_method                    String?
   grand_total                       Float?
   recipient_phone                   String?
-  created_at                        DateTime    @default(now())
-  updated_at                        DateTime    @updatedAt
+  created_at                        DateTime          @default(now())
+  updated_at                        DateTime          @updatedAt
   complement                        String?
-  send_anonymously                  Boolean?    @default(false)
+  send_anonymously                  Boolean?          @default(false)
   delivery_city                     String?
   delivery_state                    String?
-  customizations_drive_processed    Boolean     @default(false)
+  customizations_drive_processed    Boolean           @default(false)
   customizations_drive_processed_at DateTime?
   confirmation_whatsapp_sent_at     DateTime?
   google_drive_folder_id            String?
   google_drive_folder_url           String?
-  delivery_method                   String?     @default("delivery")
-  user                              User        @relation(fields: [user_id], references: [id])
+  delivery_method                   String?           @default("delivery")
+  user                              User              @relation(fields: [user_id], references: [id])
   items                             OrderItem[]
   payment                           Payment?
+  printJobs                         PrintJob[]
   stockReservation                  StockReservation?
 }
 
@@ -149,6 +150,26 @@ model OrderItemAdditional {
   price         Float
   additional    Item      @relation(fields: [additional_id], references: [id])
   orderItem     OrderItem @relation(fields: [order_item_id], references: [id])
+}
+
+model PrintJob {
+  id            String         @id @default(uuid())
+  orderId       String         @unique
+  customerName  String
+  driveFolderId String
+  filesJson     String
+  status        PrintJobStatus @default(PENDING)
+  attempts      Int            @default(0)
+  lastError     String?
+  sentAt        DateTime?
+  ackedAt       DateTime?
+  printedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  order         Order          @relation(fields: [orderId], references: [id])
+
+  @@map("print_job_order")
 }
 
 model Payment {
@@ -185,15 +206,15 @@ model WebhookLog {
 }
 
 model StockReservation {
-  id              String                  @id @default(uuid())
-  order_id        String                  @unique
-  reserved_at     DateTime                @default(now())
-  expires_at      DateTime
-  released_at     DateTime?
-  cancelled_at    DateTime?
-  status          String                  @default("active")
-  items           StockReservationItem[]
-  order           Order                   @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  id           String                 @id @default(uuid())
+  order_id     String                 @unique
+  reserved_at  DateTime               @default(now())
+  expires_at   DateTime
+  released_at  DateTime?
+  cancelled_at DateTime?
+  status       String                 @default("active")
+  items        StockReservationItem[]
+  order        Order                  @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
   @@index([status, expires_at])
   @@index([order_id])
@@ -201,16 +222,16 @@ model StockReservation {
 }
 
 model StockReservationItem {
-  id                 String            @id @default(uuid())
-  reservation_id     String
-  product_id         String?
-  item_id            String?
-  quantity_reserved  Int
-  item_type          String
+  id                String  @id @default(uuid())
+  reservation_id    String
+  product_id        String?
+  item_id           String?
+  quantity_reserved Int
+  item_type         String
 
-  reservation        StockReservation  @relation(fields: [reservation_id], references: [id], onDelete: Cascade)
-  product            Product?          @relation(fields: [product_id], references: [id], onDelete: SetNull)
-  item               Item?             @relation(fields: [item_id], references: [id], onDelete: SetNull)
+  reservation StockReservation @relation(fields: [reservation_id], references: [id], onDelete: Cascade)
+  product     Product?         @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  item        Item?            @relation(fields: [item_id], references: [id], onDelete: SetNull)
 
   @@index([reservation_id])
   @@index([product_id])
@@ -285,38 +306,38 @@ model LayoutBase {
 }
 
 model Item {
-  id                   String                @id @default(uuid())
-  name                 String
-  description          String?
-  type                 String                @default("outros")
-  stock_quantity       Int                   @default(0)
-  base_price           Float                 @default(0)
-  discount             Float?                @default(0)
-  image_url            String?
-  allows_customization Boolean               @default(false)
-  layout_base_id       String?
-  created_at           DateTime              @default(now())
-  updated_at           DateTime              @updatedAt
-  dynamic_layout_id    String?
-  customizations       Customization[]
-  dynamic_layout       DynamicLayout?        @relation(fields: [dynamic_layout_id], references: [id])
-  layout_base          LayoutBase?           @relation(fields: [layout_base_id], references: [id])
-  orderItems           OrderItemAdditional[]
-  additionals          ProductAdditional[]
-  components           ProductComponent[]
+  id                    String                 @id @default(uuid())
+  name                  String
+  description           String?
+  type                  String                 @default("outros")
+  stock_quantity        Int                    @default(0)
+  base_price            Float                  @default(0)
+  discount              Float?                 @default(0)
+  image_url             String?
+  allows_customization  Boolean                @default(false)
+  layout_base_id        String?
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+  dynamic_layout_id     String?
+  customizations        Customization[]
+  dynamic_layout        DynamicLayout?         @relation(fields: [dynamic_layout_id], references: [id])
+  layout_base           LayoutBase?            @relation(fields: [layout_base_id], references: [id])
+  orderItems            OrderItemAdditional[]
+  additionals           ProductAdditional[]
+  components            ProductComponent[]
   stockReservationItems StockReservationItem[]
   inventoryMovements    InventoryMovement[]
 }
 
 model InventoryMovement {
-  id          String   @id @default(uuid())
-  product_id  String?
-  item_id     String?
-  type        String
-  quantity    Int
-  reason      String
-  admin_id    String?
-  created_at  DateTime @default(now())
+  id         String   @id @default(uuid())
+  product_id String?
+  item_id    String?
+  type       String
+  quantity   Int
+  reason     String
+  admin_id   String?
+  created_at DateTime @default(now())
 
   product Product? @relation(fields: [product_id], references: [id], onDelete: SetNull)
   item    Item?    @relation(fields: [item_id], references: [id], onDelete: SetNull)
@@ -734,20 +755,29 @@ enum TrendPeriodType {
   ROLLING_30D
 }
 
-model BotFlow {
-  id          String   @id @default(uuid())
-  name        String
-  is_active   Boolean  @default(false)
-  nodes       Json     @default("[]")
-  edges       Json     @default("[]")
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+enum PrintJobStatus {
+  PENDING
+  SENT
+  RECEIVED
+  PRINTING
+  PRINTED
+  FAILED
+}
 
-  BotSession  BotSession[]
+model BotFlow {
+  id         String   @id @default(uuid())
+  name       String
+  is_active  Boolean  @default(false)
+  nodes      Json     @default("[]")
+  edges      Json     @default("[]")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  BotSession BotSession[]
 }
 
 model KBKnowledgeDocument {
-  id              String              @id @default(uuid())
+  id              String        @id @default(uuid())
   title           String
   content         String
   category        String
@@ -756,11 +786,11 @@ model KBKnowledgeDocument {
   pattern_type    String?
   created_by      String
   approved_by     String?
-  approval_status String              @default("draft")
-  version         Int                 @default(1)
+  approval_status String        @default("draft")
+  version         Int           @default(1)
   embedding_id    String?
-  created_at      DateTime            @default(now())
-  updated_at      DateTime            @updatedAt
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
   versions        KBVersion[]
   embeddings      KBEmbedding[]
 
@@ -771,14 +801,14 @@ model KBKnowledgeDocument {
 }
 
 model KBVersion {
-  id              String              @id @default(uuid())
-  document_id     String
-  version         Int
-  content         String
-  changed_by      String
-  change_reason  String?
-  created_at      DateTime            @default(now())
-  document        KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  id            String              @id @default(uuid())
+  document_id   String
+  version       Int
+  content       String
+  changed_by    String
+  change_reason String?
+  created_at    DateTime            @default(now())
+  document      KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
 
   @@unique([document_id, version])
   @@index([document_id])
@@ -786,33 +816,48 @@ model KBVersion {
 }
 
 model KBEmbedding {
-  id           String              @id @default(uuid())
-  document_id  String
-  vector       String?  // Armazenar como JSON string
-  model        String
-  created_at   DateTime            @default(now())
-  document     KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+  id          String              @id @default(uuid())
+  document_id String
+  vector      String? // Armazenar como JSON string
+  model       String
+  created_at  DateTime            @default(now())
+  document    KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
 
   @@index([document_id])
   @@map("kb_embeddings")
 }
 
 model CustomerKnowledgeProfile {
-  id                 String   @id @default(uuid())
-  customer_phone     String   @unique
-  learnings          String
-  preferred_phrases  String[]
+  id                String   @id @default(uuid())
+  customer_phone    String   @unique
+  learnings         String
+  preferred_phrases String[]
   common_objections String[]
   success_patterns  String[]
-  last_updated_by    String
-  auto_updates       Boolean  @default(true)
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
+  last_updated_by   String
+  auto_updates      Boolean  @default(true)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
 
   @@index([customer_phone])
   @@map("customer_knowledge_profiles")
 }
 
+model PrinterConfig {
+  id          String      @id @default(uuid())
+  role        PrinterRole @unique
+  printerName String
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("printer_config")
+}
+
+enum PrinterRole {
+  photo
+  letter
+}
 
 model BotSession {
   id              String   @id @default(uuid())
@@ -820,11 +865,11 @@ model BotSession {
   flow_id         String
   current_node_id String?
   is_human        Boolean  @default(false)
-  state           Json?    
+  state           Json?
   history         Json?    @default("[]")
-  dynamic_menu    Json?    // LLM-generated dynamic menu: { options: [{label, target_node_id}], generated_at, context }
+  dynamic_menu    Json? // LLM-generated dynamic menu: { options: [{label, target_node_id}], generated_at, context }
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
-  flow            BotFlow  @relation(fields: [flow_id], references: [id])
+  flow BotFlow @relation(fields: [flow_id], references: [id])
 }

@@ -556,6 +556,20 @@ class GoogleDriveService {
 
   
 
+  async getFolderName(folderId: string): Promise<string | null> {
+    try {
+      await this.ensureValidToken();
+      const response = await this.drive.files.get({
+        fileId: folderId,
+        fields: 'name',
+      });
+      return response.data.name ?? null;
+    } catch (error: any) {
+      logger.error(`Erro ao obter nome da pasta ${folderId}:`, error.message);
+      return null;
+    }
+  }
+
   getDirectDownloadUrl(fileId: string): string {
     return `https://drive.google.com/uc?id=${fileId}&export=download`;
   }

@@ -26,6 +26,7 @@ import { apiRateLimit, requireApiKey, initializeSecurityMonitor } from "./middle
 import path from "path";
 import { setupPrintAgentWebSocket } from "./routes/ws-print-agent";
 import { printQueueService } from "./services/print-queue.service";
+import { startPrintQueue } from "./services/printQueueService";
 
 const app = express();
 
@@ -246,6 +247,9 @@ const server = http.createServer(app);
 setupPrintAgentWebSocket(server);
 printQueueService.start().catch((error) => {
   logger.error("❌ [PrintQueue] Falha ao inicializar fila de impressão:", error);
+});
+startPrintQueue().catch((error) => {
+  logger.error("❌ [PaymentPrintQueue] Falha ao inicializar fila de impressão:", error);
 });
 
 // Inicializa o monitoramento de segurança

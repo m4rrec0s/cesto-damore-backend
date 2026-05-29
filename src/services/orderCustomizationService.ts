@@ -5,8 +5,10 @@ import googleDriveService from "./googleDriveService";
 import logger from "../utils/logger";
 import fs from "fs";
 import path from "path";
+import { Readable } from "stream";
 import axios from "axios";
 import tempFileService from "./tempFileService";
+import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
 
 interface SaveOrderCustomizationInput {
   orderItemId: string;
@@ -1171,6 +1173,47 @@ class OrderCustomizationService {
         `❌ Erro ao salvar metadados do Drive no pedido ${orderId}:`,
         saveError,
       );
+    }
+
+    // ── Cartinha .docx ──────────────────────────────────────────────
+    if (mainFolderId) {
+      try {
+        const textMessages: string[] = [];
+        for (const item of order.items) {
+          for (const customization of item.customizations) {
+            const data = this.parseCustomizationData(customization.value);
+            if (data.customization_type === 'TEXT' && data.text) {
+              const msg = typeof data.text === 'string' ? data.text.trim() : '';
+              if (msg.length > 0) textMessages.push(msg);
+            }
+          }
+        }
+
+        if (textMessages.length > 0) {
+          const combinedMessage = textMessages.join('\n\n---\n\n');
+          const buffer = await generateCartinhaBuffer({ message: combinedMessage });
+          const fileName = `Cartinha_${orderId.slice(0, 8)}.docx`;
+
+          const cartinhaFolderId = await googleDriveService.createFolder(
+            'Cartinha',
+            mainFolderId,
+          );
+
+          const uploadedFile = await googleDriveService.uploadBuffer(
+            buffer,
+            fileName,
+            cartinhaFolderId,
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          );
+
+          await googleDriveService.makeFolderPublic(cartinhaFolderId);
+
+          uploadedFiles += 1;
+          logger.info({ orderId: order.id, fileId: uploadedFile.id }, 'cartinha_docx_uploaded');
+        }
+      } catch (cartinhaErr: any) {
+        logger.error({ err: cartinhaErr, orderId: order.id }, 'cartinha_docx_failed');
+      }
     }
 
     const result = {

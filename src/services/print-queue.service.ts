@@ -3,10 +3,8 @@ import { Job, Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
-import {
-  PrintJobPayload,
-  printAgentHub,
-} from "../routes/ws-print-agent";
+import type { PrintJobPayload } from "../types/printJob";
+import { printAgentHub } from "../routes/ws-print-agent";
 
 export type PrintJobStatus = "pending" | "sent" | "received" | "printed" | "failed";
 

@@ -4,22 +4,10 @@ import { EventEmitter } from "events";
 import { WebSocket, WebSocketServer } from "ws";
 import { Server } from "http";
 import logger from "../utils/logger";
+import { printAgentWSManager } from "../services/printAgentWSManager";
+import type { PrintJobFile, PrintJobPayload } from "../types/printJob";
 
-export type PrintFileType = "polaroid" | "quadro" | "cartao";
 export type FileJobStatus = "pending" | "downloading" | "downloaded" | "generating_pdf" | "pdf_generated" | "moving" | "printed" | "failed";
-
-export interface PrintJobFile {
-  name: string;
-  driveFileId: string;
-  type: PrintFileType;
-}
-
-export interface PrintJobPayload {
-  orderId: string;
-  customerName: string;
-  driveFolderId: string;
-  files: PrintJobFile[];
-}
 
 export interface AgentPrinterInfo {
   available: boolean;
@@ -76,7 +64,7 @@ const parseAgentEnvelope = (raw: Buffer): AgentEnvelope | null => {
   if (isRecord(parsed.job)) {
     const files = Array.isArray(parsed.job.files) ? parsed.job.files : [];
     envelope.job = {
-      jobId: typeof parsed.job.jobId === "string" ? parsed.job.jobId : undefined,
+      jobId: typeof parsed.job.jobId === "string" ? parsed.job.jobId : "",
       orderId: typeof parsed.job.orderId === "string" ? parsed.job.orderId : "",
       customerName:
         typeof parsed.job.customerName === "string" ? parsed.job.customerName : "",
@@ -84,19 +72,28 @@ const parseAgentEnvelope = (raw: Buffer): AgentEnvelope | null => {
         typeof parsed.job.driveFolderId === "string" ? parsed.job.driveFolderId : "",
       files: files
         .filter(isRecord)
-        .map((file): PrintJobFile => {
-          const type: PrintFileType =
-            file.type === "quadro" || file.type === "cartao"
-              ? file.type
-              : "polaroid";
+        .map((f): PrintJobFile => {
+          const sc = f.sizeConfig
           return {
-            name: typeof file.name === "string" ? file.name : "",
+            name: typeof f.name === "string" ? f.name : "",
             driveFileId:
-              typeof file.driveFileId === "string" ? file.driveFileId : "",
-            type,
+              typeof f.driveFileId === "string" ? f.driveFileId : "",
+            subfolderName:
+              typeof f.subfolderName === "string" ? f.subfolderName : "",
+            type: (f.type === "carta" || f.type === "foto" || f.type === "outro")
+              ? f.type
+              : "foto",
+            sizeConfig: {
+              widthMm: isRecord(sc) && typeof sc.widthMm === "number" ? sc.widthMm : 100,
+              heightMm: isRecord(sc) && typeof sc.heightMm === "number" ? sc.heightMm : 150,
+              label: isRecord(sc) && typeof sc.label === "string" ? sc.label : "A6 / 10x15cm",
+            },
+            printerRole: (f.printerRole === "photo" || f.printerRole === "letter")
+              ? f.printerRole
+              : "photo",
           };
         })
-        .filter((file) => file.name && file.driveFileId),
+        .filter((f) => f.name && f.driveFileId),
     };
   }
 
@@ -393,6 +390,10 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
     logger.info(`[PrintAgent] Agente conectado: ${clientIp}`);
 
     printAgentHub.setAgentSocket(ws);
+
+    printAgentWSManager.syncPendingJobs().catch((err) => {
+      logger.error({ err }, "sync_pending_jobs_failed");
+    });
 
     let isAlive = true;
     const heartbeatInterval = setInterval(() => {

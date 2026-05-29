@@ -1548,17 +1548,27 @@ router.get("/agent-logs/stats", authenticateToken, requireAdmin, agentLogsContro
 router.get("/agent-logs/export", authenticateToken, requireAdmin, agentLogsController.exportAgentLogs);
 
 // ========================================
+// 🖨️ CONFIGURAÇÃO DE IMPRESSORAS
+// ========================================
+import { createPrinterConfigRoutes } from "./routes/printer-config";
+createPrinterConfigRoutes(router);
+logger.info("🖨️ Rotas de configuração de impressoras habilitadas");
+
+// ========================================
+// 🖨️ ROTAS ADMIN - Status, impressoras, jobs
+// ========================================
+import { createPrintAdminRoutes } from "./routes/print-admin";
+createPrintAdminRoutes(router);
+logger.info("🖨️ Rotas admin de impressão habilitadas");
+
+// ========================================
 // 🖨️ ROTAS DE TESTE - Impressão via WebSocket
 // ========================================
 import { createPrintTestRoutes } from "./routes/printTest";
-import { createPrintSimulatorRoutes } from "./routes/print-simulator";
 if (process.env.NODE_ENV !== "production") {
   createPrintTestRoutes(router);
   logger.info("🖨️ Rotas de teste de impressão habilitadas");
 }
-
-createPrintSimulatorRoutes(router);
-logger.info("🖨️ Rotas do simulador de impressão habilitadas");
 
 // ========================================
 // 🖨️ INTERFACE DE TESTE - HTML

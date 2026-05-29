@@ -220,7 +220,13 @@ export function createPrintAdminRoutes(router: Router): void {
             let finalValue = cust.value;
 
             if (cust.type === "TEXT" && !cust.value.startsWith("{")) {
-              finalValue = JSON.stringify({ text: cust.value });
+              finalValue = JSON.stringify({ customization_type: "TEXT", text: cust.value });
+            } else if (cust.type === "TEXT" && cust.value.startsWith("{")) {
+              const parsed = JSON.parse(cust.value);
+              if (!parsed.customization_type) {
+                parsed.customization_type = "TEXT";
+                finalValue = JSON.stringify(parsed);
+              }
             }
 
             if (cust.type === "DYNAMIC_LAYOUT" && cust.value) {
@@ -244,6 +250,7 @@ export function createPrintAdminRoutes(router: Router): void {
 
               if (layout) {
                 finalValue = JSON.stringify({
+                  customization_type: "DYNAMIC_LAYOUT",
                   selected_item_label: layout.name,
                   layout_id: layout.id,
                   text: firstSlotUrl,
@@ -252,6 +259,7 @@ export function createPrintAdminRoutes(router: Router): void {
                 });
               } else {
                 finalValue = JSON.stringify({
+                  customization_type: "DYNAMIC_LAYOUT",
                   selected_item_label: layoutName,
                 });
               }

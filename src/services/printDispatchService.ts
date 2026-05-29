@@ -52,6 +52,10 @@ export async function dispatchPrintForOrder(
       const subfolderName = folderName || "Desconhecido";
       for (const file of files) {
         const type = resolveCustomizationType(subfolderName);
+        logger.debug(
+          { orderId, subfolderName, type, fileName: file.name },
+          "dispatch_print_file",
+        );
         allFiles.push({
           name: file.name,
           driveFileId: file.id,
@@ -68,6 +72,8 @@ export async function dispatchPrintForOrder(
     logger.warn({ orderId }, "print_skip_no_files_in_folders");
     return;
   }
+
+  logger.info({ orderId, fileCount: allFiles.length, files: allFiles.map(f => ({ name: f.name, subfolderName: f.subfolderName, type: f.type })) }, "dispatch_print_files_debug");
 
   await enqueuePrintJob({
     jobId: randomUUID(),

@@ -6,6 +6,49 @@ import { dispatchPrintForOrder } from "../services/printDispatchService";
 import orderCustomizationService from "../services/orderCustomizationService";
 import logger from "../utils/logger";
 import { authenticateToken, requireAdmin } from "../middleware/security";
+import tempFileService from "../services/tempFileService";
+
+function generateMockPngBuffer(): Buffer {
+  const { deflateSync } = require("zlib");
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c;
+  }
+  const crc32 = (buf: Buffer): number => {
+    let crc = 0xffffffff;
+    for (let i = 0; i < buf.length; i++) crc = table[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+    return (crc ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const t = Buffer.from(type);
+    const c = Buffer.alloc(4);
+    c.writeUInt32BE(crc32(Buffer.concat([t, data])));
+    return Buffer.concat([len, t, data, c]);
+  };
+  const W = 800, H = 800;
+  const raw = Buffer.alloc(H * (1 + W * 3));
+  for (let y = 0; y < H; y++) {
+    const off = y * (1 + W * 3);
+    raw[off] = 0;
+    for (let x = 0; x < W; x++) {
+      const p = off + 1 + x * 3;
+      raw[p] = 245; raw[p + 1] = 235; raw[p + 2] = 220;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
+  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 export function createPrintAdminRoutes(router: Router): void {
   // GET /api/print/agent-status - returns agent connection status
@@ -246,7 +289,11 @@ export function createPrintAdminRoutes(router: Router): void {
                 select: { id: true, name: true },
               });
 
-              const firstSlotUrl = Object.values(slotImages).find(Boolean) || "https://placehold.co/400x400?text=Layout";
+              const firstSlotUrl = Object.values(slotImages).find(Boolean) || await (async () => {
+                const pngBuffer = generateMockPngBuffer();
+                const saved = await tempFileService.saveFile(pngBuffer, "mock-layout.png");
+                return saved.url;
+              })();
 
               if (layout) {
                 finalValue = JSON.stringify({

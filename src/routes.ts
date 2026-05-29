@@ -1571,6 +1571,13 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 // ========================================
+// 🖨️ ROTAS DO SIMULADOR DE IMPRESSÃO
+// ========================================
+import { createPrintSimulatorRoutes } from "./routes/print-simulator";
+createPrintSimulatorRoutes(router);
+logger.info("🖨️ Rotas do simulador de impressão habilitadas");
+
+// ========================================
 // 🖨️ INTERFACE DE TESTE - HTML
 // ========================================
 router.get("/print-test", (req, res) => {

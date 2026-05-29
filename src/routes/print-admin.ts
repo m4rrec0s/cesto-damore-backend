@@ -45,7 +45,7 @@ export function createPrintAdminRoutes(router: Router): void {
       process.env.NODE_ENV === "production" &&
       !process.env.ALLOW_PRINT_SIMULATOR
     ) {
-      res.status(403).json({ error: "Simulador desabilitado em produção" });
+      res.status(400).json({ error: "Simulador desabilitado em produção" });
       return;
     }
 
@@ -168,7 +168,7 @@ export function createPrintAdminRoutes(router: Router): void {
       process.env.NODE_ENV === "production" &&
       !process.env.ALLOW_PRINT_SIMULATOR
     ) {
-      res.status(403).json({ error: "Simulador desabilitado em produção" });
+      res.status(400).json({ error: "Simulador desabilitado em produção" });
       return;
     }
 
@@ -239,20 +239,35 @@ export function createPrintAdminRoutes(router: Router): void {
             }
 
             if (cust.type === "DYNAMIC_LAYOUT" && cust.value) {
+              let layoutName = cust.value;
+              let slotImages: Record<string, string> = {};
+
+              try {
+                const parsed = JSON.parse(cust.value);
+                if (parsed.layoutName) {
+                  layoutName = parsed.layoutName;
+                  slotImages = parsed.slotImages || {};
+                }
+              } catch {}
+
               const layout = await prisma.dynamicLayout.findFirst({
-                where: { name: cust.value },
+                where: { name: layoutName },
                 select: { id: true, name: true },
               });
+
+              const firstSlotUrl = Object.values(slotImages).find(Boolean) || "https://placehold.co/400x400?text=Layout";
+
               if (layout) {
                 finalValue = JSON.stringify({
                   selected_item_label: layout.name,
                   layout_id: layout.id,
-                  text: "https://placehold.co/400x400?text=Layout",
-                  image: { preview_url: "https://placehold.co/400x400?text=Layout" },
+                  text: firstSlotUrl,
+                  image: { preview_url: firstSlotUrl },
+                  slotImages: Object.keys(slotImages).length > 0 ? slotImages : undefined,
                 });
               } else {
                 finalValue = JSON.stringify({
-                  selected_item_label: cust.value,
+                  selected_item_label: layoutName,
                 });
               }
             }

@@ -706,6 +706,8 @@ export const requireApiKey = (
     "/static",
     "/test/", // Rotas de teste (ainda requerem JWT, mas não API key)
     "/api/print-test/", // Rotas de teste de impressão
+    "/api/print/", // Rotas admin de impressão (status, impressoras, jobs)
+    "/api/dev/", // Rotas de desenvolvimento (simulador de protótipo)
     "/api/print/files/", // Download URLs para o agente de impressao
     "/api/admin/print/", // Rotas administrativas de impressao
   ];

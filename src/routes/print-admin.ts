@@ -1,12 +1,20 @@
 import type { Router } from "express";
+import axios from "axios";
+import sharp from "sharp";
+import { randomUUID } from "crypto";
 import { printAgentHub } from "./ws-print-agent";
 import { printAgentWSManager } from "../services/printAgentWSManager";
 import prisma from "../database/prisma";
 import { dispatchPrintForOrder } from "../services/printDispatchService";
+import { enqueue as enqueuePrintJob } from "../services/printQueueService";
 import orderCustomizationService from "../services/orderCustomizationService";
+import googleDriveService from "../services/googleDriveService";
 import logger from "../utils/logger";
 import { authenticateToken, requireAdmin } from "../middleware/security";
 import tempFileService from "../services/tempFileService";
+import { uploadAny } from "../config/multer";
+import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
+import { extractDynamicLayoutSlots } from "../utils/dynamicLayoutSlots";
 
 function generateMockPngBuffer(): Buffer {
   const { deflateSync } = require("zlib");
@@ -50,6 +58,86 @@ function generateMockPngBuffer(): Buffer {
   ]);
 }
 
+function safeDriveName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 48) || "Cliente";
+}
+
+async function imageBufferFromUrl(url: string): Promise<Buffer | null> {
+  if (!url) return null;
+  if (url.startsWith("data:")) {
+    const match = url.match(/^data:[^;]+;base64,(.+)$/);
+    return match?.[1] ? Buffer.from(match[1], "base64") : null;
+  }
+  if (!url.startsWith("http")) return null;
+
+  const response = await axios.get(url, {
+    responseType: "arraybuffer",
+    timeout: 30000,
+  });
+  return Buffer.from(response.data);
+}
+
+async function composeManualLayoutPng(params: {
+  layout: {
+    baseImageUrl: string;
+    fabricJsonState: unknown;
+    width: number;
+    height: number;
+  };
+  filesBySlot: Map<string, Express.Multer.File>;
+}): Promise<Buffer> {
+  const { layout, filesBySlot } = params;
+  const width = Number(layout.width || 1000);
+  const height = Number(layout.height || 1500);
+  const baseBuffer = await imageBufferFromUrl(layout.baseImageUrl);
+  let base = baseBuffer
+    ? sharp(baseBuffer).resize(width, height, { fit: "cover", position: "center" })
+    : sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 255, g: 255, b: 255, alpha: 1 },
+        },
+      });
+
+  const overlays = extractDynamicLayoutSlots(layout.fabricJsonState)
+    .map((slot) => {
+      const file = filesBySlot.get(slot.id);
+      if (!file) return null;
+      return { slot, file };
+    })
+    .filter((entry): entry is { slot: ReturnType<typeof extractDynamicLayoutSlots>[number]; file: Express.Multer.File } => Boolean(entry));
+
+  const composites = await Promise.all(
+    overlays.map(async ({ slot, file }) => {
+      const resized = await sharp(file.buffer)
+        .resize(Math.max(1, Math.round(slot.position.width)), Math.max(1, Math.round(slot.position.height)), {
+          fit: "cover",
+          position: "center",
+        })
+        .rotate(slot.position.rotation || 0, {
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toBuffer();
+
+      return {
+        input: resized,
+        left: Math.round(slot.position.x),
+        top: Math.round(slot.position.y),
+      };
+    }),
+  );
+
+  return base.composite(composites).png({ compressionLevel: 9 }).toBuffer();
+}
+
 export function createPrintAdminRoutes(router: Router): void {
   // GET /api/print/agent-status - returns agent connection status
   router.get("/api/print/agent-status", (_req, res) => {
@@ -72,9 +160,11 @@ export function createPrintAdminRoutes(router: Router): void {
   // GET /api/print/jobs/:orderId/status - gets print job status by order ID
   router.get("/api/print/jobs/:orderId/status", async (req, res) => {
     const { orderId } = req.params;
-    const job = await prisma.printJob.findUnique({
-      where: { orderId },
-      select: { id: true, status: true, lastError: true, updatedAt: true },
+    const job = await prisma.printJob.findFirst({
+      where: {
+        OR: [{ orderId }, { id: orderId }],
+      },
+      select: { id: true, orderId: true, status: true, lastError: true, updatedAt: true },
     });
     if (!job) {
       res.status(404).json({ error: "Job não encontrado" });
@@ -82,6 +172,196 @@ export function createPrintAdminRoutes(router: Router): void {
     }
     res.json(job);
   });
+
+  router.post("/api/print/jobs/:printJobId/retry", authenticateToken, requireAdmin, async (req, res) => {
+    const { printJobId } = req.params;
+    const job = await prisma.printJob.findFirst({
+      where: { OR: [{ id: printJobId }, { orderId: printJobId }] },
+    });
+
+    if (!job) {
+      res.status(404).json({ error: "Job não encontrado" });
+      return;
+    }
+
+    try {
+      await enqueuePrintJob({
+        jobId: job.id,
+        orderId: job.orderId,
+        customerName: job.customerName,
+        driveFolderId: job.driveFolderId,
+        files: JSON.parse(job.filesJson),
+      });
+
+      res.json({ ok: true, printJobId: job.id, orderId: job.orderId });
+    } catch (err: any) {
+      logger.error({ err, printJobId }, "print_job_retry_failed");
+      res.status(500).json({ error: err.message || "Erro ao reenfileirar impressão" });
+    }
+  });
+
+  router.post(
+    "/api/impressao/manual",
+    authenticateToken,
+    requireAdmin,
+    uploadAny.any(),
+    async (req, res) => {
+      const customerName = String(req.body.customerName || "").trim();
+      const layoutId = String(req.body.layoutId || "").trim();
+      const giftMessage = String(req.body.giftMessage || "").trim();
+
+      if (!customerName || !layoutId) {
+        res.status(400).json({ error: "customerName e layoutId são obrigatórios" });
+        return;
+      }
+
+      try {
+        const layout = await prisma.dynamicLayout.findUnique({
+          where: { id: layoutId },
+          select: {
+            id: true,
+            name: true,
+            baseImageUrl: true,
+            fabricJsonState: true,
+            width: true,
+            height: true,
+          },
+        });
+
+        if (!layout) {
+          res.status(404).json({ error: "Layout não encontrado" });
+          return;
+        }
+
+        const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
+        const uploadedFiles = Array.isArray(req.files)
+          ? (req.files as Express.Multer.File[])
+          : [];
+        const filesBySlot = new Map<string, Express.Multer.File>();
+
+        for (const file of uploadedFiles) {
+          const field = file.fieldname || "";
+          const slotId =
+            field.match(/^slots?\.(.+)$/)?.[1] ||
+            field.match(/^slots?\[(.+)\]$/)?.[1] ||
+            field.match(/^slot:(.+)$/)?.[1] ||
+            field.match(/^slot_(.+)$/)?.[1] ||
+            field;
+
+          if (slotId) filesBySlot.set(slotId, file);
+        }
+
+        const missing = slots.filter((slot) => slot.required && !filesBySlot.has(slot.id));
+        if (missing.length > 0) {
+          res.status(400).json({
+            error: "Preencha todos os slots obrigatórios",
+            missingSlots: missing.map((slot) => ({ id: slot.id, label: slot.label })),
+          });
+          return;
+        }
+
+        const adminUser = await prisma.user.findFirst({
+          where: { role: { in: ["admin", "ADMIN"] } },
+          select: { id: true },
+        });
+
+        if (!adminUser) {
+          res.status(500).json({ error: "Nenhum admin encontrado para registrar o pedido manual" });
+          return;
+        }
+
+        const order = await prisma.order.create({
+          data: {
+            user_id: adminUser.id,
+            total: 0,
+            grand_total: 0,
+            status: "PENDING",
+            payment_method: "manual_whatsapp",
+          },
+        });
+
+        const shortId = order.id.slice(0, 8);
+        const datePart = new Date().toISOString().split("T")[0];
+        const mainFolderName = `Pedido_${safeDriveName(customerName)}_${datePart}_${shortId}`;
+        const mainFolderId = await googleDriveService.createFolder(mainFolderName);
+        await googleDriveService.makeFolderPublic(mainFolderId);
+
+        const layoutFolderId = await googleDriveService.createFolder(layout.name, mainFolderId);
+        await googleDriveService.makeFolderPublic(layoutFolderId);
+
+        const pngBuffer = await composeManualLayoutPng({
+          layout,
+          filesBySlot,
+        });
+        const designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
+        const designUpload = await googleDriveService.uploadBuffer(
+          pngBuffer,
+          designFileName,
+          layoutFolderId,
+          "image/png",
+        );
+
+        const dispatchFiles = [
+          {
+            driveFileId: designUpload.id,
+            fileName: designFileName,
+            subfolderName: layout.name,
+          },
+        ];
+
+        if (giftMessage) {
+          const cartinhaFolderId = await googleDriveService.createFolder("Cartinha", mainFolderId);
+          const cartinhaFileName = `Cartinha_${shortId}.docx`;
+          const cartinhaBuffer = await generateCartinhaBuffer({ message: giftMessage });
+          const cartinhaUpload = await googleDriveService.uploadBuffer(
+            cartinhaBuffer,
+            cartinhaFileName,
+            cartinhaFolderId,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          );
+          await googleDriveService.makeFolderPublic(cartinhaFolderId);
+          dispatchFiles.push({
+            driveFileId: cartinhaUpload.id,
+            fileName: cartinhaFileName,
+            subfolderName: "Cartinha",
+          });
+          logger.info({
+            orderId: order.id,
+            fileId: cartinhaUpload.id,
+            totalFiles: dispatchFiles.length,
+          }, "manual_cartinha_added_to_dispatch");
+        }
+
+        const folderUrl = googleDriveService.getFolderUrl(mainFolderId);
+        await prisma.order.update({
+          where: { id: order.id },
+          data: {
+            google_drive_folder_id: mainFolderId,
+            google_drive_folder_url: folderUrl,
+            customizations_drive_processed: true,
+            customizations_drive_processed_at: new Date(),
+          },
+        });
+
+        await dispatchPrintForOrder(order.id, mainFolderId, customerName, dispatchFiles);
+        const job = await prisma.printJob.findUnique({
+          where: { orderId: order.id },
+          select: { id: true, status: true },
+        });
+
+        res.json({
+          ok: true,
+          orderId: order.id,
+          printJobId: job?.id,
+          status: job?.status,
+          folderUrl,
+        });
+      } catch (err: any) {
+        logger.error({ err }, "manual_print_order_failed");
+        res.status(500).json({ error: err.message || "Erro ao gerar pedido manual" });
+      }
+    },
+  );
 
   // POST /api/simulator/simulate-print - simulates print flow bypassing payment
   router.post("/api/simulator/simulate-print", authenticateToken, requireAdmin, async (req, res) => {

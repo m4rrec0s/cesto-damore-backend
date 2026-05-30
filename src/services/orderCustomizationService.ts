@@ -25,6 +25,11 @@ interface FinalizeResult {
   uploadedFiles: number;
   base64Detected?: boolean;
   base64AffectedIds?: string[];
+  files?: Array<{
+    driveFileId: string;
+    fileName: string;
+    subfolderName: string;
+  }>;
 }
 
 interface ArtworkAsset {
@@ -900,6 +905,7 @@ class OrderCustomizationService {
     let base64Detected = false;
     const base64AffectedIds: string[] = [];
     const subfolderMap: Record<string, string> = {};
+    const dispatchFiles: NonNullable<FinalizeResult["files"]> = [];
 
     const componentNameMap = new Map<string, string>();
     const additionalNameMap = new Map<string, string>();
@@ -993,6 +999,13 @@ class OrderCustomizationService {
         );
 
         uploadedFiles += uploads.length;
+        for (const upload of uploads) {
+          dispatchFiles.push({
+            driveFileId: upload.id,
+            fileName: upload.fileName,
+            subfolderName: folderName,
+          });
+        }
 
         const sanitizedData = this.removeBase64FromData(data, uploads);
 
@@ -1209,12 +1222,27 @@ class OrderCustomizationService {
           await googleDriveService.makeFolderPublic(cartinhaFolderId);
 
           uploadedFiles += 1;
+          dispatchFiles.push({
+            driveFileId: uploadedFile.id,
+            fileName,
+            subfolderName: 'Cartinha',
+          });
           logger.info({ orderId: order.id, fileId: uploadedFile.id }, 'cartinha_docx_uploaded');
+          logger.info({
+            orderId: order.id,
+            fileId: uploadedFile.id,
+            totalFiles: dispatchFiles.length,
+          }, 'cartinha_added_to_dispatch');
         }
       } catch (cartinhaErr: any) {
         logger.error({ err: cartinhaErr, orderId: order.id }, 'cartinha_docx_failed');
       }
     }
+
+    logger.info({
+      orderId,
+      totalFiles: dispatchFiles.length,
+    }, 'finalize_dispatch_files_ready');
 
     const result = {
       folderId: mainFolderId,
@@ -1222,6 +1250,7 @@ class OrderCustomizationService {
       uploadedFiles,
       base64Detected,
       base64AffectedIds,
+      files: dispatchFiles,
     };
 
     logger.info(

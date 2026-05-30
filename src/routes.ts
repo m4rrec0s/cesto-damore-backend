@@ -512,6 +512,11 @@ router.get(
   dynamicLayoutController.list,
 );
 router.get(
+  "/api/layouts/dynamic",
+  optionalAuthenticateToken,
+  dynamicLayoutController.list,
+);
+router.get(
   "/layouts/dynamic/:id",
   optionalAuthenticateToken,
   dynamicLayoutController.show,

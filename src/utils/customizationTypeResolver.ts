@@ -18,11 +18,18 @@ const CARTA_KEYWORDS = ['cartão', 'cartao', 'carta', 'mensagem', 'bilhete', 're
 
 const FOTO_KEYWORDS = ['foto', 'polaroid', 'quadro', 'retrato', 'imagem', 'picture', 'print']
 
-export function resolveCustomizationType(subfolderName: string): PrintFileType {
+export function resolveCustomizationType(subfolderName: string, fileName?: string): PrintFileType {
   const normalized = subfolderName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 
   if (CARTA_KEYWORDS.some((k) => normalized.includes(k))) return 'carta'
   if (FOTO_KEYWORDS.some((k) => normalized.includes(k))) return 'foto'
+
+  if (fileName) {
+    const ext = fileName.split('.').pop()?.toLowerCase()
+    if (['png', 'jpg', 'jpeg', 'webp'].includes(ext ?? '')) return 'foto'
+    if (['doc', 'docx'].includes(ext ?? '')) return 'carta'
+  }
+
   return 'outro'
 }
 

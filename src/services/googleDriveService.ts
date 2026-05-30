@@ -598,6 +598,26 @@ class GoogleDriveService {
     }
   }
 
+  async listFolders(folderId: string): Promise<Array<{ id: string; name: string }>> {
+    try {
+      await this.ensureValidToken();
+
+      const response = await this.drive.files.list({
+        q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: "files(id, name)",
+        orderBy: "name",
+      });
+
+      return (response.data.files || []).map((folder: any) => ({
+        id: folder.id,
+        name: folder.name,
+      }));
+    } catch (error: any) {
+      logger.error("❌ Erro ao listar subpastas:", error.message);
+      return [];
+    }
+  }
+
   
 
   async deleteFile(fileId: string): Promise<void> {

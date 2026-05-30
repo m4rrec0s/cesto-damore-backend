@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import dynamicLayoutService from "../services/dynamicLayoutService";
 import logger from "../utils/logger";
 import trendStatsService from "../services/trendStatsService";
+import { extractDynamicLayoutSlots } from "../utils/dynamicLayoutSlots";
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -108,9 +109,14 @@ class DynamicLayoutController {
 
       const layouts = await dynamicLayoutService.listLayouts(filters);
 
+      const layoutsWithSlots = layouts.map((layout: any) => ({
+        ...layout,
+        slots: extractDynamicLayoutSlots(layout.fabricJsonState),
+      }));
+
       return res.json({
-        data: layouts,
-        count: layouts.length,
+        data: layoutsWithSlots,
+        count: layoutsWithSlots.length,
       });
     } catch (error: any) {
       logger.error("❌ Erro ao listar layouts:", error);

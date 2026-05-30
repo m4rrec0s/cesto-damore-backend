@@ -10,6 +10,7 @@ export async function dispatchPrintForOrder(
   orderId: string,
   driveFolderId: string,
   customerName: string,
+  preloadedFiles: Array<{ driveFileId: string; fileName: string; subfolderName: string }> = [],
 ): Promise<void> {
   if (!driveFolderId) {
     logger.warn({ orderId }, "print_skip_no_drive_folder");
@@ -24,15 +25,17 @@ export async function dispatchPrintForOrder(
     select: { google_drive_folder_id: true },
   });
 
+  const driveSubfolders = await googleDriveService.listFolders(driveFolderId);
   const subfolderIds = [
-    ...new Set(
-      customizations
+    ...new Set([
+      ...customizations
         .map((c) => c.google_drive_folder_id)
         .filter((id): id is string => id !== null),
-    ),
+      ...driveSubfolders.map((folder) => folder.id),
+    ]),
   ];
 
-  if (subfolderIds.length === 0) {
+  if (subfolderIds.length === 0 && preloadedFiles.length === 0) {
     logger.warn({ orderId }, "print_skip_no_customization_folders");
     return;
   }
@@ -46,12 +49,29 @@ export async function dispatchPrintForOrder(
   );
 
   const allFiles: PrintJobFile[] = [];
+
+  for (const file of preloadedFiles) {
+    const type = resolveCustomizationType(file.subfolderName, file.fileName);
+    allFiles.push({
+      name: file.fileName,
+      driveFileId: file.driveFileId,
+      subfolderName: file.subfolderName,
+      type,
+      sizeConfig: PRINT_SIZES[type],
+      printerRole: resolvePrinterRole(type),
+    });
+  }
+
   for (const result of folderInfoResults) {
     if (result.status === "fulfilled") {
       const { folderName, files } = result.value;
       const subfolderName = folderName || "Desconhecido";
       for (const file of files) {
-        const type = resolveCustomizationType(subfolderName);
+        if (allFiles.some((existing) => existing.driveFileId === file.id)) {
+          continue;
+        }
+
+        const type = resolveCustomizationType(subfolderName, file.name);
         logger.debug(
           { orderId, subfolderName, type, fileName: file.name },
           "dispatch_print_file",

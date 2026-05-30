@@ -13,6 +13,10 @@ class PrintAgentWSManager {
         logger.error({ err }, "print_agent_inbound_error");
       });
     });
+
+    this.syncPrinterConfig().catch((err) => {
+      logger.error({ err }, "printer_config_sync_on_connect_failed");
+    });
   }
 
   isConnected(): boolean {
@@ -37,65 +41,104 @@ class PrintAgentWSManager {
     if (!type) return;
     if (!jobId && type !== "PRINTER_STATUS") return;
 
-    switch (type) {
-      case "ACK": {
-        await prisma.printJob.updateMany({
-          where: { id: jobId, status: "SENT" },
-          data: { status: "RECEIVED", ackedAt: new Date() },
-        });
-        logger.info({ jobId }, "print_job_acked");
-        break;
-      }
+    logger.info({ type, jobId }, "ws_inbound_received");
 
-      case "PRINTED": {
-        await prisma.printJob.updateMany({
-          where: { id: jobId, status: "RECEIVED" },
-          data: { status: "PRINTED", printedAt: new Date() },
-        });
-        logger.info({ jobId }, "print_job_printed");
-        break;
-      }
+    try {
+      switch (type) {
+        case "ACK": {
+          await prisma.printJob.updateMany({
+            where: {
+              OR: [{ id: jobId }, { orderId: jobId }],
+              status: { in: ["PENDING", "SENT"] },
+            },
+            data: { status: "RECEIVED", ackedAt: new Date() },
+          });
+          logger.info({ jobId }, "print_job_acked_in_db");
+          break;
+        }
 
-      case "COMPLETED": {
-        await prisma.printJob.updateMany({
-          where: { id: jobId },
-          data: { status: "PRINTED", printedAt: new Date() },
-        });
-        logger.info({ jobId }, "print_job_completed");
-        break;
-      }
+        case "PRINTED": {
+          await prisma.printJob.updateMany({
+            where: {
+              OR: [{ id: jobId }, { orderId: jobId }],
+              status: { notIn: ["FAILED"] },
+            },
+            data: { status: "PRINTED", printedAt: new Date() },
+          });
+          logger.info({ jobId }, "print_job_printed_in_db");
+          break;
+        }
 
-      case "FAILED": {
-        const errorMsg = typeof parsed.error === "string" ? parsed.error : "unknown";
-        await prisma.printJob.updateMany({
-          where: { id: jobId },
-          data: { status: "FAILED", lastError: errorMsg },
-        });
-        logger.warn({ jobId, error: errorMsg }, "print_job_failed");
-        break;
-      }
+        case "COMPLETED": {
+          await prisma.printJob.updateMany({
+            where: {
+              OR: [{ id: jobId }, { orderId: jobId }],
+              status: { notIn: ["FAILED"] },
+            },
+            data: { status: "PRINTED", printedAt: new Date() },
+          });
+          logger.info({ jobId }, "print_job_completed_in_db");
+          break;
+        }
 
-      case "PRINTER_STATUS": {
-        const available = parsed.available === true;
-        const printers = Array.isArray(parsed.printers) ? parsed.printers.filter((p): p is string => typeof p === "string") : [];
-        logger.info({ available, printers }, "print_agent_printer_status");
-        break;
-      }
+        case "FAILED": {
+          const errorMsg = typeof parsed.error === "string" ? parsed.error : "unknown";
+          await prisma.printJob.updateMany({
+            where: {
+              OR: [{ id: jobId }, { orderId: jobId }],
+            },
+            data: { status: "FAILED", lastError: errorMsg },
+          });
+          logger.warn({ jobId, error: errorMsg }, "print_job_failed_in_db");
+          break;
+        }
 
-      case "DOWNLOADING":
-      case "DOWNLOADED":
-      case "MOVING":
-      case "FILE_PRINTED": {
-        const fileIndex = typeof parsed.fileIndex === "number" ? parsed.fileIndex : 0;
-        logger.debug({ jobId, fileIndex, type }, "print_agent_file_progress");
-        break;
+        case "PRINTER_STATUS": {
+          const available = parsed.available === true;
+          const printers = Array.isArray(parsed.printers) ? parsed.printers.filter((p): p is string => typeof p === "string") : [];
+          logger.info({ available, printers }, "print_agent_printer_status");
+          break;
+        }
+
+        case "DOWNLOADING":
+        case "DOWNLOADED":
+        case "MOVING":
+        case "FILE_PRINTED": {
+          const fileIndex = typeof parsed.fileIndex === "number" ? parsed.fileIndex : 0;
+          logger.debug({ jobId, fileIndex, type }, "print_agent_file_progress");
+          break;
+        }
       }
+    } catch (err) {
+      logger.error({ err, msgType: type, jobId }, "print_job_db_update_failed");
+    }
+  }
+
+  private async syncPrinterConfig(): Promise<void> {
+    try {
+      const configs = await prisma.printerConfig.findMany();
+      const photo = configs.find((c) => c.role === "photo")?.printerName ?? null;
+      const letter = configs.find((c) => c.role === "letter")?.printerName ?? null;
+
+      this.send({
+        type: "PRINTER_CONFIG_UPDATE",
+        config: { photo, letter },
+        timestamp: new Date().toISOString(),
+      });
+
+      logger.info({ photo, letter }, "printer_config_synced_on_connect");
+    } catch (err) {
+      logger.error({ err }, "printer_config_sync_failed");
     }
   }
 
   async syncPendingJobs(): Promise<void> {
+    await this.syncPrinterConfig().catch((err) => {
+      logger.error({ err }, "printer_config_sync_before_pending_failed");
+    });
+
     const pending = await prisma.printJob.findMany({
-      where: { status: { in: ["PENDING", "SENT"] } },
+      where: { status: { in: ["PENDING", "SENT", "RECEIVED"] } },
       orderBy: { createdAt: "asc" },
     });
 

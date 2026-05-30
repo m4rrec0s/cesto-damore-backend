@@ -233,33 +233,6 @@ export function createPrintAdminRoutes(router: Router): void {
           return;
         }
 
-        const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
-        const uploadedFiles = Array.isArray(req.files)
-          ? (req.files as Express.Multer.File[])
-          : [];
-        const filesBySlot = new Map<string, Express.Multer.File>();
-
-        for (const file of uploadedFiles) {
-          const field = file.fieldname || "";
-          const slotId =
-            field.match(/^slots?\.(.+)$/)?.[1] ||
-            field.match(/^slots?\[(.+)\]$/)?.[1] ||
-            field.match(/^slot:(.+)$/)?.[1] ||
-            field.match(/^slot_(.+)$/)?.[1] ||
-            field;
-
-          if (slotId) filesBySlot.set(slotId, file);
-        }
-
-        const missing = slots.filter((slot) => slot.required && !filesBySlot.has(slot.id));
-        if (missing.length > 0) {
-          res.status(400).json({
-            error: "Preencha todos os slots obrigatórios",
-            missingSlots: missing.map((slot) => ({ id: slot.id, label: slot.label })),
-          });
-          return;
-        }
-
         const adminUser = await prisma.user.findFirst({
           where: { role: { in: ["admin", "ADMIN"] } },
           select: { id: true },
@@ -289,10 +262,48 @@ export function createPrintAdminRoutes(router: Router): void {
         const layoutFolderId = await googleDriveService.createFolder(layout.name, mainFolderId);
         await googleDriveService.makeFolderPublic(layoutFolderId);
 
-        const pngBuffer = await composeManualLayoutPng({
-          layout,
-          filesBySlot,
-        });
+        let pngBuffer: Buffer;
+
+        const composedImageFile = Array.isArray(req.files)
+          ? (req.files as Express.Multer.File[]).find((f) => f.fieldname === "composedImage")
+          : null;
+
+        if (composedImageFile) {
+          pngBuffer = composedImageFile.buffer;
+        } else {
+          const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
+          const uploadedFiles = Array.isArray(req.files)
+            ? (req.files as Express.Multer.File[])
+            : [];
+          const filesBySlot = new Map<string, Express.Multer.File>();
+
+          for (const file of uploadedFiles) {
+            const field = file.fieldname || "";
+            const slotId =
+              field.match(/^slots?\.(.+)$/)?.[1] ||
+              field.match(/^slots?\[(.+)\]$/)?.[1] ||
+              field.match(/^slot:(.+)$/)?.[1] ||
+              field.match(/^slot_(.+)$/)?.[1] ||
+              field;
+
+            if (slotId) filesBySlot.set(slotId, file);
+          }
+
+          const missing = slots.filter((slot) => slot.required && !filesBySlot.has(slot.id));
+          if (missing.length > 0) {
+            res.status(400).json({
+              error: "Preencha todos os slots obrigatórios",
+              missingSlots: missing.map((slot) => ({ id: slot.id, label: slot.label })),
+            });
+            return;
+          }
+
+          pngBuffer = await composeManualLayoutPng({
+            layout,
+            filesBySlot,
+          });
+        }
+
         const designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
         const designUpload = await googleDriveService.uploadBuffer(
           pngBuffer,

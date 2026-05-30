@@ -1,10 +1,12 @@
 import type { WebSocket } from "ws";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
-import type { WSOutboundMessage, PrintJobPayload } from "../types/printJob";
+import type { WSOutboundMessage, WSInboundMessage, PrintJobPayload } from "../types/printJob";
 import { printAgentHub } from "../routes/ws-print-agent";
 
 class PrintAgentWSManager {
+  private oncePrinterStatus: ((printers: string[]) => void) | null = null;
+
   register(socket: WebSocket, clientId: string): void {
     printAgentHub.setAgentSocket(socket);
 
@@ -28,89 +30,76 @@ class PrintAgentWSManager {
   }
 
   private async handleInbound(raw: string): Promise<void> {
-    let parsed: Record<string, unknown>;
+    let msg: WSInboundMessage;
     try {
-      parsed = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      logger.warn({ raw }, "print_agent_invalid_json");
+      msg = JSON.parse(raw) as WSInboundMessage;
+    } catch (parseErr) {
+      logger.error({ raw, err: parseErr }, "ws_inbound_parse_failed");
       return;
     }
 
-    const type = parsed.type as string;
-    const jobId = parsed.jobId as string | undefined;
-    if (!type) return;
-    if (!jobId && type !== "PRINTER_STATUS") return;
+    const jobId = (msg as any).jobId as string | undefined;
+    logger.info({ type: msg.type, jobId }, "ws_inbound_received");
 
-    logger.info({ type, jobId }, "ws_inbound_received");
+    if (!jobId) {
+      if (msg.type === "PRINTER_STATUS") {
+        const printers = (msg as any).printers as string[];
+        if (this.oncePrinterStatus) {
+          this.oncePrinterStatus(printers);
+          this.oncePrinterStatus = null;
+        }
+      }
+      return;
+    }
+
+    const whereClause = {
+      OR: [
+        { id: jobId },
+        { orderId: jobId },
+      ],
+    };
 
     try {
-      switch (type) {
-        case "ACK": {
+      switch (msg.type) {
+        case "ACK":
           await prisma.printJob.updateMany({
             where: {
-              OR: [{ id: jobId }, { orderId: jobId }],
+              ...whereClause,
               status: { in: ["PENDING", "SENT"] },
             },
             data: { status: "RECEIVED", ackedAt: new Date() },
           });
-          logger.info({ jobId }, "print_job_acked_in_db");
+          logger.info({ jobId }, "db_updated_RECEIVED");
           break;
-        }
 
-        case "PRINTED": {
+        case "PRINTED":
+        case "COMPLETED":
           await prisma.printJob.updateMany({
             where: {
-              OR: [{ id: jobId }, { orderId: jobId }],
+              ...whereClause,
               status: { notIn: ["FAILED"] },
             },
             data: { status: "PRINTED", printedAt: new Date() },
           });
-          logger.info({ jobId }, "print_job_printed_in_db");
+          logger.info({ jobId }, "db_updated_PRINTED");
           break;
-        }
 
-        case "COMPLETED": {
+        case "FAILED":
           await prisma.printJob.updateMany({
-            where: {
-              OR: [{ id: jobId }, { orderId: jobId }],
-              status: { notIn: ["FAILED"] },
+            where: whereClause,
+            data: {
+              status: "FAILED",
+              lastError: (msg as any).error ?? "unknown error",
             },
-            data: { status: "PRINTED", printedAt: new Date() },
           });
-          logger.info({ jobId }, "print_job_completed_in_db");
+          logger.warn({ jobId, error: (msg as any).error }, "db_updated_FAILED");
           break;
-        }
 
-        case "FAILED": {
-          const errorMsg = typeof parsed.error === "string" ? parsed.error : "unknown";
-          await prisma.printJob.updateMany({
-            where: {
-              OR: [{ id: jobId }, { orderId: jobId }],
-            },
-            data: { status: "FAILED", lastError: errorMsg },
-          });
-          logger.warn({ jobId, error: errorMsg }, "print_job_failed_in_db");
-          break;
-        }
-
-        case "PRINTER_STATUS": {
-          const available = parsed.available === true;
-          const printers = Array.isArray(parsed.printers) ? parsed.printers.filter((p): p is string => typeof p === "string") : [];
-          logger.info({ available, printers }, "print_agent_printer_status");
-          break;
-        }
-
-        case "DOWNLOADING":
-        case "DOWNLOADED":
-        case "MOVING":
-        case "FILE_PRINTED": {
-          const fileIndex = typeof parsed.fileIndex === "number" ? parsed.fileIndex : 0;
-          logger.debug({ jobId, fileIndex, type }, "print_agent_file_progress");
-          break;
-        }
+        default:
+          logger.info({ type: msg.type, jobId }, "ws_progress_event_ignored");
       }
-    } catch (err) {
-      logger.error({ err, msgType: type, jobId }, "print_job_db_update_failed");
+    } catch (dbErr) {
+      logger.error({ err: dbErr, type: msg.type, jobId }, "db_update_FAILED");
     }
   }
 
@@ -133,19 +122,22 @@ class PrintAgentWSManager {
   }
 
   async syncPendingJobs(): Promise<void> {
-    await this.syncPrinterConfig().catch((err) => {
-      logger.error({ err }, "printer_config_sync_before_pending_failed");
-    });
-
-    const pending = await prisma.printJob.findMany({
-      where: { status: { in: ["PENDING", "SENT", "RECEIVED"] } },
+    const jobs = await prisma.printJob.findMany({
+      where: {
+        status: { in: ["PENDING"] },
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
       orderBy: { createdAt: "asc" },
+      take: 10,
     });
 
-    if (pending.length === 0) return;
-    logger.info({ count: pending.length }, "print_sync_pending_jobs");
+    logger.info({ count: jobs.length }, "print_sync_pending_jobs");
 
-    for (const job of pending) {
+    if (jobs.length === 0) return;
+
+    await this.syncPrinterConfig();
+
+    for (const job of jobs) {
       try {
         const payload: PrintJobPayload = {
           jobId: job.id,
@@ -168,6 +160,8 @@ class PrintAgentWSManager {
             data: { status: "SENT", sentAt: new Date() },
           });
         }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (err) {
         logger.error({ err, jobId: job.id }, "print_sync_pending_job_error");
       }

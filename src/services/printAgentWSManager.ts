@@ -29,7 +29,7 @@ class PrintAgentWSManager {
     return printAgentHub.sendRaw(msg as unknown as Record<string, unknown>).success;
   }
 
-  private async handleInbound(raw: string): Promise<void> {
+  async handleInbound(raw: string): Promise<void> {
     let msg: WSInboundMessage;
     try {
       msg = JSON.parse(raw) as WSInboundMessage;
@@ -73,6 +73,26 @@ class PrintAgentWSManager {
             logger.info({ jobId, updated: result.count }, "db_updated_RECEIVED");
           } else {
             logger.warn({ jobId, whereClause }, "db_update_RECEIVED_no_records");
+          }
+          break;
+        }
+
+        case "DOWNLOADING":
+        case "DOWNLOADED":
+        case "GENERATING_PDF":
+        case "PDF_GENERATED":
+        case "MOVING":
+        case "SENDING_TO_PRINTER":
+        case "FILE_PRINTED": {
+          const result = await prisma.printJob.updateMany({
+            where: {
+              ...whereClause,
+              status: { in: ["PENDING", "SENT", "RECEIVED"] },
+            },
+            data: { status: "PRINTING" },
+          });
+          if (result.count > 0) {
+            logger.info({ jobId, type: msg.type, updated: result.count }, "db_updated_PRINTING");
           }
           break;
         }

@@ -38,4 +38,4 @@ export type WSInboundMessage =
   | { type: 'COMPLETED'; jobId: string; timestamp: string }
   | { type: 'FAILED'; jobId: string; error: string; timestamp: string }
   | { type: 'PRINTER_STATUS'; available: boolean; printers: string[]; timestamp: string }
-  | { type: 'DOWNLOADING' | 'DOWNLOADED' | 'MOVING' | 'FILE_PRINTED'; jobId: string; fileIndex: number; timestamp: string }
+  | { type: 'DOWNLOADING' | 'DOWNLOADED' | 'GENERATING_PDF' | 'PDF_GENERATED' | 'MOVING' | 'SENDING_TO_PRINTER' | 'FILE_PRINTED'; jobId: string; fileIndex: number; timestamp: string }

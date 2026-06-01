@@ -416,6 +416,10 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
 
     printAgentHub.setAgentSocket(ws);
 
+    printAgentWSManager.syncPrinterConfig().catch((err) => {
+      logger.error({ err }, "printer_config_sync_on_connect_failed");
+    });
+
     printAgentWSManager.syncPendingJobs().catch((err) => {
       logger.error({ err }, "sync_pending_jobs_failed");
     });
@@ -442,6 +446,9 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
           return;
         }
         printAgentHub.handleAgentMessage(message);
+        printAgentWSManager.handleInbound(raw.toString()).catch((err) => {
+          logger.error({ err }, "print_agent_db_update_failed");
+        });
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         logger.error(`[PrintAgent] Erro ao processar mensagem: ${messageText}`);

@@ -854,6 +854,17 @@ model PrinterConfig {
   @@map("printer_config")
 }
 
+model AgentVersion {
+  id           String   @id @default("current")
+  version      String
+  downloadUrl  String
+  releaseNotes String?
+  publishedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("agent_version")
+}
+
 enum PrinterRole {
   photo
   letter

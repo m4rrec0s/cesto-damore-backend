@@ -50,6 +50,7 @@ import { TestPaymentController } from "./controller/testPaymentController";
 import { knowledgeBaseController } from "./agent/controller/knowledgeBaseController";
 import reservationService from "./services/reservationService";
 import inventoryController from "./controller/inventoryController";
+import { printAgentWSManager } from "./services/printAgentWSManager";
 
 import {
   upload,
@@ -1581,6 +1582,73 @@ if (process.env.NODE_ENV !== "production") {
 import { createPrintSimulatorRoutes } from "./routes/print-simulator";
 createPrintSimulatorRoutes(router);
 logger.info("🖨️ Rotas do simulador de impressão habilitadas");
+
+// ========================================
+// 🖨️ AUTO-UPDATE DO AGENTE DE IMPRESSÃO
+// ========================================
+router.post("/api/agent/version", async (req: Request, res: Response) => {
+  try {
+    const { version, downloadUrl, releaseNotes } = req.body as {
+      version?: string;
+      downloadUrl?: string;
+      releaseNotes?: string;
+    };
+
+    if (!version || !downloadUrl) {
+      return res.status(400).json({
+        error: "version e downloadUrl são obrigatórios",
+      });
+    }
+
+    await prisma.agentVersion.upsert({
+      where: { id: "current" },
+      create: {
+        id: "current",
+        version,
+        downloadUrl,
+        releaseNotes,
+      },
+      update: {
+        version,
+        downloadUrl,
+        releaseNotes,
+        publishedAt: new Date(),
+      },
+    });
+
+    logger.info({ version, downloadUrl }, "agent_version_registered");
+
+    printAgentWSManager.send({
+      type: "UPDATE_AVAILABLE",
+      version,
+      downloadUrl,
+      releaseNotes: releaseNotes ?? "",
+      timestamp: new Date().toISOString(),
+    });
+
+    return res.json({ ok: true });
+  } catch (error: any) {
+    logger.error({ err: error }, "agent_version_register_failed");
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/api/agent/version", async (_req: Request, res: Response) => {
+  try {
+    const record = await prisma.agentVersion.findUnique({
+      where: { id: "current" },
+    });
+
+    if (!record) {
+      return res.status(404).json({ error: "Nenhuma versão registrada" });
+    }
+
+    return res.json(record);
+  } catch (error: any) {
+    logger.error({ err: error }, "agent_version_fetch_failed");
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 // ========================================
 // 🖨️ INTERFACE DE TESTE - HTML

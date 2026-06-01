@@ -269,6 +269,14 @@ export class PrintAgentHub {
       return;
     }
 
+    if (message.type === "SYNC_PRINTER_CONFIG") {
+      logger.info("[PrintAgent] App solicitou sincronização de config de impressoras");
+      printAgentWSManager.syncPrinterConfig().catch((err) => {
+        logger.error({ err }, "sync_printer_config_from_app_failed");
+      });
+      return;
+    }
+
     const jobId = message.jobId ?? message.job?.jobId;
 
     if (message.type === "ACK" && jobId) {

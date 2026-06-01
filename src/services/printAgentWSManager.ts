@@ -61,49 +61,64 @@ class PrintAgentWSManager {
 
     try {
       switch (msg.type) {
-        case "ACK":
-          await prisma.printJob.updateMany({
+        case "ACK": {
+          const result = await prisma.printJob.updateMany({
             where: {
               ...whereClause,
               status: { in: ["PENDING", "SENT"] },
             },
             data: { status: "RECEIVED", ackedAt: new Date() },
           });
-          logger.info({ jobId }, "db_updated_RECEIVED");
+          if (result.count > 0) {
+            logger.info({ jobId, updated: result.count }, "db_updated_RECEIVED");
+          } else {
+            logger.warn({ jobId, whereClause }, "db_update_RECEIVED_no_records");
+          }
           break;
+        }
 
         case "PRINTED":
-        case "COMPLETED":
-          await prisma.printJob.updateMany({
+        case "COMPLETED": {
+          const result = await prisma.printJob.updateMany({
             where: {
               ...whereClause,
               status: { notIn: ["FAILED"] },
             },
             data: { status: "PRINTED", printedAt: new Date() },
           });
-          logger.info({ jobId }, "db_updated_PRINTED");
+          if (result.count > 0) {
+            logger.info({ jobId, updated: result.count }, "db_updated_PRINTED");
+          } else {
+            logger.warn({ jobId, whereClause }, "db_update_PRINTED_no_records");
+          }
           break;
+        }
 
-        case "FAILED":
-          await prisma.printJob.updateMany({
+        case "FAILED": {
+          const result = await prisma.printJob.updateMany({
             where: whereClause,
             data: {
               status: "FAILED",
               lastError: (msg as any).error ?? "unknown error",
             },
           });
-          logger.warn({ jobId, error: (msg as any).error }, "db_updated_FAILED");
+          if (result.count > 0) {
+            logger.warn({ jobId, updated: result.count, error: (msg as any).error }, "db_updated_FAILED");
+          } else {
+            logger.error({ jobId, whereClause, error: (msg as any).error }, "db_update_FAILED_no_records");
+          }
           break;
+        }
 
         default:
           logger.info({ type: msg.type, jobId }, "ws_progress_event_ignored");
       }
     } catch (dbErr) {
-      logger.error({ err: dbErr, type: msg.type, jobId }, "db_update_FAILED");
+      logger.error({ err: dbErr, type: msg.type, jobId, whereClause }, "db_update_exception");
     }
   }
 
-  private async syncPrinterConfig(): Promise<void> {
+  async syncPrinterConfig(): Promise<void> {
     try {
       const configs = await prisma.printerConfig.findMany();
       const photo = configs.find((c) => c.role === "photo")?.printerName ?? null;
@@ -120,6 +135,7 @@ class PrintAgentWSManager {
       logger.error({ err }, "printer_config_sync_failed");
     }
   }
+
 
   async syncPendingJobs(): Promise<void> {
     const jobs = await prisma.printJob.findMany({
@@ -155,10 +171,13 @@ class PrintAgentWSManager {
         });
 
         if (sent) {
-          await prisma.printJob.update({
+          const result = await prisma.printJob.update({
             where: { id: job.id },
             data: { status: "SENT", sentAt: new Date() },
           });
+          logger.info({ jobId: job.id, sentAt: result.sentAt }, "job_marked_as_sent");
+        } else {
+          logger.warn({ jobId: job.id }, "failed_to_send_print_job_to_agent");
         }
 
         await new Promise((resolve) => setTimeout(resolve, 1000));

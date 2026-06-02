@@ -250,6 +250,7 @@ export function createPrintAdminRoutes(router: Router): void {
             grand_total: 0,
             status: "PENDING",
             payment_method: "manual_whatsapp",
+            source: "manual_print",
           },
         });
 
@@ -528,6 +529,7 @@ export function createPrintAdminRoutes(router: Router): void {
           total: 0,
           status: "PENDING",
           payment_method: "pix",
+          source: "print_simulator",
         },
       });
 

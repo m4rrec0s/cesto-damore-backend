@@ -32,6 +32,7 @@ interface PaginationParams {
 
 interface OrdersListOptions {
   summary?: boolean;
+  includeNonCustomer?: boolean;
 }
 
 interface PaginatedResponse<T> {
@@ -333,6 +334,9 @@ class OrderService {
 
       const where = {
         status: this.buildStatusWhere(filter),
+        ...(options?.includeNonCustomer
+          ? {}
+          : { source: { in: ["customer" as const] } }),
       };
 
       const [orders, total] = await Promise.all([

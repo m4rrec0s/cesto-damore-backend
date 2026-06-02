@@ -123,6 +123,7 @@ model Order {
   google_drive_folder_id            String?
   google_drive_folder_url           String?
   delivery_method                   String?           @default("delivery")
+  source                            OrderSource       @default(customer)
   user                              User              @relation(fields: [user_id], references: [id])
   items                             OrderItem[]
   payment                           Payment?
@@ -717,6 +718,12 @@ enum OrderStatus {
   SHIPPED
   DELIVERED
   CANCELED
+}
+
+enum OrderSource {
+  customer
+  manual_print
+  print_simulator
 }
 
 enum FeedSectionType {

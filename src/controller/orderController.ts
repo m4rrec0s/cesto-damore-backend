@@ -29,7 +29,7 @@ class OrderController {
 
   async index(req: Request, res: Response) {
     try {
-      const { status, page = "1", limit = "8", summary } = req.query;
+      const { status, page = "1", limit = "8", summary, includeNonCustomer } = req.query;
       const pageNum = Math.max(1, parseInt(String(page), 10));
       const limitNum = Math.max(1, Math.min(100, parseInt(String(limit), 10)));
       const summaryMode =
@@ -45,7 +45,11 @@ class OrderController {
         const orders = await orderService.getAllOrders(
           status ? { status: String(status) } : undefined,
           { page: pageNum, limit: limitNum },
-          { summary: summaryMode },
+          {
+            summary: summaryMode,
+            includeNonCustomer:
+              String(includeNonCustomer).toLowerCase() === "true",
+          },
         );
         return res.json(orders);
       }

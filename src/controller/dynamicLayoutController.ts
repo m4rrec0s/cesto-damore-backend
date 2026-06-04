@@ -145,7 +145,13 @@ class DynamicLayoutController {
       }
 
       void trendStatsService.recordLayoutView(id, req);
-      return res.json(layout);
+
+      const layoutWithSlots = {
+        ...layout,
+        slots: extractDynamicLayoutSlots(layout.fabricJsonState),
+      };
+
+      return res.json(layoutWithSlots);
     } catch (error: any) {
       logger.error("❌ Erro ao obter layout:", error);
       return res.status(404).json({

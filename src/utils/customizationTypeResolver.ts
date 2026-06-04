@@ -28,6 +28,7 @@ export function resolveCustomizationType(subfolderName: string, fileName?: strin
     const ext = fileName.split('.').pop()?.toLowerCase()
     if (['png', 'jpg', 'jpeg', 'webp'].includes(ext ?? '')) return 'foto'
     if (['doc', 'docx'].includes(ext ?? '')) return 'carta'
+    if (['pdf'].includes(ext ?? '')) return 'foto'
   }
 
   return 'outro'

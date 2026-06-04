@@ -5,6 +5,7 @@ import {
   deleteImageLocally,
   saveBase64Image,
 } from "../config/localStorage";
+import { isMultiPageState } from "../types/dynamicLayout";
 
 class DynamicLayoutService {
   
@@ -256,7 +257,7 @@ class DynamicLayoutService {
       }
 
       if (data.fabricJsonState) {
-        updateData.fabricJsonState = await this.extractBase64FromObjects(
+        updateData.fabricJsonState = await this.extractBase64FromStates(
           data.fabricJsonState,
         );
       }
@@ -308,6 +309,21 @@ class DynamicLayoutService {
     );
 
     return { ...json, objects: processedObjects };
+  }
+
+  private async extractBase64FromStates(fabricJsonState: any): Promise<any> {
+    if (!isMultiPageState(fabricJsonState)) {
+      return this.extractBase64FromObjects(fabricJsonState);
+    }
+
+    const processedPages = await Promise.all(
+      fabricJsonState.pages.map(async (page: any) => ({
+        ...page,
+        canvasState: await this.extractBase64FromObjects(page.canvasState),
+      }))
+    );
+
+    return { ...fabricJsonState, pages: processedPages };
   }
 
   

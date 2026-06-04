@@ -1410,26 +1410,34 @@ class OrderCustomizationService {
       [];
 
     if (data?.customization_type === "DYNAMIC_LAYOUT") {
-      const bestUrl =
-        data.highQualityUrl ||
-        data.high_quality_url ||
-        data.final_artwork?.preview_url ||
-        data.finalArtwork?.preview_url ||
-        data.final_artworks?.[0]?.preview_url ||
-        data.image?.preview_url ||
-        data.text;
-
-      if (
-        bestUrl &&
-        typeof bestUrl === "string" &&
-        !bestUrl.startsWith("data:") &&
-        !bestUrl.startsWith("blob:")
-      ) {
+      if (Array.isArray(data.pages) && data.pdfUrl) {
         assets.push({
-          url: bestUrl,
-          filename: `design-final-${Date.now()}.png`,
-          mimeType: "image/png",
+          url: data.pdfUrl,
+          filename: `design-${Date.now()}.pdf`,
+          mimeType: "application/pdf",
         });
+      } else {
+        const bestUrl =
+          data.highQualityUrl ||
+          data.high_quality_url ||
+          data.final_artwork?.preview_url ||
+          data.finalArtwork?.preview_url ||
+          data.final_artworks?.[0]?.preview_url ||
+          data.image?.preview_url ||
+          data.text;
+
+        if (
+          bestUrl &&
+          typeof bestUrl === "string" &&
+          !bestUrl.startsWith("data:") &&
+          !bestUrl.startsWith("blob:")
+        ) {
+          assets.push({
+            url: bestUrl,
+            filename: `design-final-${Date.now()}.png`,
+            mimeType: "image/png",
+          });
+        }
       }
     }
 
@@ -2410,6 +2418,7 @@ class OrderCustomizationService {
     }
 
     if (customizationType === "DYNAMIC_LAYOUT") {
+      add(data.pdfUrl);
       add(data.final_artwork?.preview_url);
       add(data.finalArtwork?.preview_url);
       add(data.final_artwork?.url);

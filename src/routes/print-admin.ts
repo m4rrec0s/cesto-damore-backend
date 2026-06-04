@@ -2,6 +2,7 @@ import type { Router } from "express";
 import axios from "axios";
 import sharp from "sharp";
 import { randomUUID } from "crypto";
+import PDFDocument from "pdfkit";
 import { printAgentHub } from "./ws-print-agent";
 import { printAgentWSManager } from "../services/printAgentWSManager";
 import prisma from "../database/prisma";
@@ -15,6 +16,7 @@ import tempFileService from "../services/tempFileService";
 import { uploadAny } from "../config/multer";
 import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
 import { extractDynamicLayoutSlots } from "../utils/dynamicLayoutSlots";
+import { extractPages, isMultiPageState } from "../types/dynamicLayout";
 
 function generateMockPngBuffer(): Buffer {
   const { deflateSync } = require("zlib");
@@ -136,6 +138,104 @@ async function composeManualLayoutPng(params: {
   );
 
   return base.composite(composites).png({ compressionLevel: 9 }).toBuffer();
+}
+
+async function composePagePng(params: {
+  canvasState: unknown;
+  filesBySlot: Map<string, Express.Multer.File>;
+  width: number;
+  height: number;
+  baseImageUrl: string;
+}): Promise<Buffer> {
+  const { canvasState, filesBySlot, width, height, baseImageUrl } = params;
+  const baseBuffer = await imageBufferFromUrl(baseImageUrl);
+  let base = baseBuffer
+    ? sharp(baseBuffer).resize(width, height, { fit: "cover", position: "center" })
+    : sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 255, g: 255, b: 255, alpha: 1 },
+        },
+      });
+
+  const overlays = extractDynamicLayoutSlots(canvasState)
+    .map((slot) => {
+      const file = filesBySlot.get(slot.id);
+      if (!file) return null;
+      return { slot, file };
+    })
+    .filter((entry): entry is { slot: ReturnType<typeof extractDynamicLayoutSlots>[number]; file: Express.Multer.File } => Boolean(entry));
+
+  const composites = await Promise.all(
+    overlays.map(async ({ slot, file }) => {
+      const resized = await sharp(file.buffer)
+        .resize(Math.max(1, Math.round(slot.position.width)), Math.max(1, Math.round(slot.position.height)), {
+          fit: "cover",
+          position: "center",
+        })
+        .rotate(slot.position.rotation || 0, {
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png()
+        .toBuffer();
+
+      return {
+        input: resized,
+        left: Math.round(slot.position.x),
+        top: Math.round(slot.position.y),
+      };
+    }),
+  );
+
+  return base.composite(composites).png({ compressionLevel: 9 }).toBuffer();
+}
+
+export async function composeManualLayoutPdf(params: {
+  layout: {
+    baseImageUrl: string;
+    fabricJsonState: unknown;
+    width: number;
+    height: number;
+  };
+  filesBySlot: Map<string, Express.Multer.File>;
+}): Promise<Buffer> {
+  const { layout, filesBySlot } = params;
+  const widthPx = Number(layout.width || 1000);
+  const heightPx = Number(layout.height || 1500);
+  const dpi = 150;
+
+  const widthPt = (widthPx * 72) / dpi;
+  const heightPt = (heightPx * 72) / dpi;
+
+  const doc = new PDFDocument({
+    size: [widthPt, heightPt],
+    autoFirstPage: false,
+  });
+  const buffers: Buffer[] = [];
+
+  doc.on("data", (chunk: Buffer) => buffers.push(chunk));
+
+  const pages = extractPages(layout.fabricJsonState);
+
+  for (const page of pages) {
+    const pngBuffer = await composePagePng({
+      canvasState: page.canvasState,
+      filesBySlot,
+      width: widthPx,
+      height: heightPx,
+      baseImageUrl: layout.baseImageUrl,
+    });
+    doc.addPage({ size: [widthPt, heightPt] });
+    doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
+  }
+
+  doc.end();
+
+  return new Promise((resolve) =>
+    doc.on("end", () => resolve(Buffer.concat(buffers))),
+  );
 }
 
 export function createPrintAdminRoutes(router: Router): void {
@@ -263,14 +363,43 @@ export function createPrintAdminRoutes(router: Router): void {
         const layoutFolderId = await googleDriveService.createFolder(layout.name, mainFolderId);
         await googleDriveService.makeFolderPublic(layoutFolderId);
 
-        let pngBuffer: Buffer;
-
         const composedImageFile = Array.isArray(req.files)
           ? (req.files as Express.Multer.File[]).find((f) => f.fieldname === "composedImage")
           : null;
 
-        if (composedImageFile) {
-          pngBuffer = composedImageFile.buffer;
+        const isMultiPage = isMultiPageState(layout.fabricJsonState);
+        let designBuffer: Buffer;
+        let designFileName: string;
+        let designMimeType: string;
+
+        if (isMultiPage && !composedImageFile) {
+          const uploadedFiles = Array.isArray(req.files)
+            ? (req.files as Express.Multer.File[])
+            : [];
+          const filesBySlot = new Map<string, Express.Multer.File>();
+
+          for (const file of uploadedFiles) {
+            const field = file.fieldname || "";
+            const slotId =
+              field.match(/^slots?\.(.+)$/)?.[1] ||
+              field.match(/^slots?\[(.+)\]$/)?.[1] ||
+              field.match(/^slot:(.+)$/)?.[1] ||
+              field.match(/^slot_(.+)$/)?.[1] ||
+              field;
+
+            if (slotId) filesBySlot.set(slotId, file);
+          }
+
+          designBuffer = await composeManualLayoutPdf({
+            layout,
+            filesBySlot,
+          });
+          designFileName = `${safeDriveName(layout.name)}_${shortId}.pdf`;
+          designMimeType = "application/pdf";
+        } else if (composedImageFile) {
+          designBuffer = composedImageFile.buffer;
+          designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
+          designMimeType = "image/png";
         } else {
           const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
           const uploadedFiles = Array.isArray(req.files)
@@ -299,18 +428,19 @@ export function createPrintAdminRoutes(router: Router): void {
             return;
           }
 
-          pngBuffer = await composeManualLayoutPng({
+          designBuffer = await composeManualLayoutPng({
             layout,
             filesBySlot,
           });
+          designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
+          designMimeType = "image/png";
         }
 
-        const designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
         const designUpload = await googleDriveService.uploadBuffer(
-          pngBuffer,
+          designBuffer,
           designFileName,
           layoutFolderId,
-          "image/png",
+          designMimeType,
         );
 
         const dispatchFiles = [

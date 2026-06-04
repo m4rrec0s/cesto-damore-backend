@@ -1,3 +1,5 @@
+import { extractPages, isMultiPageState } from "../types/dynamicLayout";
+
 export interface DynamicLayoutSlot {
   id: string;
   label: string;
@@ -9,6 +11,8 @@ export interface DynamicLayoutSlot {
     rotation?: number;
   };
   required: boolean;
+  pageId?: string;
+  pageIndex?: number;
 }
 
 function getObjects(fabricJsonState: unknown): any[] {
@@ -31,10 +35,8 @@ function isImageFrame(obj: any): boolean {
   );
 }
 
-export function extractDynamicLayoutSlots(
-  fabricJsonState: unknown,
-): DynamicLayoutSlot[] {
-  return getObjects(fabricJsonState)
+function objectsToSlots(objects: any[]): DynamicLayoutSlot[] {
+  return objects
     .filter(isImageFrame)
     .map((obj, index) => {
       const id = String(obj.id || obj.name || `slot_${index + 1}`);
@@ -57,4 +59,35 @@ export function extractDynamicLayoutSlots(
         required: obj.required !== false,
       };
     });
+}
+
+export function extractDynamicLayoutSlots(
+  state: unknown,
+): DynamicLayoutSlot[];
+export function extractDynamicLayoutSlots(
+  state: unknown,
+  pageIndex: number,
+): DynamicLayoutSlot[];
+export function extractDynamicLayoutSlots(
+  state: unknown,
+  pageIndex?: number,
+): DynamicLayoutSlot[] {
+  if (!isMultiPageState(state)) {
+    return objectsToSlots(getObjects(state));
+  }
+
+  const pages = extractPages(state);
+
+  if (pageIndex !== undefined) {
+    return objectsToSlots(getObjects(pages[pageIndex]?.canvasState));
+  }
+
+  return pages.flatMap((page, pIdx) =>
+    objectsToSlots(getObjects(page.canvasState)).map((slot) => ({
+      ...slot,
+      pageId: page.id,
+      pageIndex: pIdx,
+      label: `P${pIdx + 1} - ${slot.label}`,
+    })),
+  );
 }

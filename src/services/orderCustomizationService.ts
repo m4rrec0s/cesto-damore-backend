@@ -465,7 +465,9 @@ class OrderCustomizationService {
               return url && checkValidUrl(url);
             }));
 
-        return !!hasLayoutAsset || !!data.fabricState;
+        const hasPdf = !!data.pdfUrl && checkValidUrl(data.pdfUrl);
+        const hasEditorState = !!data.editorState;
+        return !!hasLayoutAsset || hasPdf || hasEditorState;
 
       default:
         return data && Object.keys(data).length > 0;
@@ -1410,7 +1412,7 @@ class OrderCustomizationService {
       [];
 
     if (data?.customization_type === "DYNAMIC_LAYOUT") {
-      if (Array.isArray(data.pages) && data.pdfUrl) {
+      if (data.pdfUrl && typeof data.pdfUrl === "string" && !data.pdfUrl.startsWith("data:") && !data.pdfUrl.startsWith("blob:")) {
         assets.push({
           url: data.pdfUrl,
           filename: `design-${Date.now()}.pdf`,
@@ -1794,7 +1796,7 @@ class OrderCustomizationService {
     }
 
     for (const key of Object.keys(obj)) {
-      if (key === "base64" || key === "base64Data") {
+      if (key === "base64" || key === "base64Data" || key === "fabricState" || key === "fabricJsonState" || key === "fabric_json_state") {
         delete obj[key];
         removedCount++;
         continue;

@@ -808,6 +808,11 @@ router.post(
   upload.single("image"),
   customizationUploadController.uploadImage,
 );
+router.post(
+  "/customization/upload-file",
+  uploadAny.single("file"),
+  customizationUploadController.uploadFile,
+);
 router.delete(
   "/customization/image/:filename",
   authenticateToken,

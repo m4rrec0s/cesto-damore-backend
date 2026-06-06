@@ -207,7 +207,7 @@ class OrderService {
     }
 
     for (const key of Object.keys(obj)) {
-      if (key === "base64" || key === "base64Data") {
+      if (key === "base64" || key === "base64Data" || key === "fabricState" || key === "fabricJsonState" || key === "fabric_json_state") {
         delete obj[key];
         continue;
       }

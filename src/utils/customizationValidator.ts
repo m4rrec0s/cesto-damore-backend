@@ -194,11 +194,11 @@ function validateDynamicLayoutCustomization(
     );
   }
 
-  const hasFabricState = Boolean(
-    data.fabricJsonState || data.fabricState || data.fabric_json_state,
+  const hasState = Boolean(
+    data.fabricJsonState || data.fabricState || data.fabric_json_state || data.pdfUrl || data.editorState,
   );
 
-  if (!hasFabricState) {
+  if (!hasState) {
     warnings.push(
       `Layout "${rule.name}" pode não ter sido personalizado. Verifique se salvou as alterações.`,
     );

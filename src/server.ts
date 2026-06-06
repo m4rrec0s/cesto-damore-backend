@@ -424,6 +424,15 @@ cron.schedule("*/20 * * * *", async () => {
         }
 
         if (
+          value.pdfUrl &&
+          typeof value.pdfUrl === "string" &&
+          value.pdfUrl.includes("/uploads/temp/")
+        ) {
+          const filename = value.pdfUrl.split("/uploads/temp/").pop();
+          if (filename) tempFilesToDelete.push(filename);
+        }
+
+        if (
           (value.customization_type === "DYNAMIC_LAYOUT" ||
             value.customizationType === "DYNAMIC_LAYOUT") &&
           value.text &&

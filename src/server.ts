@@ -22,7 +22,11 @@ import tempFileService from "./services/tempFileService";
 import followUpService from "./services/followUpService";
 import reservationService from "./services/reservationService";
 import { pingRedisHealth } from "./jobs/jobQueues";
-import { apiRateLimit, requireApiKey, initializeSecurityMonitor } from "./middleware/security";
+import {
+  apiRateLimit,
+  requireApiKey,
+  initializeSecurityMonitor,
+} from "./middleware/security";
 import path from "path";
 import { setupPrintAgentWebSocket } from "./routes/ws-print-agent";
 import { printQueueService } from "./services/print-queue.service";
@@ -167,6 +171,19 @@ cron.schedule("0 */6 * * *", async () => {
   }
 });
 
+cron.schedule("30 */6 * * *", () => {
+  try {
+    const result = tempFileService.cleanupOldFiles(24);
+    if (result.deleted > 0) {
+      logger.info(
+        `🗑️ [Cron] Temp cleanup: ${result.deleted} arquivos removidos`,
+      );
+    }
+  } catch (error) {
+    logger.error("❌ [Cron] Erro na limpeza de temp files:", error);
+  }
+});
+
 cron.schedule("*/10 * * * *", async () => {
   try {
     const now = new Date();
@@ -246,10 +263,16 @@ const server = http.createServer(app);
 
 setupPrintAgentWebSocket(server);
 printQueueService.start().catch((error) => {
-  logger.error("❌ [PrintQueue] Falha ao inicializar fila de impressão:", error);
+  logger.error(
+    "❌ [PrintQueue] Falha ao inicializar fila de impressão:",
+    error,
+  );
 });
 startPrintQueue().catch((error) => {
-  logger.error("❌ [PaymentPrintQueue] Falha ao inicializar fila de impressão:", error);
+  logger.error(
+    "❌ [PaymentPrintQueue] Falha ao inicializar fila de impressão:",
+    error,
+  );
 });
 
 // Inicializa o monitoramento de segurança
@@ -258,7 +281,10 @@ initializeSecurityMonitor();
 server.listen(PORT, () => {
   logger.status(`🚀 Server running`, "green");
   logger.status(`📡 PORT: ${PORT}`, "green");
-  logger.status(`🔗 BASE_URL: ${BASE_URL ? "[configured]" : "[not set]"}`, "green");
+  logger.status(
+    `🔗 BASE_URL: ${BASE_URL ? "[configured]" : "[not set]"}`,
+    "green",
+  );
   logger.status(
     `🌐 Environment: ${process.env.NODE_ENV || "development"}`,
     "green",

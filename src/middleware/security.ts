@@ -710,6 +710,7 @@ export const requireApiKey = (
     "/api/simulator/", // Rotas do simulador de impressão (requerem JWT admin)
     "/api/print/files/", // Download URLs para o agente de impressao
     "/api/admin/print/", // Rotas administrativas de impressao
+    "/ai/react-chat", // Teste do reAct engine (dev only)
   ];
 
   // Verifica se é um path público

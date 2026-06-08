@@ -45,6 +45,7 @@ import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
 import chatRealtimeController from "./controller/chatRealtimeController";
 import aiLabController from "./agent/controller/aiLabController";
+import * as reactChatController from "./agent/controller/reactChatController";
 import tempFileController from "./controller/tempFileController";
 import { TestPaymentController } from "./controller/testPaymentController";
 import { knowledgeBaseController } from "./agent/controller/knowledgeBaseController";
@@ -1039,6 +1040,12 @@ router.delete(
   requireAdmin,
   feedController.deleteSectionItem,
 );
+
+// reAct engine test endpoint
+router.post("/ai/react-chat", reactChatController.reactChat);
+router.get("/ai/react-chat", (_req: Request, res: Response) => {
+  res.sendFile(path.resolve(__dirname, "../public/react-chat.html"));
+});
 
 router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
 router.get(

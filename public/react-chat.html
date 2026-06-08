@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ana reAct — Chat de Teste</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, sans-serif; background: #0b141a; color: #e9edef; height: 100vh; display: flex; flex-direction: column; }
+    header { background: #202c33; padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #2a3942; }
+    header .avatar { width: 40px; height: 40px; border-radius: 50%; background: #00a884; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    header .info h2 { font-size: 16px; font-weight: 500; }
+    header .info span { font-size: 12px; color: #8696a0; }
+    #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+    .msg { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+    .msg.user { background: #005c4b; align-self: flex-end; border-bottom-right-radius: 0; }
+    .msg.assistant { background: #202c33; align-self: flex-start; border-bottom-left-radius: 0; }
+    .msg .meta { font-size: 11px; color: #8696a0; margin-top: 4px; text-align: right; }
+    .typing { align-self: flex-start; background: #202c33; padding: 12px 16px; border-radius: 8px; font-size: 14px; color: #8696a0; }
+    #input-area { background: #202c33; padding: 10px 16px; display: flex; gap: 8px; border-top: 1px solid #2a3942; }
+    #input-area input { flex: 1; background: #2a3942; border: none; border-radius: 8px; padding: 10px 14px; color: #e9edef; font-size: 14px; outline: none; }
+    #input-area button { background: #00a884; border: none; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; font-size: 18px; color: #fff; }
+    #input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #config { background: #202c33; padding: 8px 16px; display: flex; gap: 12px; align-items: center; font-size: 12px; border-bottom: 1px solid #2a3942; }
+    #config input { background: #2a3942; border: none; border-radius: 4px; padding: 4px 8px; color: #e9edef; font-size: 12px; width: 160px; }
+    #config label { color: #8696a0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="avatar">🌹</div>
+    <div class="info">
+      <h2>Ana — reAct Engine</h2>
+      <span>Teste local</span>
+    </div>
+  </header>
+  <div id="config">
+    <label>Phone:</label>
+    <input id="phone" value="5583999999999">
+    <label>Nome:</label>
+    <input id="name" value="Maria">
+  </div>
+  <div id="messages"></div>
+  <div id="input-area">
+    <input id="msg" placeholder="Digite uma mensagem..." autocomplete="off">
+    <button id="send">➤</button>
+  </div>
+  <script>
+    const messagesEl = document.getElementById('messages');
+    const msgInput = document.getElementById('msg');
+    const sendBtn = document.getElementById('send');
+    const phoneInput = document.getElementById('phone');
+    const nameInput = document.getElementById('name');
+
+    function addMessage(text, role, meta) {
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      div.textContent = text;
+      if (meta) {
+        const metaEl = document.createElement('div');
+        metaEl.className = 'meta';
+        metaEl.textContent = meta;
+        div.appendChild(metaEl);
+      }
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function showTyping() {
+      const div = document.createElement('div');
+      div.className = 'typing';
+      div.id = 'typing';
+      div.textContent = 'Ana está digitando...';
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function hideTyping() {
+      const el = document.getElementById('typing');
+      if (el) el.remove();
+    }
+
+    async function send() {
+      const text = msgInput.value.trim();
+      if (!text) return;
+
+      addMessage(text, 'user');
+      msgInput.value = '';
+      sendBtn.disabled = true;
+      showTyping();
+
+      try {
+        const res = await fetch('/ai/react-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            customerPhone: phoneInput.value.trim(),
+            customerName: nameInput.value.trim() || undefined,
+          }),
+        });
+        const data = await res.json();
+        hideTyping();
+
+        if (data.error) {
+          addMessage(`❌ ${data.error}`, 'assistant');
+        } else {
+          const meta = `${data.metadata.iterations} iter | ${data.metadata.toolsUsed.length ? data.metadata.toolsUsed.join(', ') : 'sem tools'} | ${data.metadata.durationMs}ms`;
+          addMessage(data.response, 'assistant', meta);
+        }
+      } catch (err) {
+        hideTyping();
+        addMessage(`❌ Erro: ${err.message}`, 'assistant');
+      }
+
+      sendBtn.disabled = false;
+      msgInput.focus();
+    }
+
+    sendBtn.addEventListener('click', send);
+    msgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+    msgInput.focus();
+  </script>
+</body>
+</html>

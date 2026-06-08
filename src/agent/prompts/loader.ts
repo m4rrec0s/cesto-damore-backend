@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-const PROMPTS_DIR = resolve(__dirname, "../../../../prompts");
+const PROMPTS_DIR = resolve(__dirname, "../../../prompts");
 const cache = new Map<string, string>();
 
 export function loadPrompt(

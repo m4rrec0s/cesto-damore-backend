@@ -1198,8 +1198,20 @@ class OrderCustomizationService {
           for (const customization of item.customizations) {
             const data = this.parseCustomizationData(customization.value);
             if (data.customization_type === 'TEXT' && data.text) {
-              const msg = typeof data.text === 'string' ? data.text.trim() : '';
-              if (msg.length > 0) textMessages.push(msg);
+              let msg = typeof data.text === 'string' ? data.text.trim() : '';
+              if (msg.length === 0) continue;
+              // Truncar ao max_length definido na customização
+              if (customization.customization_id) {
+                const rule = await prisma.customization.findUnique({
+                  where: { id: customization.customization_id },
+                  select: { customization_data: true },
+                });
+                const maxLen = (rule?.customization_data as any)?.max_length;
+                if (maxLen && msg.length > maxLen) {
+                  msg = msg.slice(0, maxLen);
+                }
+              }
+              textMessages.push(msg);
             }
           }
         }

@@ -3,9 +3,15 @@ import { Document, Packer, Paragraph, TextRun, AlignmentType } from 'docx'
 export interface CartinhaOptions {
   message: string
   customerName?: string
+  maxLength?: number
 }
 
 export async function generateCartinhaBuffer(options: CartinhaOptions): Promise<Buffer> {
+  let text = options.message
+  if (options.maxLength && text.length > options.maxLength) {
+    text = text.slice(0, options.maxLength)
+  }
+
   const doc = new Document({
     sections: [{
       properties: {
@@ -22,9 +28,9 @@ export async function generateCartinhaBuffer(options: CartinhaOptions): Promise<
           spacing: { before: 4000 },
           children: [
             new TextRun({
-              text: options.message,
-              font: 'Times New Roman',
-              size: 40,
+              text,
+              font: 'Arial',
+              size: 22, // half-points: 22 = 11pt
             }),
           ],
         }),

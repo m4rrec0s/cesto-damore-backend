@@ -16,7 +16,7 @@ import tempFileService from "../services/tempFileService";
 import { uploadAny } from "../config/multer";
 import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
 import { extractDynamicLayoutSlots } from "../utils/dynamicLayoutSlots";
-import { extractPages, isMultiPageState } from "../types/dynamicLayout";
+import { extractPages } from "../types/dynamicLayout";
 
 function generateMockPngBuffer(): Buffer {
   const { deflateSync } = require("zlib");
@@ -204,13 +204,26 @@ export async function composeManualLayoutPdf(params: {
   const { layout, filesBySlot } = params;
   const widthPx = Number(layout.width || 1000);
   const heightPx = Number(layout.height || 1500);
-  const dpi = 150;
 
-  const widthPt = (widthPx * 72) / dpi;
-  const heightPt = (heightPx * 72) / dpi;
+  // PR 4x6 = 100x150mm. Orientação baseada no aspect ratio do layout.
+  const aspectRatio = widthPx / heightPx;
+  const PR_SHORT_MM = 100;
+  const PR_LONG_MM = 150;
+  const mmToPt = (mm: number) => (mm / 25.4) * 72;
+
+  let pageWidthPt: number, pageHeightPt: number;
+  if (aspectRatio >= 1) {
+    // Landscape
+    pageWidthPt = mmToPt(PR_LONG_MM);
+    pageHeightPt = mmToPt(PR_SHORT_MM);
+  } else {
+    // Portrait
+    pageWidthPt = mmToPt(PR_SHORT_MM);
+    pageHeightPt = mmToPt(PR_LONG_MM);
+  }
 
   const doc = new PDFDocument({
-    size: [widthPt, heightPt],
+    size: [pageWidthPt, pageHeightPt],
     autoFirstPage: false,
   });
   const buffers: Buffer[] = [];
@@ -227,8 +240,8 @@ export async function composeManualLayoutPdf(params: {
       height: heightPx,
       baseImageUrl: layout.baseImageUrl,
     });
-    doc.addPage({ size: [widthPt, heightPt] });
-    doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
+    doc.addPage({ size: [pageWidthPt, pageHeightPt] });
+    doc.image(pngBuffer, 0, 0, { width: pageWidthPt, height: pageHeightPt });
   }
 
   doc.end();
@@ -308,7 +321,8 @@ export function createPrintAdminRoutes(router: Router): void {
     async (req, res) => {
       const customerName = String(req.body.customerName || "").trim();
       const layoutId = String(req.body.layoutId || "").trim();
-      const giftMessage = String(req.body.giftMessage || "").trim();
+      const giftMessageMaxLength = Number(req.body.maxLength) || 500;
+      const giftMessage = String(req.body.giftMessage || "").trim().slice(0, giftMessageMaxLength);
 
       if (!customerName || !layoutId) {
         res.status(400).json({ error: "customerName e layoutId são obrigatórios" });
@@ -363,78 +377,38 @@ export function createPrintAdminRoutes(router: Router): void {
         const layoutFolderId = await googleDriveService.createFolder(layout.name, mainFolderId);
         await googleDriveService.makeFolderPublic(layoutFolderId);
 
-        const composedImageFile = Array.isArray(req.files)
-          ? (req.files as Express.Multer.File[]).find((f) => f.fieldname === "composedImage")
-          : null;
+        const uploadedFiles = Array.isArray(req.files)
+          ? (req.files as Express.Multer.File[])
+          : [];
+        const filesBySlot = new Map<string, Express.Multer.File>();
 
-        const isMultiPage = isMultiPageState(layout.fabricJsonState);
-        let designBuffer: Buffer;
-        let designFileName: string;
-        let designMimeType: string;
+        for (const file of uploadedFiles) {
+          const field = file.fieldname || "";
+          if (field === "composedImage") continue;
+          const slotId =
+            field.match(/^slots?\.(.+)$/)?.[1] ||
+            field.match(/^slots?\[(.+)\]$/)?.[1] ||
+            field.match(/^slot:(.+)$/)?.[1] ||
+            field.match(/^slot_(.+)$/)?.[1] ||
+            field;
 
-        if (isMultiPage && !composedImageFile) {
-          const uploadedFiles = Array.isArray(req.files)
-            ? (req.files as Express.Multer.File[])
-            : [];
-          const filesBySlot = new Map<string, Express.Multer.File>();
-
-          for (const file of uploadedFiles) {
-            const field = file.fieldname || "";
-            const slotId =
-              field.match(/^slots?\.(.+)$/)?.[1] ||
-              field.match(/^slots?\[(.+)\]$/)?.[1] ||
-              field.match(/^slot:(.+)$/)?.[1] ||
-              field.match(/^slot_(.+)$/)?.[1] ||
-              field;
-
-            if (slotId) filesBySlot.set(slotId, file);
-          }
-
-          designBuffer = await composeManualLayoutPdf({
-            layout,
-            filesBySlot,
-          });
-          designFileName = `${safeDriveName(layout.name)}_${shortId}.pdf`;
-          designMimeType = "application/pdf";
-        } else if (composedImageFile) {
-          designBuffer = composedImageFile.buffer;
-          designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
-          designMimeType = "image/png";
-        } else {
-          const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
-          const uploadedFiles = Array.isArray(req.files)
-            ? (req.files as Express.Multer.File[])
-            : [];
-          const filesBySlot = new Map<string, Express.Multer.File>();
-
-          for (const file of uploadedFiles) {
-            const field = file.fieldname || "";
-            const slotId =
-              field.match(/^slots?\.(.+)$/)?.[1] ||
-              field.match(/^slots?\[(.+)\]$/)?.[1] ||
-              field.match(/^slot:(.+)$/)?.[1] ||
-              field.match(/^slot_(.+)$/)?.[1] ||
-              field;
-
-            if (slotId) filesBySlot.set(slotId, file);
-          }
-
-          const missing = slots.filter((slot) => slot.required && !filesBySlot.has(slot.id));
-          if (missing.length > 0) {
-            res.status(400).json({
-              error: "Preencha todos os slots obrigatórios",
-              missingSlots: missing.map((slot) => ({ id: slot.id, label: slot.label })),
-            });
-            return;
-          }
-
-          designBuffer = await composeManualLayoutPng({
-            layout,
-            filesBySlot,
-          });
-          designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
-          designMimeType = "image/png";
+          if (slotId) filesBySlot.set(slotId, file);
         }
+
+        const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
+        const missing = slots.filter((slot) => slot.required && !filesBySlot.has(slot.id));
+        if (missing.length > 0) {
+          res.status(400).json({
+            error: "Preencha todos os slots obrigatórios",
+            missingSlots: missing.map((slot) => ({ id: slot.id, label: slot.label })),
+          });
+          return;
+        }
+
+        // Sempre gerar PDF com tamanho PR 4x6 (100x150mm) e orientação correta
+        const designBuffer = await composeManualLayoutPdf({ layout, filesBySlot });
+        const designFileName = `${safeDriveName(layout.name)}_${shortId}.pdf`;
+        const designMimeType = "application/pdf";
 
         const designUpload = await googleDriveService.uploadBuffer(
           designBuffer,
@@ -454,7 +428,7 @@ export function createPrintAdminRoutes(router: Router): void {
         if (giftMessage) {
           const cartinhaFolderId = await googleDriveService.createFolder("Cartinha", mainFolderId);
           const cartinhaFileName = `Cartinha_${shortId}.docx`;
-          const cartinhaBuffer = await generateCartinhaBuffer({ message: giftMessage });
+          const cartinhaBuffer = await generateCartinhaBuffer({ message: giftMessage, maxLength: giftMessageMaxLength });
           const cartinhaUpload = await googleDriveService.uploadBuffer(
             cartinhaBuffer,
             cartinhaFileName,

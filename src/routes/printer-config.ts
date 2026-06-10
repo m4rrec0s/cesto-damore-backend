@@ -2,45 +2,113 @@ import { Router, Request, Response } from 'express'
 import prisma from '../database/prisma'
 import logger from '../utils/logger'
 import { printAgentWSManager } from '../services/printAgentWSManager'
+import { PrinterRole } from '@prisma/client'
 
 const router = Router()
 
-async function getConfigMap() {
-  const configs = await prisma.printerConfig.findMany()
-  const photoConfig = configs.find((c) => c.role === 'photo')
-  const letterConfig = configs.find((c) => c.role === 'letter')
+interface PrinterInfo {
+  name: string
+  status: number
+  role?: 'photo' | 'letter' | null
+}
+
+// Helper to extract role config from a device's printers array
+function getRoleConfig(printers: unknown): { photo: string | null; letter: string | null } {
+  if (!Array.isArray(printers)) return { photo: null, letter: null }
+  
+  const photoPrinter = printers.find((p: any) => p.role === 'photo')
+  const letterPrinter = printers.find((p: any) => p.role === 'letter')
+  
   return {
-    photo: photoConfig?.printerName ?? null,
-    letter: letterConfig?.printerName ?? null,
+    photo: photoPrinter?.name ?? null,
+    letter: letterPrinter?.name ?? null,
   }
 }
 
-function emitConfigUpdate() {
-  getConfigMap()
-    .then((config) => {
-      printAgentWSManager.send({
-        type: 'PRINTER_CONFIG_UPDATE',
-        config,
-        timestamp: new Date().toISOString(),
-      })
-    })
-    .catch((err) => {
-      logger.error({ err }, 'printer_config_emit_failed')
-    })
+// Helper to update role in a device's printers array
+function updatePrinterRole(
+  printers: unknown,
+  role: 'photo' | 'letter',
+  printerName: string
+): PrinterInfo[] {
+  const arr: PrinterInfo[] = Array.isArray(printers) 
+    ? (printers as PrinterInfo[]).map(p => ({ ...p }))
+    : []
+  
+  // Remove this printer from any existing role
+  const updated = arr.map((p) => {
+    if (p.name === printerName) {
+      return { ...p, role: null }
+    }
+    if (p.role === role) {
+      return { ...p, role: null }
+    }
+    return p
+  })
+  
+  // Find if printer exists in the array
+  const existingIndex = updated.findIndex((p) => p.name === printerName)
+  if (existingIndex >= 0) {
+    updated[existingIndex] = { ...updated[existingIndex], role }
+  } else {
+    // Add printer with role (even if not detected yet)
+    updated.push({ name: printerName, status: 0, role })
+  }
+  
+  return updated
 }
 
-router.get('/', async (_req: Request, res: Response) => {
+// Helper to remove a role from a device's printers array
+function removePrinterRole(
+  printers: unknown,
+  role: 'photo' | 'letter'
+): PrinterInfo[] {
+  if (!Array.isArray(printers)) return []
+  return (printers as PrinterInfo[]).map((p) => {
+    if (p.role === role) {
+      return { ...p, role: null }
+    }
+    return p
+  })
+}
+
+// GET / - Get printer config for a device
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const configs = await prisma.printerConfig.findMany()
-    const photo = configs.find((c) => c.role === 'photo') ?? null
-    const letter = configs.find((c) => c.role === 'letter') ?? null
-    res.json({ photo, letter })
+    const deviceId = req.query.deviceId as string | undefined
+    
+    if (!deviceId) {
+      // Return global default (from default device or empty)
+      const defaultDevice = await prisma.printDevice.findFirst({
+        where: { isDefault: true }
+      })
+      if (!defaultDevice) {
+        res.json({ photo: null, letter: null })
+        return
+      }
+      const config = getRoleConfig(defaultDevice.printers)
+      res.json(config)
+      return
+    }
+    
+    const device = await prisma.printDevice.findUnique({
+      where: { deviceId }
+    })
+    
+    if (!device) {
+      res.json({ photo: null, letter: null })
+      return
+    }
+    
+    const config = getRoleConfig(device.printers)
+    res.json(config)
   } catch (err: any) {
     logger.error({ err }, 'printer_config_get_failed')
     res.status(500).json({ error: err.message })
   }
 })
 
+// PUT /:role - Set printer role for a device
 router.put('/:role', async (req: Request, res: Response) => {
   try {
     const { role } = req.params
@@ -49,21 +117,57 @@ router.put('/:role', async (req: Request, res: Response) => {
       return
     }
 
-    const { printerName, isActive } = req.body as { printerName?: string; isActive?: boolean }
+    const { printerName, isActive, deviceId } = req.body as {
+      printerName?: string
+      isActive?: boolean
+      deviceId?: string
+    }
+    
     if (!printerName || typeof printerName !== 'string') {
       res.status(400).json({ error: 'printerName é obrigatório' })
       return
     }
 
-    await prisma.printerConfig.upsert({
-      where: { role },
-      create: { role, printerName, isActive: isActive ?? true },
-      update: { printerName, isActive: isActive ?? true },
+    // Find target device
+    let targetDeviceId = deviceId
+    if (!targetDeviceId) {
+      const defaultDevice = await prisma.printDevice.findFirst({
+        where: { isDefault: true }
+      })
+      targetDeviceId = defaultDevice?.deviceId
+    }
+    
+    if (!targetDeviceId) {
+      res.status(400).json({ error: 'Nenhum dispositivo encontrado' })
+      return
+    }
+
+    // Get current device
+    const device = await prisma.printDevice.findUnique({
+      where: { deviceId: targetDeviceId }
+    })
+    
+    if (!device) {
+      res.status(404).json({ error: 'Dispositivo não encontrado' })
+      return
+    }
+
+    // Update printers array with new role
+    const updatedPrinters = updatePrinterRole(device.printers, role as 'photo' | 'letter', printerName)
+    
+    await prisma.printDevice.update({
+      where: { deviceId: targetDeviceId },
+      data: { printers: updatedPrinters as any }
     })
 
-    emitConfigUpdate()
+    // Sync config to agent
+    const config = getRoleConfig(updatedPrinters)
+    printAgentWSManager.send({
+      type: 'PRINTER_CONFIG_UPDATE',
+      config,
+      timestamp: new Date().toISOString(),
+    })
 
-    const config = await prisma.printerConfig.findUnique({ where: { role } })
     res.json(config)
   } catch (err: any) {
     logger.error({ err }, 'printer_config_put_failed')
@@ -71,6 +175,7 @@ router.put('/:role', async (req: Request, res: Response) => {
   }
 })
 
+// DELETE /:role - Remove printer role from a device
 router.delete('/:role', async (req: Request, res: Response) => {
   try {
     const { role } = req.params
@@ -79,8 +184,45 @@ router.delete('/:role', async (req: Request, res: Response) => {
       return
     }
 
-    await prisma.printerConfig.deleteMany({ where: { role } })
-    emitConfigUpdate()
+    const deviceId = req.query.deviceId as string | undefined
+    
+    let targetDeviceId = deviceId
+    if (!targetDeviceId) {
+      const defaultDevice = await prisma.printDevice.findFirst({
+        where: { isDefault: true }
+      })
+      targetDeviceId = defaultDevice?.deviceId
+    }
+    
+    if (!targetDeviceId) {
+      res.status(400).json({ error: 'Nenhum dispositivo encontrado' })
+      return
+    }
+
+    const device = await prisma.printDevice.findUnique({
+      where: { deviceId: targetDeviceId }
+    })
+    
+    if (!device) {
+      res.status(404).json({ error: 'Dispositivo não encontrado' })
+      return
+    }
+
+    const updatedPrinters = removePrinterRole(device.printers, role as 'photo' | 'letter')
+    
+    await prisma.printDevice.update({
+      where: { deviceId: targetDeviceId },
+      data: { printers: updatedPrinters as any }
+    })
+
+    // Sync config to agent
+    const config = getRoleConfig(updatedPrinters)
+    printAgentWSManager.send({
+      type: 'PRINTER_CONFIG_UPDATE',
+      config,
+      timestamp: new Date().toISOString(),
+    })
+
     res.json({ success: true })
   } catch (err: any) {
     logger.error({ err }, 'printer_config_delete_failed')

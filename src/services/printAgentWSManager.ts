@@ -147,21 +147,39 @@ class PrintAgentWSManager {
     }
   }
 
-  async syncPrinterConfig(): Promise<void> {
+  async syncPrinterConfig(deviceId?: string): Promise<void> {
     try {
-      const configs = await prisma.printerConfig.findMany();
-      const photo = configs.find((c) => c.role === "photo")?.printerName ?? null;
-      const letter = configs.find((c) => c.role === "letter")?.printerName ?? null;
+      let device = null
+      
+      if (deviceId) {
+        // Get config for specific device
+        device = await prisma.printDevice.findUnique({ where: { deviceId } })
+      } else {
+        // Get config from default device
+        device = await prisma.printDevice.findFirst({ where: { isDefault: true } })
+      }
+      
+      // Extract role assignments from the device's printers array
+      const printers = device?.printers as any
+      let photo = null
+      let letter = null
+      
+      if (Array.isArray(printers)) {
+        const photoPrinter = printers.find((p: any) => p.role === 'photo')
+        const letterPrinter = printers.find((p: any) => p.role === 'letter')
+        photo = photoPrinter?.name ?? null
+        letter = letterPrinter?.name ?? null
+      }
 
       this.send({
         type: "PRINTER_CONFIG_UPDATE",
         config: { photo, letter },
         timestamp: new Date().toISOString(),
-      });
+      })
 
-      logger.info({ photo, letter }, "printer_config_synced_on_connect");
+      logger.info({ photo, letter, deviceId }, "printer_config_synced_on_connect")
     } catch (err) {
-      logger.error({ err }, "printer_config_sync_failed");
+      logger.error({ err }, "printer_config_sync_failed")
     }
   }
 

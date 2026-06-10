@@ -53,6 +53,7 @@ export interface DeviceHandshake {
 export interface DevicePrinterInfo {
   name: string;
   status: number; // 0=Idle, 1=Paused, 2=Error, 3=PendingDeletion, 8=PowerSave
+  role?: 'photo' | 'letter' | null; // Role assignment for this printer on this device
 }
 
 export interface DeviceInfo {
@@ -562,10 +563,7 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
     let deviceId: string | undefined;
     let handshakeReceived = false;
 
-    printAgentWSManager.syncPrinterConfig().catch((err) => {
-      logger.error({ err }, "printer_config_sync_on_connect_failed");
-    });
-
+    // syncPrinterConfig will be called after HANDSHAKE with deviceId
     printAgentWSManager.syncPendingJobs().catch((err) => {
       logger.error({ err }, "sync_pending_jobs_failed");
     });
@@ -594,6 +592,11 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
           });
           ws.send(JSON.stringify({ type: "HANDSHAKE_ACK", ok: true }));
           logger.info(`[PrintAgent] Handshake concluido: ${deviceId} (${parsed.deviceName})`);
+
+          // Sync printer config for this device
+          printAgentWSManager.syncPrinterConfig(deviceId).catch((err) => {
+            logger.error({ err, deviceId }, "printer_config_sync_on_connect_failed");
+          });
           return;
         }
 
@@ -604,6 +607,11 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
           deviceId = `legacy-${clientIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
           printAgentHub.connectDevice(ws, { deviceId, deviceName: "Dispositivo legado", ip: clientIp });
           logger.info(`[PrintAgent] Device legado registrado: ${deviceId}`);
+
+          // Sync printer config for legacy device
+          printAgentWSManager.syncPrinterConfig(deviceId).catch((err) => {
+            logger.error({ err, deviceId }, "printer_config_sync_legacy_failed");
+          });
         }
 
         const message = parseAgentEnvelope(raw);

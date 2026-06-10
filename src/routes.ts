@@ -1577,6 +1577,8 @@ logger.info("🖨️ Rotas de configuração de impressoras habilitadas");
 // ========================================
 import { createPrintAdminRoutes } from "./routes/print-admin";
 createPrintAdminRoutes(router);
+import { createPrintDeviceRoutes } from "./routes/ws-print-agent";
+createPrintDeviceRoutes(router);
 logger.info("🖨️ Rotas admin de impressão habilitadas");
 
 // ========================================

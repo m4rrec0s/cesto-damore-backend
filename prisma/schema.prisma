@@ -891,3 +891,16 @@ model BotSession {
 
   flow BotFlow @relation(fields: [flow_id], references: [id])
 }
+
+model PrintDevice {
+  deviceId    String   @id
+  deviceName  String
+  ip          String   @default("")
+  isDefault   Boolean  @default(false)
+  connectedAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  printers    Json     @default("[]")
+  token       String   @unique @default(uuid())
+
+  @@map("print_devices")
+}

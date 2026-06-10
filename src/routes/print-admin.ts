@@ -254,8 +254,11 @@ export async function composeManualLayoutPdf(params: {
 export function createPrintAdminRoutes(router: Router): void {
   // GET /api/print/agent-status - returns agent connection status
   router.get("/api/print/agent-status", (_req, res) => {
+    const deviceName = printAgentWSManager.getDeviceName();
     res.json({
       connected: printAgentWSManager.isConnected(),
+      deviceName,
+      deviceId: null,
     });
   });
 

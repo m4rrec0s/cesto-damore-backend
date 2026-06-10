@@ -25,6 +25,15 @@ class PrintAgentWSManager {
     return printAgentHub.isConnected();
   }
 
+  getDefaultActiveDevice() {
+    return printAgentHub.getDefaultActiveDevice();
+  }
+
+  getDeviceName(): string | null {
+    const device = printAgentHub.getDefaultActiveDevice();
+    return device?.deviceName ?? null;
+  }
+
   send(msg: WSOutboundMessage): boolean {
     return printAgentHub.sendRaw(msg as unknown as Record<string, unknown>).success;
   }

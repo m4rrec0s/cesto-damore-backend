@@ -478,7 +478,7 @@ export class PrintAgentHub {
 
   // --- Private helpers ---
 
-  private getDefaultActiveDevice(): DeviceConnection | undefined {
+  getDefaultActiveDevice(): DeviceConnection | undefined {
     return (
       [...this.devices.values()].find((d) => d.isDefault && d.isActive && d.socket?.readyState === WebSocket.OPEN) ??
       [...this.devices.values()].find((d) => d.isActive && d.socket?.readyState === WebSocket.OPEN)

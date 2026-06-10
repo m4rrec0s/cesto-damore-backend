@@ -162,6 +162,16 @@ export class PrintAgentHub {
     }
     this.events.emit("device:update", this.getDeviceInfo(handshake.deviceId));
     this.requestPrinterCheckForDevice(handshake.deviceId);
+
+    // Persist to DB (skip legacy devices)
+    if (!handshake.deviceId.startsWith("legacy-")) {
+      const now = new Date();
+      prisma.printDevice.upsert({
+        where: { deviceId: handshake.deviceId },
+        create: { deviceId: handshake.deviceId, deviceName: handshake.deviceName, ip: handshake.ip || "", connectedAt: now, lastSeenAt: now },
+        update: { deviceName: handshake.deviceName, ip: handshake.ip || "", lastSeenAt: now },
+      }).catch((err) => logger.error({ err }, "persist_device_failed"));
+    }
   }
 
   disconnectDevice(deviceId: string): void {
@@ -552,16 +562,6 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
     let deviceId: string | undefined;
     let handshakeReceived = false;
 
-    // Give 5 seconds for HANDSHAKE before treating as legacy
-    const handshakeTimer = setTimeout(() => {
-      if (!handshakeReceived) {
-        deviceId = `legacy-${crypto.randomUUID()}`;
-        printAgentHub.connectDevice(ws, { deviceId, deviceName: "Dispositivo legado", ip: clientIp });
-        handshakeReceived = true;
-        logger.info(`[PrintAgent] Device legado registrado: ${deviceId}`);
-      }
-    }, 5000);
-
     printAgentWSManager.syncPrinterConfig().catch((err) => {
       logger.error({ err }, "printer_config_sync_on_connect_failed");
     });
@@ -572,17 +572,12 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
 
     let isAlive = true;
     const heartbeatInterval = setInterval(() => {
-      if (!isAlive) {
-        ws.terminate();
-        return;
-      }
+      if (!isAlive) { ws.terminate(); return; }
       isAlive = false;
       ws.ping();
     }, 30000);
 
-    ws.on("pong", () => {
-      isAlive = true;
-    });
+    ws.on("pong", () => { isAlive = true; });
 
     ws.on("message", (raw: Buffer) => {
       try {
@@ -590,9 +585,8 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
 
         // Handle HANDSHAKE as first message
         if (!handshakeReceived && parsed?.type === "HANDSHAKE") {
-          clearTimeout(handshakeTimer);
           handshakeReceived = true;
-          deviceId = parsed.deviceId || `legacy-${crypto.randomUUID()}`;
+          deviceId = parsed.deviceId || `legacy-${clientIp}`;
           printAgentHub.connectDevice(ws, {
             deviceId: deviceId!,
             deviceName: parsed.deviceName || "Dispositivo",
@@ -603,12 +597,13 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
           return;
         }
 
-        // If no handshake yet but first msg is not HANDSHAKE, treat as legacy
+        // Legacy device: first non-HANDSHAKE message
         if (!handshakeReceived) {
-          clearTimeout(handshakeTimer);
           handshakeReceived = true;
-          deviceId = `legacy-${crypto.randomUUID()}`;
+          // Use fixed legacy ID based on IP so reconnections reuse the same slot
+          deviceId = `legacy-${clientIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
           printAgentHub.connectDevice(ws, { deviceId, deviceName: "Dispositivo legado", ip: clientIp });
+          logger.info(`[PrintAgent] Device legado registrado: ${deviceId}`);
         }
 
         const message = parseAgentEnvelope(raw);
@@ -627,7 +622,6 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
     });
 
     ws.on("close", () => {
-      clearTimeout(handshakeTimer);
       clearInterval(heartbeatInterval);
       if (deviceId) {
         printAgentHub.disconnectDevice(deviceId);
@@ -652,7 +646,7 @@ import prisma from "../database/prisma";
 
 export function createPrintDeviceRoutes(router: Router): void {
   // GET /api/print-agent/devices — list all devices
-  router.get("/api/print-agent/devices", async (_req: Request, res: Response) => {
+  router.get("/print-agent/devices", async (_req: Request, res: Response) => {
     try {
       const dbDevices = await prisma.printDevice.findMany({ orderBy: { lastSeenAt: "desc" } });
       const liveDevices = printAgentHub.getAllDevices();
@@ -682,8 +676,8 @@ export function createPrintDeviceRoutes(router: Router): void {
     }
   });
 
-  // PATCH /api/print-agent/devices/:id/default — set device as default
-  router.patch("/api/print-agent/devices/:id/default", async (req: Request, res: Response) => {
+  // PUT/PATCH /print-agent/devices/:id/default — set device as default
+  const setDefaultHandler = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
       await prisma.$transaction([
@@ -700,10 +694,12 @@ export function createPrintDeviceRoutes(router: Router): void {
       logger.error({ error }, "set_default_device_failed");
       res.status(500).json({ error: "Falha ao definir dispositivo padrão" });
     }
-  });
+  };
+  router.patch("/print-agent/devices/:id/default", setDefaultHandler);
+  router.put("/print-agent/devices/:id/default", setDefaultHandler);
 
-  // PATCH /api/print-agent/devices/:id — update device name
-  router.patch("/api/print-agent/devices/:id", async (req: Request, res: Response) => {
+  // PATCH /print-agent/devices/:id — update device name
+  router.patch("/print-agent/devices/:id", async (req: Request, res: Response) => {
     const { id } = req.params;
     const { deviceName } = req.body;
     try {
@@ -719,7 +715,7 @@ export function createPrintDeviceRoutes(router: Router): void {
   });
 
   // DELETE /api/print-agent/devices/:id — remove device
-  router.delete("/api/print-agent/devices/:id", async (req: Request, res: Response) => {
+  router.delete("/print-agent/devices/:id", async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
       printAgentHub.removeDevice(id);
@@ -732,7 +728,7 @@ export function createPrintDeviceRoutes(router: Router): void {
   });
 
   // GET /api/print-agent/devices/stream — SSE for real-time device updates
-  router.get("/api/print-agent/devices/stream", (req: Request, res: Response) => {
+  router.get("/print-agent/devices/stream", (req: Request, res: Response) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");

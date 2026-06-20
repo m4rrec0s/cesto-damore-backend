@@ -200,13 +200,52 @@ class ProductComponentService {
   
 
   async decrementComponentsStock(productId: string, productQuantity: number) {
-    logger.warn(
-      `⚠️ DECREMENTO DE COMPONENTES DESABILITADO - Produto ${productId}, Qtd: ${productQuantity}`
+    await prisma.$transaction(
+      async (tx) => {
+        const components = await tx.productComponent.findMany({
+          where: { product_id: productId },
+          include: { item: true },
+        });
+
+        if (!components.length) {
+          logger.warn(
+            `Produto ${productId} marcado como COMPONENTS_ONLY mas não possui componentes`,
+          );
+          return;
+        }
+
+        for (const component of components) {
+          const requested = component.quantity * productQuantity;
+
+          const rows = await tx.$queryRaw<{ stock_quantity: number }[]>`
+            SELECT stock_quantity FROM "Item"
+            WHERE id = ${component.item_id}
+            FOR UPDATE
+          `;
+
+          const currentStock = rows[0]?.stock_quantity ?? 0;
+
+          if (currentStock < requested) {
+            throw new Error(
+              `Estoque insuficiente para componente ${component.item.name} do produto ${productId}. ` +
+              `Disponível: ${currentStock}, Necessário: ${requested}`,
+            );
+          }
+
+          await tx.item.update({
+            where: { id: component.item_id },
+            data: {
+              stock_quantity: { decrement: requested },
+            },
+          });
+
+          logger.info(
+            `✅ Estoque do componente ${component.item.name} decrementado em ${requested} (pedido produto ${productId} x${productQuantity})`,
+          );
+        }
+      },
+      { isolationLevel: "Serializable" },
     );
-    return;
-
-    
-
   }
 
   

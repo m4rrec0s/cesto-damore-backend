@@ -59,7 +59,7 @@ class OrderController {
         ? orders.filter((order: any) => {
             const normalized = String(status).trim().toLowerCase();
             if (normalized === "open" || normalized === "abertos") {
-              return ["PENDING", "PAID", "SHIPPED"].includes(order.status);
+              return ["PENDING", "PAID", "PAID_STOCK_FAILED", "SHIPPED"].includes(order.status);
             }
             if (normalized === "closed" || normalized === "fechados") {
               return ["DELIVERED", "CANCELED"].includes(order.status);
@@ -204,19 +204,32 @@ class OrderController {
   async create(req: Request, res: Response) {
     try {
       const currentUserId = (req as any).user?.id;
-      if (currentUserId && req.body?.user_id && req.body.user_id !== currentUserId) {
+      if (!currentUserId) {
+        return res.status(401).json({
+          error: "Autenticação necessária para criar pedidos",
+        });
+      }
+
+      if (req.body?.user_id && req.body.user_id !== currentUserId) {
         return res.status(403).json({
           error: "Você não tem permissão para criar pedidos para outro usuário",
         });
       }
 
+      const orderPayload = {
+        ...req.body,
+        user_id: currentUserId,
+      };
+
       console.log("📝 Criando pedido - resumo:", {
-        user_id: req.body?.user_id,
-        itemsCount: Array.isArray(req.body?.items) ? req.body.items.length : 0,
-        total: req.body?.total ?? null,
-        delivery_city: req.body?.delivery_city ?? null,
+        user_id: orderPayload.user_id,
+        itemsCount: Array.isArray(orderPayload.items)
+          ? orderPayload.items.length
+          : 0,
+        total: orderPayload.total ?? null,
+        delivery_city: orderPayload.delivery_city ?? null,
       });
-      const order = await orderService.createOrder(req.body);
+      const order = await orderService.createOrder(orderPayload);
 
       console.log("✅ Pedido criado com sucesso:", order.id);
       res.status(201).json(order);
@@ -254,13 +267,6 @@ class OrderController {
           error: error.message,
           errors: (error as any).errors || [],
           code: "INVALID_CUSTOMIZATIONS",
-        });
-      }
-      if ((error as any).code === "MISSING_ADDITIONALS") {
-        return res.status(404).json({
-          error: error.message,
-          missing: (error as any).missing || [],
-          code: "MISSING_ADDITIONALS",
         });
       }
       if ((error as any).code === "MISSING_ADDITIONALS") {

@@ -715,6 +715,7 @@ enum PaymentStatus {
 enum OrderStatus {
   PENDING
   PAID
+  PAID_STOCK_FAILED
   SHIPPED
   DELIVERED
   CANCELED

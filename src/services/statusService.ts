@@ -76,7 +76,7 @@ class StatusService {
 
                 dayData.total_orders++;
 
-                if (order.status === 'PAID' || order.status === 'SHIPPED' || order.status === 'DELIVERED') {
+                if (order.status === 'PAID' || order.status === 'PAID_STOCK_FAILED' || order.status === 'SHIPPED' || order.status === 'DELIVERED') {
                     const orderValue = order.grand_total || order.total || 0;
                     const netValue = order.payment?.net_received_amount || orderValue * 0.95;
                     const fees = orderValue - netValue;

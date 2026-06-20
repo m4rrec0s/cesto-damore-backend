@@ -435,6 +435,20 @@ export class PaymentController {
         });
       }
 
+      if (incomingType && incomingResource) {
+        await prisma.webhookLog.create({
+          data: {
+            payment_id: incomingResource.toString(),
+            topic: incomingType,
+            resource_id: incomingResource.toString(),
+            raw_data: JSON.stringify(webhookData),
+            processed: false,
+            finalization_succeeded: false,
+            finalization_attempts: 0,
+          },
+        });
+      }
+
       res.status(200).json({ received: true });
 
       void PaymentService.processWebhookNotification(webhookData, headers)

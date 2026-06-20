@@ -843,25 +843,28 @@ class OrderCustomizationService {
       `🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`,
     );
 
-    const existingOrder = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        google_drive_folder_id: true,
-        google_drive_folder_url: true,
-        customizations_drive_processed: true,
-      },
-    });
+    const claimed = await prisma.$queryRaw<{ id: string }[]>`
+      UPDATE "Order"
+      SET customizations_drive_processed = customizations_drive_processed
+      WHERE id = ${orderId}
+        AND (customizations_drive_processed = false OR google_drive_folder_id IS NULL)
+      RETURNING id
+    `;
 
-    if (
-      existingOrder?.customizations_drive_processed &&
-      existingOrder?.google_drive_folder_id
-    ) {
+    if (!claimed.length) {
+      const existingOrder = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          google_drive_folder_id: true,
+          google_drive_folder_url: true,
+        },
+      });
       logger.info(
-        `🟢 Customizações já foram processadas para ${orderId}, retornando dados existentes`,
+        `🟢 Customizações já estão sendo processadas ou foram processadas para ${orderId}, retornando dados existentes`,
       );
       return {
-        folderId: existingOrder.google_drive_folder_id,
-        folderUrl: existingOrder.google_drive_folder_url || undefined,
+        folderId: existingOrder?.google_drive_folder_id || undefined,
+        folderUrl: existingOrder?.google_drive_folder_url || undefined,
         uploadedFiles: 0,
         base64Detected: false,
         base64AffectedIds: [],

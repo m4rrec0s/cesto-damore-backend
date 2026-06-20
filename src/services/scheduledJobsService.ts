@@ -155,7 +155,7 @@ class ScheduledJobsService {
 
       const ordersWithoutDriveLink = await prisma.order.findMany({
         where: {
-          status: "PAID",
+          status: { in: ["PAID", "PAID_STOCK_FAILED"] },
           google_drive_folder_url: null,
           created_at: {
             gte: twoDaysAgo,

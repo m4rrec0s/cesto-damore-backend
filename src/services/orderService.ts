@@ -14,6 +14,7 @@ import customizationAssetPersistenceService from "./customizationAssetPersistenc
 const ORDER_STATUSES = [
   "PENDING",
   "PAID",
+  "PAID_STOCK_FAILED",
   "SHIPPED",
   "DELIVERED",
   "CANCELED",
@@ -110,6 +111,18 @@ function normalizeText(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
+}
+
+function roundCurrency(value: number) {
+  return parseFloat(value.toFixed(2));
+}
+
+function resolveCatalogProductPrice(product: {
+  price: number;
+  discount?: number | null;
+}) {
+  const discount = product.discount || 0;
+  return roundCurrency(product.price * (1 - discount / 100));
 }
 
 function hashCustomizations(customizations?: any[]): string {
@@ -306,7 +319,7 @@ class OrderService {
 
     if (normalized === "open" || normalized === "abertos") {
       return {
-        in: ["PENDING", "PAID", "SHIPPED"] as OrderStatus[],
+        in: ["PENDING", "PAID", "PAID_STOCK_FAILED", "SHIPPED"] as OrderStatus[],
       };
     }
 
@@ -559,6 +572,173 @@ class OrderService {
     }
   }
 
+  async refreshOrderCatalogPrices(orderId: string) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            additionals: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new Error("Pedido não encontrado");
+    }
+
+    if (order.status !== "PENDING") {
+      return this.getOrderById(orderId);
+    }
+
+    const productIds = [...new Set(order.items.map((item) => item.product_id))];
+    const additionalIds = [
+      ...new Set(
+        order.items.flatMap((item) =>
+          item.additionals.map((additional) => additional.additional_id),
+        ),
+      ),
+    ];
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, price: true, discount: true },
+    });
+
+    if (products.length !== productIds.length) {
+      const foundIds = products.map((product) => product.id);
+      const missing = productIds.filter((id) => !foundIds.includes(id));
+      throw new Error(`Produtos não encontrados: ${missing.join(",")}`);
+    }
+
+    const productPriceMap = new Map<string, number>();
+    products.forEach((product) => {
+      productPriceMap.set(product.id, resolveCatalogProductPrice(product));
+    });
+
+    const additionalBasePriceMap = new Map<string, number>();
+    const productAdditionalPriceMap = new Map<string, number>();
+
+    if (additionalIds.length > 0) {
+      const additionals = await prisma.item.findMany({
+        where: { id: { in: additionalIds } },
+        select: { id: true, base_price: true },
+      });
+
+      if (additionals.length !== additionalIds.length) {
+        const foundIds = additionals.map((additional) => additional.id);
+        const missing = additionalIds.filter((id) => !foundIds.includes(id));
+        throw new Error(`Adicionais não encontrados: ${missing.join(",")}`);
+      }
+
+      additionals.forEach((additional) => {
+        additionalBasePriceMap.set(additional.id, additional.base_price);
+      });
+
+      const productAdditionals = await prisma.productAdditional.findMany({
+        where: {
+          product_id: { in: productIds },
+          additional_id: { in: additionalIds },
+          is_active: true,
+        },
+        select: { product_id: true, additional_id: true, custom_price: true },
+      });
+
+      productAdditionals.forEach((entry) => {
+        if (typeof entry.custom_price === "number") {
+          productAdditionalPriceMap.set(
+            `${entry.product_id}:${entry.additional_id}`,
+            entry.custom_price,
+          );
+        }
+      });
+    }
+
+    const resolveAdditionalPrice = (productId: string, additionalId: string) => {
+      const customPrice = productAdditionalPriceMap.get(
+        `${productId}:${additionalId}`,
+      );
+      if (typeof customPrice === "number") {
+        return customPrice;
+      }
+
+      const basePrice = additionalBasePriceMap.get(additionalId);
+      if (typeof basePrice === "number") {
+        return basePrice;
+      }
+
+      throw new Error(`Adicional não encontrado: ${additionalId}`);
+    };
+
+    let total = 0;
+    const orderItemUpdates: Array<{ id: string; price: number }> = [];
+    const additionalUpdates: Array<{ id: string; price: number }> = [];
+
+    for (const item of order.items) {
+      const productPrice = productPriceMap.get(item.product_id);
+      if (typeof productPrice !== "number") {
+        throw new Error(`Produto não encontrado: ${item.product_id}`);
+      }
+
+      orderItemUpdates.push({ id: item.id, price: productPrice });
+      total += productPrice * item.quantity;
+
+      for (const additional of item.additionals) {
+        const additionalPrice = resolveAdditionalPrice(
+          item.product_id,
+          additional.additional_id,
+        );
+        additionalUpdates.push({ id: additional.id, price: additionalPrice });
+        total += additionalPrice * additional.quantity;
+      }
+    }
+
+    total = roundCurrency(total);
+    const discount = roundCurrency(order.discount || 0);
+
+    if (discount < 0) {
+      throw new Error("Desconto não pode ser negativo");
+    }
+
+    if (discount > total) {
+      throw new Error("Desconto não pode ser maior que o total dos itens");
+    }
+
+    const shipping = roundCurrency(order.shipping_price || 0);
+    const grandTotal = roundCurrency(total - discount + shipping);
+
+    if (grandTotal <= 0) {
+      throw new Error("Valor final do pedido deve ser maior que zero");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const update of orderItemUpdates) {
+        await tx.orderItem.update({
+          where: { id: update.id },
+          data: { price: update.price },
+        });
+      }
+
+      for (const update of additionalUpdates) {
+        await tx.orderItemAdditional.update({
+          where: { id: update.id },
+          data: { price: update.price },
+        });
+      }
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          total,
+          grand_total: grandTotal,
+        },
+      });
+    });
+
+    return this.getOrderById(orderId);
+  }
+
   async createOrder(data: CreateOrderInput) {
     logger.info("📝 [OrderService] Iniciando criação de pedido - resumo:", {
       user_id: data.user_id,
@@ -656,9 +836,6 @@ class OrderService {
       if (!item.quantity || item.quantity <= 0) {
         throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
       }
-      if (!item.price || item.price <= 0) {
-        throw new Error(`Item ${i + 1}: Preço deve ser maior que zero`);
-      }
 
       if (Array.isArray(item.additionals)) {
         for (let j = 0; j < item.additionals.length; j++) {
@@ -721,6 +898,11 @@ class OrderService {
         (err as any).missing = missing;
         throw err;
       }
+
+      const productPriceMap = new Map<string, number>();
+      products.forEach((product) => {
+        productPriceMap.set(product.id, resolveCatalogProductPrice(product));
+      });
 
       for (const orderItem of data.items) {
         const product = products.find((p) => p.id === orderItem.product_id);
@@ -821,7 +1003,11 @@ class OrderService {
       }
 
       const itemsTotal = data.items.reduce((sum, item) => {
-        const baseTotal = item.price * item.quantity;
+        const catalogPrice = productPriceMap.get(item.product_id);
+        if (typeof catalogPrice !== "number") {
+          throw new Error(`Produto não encontrado: ${item.product_id}`);
+        }
+        const baseTotal = catalogPrice * item.quantity;
         const additionalsTotal = (item.additionals || []).reduce(
           (acc, additional) => {
             const resolvedPrice = resolveAdditionalPrice(
@@ -843,7 +1029,7 @@ class OrderService {
           items: data.items.map((i) => ({
             p: i.product_id,
             q: i.quantity,
-            pr: i.price,
+            pr: productPriceMap.get(i.product_id),
           })),
         });
         throw new Error(
@@ -948,12 +1134,16 @@ class OrderService {
       const createStart = Date.now();
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
+        const catalogPrice = productPriceMap.get(item.product_id);
+        if (typeof catalogPrice !== "number") {
+          throw new Error(`Produto não encontrado: ${item.product_id}`);
+        }
         const orderItem = await prisma.orderItem.create({
           data: {
             order_id: created.id,
             product_id: item.product_id,
             quantity: item.quantity,
-            price: item.price,
+            price: catalogPrice,
           },
         });
         createdItems.push({ id: orderItem.id, index: idx });
@@ -1346,9 +1536,6 @@ class OrderService {
       if (!item.quantity || item.quantity <= 0) {
         throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
       }
-      if (!item.price && item.price !== 0) {
-        throw new Error(`Item ${i + 1}: Preço deve ser informado`);
-      }
       if (Array.isArray(item.additionals)) {
         for (let j = 0; j < item.additionals.length; j++) {
           const additional = item.additionals[j];
@@ -1386,6 +1573,11 @@ class OrderService {
       (err as any).missing = missing;
       throw err;
     }
+
+    const productPriceMap = new Map<string, number>();
+    products.forEach((product) => {
+      productPriceMap.set(product.id, resolveCatalogProductPrice(product));
+    });
 
     const additionalsIds = items
       .flatMap((item) => item.additionals?.map((ad) => ad.additional_id) || [])
@@ -1469,6 +1661,10 @@ class OrderService {
     }
 
     const itemsTotal = items.reduce((sum, item) => {
+      const catalogPrice = productPriceMap.get(item.product_id);
+      if (typeof catalogPrice !== "number") {
+        throw new Error(`Produto não encontrado: ${item.product_id}`);
+      }
       const additionalTotal = (item.additionals || []).reduce((acc, add) => {
         const resolvedPrice = resolveAdditionalPrice(
           item.product_id,
@@ -1477,7 +1673,7 @@ class OrderService {
         );
         return acc + resolvedPrice * (add.quantity || 0);
       }, 0);
-      return sum + item.price * item.quantity + additionalTotal;
+      return sum + catalogPrice * item.quantity + additionalTotal;
     }, 0);
 
     if (itemsTotal <= 0 || isNaN(itemsTotal)) {
@@ -1489,7 +1685,7 @@ class OrderService {
           items: items.map((i) => ({
             p: i.product_id,
             q: i.quantity,
-            pr: i.price,
+            pr: productPriceMap.get(i.product_id),
           })),
         },
       );
@@ -1536,12 +1732,16 @@ class OrderService {
 
           for (let idx = 0; idx < items.length; idx++) {
             const item = items[idx];
+            const catalogPrice = productPriceMap.get(item.product_id);
+            if (typeof catalogPrice !== "number") {
+              throw new Error(`Produto não encontrado: ${item.product_id}`);
+            }
             const createdItem = await tx.orderItem.create({
               data: {
                 order_id: orderId,
                 product_id: item.product_id,
                 quantity: item.quantity,
-                price: item.price,
+                price: catalogPrice,
               },
             });
             createdItems.push({ id: createdItem.id, index: idx });
@@ -1992,6 +2192,17 @@ class OrderService {
           `❌ Erro crítico ao decrementar estoque do pedido ${id}:`,
           stockError,
         );
+
+        await prisma.order.update({
+          where: { id },
+          data: { status: "PAID_STOCK_FAILED" },
+        });
+
+        logger.warn(
+          `⚠️ Pedido ${id} marcado como PAID_STOCK_FAILED - requer intervenção manual`,
+        );
+
+        return this.getOrderById(id);
       }
     }
 

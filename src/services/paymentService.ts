@@ -3,7 +3,6 @@ import prisma from "../database/prisma";
 import fs from "fs/promises";
 import type { PaymentStatus, Prisma } from "@prisma/client";
 import * as crypto from "crypto-js";
-import { randomUUID } from "crypto";
 import { mercadoPagoDirectService } from "./mercadoPagoDirectService";
 import whatsappService from "./whatsappService";
 import orderCustomizationService from "./orderCustomizationService";
@@ -106,6 +105,22 @@ export interface ProcessTransparentCheckoutData {
   frontendPublicKeyFingerprint?: string;
   frontendPublicKeyPrefix?: string;
 }
+
+const buildPaymentIdempotencyKey = (params: {
+  orderId: string;
+  paymentMethodId: string;
+  amount: number;
+  paymentDbVersionAt?: number;
+}) => {
+  const payload = [
+    params.orderId,
+    params.paymentMethodId,
+    String(roundCurrency(params.amount)),
+    String(params.paymentDbVersionAt ?? 0),
+  ].join("|");
+
+  return crypto.SHA256(payload).toString();
+};
 
 export class PaymentService {
   private static notificationSentOrders: Set<string> = new Set();
@@ -612,7 +627,7 @@ export class PaymentService {
         throw new Error("Email do pagador inválido");
       }
 
-      const order = await this.loadOrderWithDetails(data.orderId);
+      let order = await this.loadOrderWithDetails(data.orderId);
 
       if (!order) {
         throw new Error("Pedido não encontrado");
@@ -625,6 +640,13 @@ export class PaymentService {
       if (!order.items.length) {
         throw new Error("Pedido sem itens não pode gerar pagamento");
       }
+
+      await orderService.refreshOrderCatalogPrices(order.id);
+      const refreshedOrder = await this.loadOrderWithDetails(data.orderId);
+      if (!refreshedOrder) {
+        throw new Error("Pedido não encontrado após recálculo de preços");
+      }
+      order = refreshedOrder;
 
       const orderPaymentMethod = normalizeOrderPaymentMethod(
         order.payment_method,
@@ -814,7 +836,7 @@ export class PaymentService {
         );
       }
 
-      const order = await this.loadOrderWithDetails(data.orderId);
+      let order = await this.loadOrderWithDetails(data.orderId);
 
       if (!order) {
         logger.error(
@@ -889,6 +911,13 @@ export class PaymentService {
           );
         }
       }
+
+      await orderService.refreshOrderCatalogPrices(order.id);
+      const refreshedOrder = await this.loadOrderWithDetails(data.orderId);
+      if (!refreshedOrder) {
+        throw new Error("Pedido não encontrado após recálculo de preços");
+      }
+      order = refreshedOrder;
 
       if (order.payment) {
         if (order.payment.status === "APPROVED") {
@@ -1027,9 +1056,14 @@ export class PaymentService {
         paymentData.statement_descriptor = "CESTO D'AMORE";
       }
 
-      const idempotencyKey = `${data.paymentMethodId}-${
-        data.orderId
-      }-${randomUUID()}`;
+      const idempotencyKey = buildPaymentIdempotencyKey({
+        orderId: data.orderId,
+        paymentMethodId: data.paymentMethodId,
+        amount: summary.grandTotal,
+        paymentDbVersionAt: (order as any).updated_at
+          ? new Date((order as any).updated_at).getTime()
+          : 0,
+      });
 
       this.logPaymentFlow({
         customerLabel,
@@ -1868,17 +1902,28 @@ export class PaymentService {
         paymentId: resourceId,
       });
 
-      const logEntry = await prisma.webhookLog.create({
-        data: {
-          payment_id: resourceId,
-          topic: webhookType,
+      const preExistingLog = await prisma.webhookLog.findFirst({
+        where: {
           resource_id: resourceId,
-          raw_data: JSON.stringify(data),
+          topic: webhookType,
           processed: false,
-          finalization_succeeded: false,
-          finalization_attempts: 0,
         },
+        orderBy: { created_at: "desc" },
       });
+
+      if (!preExistingLog) {
+        await prisma.webhookLog.create({
+          data: {
+            payment_id: resourceId,
+            topic: webhookType,
+            resource_id: resourceId,
+            raw_data: JSON.stringify(data),
+            processed: false,
+            finalization_succeeded: false,
+            finalization_attempts: 0,
+          },
+        });
+      }
 
       let processedPayment: boolean | undefined = undefined;
       switch (webhookType) {

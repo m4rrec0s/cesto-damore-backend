@@ -43,6 +43,8 @@ class GoogleDriveService {
   private drive: any;
   private tokenPath: string;
   private baseUrl: string;
+  private static readonly MAX_RETRIES = 3;
+  private static readonly BASE_DELAY_MS = 2000;
 
   constructor() {
     this.rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
@@ -250,7 +252,25 @@ class GoogleDriveService {
     }
   }
 
-  
+  private async withRetry<T>(fn: () => Promise<T>, context: string): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= GoogleDriveService.MAX_RETRIES; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        lastError = error;
+        const status = error?.status || error?.code || 0;
+        const isRetryable = status === 429 || status === 500 || status === 503 || status === 408;
+        if (!isRetryable || attempt === GoogleDriveService.MAX_RETRIES) {
+          throw error;
+        }
+        const delay = GoogleDriveService.BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        logger.warn(`⚠️ Drive API error (${status}) in ${context}, attempt ${attempt}/${GoogleDriveService.MAX_RETRIES}, retrying in ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    throw lastError;
+  }
 
   getAuthUrl(): string {
     if (!this.oauth2Client) {
@@ -351,7 +371,7 @@ class GoogleDriveService {
     folderName: string,
     parentFolderId?: string
   ): Promise<string> {
-    try {
+    return this.withRetry(async () => {
       await this.ensureValidToken();
 
       const parents = [];
@@ -373,10 +393,7 @@ class GoogleDriveService {
       });
 
       return response.data.id;
-    } catch (error: any) {
-      logger.error("❌ Erro ao criar pasta no Google Drive:", error.message);
-      throw new Error("Falha ao criar pasta de customização no Google Drive");
-    }
+    }, `createFolder(${folderName})`);
   }
 
   async clearTokens(): Promise<void> {
@@ -401,7 +418,7 @@ class GoogleDriveService {
     folderId: string,
     mimeType?: string
   ): Promise<UploadedFile> {
-    try {
+    return this.withRetry(async () => {
       await this.ensureValidToken();
 
       const fileMetadata = {
@@ -435,10 +452,7 @@ class GoogleDriveService {
         webViewLink: response.data.webViewLink,
         webContentLink: directDownloadUrl,
       };
-    } catch (error: any) {
-      logger.error("❌ Erro ao fazer upload:", error.message);
-      throw new Error("Falha ao fazer upload do arquivo para o Google Drive");
-    }
+    }, `uploadFile(${fileName})`);
   }
 
   
@@ -447,12 +461,11 @@ class GoogleDriveService {
     files: Array<{ path: string; name: string; mimeType?: string }>,
     folderId: string
   ): Promise<UploadedFile[]> {
-    const uploadPromises = files.map((file) =>
-      this.uploadFile(file.path, file.name, folderId, file.mimeType)
-    );
-
-    const results = await Promise.all(uploadPromises);
-
+    const results: UploadedFile[] = [];
+    for (const file of files) {
+      const uploaded = await this.uploadFile(file.path, file.name, folderId, file.mimeType);
+      results.push(uploaded);
+    }
     return results;
   }
 
@@ -462,7 +475,7 @@ class GoogleDriveService {
     folderId: string,
     mimeType?: string
   ): Promise<UploadedFile> {
-    try {
+    return this.withRetry(async () => {
       await this.ensureValidToken();
 
       const fileMetadata = {
@@ -482,7 +495,6 @@ class GoogleDriveService {
       });
 
       try {
-
         await this.drive.permissions.create({
           fileId: response.data.id,
           requestBody: {
@@ -491,7 +503,6 @@ class GoogleDriveService {
           },
         });
       } catch (permErr) {
-
         logger.warn(
           "Could not set file permissions to anyone: ",
           String(permErr)
@@ -506,40 +517,7 @@ class GoogleDriveService {
         webViewLink: response.data.webViewLink || directImageUrl,
         webContentLink: response.data.webContentLink || directImageUrl,
       };
-    } catch (error: any) {
-      logger.error("❌ Erro ao fazer upload via buffer:", String(error));
-      logger.error("🔎 folderId usado no upload:", folderId);
-
-      const message = String(error?.message || error);
-      if (
-        message.includes("invalid_grant") ||
-        message.includes("invalid_grant")
-      ) {
-        throw new Error(
-          "Falha ao renovar autenticação. Execute o fluxo OAuth2 novamente via /oauth/authorize"
-        );
-      }
-      if (
-        message.includes("File not found") ||
-        message.includes("file not found")
-      ) {
-        throw new Error(
-          "Arquivo não encontrado ou Drive configurado incorretamente. Verifique o folderId/permissões e se o Drive configurado está acessível"
-        );
-      }
-      if (
-        message.includes("insufficientFilePermissions") ||
-        message.includes("Forbidden") ||
-        message.includes("permission")
-      ) {
-
-        throw new Error(
-          "Permissão negada: a conta autenticada não tem acesso à pasta/folderId. Verifique as permissões e se a pasta pertence ao Drive correto."
-        );
-      }
-
-      throw new Error("Falha ao fazer upload do arquivo para o Google Drive");
-    }
+    }, `uploadBuffer(${fileName})`);
   }
 
   

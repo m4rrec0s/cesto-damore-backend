@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from "axios";
 import reportService from "./reportService";
 import logger from "../utils/logger";
 
-type OrderStatus = "PENDING" | "PAID" | "SHIPPED" | "DELIVERED" | "CANCELED";
+type OrderStatus = "PENDING" | "PAID" | "PAID_STOCK_FAILED" | "SHIPPED" | "DELIVERED" | "CANCELED";
 
 interface WhatsAppConfig {
   apiUrl: string;
@@ -638,6 +638,13 @@ class WhatsAppService {
         description: "Pagamento aprovado, preparar pedido.",
         customerHint:
           "Recebemos seu pagamento! Em breve começaremos a montar sua cesta.",
+      },
+      PAID_STOCK_FAILED: {
+        label: "Pagamento OK - Estoque Pendente",
+        emoji: "⚠️",
+        description: "Pagamento aprovado mas houve problema com estoque.",
+        customerHint:
+          "Seu pagamento foi confirmado! Estamos verificando a disponibilidade dos itens.",
       },
       SHIPPED: {
         label: "Pedido em Rota de Entrega",

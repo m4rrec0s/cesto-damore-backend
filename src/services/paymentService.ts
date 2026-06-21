@@ -948,6 +948,8 @@ export class PaymentService {
             }
           }
 
+          // Deleta pagamento anterior para criar novo
+          // (não pode desvincular pois order_id é obrigatório no schema)
           await prisma.payment.delete({
             where: { id: order.payment.id },
           });
@@ -2182,8 +2184,8 @@ export class PaymentService {
       }
 
       if (!dbPayment) {
-        logger.error("Pagamento não encontrado no banco:", paymentId);
-        return false;
+        logger.info(`ℹ️ Pagamento ${paymentId} não encontrado no banco (possivelmente cancelado/substituído)`);
+        return true; // Retorna true para marcar webhook como processado
       }
 
       const newStatus = this.mapPaymentStatus(paymentInfo.status as string);

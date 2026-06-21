@@ -1105,6 +1105,7 @@ export class PaymentService {
         orderId: data.orderId,
         mercadoPagoId: paymentResponse.id,
         status: paymentResponse.status,
+        statusDetail: paymentResponse.status_detail,
       });
 
       logger.info('💾 Executando upsert no banco:', {

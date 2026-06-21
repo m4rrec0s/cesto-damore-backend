@@ -1745,10 +1745,14 @@ export class PaymentService {
           });
 
           if (!dbPayment || !dbPayment.order_id) {
-            logger.warn(`Reprocess: pagamento ${paymentId} sem order_id`);
+            logger.warn(`Reprocess: pagamento ${paymentId} sem order_id (provavelmente deletado/substituído), marcando como finalizado`);
             await prisma.webhookLog.updateMany({
               where: { id: log.id },
-              data: { finalization_attempts: { increment: 1 } as any },
+              data: {
+                finalization_succeeded: true,
+                finalization_attempts: { increment: 1 } as any,
+                error_message: "Pagamento não encontrado no banco (deletado/substituído)",
+              },
             });
             continue;
           }
@@ -2098,7 +2102,6 @@ export class PaymentService {
     const candidates = await prisma.payment.findMany({
       where: {
         mercado_pago_id: { not: null },
-        payment_method: "pix",
         status: {
           in: ["PENDING", "IN_PROCESS", "IN_MEDIATION", "AUTHORIZED"],
         },
@@ -2109,6 +2112,7 @@ export class PaymentService {
         order_id: true,
         mercado_pago_id: true,
         status: true,
+        payment_method: true,
       },
       orderBy: { created_at: "asc" },
       take: limit,
@@ -2132,6 +2136,7 @@ export class PaymentService {
           newStatus !== candidate.status ||
           paymentInfo?.status === "approved"
         ) {
+          logger.info(`🔄 Reconciliação: ${candidate.payment_method} ${mercadoPagoId} status mudou ${candidate.status} -> ${newStatus}`);
           await this.processPaymentNotification(mercadoPagoId, paymentInfo);
           reprocessed++;
         }
@@ -2155,13 +2160,13 @@ export class PaymentService {
           });
 
           logger.warn(
-            `⚠️ Pagamento PIX ${candidate.mercado_pago_id} não encontrado no MP; status local atualizado para CANCELLED (order ${candidate.order_id})`,
+            `⚠️ Pagamento ${candidate.payment_method} ${candidate.mercado_pago_id} não encontrado no MP; status local atualizado para CANCELLED (order ${candidate.order_id})`,
           );
           continue;
         }
 
         logger.warn(
-          `⚠️ Falha ao reconciliar pagamento PIX ${candidate.mercado_pago_id} (order ${candidate.order_id}): ${error}`,
+          `⚠️ Falha ao reconciliar pagamento ${candidate.payment_method} ${candidate.mercado_pago_id} (order ${candidate.order_id}): ${error}`,
         );
       }
     }

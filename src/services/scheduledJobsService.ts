@@ -92,7 +92,7 @@ class ScheduledJobsService {
     const INTERVAL_MS = 60 * 1000;
 
     logger.info(
-      `💳 Agendando reconciliação PIX pendente (intervalo: ${INTERVAL_MS / 1000}s)`,
+      `💳 Agendando reconciliação de pagamentos pendentes (intervalo: ${INTERVAL_MS / 1000}s)`,
     );
 
     this.reconcilePendingPixPayments();
@@ -111,11 +111,11 @@ class ScheduledJobsService {
 
       if (result.reprocessed > 0) {
         logger.info(
-          `✅ Reconciliação PIX: ${result.reprocessed}/${result.scanned} pagamento(s) atualizado(s)`,
+          `✅ Reconciliação: ${result.reprocessed}/${result.scanned} pagamento(s) atualizado(s)`,
         );
       } else {
         logger.debug(
-          `🔍 Reconciliação PIX executada sem mudanças (${result.scanned} verificados)`,
+          `🔍 Reconciliação executada sem mudanças (${result.scanned} verificados)`,
         );
       }
     } catch (error) {

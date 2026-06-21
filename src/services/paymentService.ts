@@ -1065,6 +1065,30 @@ export class PaymentService {
           : 0,
       });
 
+      // Proteção contra pagamentos duplicados
+      const existingPayment = await prisma.payment.findUnique({
+        where: { order_id: data.orderId },
+      });
+
+      if (existingPayment && existingPayment.mercado_pago_id) {
+        logger.warn(`⚠️ Tentativa de pagamento duplicado detectada`, {
+          orderId: data.orderId,
+          existingPaymentId: existingPayment.mercado_pago_id,
+          status: existingPayment.status,
+        });
+
+        // Se o pagamento já está aprovado, retorna erro
+        if (existingPayment.status === "APPROVED") {
+          throw new Error("Este pedido já possui um pagamento aprovado.");
+        }
+
+        // Se está pendente ou em análise, retorna o pagamento existente
+        if (["PENDING", "IN_PROCESS"].includes(existingPayment.status)) {
+          logger.info("Retornando pagamento existente em processamento");
+          return existingPayment;
+        }
+      }
+
       this.logPaymentFlow({
         customerLabel,
         stage: "enviando e processando pagamento",

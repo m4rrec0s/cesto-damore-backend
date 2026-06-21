@@ -2305,11 +2305,25 @@ export class PaymentService {
           ),
         });
 
-        await orderService.updateOrderStatus(dbPayment.order_id, "PAID", {
-          notifyCustomer: false,
+        // Notifica frontend IMEDIATAMENTE antes de qualquer pós-processamento
+        webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
+          status: "approved",
+          paymentId: dbPayment.id,
+          mercadoPagoId: paymentId,
+          approvedAt: new Date().toLocaleString("pt-BR", {
+            timeZone: "America/Sao_Paulo",
+          }),
+          paymentMethod: paymentInfo.payment_method_id || undefined,
         });
 
-        // Confirm stock reservation when payment is approved
+        // Atualiza status do pedido (não-bloqueante)
+        await orderService.updateOrderStatus(dbPayment.order_id, "PAID", {
+          notifyCustomer: false,
+        }).catch((err: any) => {
+          logger.error(`⚠️ Falha ao atualizar status do pedido ${dbPayment.order_id} para PAID:`, err?.message || err);
+        });
+
+        // Confirma reserva de estoque (não-bloqueante)
         try {
           await reservationService.confirmReservation(dbPayment.order_id);
           logger.info(
@@ -2320,7 +2334,6 @@ export class PaymentService {
             `⚠️ Error confirming reservation for order ${dbPayment.order_id}:`,
             reservationError.message,
           );
-          // Don't block payment processing if reservation confirmation fails
         }
 
         try {
@@ -2435,16 +2448,6 @@ export class PaymentService {
               );
             }
 
-            webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
-              status: "approved",
-              paymentId: dbPayment.id,
-              mercadoPagoId: paymentId,
-              approvedAt: new Date().toLocaleString("pt-BR", {
-                timeZone: "America/Sao_Paulo",
-              }),
-              paymentMethod: paymentInfo.payment_method_id || undefined,
-            });
-
             await this.sendCustomizationReadyNotificationOnce(
               dbPayment.order_id,
               googleDriveUrl,
@@ -2455,18 +2458,11 @@ export class PaymentService {
               err,
             );
 
-            webhookNotificationService.notifyPaymentUpdate(dbPayment.order_id, {
-              status: "approved",
-              paymentId: dbPayment.id,
-              mercadoPagoId: paymentId,
-              approvedAt: new Date().toLocaleString("pt-BR", {
-                timeZone: "America/Sao_Paulo",
-              }),
-              paymentMethod: paymentInfo.payment_method_id || undefined,
-            });
-            logger.warn(
-              `📤 Sent SSE notification despite finalization failure for order ${dbPayment.order_id}`,
-            );
+            try {
+              await this.sendCustomizationReadyNotificationOnce(dbPayment.order_id);
+            } catch (notifyErr) {
+              logger.warn(`⚠️ Falha ao enviar notificação após erro de finalização: ${notifyErr}`);
+            }
           }
         }
       } else {

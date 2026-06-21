@@ -1081,6 +1081,8 @@ export class PaymentService {
         idempotencyKey,
       });
 
+      logger.info('📦 Payload completo enviado ao MP:', JSON.stringify(paymentData, null, 2));
+
       const paymentResponse = await payment.create({
         body: paymentData,
         requestOptions: {

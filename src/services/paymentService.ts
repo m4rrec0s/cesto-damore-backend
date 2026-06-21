@@ -1000,8 +1000,6 @@ export class PaymentService {
         payment_method_id: data.paymentMethodId,
         payer: {
           email: data.payerEmail,
-          first_name: payerNameParts.firstName,
-          last_name: payerNameParts.lastName,
           identification: {
             type: data.payerDocumentType,
             number: data.payerDocument.replace(/\D/g, ""),

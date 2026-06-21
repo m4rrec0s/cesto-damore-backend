@@ -1000,6 +1000,8 @@ export class PaymentService {
         payment_method_id: data.paymentMethodId,
         payer: {
           email: data.payerEmail,
+          first_name: mercadoPagoConfig.accessToken?.startsWith("TEST-") ? "APRO" : (data.payerName?.split(" ")[0] || ""),
+          last_name: mercadoPagoConfig.accessToken?.startsWith("TEST-") ? "" : (data.payerName?.split(" ").slice(1).join(" ") || ""),
           identification: {
             type: data.payerDocumentType,
             number: data.payerDocument.replace(/\D/g, ""),
@@ -1035,6 +1037,8 @@ export class PaymentService {
 
         paymentData.payer = {
           email: data.payerEmail,
+          first_name: mercadoPagoConfig.accessToken?.startsWith("TEST-") ? "APRO" : (data.payerName?.split(" ")[0] || ""),
+          last_name: mercadoPagoConfig.accessToken?.startsWith("TEST-") ? "" : (data.payerName?.split(" ").slice(1).join(" ") || ""),
           identification: {
             type: data.payerDocumentType,
             number: data.payerDocument.replace(/\D/g, ""),

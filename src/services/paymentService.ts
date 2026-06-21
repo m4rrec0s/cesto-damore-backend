@@ -2139,10 +2139,23 @@ export class PaymentService {
         status: paymentInfo?.status || null,
       });
 
-      const dbPayment = await prisma.payment.findFirst({
-        where: { mercado_pago_id: paymentId.toString() },
-        include: { order: { include: { user: true } } },
-      });
+      // Retry logic: tenta encontrar o pagamento até 3x com delay
+      let dbPayment = null;
+      const maxRetries = 3;
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        dbPayment = await prisma.payment.findFirst({
+          where: { mercado_pago_id: paymentId.toString() },
+          include: { order: { include: { user: true } } },
+        });
+
+        if (dbPayment) break;
+
+        if (attempt < maxRetries) {
+          logger.info(`⏳ Pagamento ${paymentId} não encontrado, tentativa ${attempt}/${maxRetries}, aguardando 500ms...`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
 
       if (!dbPayment) {
         logger.error("Pagamento não encontrado no banco:", paymentId);

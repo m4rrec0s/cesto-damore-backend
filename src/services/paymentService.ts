@@ -1852,12 +1852,24 @@ export class PaymentService {
       }
 
       if (data.action === "payment.created") {
+        const createdPaymentId = data.data?.id?.toString();
         logger.info("🔔 [Webhook MP] Criação de pagamento recebida", {
-          paymentId: data.data?.id || null,
+          paymentId: createdPaymentId,
         });
+
+        // Verifica se o pagamento já existe no banco e sincroniza status
+        if (createdPaymentId) {
+          const existsInDb = await prisma.payment.findFirst({
+            where: { mercado_pago_id: createdPaymentId },
+          });
+          if (existsInDb) {
+            await this.processPaymentNotification(createdPaymentId);
+          }
+        }
+
         return {
           success: true,
-          message: "Webhook de criação ignorado (aguardando payment.updated)",
+          message: "Webhook de criação processado",
         };
       }
 

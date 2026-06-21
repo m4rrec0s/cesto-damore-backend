@@ -930,10 +930,19 @@ export class PaymentService {
           order.payment.status === "REJECTED" ||
           order.payment.status === "CANCELLED"
         ) {
+          // Se pagamento está pendente/em processamento, não deleta - retorna existente
           if (
             order.payment.mercado_pago_id &&
-            order.payment.status !== "REJECTED" &&
-            order.payment.status !== "CANCELLED"
+            (order.payment.status === "PENDING" || order.payment.status === "IN_PROCESS")
+          ) {
+            logger.info(`♻️ Pagamento existente encontrado (${order.payment.status}): ${order.payment.mercado_pago_id}, retornando sem criar novo`);
+            return order.payment;
+          }
+
+          // Só deleta se REJECTED ou CANCELLED
+          if (
+            order.payment.mercado_pago_id &&
+            (order.payment.status === "REJECTED" || order.payment.status === "CANCELLED")
           ) {
             try {
               logger.info(
@@ -950,9 +959,13 @@ export class PaymentService {
 
           // Deleta pagamento anterior para criar novo
           // (não pode desvincular pois order_id é obrigatório no schema)
+          logger.info(`🗑️ Deletando payment ${order.payment.id} antes de criar novo`);
           await prisma.payment.delete({
             where: { id: order.payment.id },
           });
+
+          // Delay maior para garantir que o delete foi propagado
+          await new Promise(resolve => setTimeout(resolve, 500));
 
           logger.info(
             `♻️ Pagamento anterior removido (status era: ${order.payment.status}). Criando novo pagamento ${data.paymentMethodId}...`,
@@ -1067,30 +1080,6 @@ export class PaymentService {
           : 0,
       });
 
-      // Proteção contra pagamentos duplicados
-      const existingPayment = await prisma.payment.findUnique({
-        where: { order_id: data.orderId },
-      });
-
-      if (existingPayment && existingPayment.mercado_pago_id) {
-        logger.warn(`⚠️ Tentativa de pagamento duplicado detectada`, {
-          orderId: data.orderId,
-          existingPaymentId: existingPayment.mercado_pago_id,
-          status: existingPayment.status,
-        });
-
-        // Se o pagamento já está aprovado, retorna erro
-        if (existingPayment.status === "APPROVED") {
-          throw new Error("Este pedido já possui um pagamento aprovado.");
-        }
-
-        // Se está pendente ou em análise, retorna o pagamento existente
-        if (["PENDING", "IN_PROCESS"].includes(existingPayment.status)) {
-          logger.info("Retornando pagamento existente em processamento");
-          return existingPayment;
-        }
-      }
-
       this.logPaymentFlow({
         customerLabel,
         stage: "enviando e processando pagamento",
@@ -1098,11 +1087,30 @@ export class PaymentService {
         amount: summary.grandTotal,
       });
 
+      logger.info('📞 Chamando MP SDK payment.create:', {
+        orderId: data.orderId,
+        paymentMethodId: data.paymentMethodId,
+        amount: summary.grandTotal,
+        idempotencyKey,
+      });
+
       const paymentResponse = await payment.create({
         body: paymentData,
         requestOptions: {
           idempotencyKey,
         },
+      });
+
+      logger.info('✅ MP SDK payment.create respondeu:', {
+        orderId: data.orderId,
+        mercadoPagoId: paymentResponse.id,
+        status: paymentResponse.status,
+      });
+
+      logger.info('💾 Executando upsert no banco:', {
+        orderId: data.orderId,
+        mercadoPagoId: String(paymentResponse.id),
+        status: this.mapPaymentStatus(paymentResponse.status || "pending"),
       });
 
       const paymentRecord = await prisma.payment.upsert({
@@ -1124,6 +1132,13 @@ export class PaymentService {
           payment_method: orderPaymentMethod,
           external_reference: paymentData.external_reference,
         },
+      });
+
+      logger.info('✅ Payment salvo no banco:', {
+        id: paymentRecord.id,
+        orderId: paymentRecord.order_id,
+        mercadoPagoId: paymentRecord.mercado_pago_id,
+        status: paymentRecord.status,
       });
 
       if (paymentResponse.status === "approved") {

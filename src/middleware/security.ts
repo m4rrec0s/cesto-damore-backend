@@ -417,6 +417,10 @@ export const validateMercadoPagoWebhook = (
       type = topic;
       data = { id: resourceId } as any;
       logger.warn("🟡 [Webhook MP] Evento legado normalizado para processamento");
+
+      // Formato legado não tem headers x-signature - pular validação
+      req.body = { ...req.body, type, data, action: `${topic}.updated` };
+      return next();
     }
 
     if (!type && action) {

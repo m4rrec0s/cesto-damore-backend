@@ -682,6 +682,12 @@ router.delete(
   requireAdmin,
   orderController.removeAllCanceledOrders,
 );
+router.post(
+  "/orders/:orderId/items/:orderItemId/manual-stock-decrement",
+  authenticateToken,
+  requireAdmin,
+  orderController.manualStockDecrement,
+);
 
 router.get(
   "/orders/:orderId/customizations",

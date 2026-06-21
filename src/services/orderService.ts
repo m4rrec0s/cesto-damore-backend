@@ -2743,6 +2743,81 @@ class OrderService {
       throw new Error(`Erro ao deletar pedidos cancelados: ${error.message}`);
     }
   }
+
+  async retryItemStockDecrement(orderId: string, orderItemId: string) {
+    logger.info(
+      `🔁 [OrderService] Tentando decrementar estoque manualmente - Pedido: ${orderId}, Item: ${orderItemId}`,
+    );
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          where: { id: orderItemId },
+          include: {
+            additionals: true,
+            product: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new Error("Pedido não encontrado");
+    }
+
+    if (order.items.length === 0) {
+      throw new Error("Item do pedido não encontrado");
+    }
+
+    const item = order.items[0];
+
+    try {
+      const stockItems = [
+        {
+          product_id: item.product_id,
+          quantity: item.quantity,
+          additionals: item.additionals.map((ad) => ({
+            additional_id: ad.additional_id,
+            quantity: ad.quantity,
+          })),
+        },
+      ];
+
+      await stockService.decrementOrderStock(stockItems);
+
+      logger.info(
+        `✅ [OrderService] Estoque decrementado com sucesso para o item ${orderItemId}`,
+      );
+
+      // Se o pedido estava em PAID_STOCK_FAILED, verifica se todos os itens foram processados
+      if (order.status === "PAID_STOCK_FAILED") {
+        const allItems = await prisma.orderItem.findMany({
+          where: { order_id: orderId },
+        });
+
+        // Por simplicidade, marca como PAID após qualquer sucesso manual
+        await prisma.order.update({
+          where: { id: orderId },
+          data: { status: "PAID" },
+        });
+
+        logger.info(
+          `✅ [OrderService] Pedido ${orderId} atualizado para PAID após decremento manual`,
+        );
+      }
+
+      return await this.getOrderById(orderId);
+    } catch (stockError: any) {
+      logger.error(
+        `❌ [OrderService] Erro ao decrementar estoque manualmente:`,
+        stockError,
+      );
+      throw new Error(
+        `Erro ao decrementar estoque: ${stockError.message || "Erro desconhecido"}`,
+      );
+    }
+  }
 }
 
 export default new OrderService();

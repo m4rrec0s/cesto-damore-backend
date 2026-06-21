@@ -16,6 +16,7 @@ class OrderController {
     this.getPendingOrder = this.getPendingOrder.bind(this);
     this.cancelOrder = this.cancelOrder.bind(this);
     this.removeAllCanceledOrders = this.removeAllCanceledOrders.bind(this);
+    this.manualStockDecrement = this.manualStockDecrement.bind(this);
   }
 
   private isAdmin(req: Request) {
@@ -587,6 +588,36 @@ class OrderController {
     } catch (error: any) {
       logger.error("Erro ao deletar pedidos cancelados:", error);
       res.status(500).json({ error: "Erro interno do servidor" });
+    }
+  }
+
+  async manualStockDecrement(req: Request, res: Response) {
+    try {
+      const { orderId, orderItemId } = req.params;
+
+      if (!orderId || !orderItemId) {
+        return res.status(400).json({ error: "IDs são obrigatórios" });
+      }
+
+      const result = await orderService.retryItemStockDecrement(orderId, orderItemId);
+      
+      res.json({
+        success: true,
+        message: "Estoque decrementado com sucesso",
+        data: result,
+      });
+    } catch (error: any) {
+      logger.error("Erro ao decrementar estoque manualmente:", error);
+
+      if (error.message.includes("não encontrado")) {
+        return res.status(404).json({ error: error.message });
+      }
+
+      if (error.message.includes("Estoque insuficiente")) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      res.status(500).json({ error: error.message || "Erro interno do servidor" });
     }
   }
 }

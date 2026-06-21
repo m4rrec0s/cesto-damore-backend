@@ -984,9 +984,6 @@ export class PaymentService {
       });
 
       const payerNameParts = this.splitPersonName(data.payerName);
-      const cardholderNameParts = this.splitPersonName(
-        data.cardholderName || data.payerName,
-      );
 
       this.logPaymentFlow({
         customerLabel,
@@ -1030,10 +1027,6 @@ export class PaymentService {
           );
         }
 
-        if (!data.cardholderName) {
-          throw new Error("Nome do titular do cartão é obrigatório");
-        }
-
         paymentData.payment_method_id = data.payment_method_id || "master";
         paymentData.token = data.cardToken;
         paymentData.installments = data.installments || 1;
@@ -1044,8 +1037,6 @@ export class PaymentService {
 
         paymentData.payer = {
           email: data.payerEmail,
-          first_name: cardholderNameParts.firstName,
-          last_name: cardholderNameParts.lastName,
           identification: {
             type: data.payerDocumentType,
             number: data.payerDocument.replace(/\D/g, ""),
@@ -1054,8 +1045,6 @@ export class PaymentService {
 
         paymentData.additional_info = {
           payer: {
-            first_name: paymentData.payer.first_name,
-            last_name: paymentData.payer.last_name,
             phone: {
               area_code: "",
               number: "",

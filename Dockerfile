@@ -28,6 +28,7 @@ FROM node:20-slim
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
+ENV TZ=America/Sao_Paulo
 WORKDIR /usr/src/app
 
 RUN mkdir -p images/customizations \

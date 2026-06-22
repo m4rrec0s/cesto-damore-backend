@@ -1124,6 +1124,7 @@ class OrderService {
           delivery_city: orderData.delivery_city,
           delivery_state: orderData.delivery_state,
           delivery_method: orderData.delivery_method || "delivery",
+          source: "customer",
         },
       });
 

@@ -988,6 +988,28 @@ class OrderCustomizationService {
         const artworkUrls = await this.extractArtworkAssets(data);
 
         if (artworkUrls.length === 0) {
+          // Cartinha (TEXT): gerar .docx e upload ao Drive
+          if (customizationType === "TEXT" && data.text && typeof data.text === "string" && data.text.trim().length > 0) {
+            const targetFolder = await ensureSubfolder(folderName);
+            const docxBuffer = await generateCartinhaBuffer({
+              message: data.text,
+              customerName: order.user?.name || undefined,
+            });
+            const fileName = `cartinha-${Date.now()}.docx`;
+            const driveFile = await googleDriveService.uploadBuffer(
+              docxBuffer,
+              fileName,
+              targetFolder,
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            );
+            uploadedFiles++;
+            dispatchFiles.push({
+              driveFileId: driveFile.id!,
+              fileName,
+              subfolderName: folderName,
+            });
+            logger.info(`📝 Cartinha gerada e enviada ao Drive: ${fileName} (folder: ${folderName})`);
+          }
           continue;
         }
 

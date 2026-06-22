@@ -489,6 +489,7 @@ class OrderService {
       where: {
         user_id: userId,
         status: "PENDING",
+        source: "customer",
       },
       include: {
         items: {

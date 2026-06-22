@@ -773,6 +773,22 @@ router.get(
   requireAdmin,
   webhookNotificationController.getStats,
 );
+router.get(
+  "/admin/orders/stream",
+  (req, res, next) => {
+    // SSE não suporta headers customizados, aceitar token via query param
+    if (!req.headers.authorization && req.query.token) {
+      req.headers.authorization = `Bearer ${req.query.token}`;
+    }
+    next();
+  },
+  authenticateToken,
+  requireAdmin,
+  (req, res) => {
+    const { adminNotificationService } = require("./services/adminNotificationService");
+    adminNotificationService.registerClient(res);
+  },
+);
 
 router.post(
   "/mercadopago/create-token",

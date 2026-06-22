@@ -7,6 +7,7 @@ import { mercadoPagoDirectService } from "./mercadoPagoDirectService";
 import whatsappService from "./whatsappService";
 import orderCustomizationService from "./orderCustomizationService";
 import { webhookNotificationService } from "./webhookNotificationService";
+import { adminNotificationService } from "./adminNotificationService";
 import orderService from "./orderService";
 import reservationService from "./reservationService";
 import alertService from "./alertService";
@@ -2198,7 +2199,7 @@ export class PaymentService {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         dbPayment = await prisma.payment.findFirst({
           where: { mercado_pago_id: paymentId.toString() },
-          include: { order: { include: { user: true } } },
+          include: { order: { include: { user: true, items: true } } },
         });
 
         if (dbPayment) break;
@@ -2321,6 +2322,16 @@ export class PaymentService {
           notifyCustomer: false,
         }).catch((err: any) => {
           logger.error(`⚠️ Falha ao atualizar status do pedido ${dbPayment.order_id} para PAID:`, err?.message || err);
+        });
+
+        // Notifica Manager/Admin instantaneamente via SSE
+        adminNotificationService.notifyNewPaidOrder({
+          orderId: dbPayment.order_id,
+          customerName: customerLabel,
+          total: Number(updatedPayment?.transaction_amount || dbPayment.transaction_amount || 0),
+          itemsCount: dbPayment.order.items?.length || 0,
+          deliveryDate: (dbPayment.order as any).delivery_date?.toISOString(),
+          paymentMethod: paymentInfo.payment_method_id || undefined,
         });
 
         // Confirma reserva de estoque (não-bloqueante)

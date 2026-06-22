@@ -69,6 +69,8 @@ interface CheckoutValidationResult {
 }
 
 class OrderCustomizationService {
+  private processingOrders = new Set<string>();
+
   async saveOrderItemCustomization(input: SaveOrderCustomizationInput) {
     logger.info(`🔍 [SERVICE DEBUG] Recebendo save com orderItemId: ${input.orderItemId}`);
     
@@ -843,6 +845,24 @@ class OrderCustomizationService {
       `🧩 Iniciando finalizeOrderCustomizations para orderId=${orderId}`,
     );
 
+    // Lock in-memory para evitar processamento paralelo do mesmo pedido
+    if (this.processingOrders.has(orderId)) {
+      logger.info(`🟢 Customizações já estão sendo processadas para ${orderId}, retornando`);
+      const existingOrder = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { google_drive_folder_id: true, google_drive_folder_url: true },
+      });
+      return {
+        folderId: existingOrder?.google_drive_folder_id || undefined,
+        folderUrl: existingOrder?.google_drive_folder_url || undefined,
+        uploadedFiles: 0,
+        base64Detected: false,
+        base64AffectedIds: [],
+      };
+    }
+    this.processingOrders.add(orderId);
+
+    try {
     const claimed = await prisma.$queryRaw<{ id: string }[]>`
       UPDATE "Order"
       SET customizations_drive_processed = true
@@ -1321,6 +1341,9 @@ class OrderCustomizationService {
     );
 
     return result;
+    } finally {
+      this.processingOrders.delete(orderId);
+    }
   }
 
   async listOrderCustomizations(orderId: string) {

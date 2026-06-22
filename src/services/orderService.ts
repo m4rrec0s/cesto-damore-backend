@@ -1338,7 +1338,21 @@ class OrderService {
       throw new Error("ID do pedido é obrigatório");
     }
 
-    await this.getOrderById(id);
+    const order = await this.getOrderById(id);
+
+    // Impedir deleção de pedidos pagos/processados
+    const protectedStatuses = ["PAID", "SHIPPED", "DELIVERED", "CONFIRMED"];
+    if (protectedStatuses.includes(order.status)) {
+      throw new Error(`Pedido com status ${order.status} não pode ser deletado`);
+    }
+
+    // Impedir deleção se tem pagamento aprovado
+    const approvedPayment = await prisma.payment.findFirst({
+      where: { order_id: id, status: "APPROVED" },
+    });
+    if (approvedPayment) {
+      throw new Error("Pedido com pagamento aprovado não pode ser deletado");
+    }
 
     try {
       logger.info(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);

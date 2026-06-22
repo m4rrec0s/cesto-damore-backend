@@ -33,6 +33,13 @@ class SecurityMonitor {
     /sql|mysql|database|pg_/i,
   ];
 
+  // Rotas legítimas que não devem ser marcadas como scanner
+  private readonly TRUSTED_PATHS = [
+    /\/admin\/orders\/stream/,
+    /\/admin\/ai\//,
+    /\/webhooks\//,
+  ];
+
   recordRequest(ip: string, path: string): boolean {
     const now = Date.now();
     const record = this.ipRequests.get(ip);
@@ -58,6 +65,9 @@ class SecurityMonitor {
   isScanner(ip: string, path: string): boolean {
     const record = this.ipRequests.get(ip);
     if (!record) return false;
+
+    // Rotas confiáveis nunca são scanner
+    if (this.TRUSTED_PATHS.some(pattern => pattern.test(path))) return false;
 
     // Verifica se há padrões conhecidos de scanner
     return this.SCANNER_PATTERNS.some(pattern => pattern.test(path));

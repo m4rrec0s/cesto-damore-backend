@@ -845,7 +845,7 @@ class OrderCustomizationService {
 
     const claimed = await prisma.$queryRaw<{ id: string }[]>`
       UPDATE "Order"
-      SET customizations_drive_processed = customizations_drive_processed
+      SET customizations_drive_processed = true
       WHERE id = ${orderId}
         AND (customizations_drive_processed = false OR google_drive_folder_id IS NULL)
       RETURNING id

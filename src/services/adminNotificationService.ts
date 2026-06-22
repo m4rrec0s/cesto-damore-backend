@@ -49,7 +49,10 @@ class AdminNotificationService {
     deliveryDate?: string;
     paymentMethod?: string;
   }): void {
-    if (this.clients.length === 0) return;
+    if (this.clients.length === 0) {
+      logger.debug(`📡 Admin SSE: nenhum cliente conectado para receber order_paid (orderId=${data.orderId})`);
+      return;
+    }
 
     const message = JSON.stringify({ type: "order_paid", ...data });
     for (const client of [...this.clients]) {

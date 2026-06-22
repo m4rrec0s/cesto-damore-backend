@@ -2278,6 +2278,12 @@ class OrderCustomizationService {
       );
 
       if (!matchedAvailable) {
+        // Nunca deletar customizações TEXT que têm conteúdo
+        const cType = parsedValue.customization_type || parsedValue.customizationType;
+        if (cType === "TEXT" && (parsedValue.text || parsedValue.message)) {
+          sanitizedCustomizations.push(customization);
+          continue;
+        }
         idsToDelete.add(customization.id);
         continue;
       }

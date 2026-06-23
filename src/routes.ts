@@ -803,6 +803,12 @@ router.post("/push/subscribe", authenticateToken, async (req, res) => {
   res.status(201).json({ id });
 });
 
+// Admin Payment Management
+import adminPaymentController from "./controller/adminPaymentController";
+router.get("/admin/payments/:id", authenticateToken, requireAdmin, adminPaymentController.getPaymentDetails);
+router.post("/admin/payments/:id/refund", authenticateToken, requireAdmin, adminPaymentController.refundPayment);
+router.post("/admin/payments/:id/cancel", authenticateToken, requireAdmin, adminPaymentController.cancelPayment);
+
 router.post(
   "/mercadopago/create-token",
   authenticateToken,

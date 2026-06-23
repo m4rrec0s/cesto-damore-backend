@@ -291,6 +291,10 @@ server.listen(PORT, () => {
   );
   (async () => {
     try {
+      const { webPushService } = await import("./services/webPushService");
+      await webPushService.init();
+    } catch {}
+    try {
       const redisOk = await pingRedisHealth();
       logger.info(
         redisOk

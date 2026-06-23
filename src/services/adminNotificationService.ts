@@ -49,6 +49,17 @@ class AdminNotificationService {
     deliveryDate?: string;
     paymentMethod?: string;
   }): void {
+    // Web Push (funciona mesmo com aba fechada)
+    import("./webPushService").then(({ webPushService }) => {
+      const totalText = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(data.total);
+      webPushService.sendToAll({
+        title: `🛒 Novo Pedido - ${data.customerName}`,
+        body: `${data.itemsCount} item(s) • ${totalText}`,
+        orderId: data.orderId,
+        url: `/orders?orderId=${data.orderId}`,
+      });
+    }).catch(() => {});
+
     if (this.clients.length === 0) {
       logger.debug(`📡 Admin SSE: nenhum cliente conectado para receber order_paid (orderId=${data.orderId})`);
       return;

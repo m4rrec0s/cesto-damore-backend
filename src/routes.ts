@@ -790,6 +790,19 @@ router.get(
   },
 );
 
+// Web Push Notifications
+router.get("/push/vapid-key", (req, res) => {
+  const { webPushService } = require("./services/webPushService");
+  res.json({ publicKey: webPushService.getPublicKey() });
+});
+router.post("/push/subscribe", authenticateToken, async (req, res) => {
+  const { webPushService } = require("./services/webPushService");
+  const userId = (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+  const id = await webPushService.subscribe(userId, req.body);
+  res.status(201).json({ id });
+});
+
 router.post(
   "/mercadopago/create-token",
   authenticateToken,

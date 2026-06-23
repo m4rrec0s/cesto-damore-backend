@@ -905,3 +905,13 @@ model PrintDevice {
 
   @@map("print_devices")
 }
+
+model PushSubscription {
+  id           String   @id @default(uuid())
+  user_id      String
+  endpoint     String
+  subscription String
+  created_at   DateTime @default(now())
+
+  @@map("push_subscriptions")
+}

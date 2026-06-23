@@ -725,6 +725,7 @@ export const requireApiKey = (
     "/api/print/files/", // Download URLs para o agente de impressao
     "/api/admin/print/", // Rotas administrativas de impressao
     "/admin/orders/stream", // SSE admin (protegido por JWT)
+    "/push/", // Web Push (protegido por JWT)
     "/ai/react-chat", // Teste do reAct engine (dev only)
   ];
 

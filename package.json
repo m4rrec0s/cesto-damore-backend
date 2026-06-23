@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "node ./build.js",
+    "build:with_tests": "node ./build.js --with_tests",
     "build:docker": "tsc --project tsconfig.docker.json || exit 0",
     "start": "node dist/server.js",
     "test": "jest",

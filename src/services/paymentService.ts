@@ -2753,3 +2753,6 @@ export class PaymentService {
 }
 
 export default PaymentService;
+
+// Exported for unit testing only
+export { normalizeOrderPaymentMethod, roundCurrency, normalizeText, SHIPPING_RULES };

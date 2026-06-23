@@ -8,6 +8,7 @@ const fs = require("node:fs");
 
 const TIMEOUT_MS = 15 * 60 * 1000;
 const TSCONFIG = "tsconfig.json";
+const WITH_TESTS = process.argv.includes("--with_tests");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ let finished = false;
 let watchdog = null;
 let spinner = null;
 let spinFrame = 0;
+let activeProcess = null;
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 // ─── spinner ────────────────────────────────────────────────────────────────
@@ -84,6 +86,19 @@ const finalize = (code, fatal) => {
   process.exit(code ?? 1);
 };
 
+// ─── signals ────────────────────────────────────────────────────────────────
+
+const abort = (sig) => {
+  if (finished) return;
+  if (activeProcess && !activeProcess.killed) activeProcess.kill(sig);
+  finalize(130, `Interrompido por ${sig}`);
+};
+
+process.on("SIGINT", () => abort("SIGINT"));
+process.on("SIGTERM", () => abort("SIGTERM"));
+
+watchdog = setTimeout(() => abort("SIGTERM"), TIMEOUT_MS);
+
 // ─── header ─────────────────────────────────────────────────────────────────
 
 writeln();
@@ -94,48 +109,65 @@ writeln();
 
 // ─── spawn tsc ──────────────────────────────────────────────────────────────
 
-const tsc = spawn(
-  "node",
-  ["--stack-size=65500", path.join("node_modules", "typescript", "lib", "tsc.js"), "-p", TSCONFIG],
-  {
-  stdio: ["inherit", "pipe", "pipe"],
-  shell: process.platform === "win32",
-  }
-);
+const runBuild = () => {
+  const tsc = spawn(
+    "node",
+    ["--stack-size=65500", path.join("node_modules", "typescript", "lib", "tsc.js"), "-p", TSCONFIG],
+    {
+      stdio: ["inherit", "pipe", "pipe"],
+      shell: process.platform === "win32",
+    }
+  );
 
-startSpinner();
-
-const tscErrors = [];
-
-tsc.stdout.on("data", (chunk) => {
-  stopSpinner();
-  write(chunk);
+  activeProcess = tsc;
   startSpinner();
-});
 
-tsc.stderr.on("data", (chunk) => {
-  stopSpinner();
-  const lines = chunk.toString().split("\n").filter(Boolean);
-  for (const line of lines) {
-    tscErrors.push(line);
-    error(`  \x1b[2m${line}\x1b[0m`);
-  }
-  startSpinner();
-});
+  tsc.stdout.on("data", (chunk) => {
+    stopSpinner();
+    write(chunk);
+    startSpinner();
+  });
 
-tsc.on("exit", (code) => finalize(code));
-tsc.on("error", (err) => finalize(1, `Erro ao executar tsc: ${err.message}`));
-tsc.on("close", (code) => finalize(code));
+  tsc.stderr.on("data", (chunk) => {
+    stopSpinner();
+    const lines = chunk.toString().split("\n").filter(Boolean);
+    for (const line of lines) {
+      error(`  \x1b[2m${line}\x1b[0m`);
+    }
+    startSpinner();
+  });
 
-// ─── signals ────────────────────────────────────────────────────────────────
-
-const abort = (sig) => {
-  if (finished) return;
-  if (!tsc.killed) tsc.kill(sig);
-  finalize(130, `Interrompido por ${sig}`);
+  tsc.on("exit", (code) => finalize(code));
+  tsc.on("error", (err) => finalize(1, `Erro ao executar tsc: ${err.message}`));
+  tsc.on("close", (code) => finalize(code));
 };
 
-process.on("SIGINT", () => abort("SIGINT"));
-process.on("SIGTERM", () => abort("SIGTERM"));
+// ─── run tests then build, or just build ────────────────────────────────────
 
-watchdog = setTimeout(() => abort("SIGTERM"), TIMEOUT_MS);
+if (WITH_TESTS) {
+  writeln("  \x1b[36m⧗ Running tests...\x1b[0m");
+  writeln();
+
+  const jest = spawn("npx", ["jest", "--forceExit"], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+    cwd: __dirname,
+  });
+
+  activeProcess = jest;
+
+  jest.on("close", (code) => {
+    if (code !== 0) {
+      finalize(code, "Testes falharam — build abortado");
+      return;
+    }
+    writeln();
+    writeln("  \x1b[32m✓ Testes passaram\x1b[0m");
+    writeln();
+    runBuild();
+  });
+
+  jest.on("error", (err) => finalize(1, `Erro ao executar jest: ${err.message}`));
+} else {
+  runBuild();
+}

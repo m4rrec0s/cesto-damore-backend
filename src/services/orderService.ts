@@ -2837,3 +2837,6 @@ class OrderService {
 }
 
 export default new OrderService();
+
+// Exported for unit testing only
+export { normalizeText, roundCurrency, resolveCatalogProductPrice, ACCEPTED_CITIES };

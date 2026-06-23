@@ -6,7 +6,7 @@ class CouponController {
   async validate(req: Request, res: Response) {
     try {
       const { code } = req.body;
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.id;
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
 
@@ -46,7 +46,7 @@ class CouponController {
 
   async available(req: Request, res: Response) {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.id;
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
 

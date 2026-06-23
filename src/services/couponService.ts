@@ -68,6 +68,7 @@ export class CouponService {
       case "VALOR_FIXO":
         return Math.min(coupon.discount_value, ctx.cartTotal);
       case "FRETE_GRATIS":
+        if (coupon.discount_value > 0) return Math.min(coupon.discount_value, ctx.shipping);
         return ctx.shipping;
       default:
         return 0;

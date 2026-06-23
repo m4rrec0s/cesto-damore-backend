@@ -30,6 +30,7 @@ model User {
   orders                Order[]
   tempUploads           TempUpload[]
   inventoryMovements    InventoryMovement[]
+  coupons               Coupon[]
 }
 
 model Product {
@@ -124,7 +125,12 @@ model Order {
   google_drive_folder_url           String?
   delivery_method                   String?           @default("delivery")
   source                            OrderSource       @default(customer)
+  coupon_id                         String?
+  discount_amount                   Float             @default(0)
+  discount_type_snapshot            String?
   user                              User              @relation(fields: [user_id], references: [id])
+  coupon                            Coupon?           @relation(fields: [coupon_id], references: [id])
+  couponUsage                       CouponUsage?
   items                             OrderItem[]
   payment                           Payment?
   printJobs                         PrintJob[]
@@ -914,4 +920,68 @@ model PushSubscription {
   created_at   DateTime @default(now())
 
   @@map("push_subscriptions")
+}
+
+enum CouponStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+  EXHAUSTED
+}
+
+enum CouponType {
+  GLOBAL
+  INDIVIDUAL
+  PRIMEIRA_COMPRA
+  EVENTO
+  FIDELIDADE
+}
+
+enum DiscountType {
+  PORCENTAGEM
+  VALOR_FIXO
+  FRETE_GRATIS
+}
+
+model Coupon {
+  id                  String       @id @default(cuid())
+  code                String       @unique
+  description         String?
+  status              CouponStatus @default(ACTIVE)
+  coupon_type         CouponType
+  discount_type       DiscountType
+  discount_value      Float
+  max_discount_cap    Float?
+  min_purchase_amount Float?
+  usage_limit         Int?
+  used_count          Int          @default(0)
+  valid_from          DateTime
+  valid_until         DateTime?
+  is_visible          Boolean      @default(false)
+  user_id             String?
+  email               String?
+  user                User?        @relation(fields: [user_id], references: [id])
+  usages              CouponUsage[]
+  orders              Order[]
+  created_at          DateTime     @default(now())
+  updated_at          DateTime     @updatedAt
+
+  @@index([code])
+  @@index([email])
+  @@index([coupon_type, status])
+}
+
+model CouponUsage {
+  id               String   @id @default(cuid())
+  coupon_id        String
+  user_id          String?
+  email_used       String
+  order_id         String   @unique
+  discount_applied Float
+  created_at       DateTime @default(now())
+  coupon           Coupon   @relation(fields: [coupon_id], references: [id])
+  order            Order    @relation(fields: [order_id], references: [id])
+
+  @@index([coupon_id])
+  @@index([email_used])
 }

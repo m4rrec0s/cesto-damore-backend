@@ -8,6 +8,7 @@ import productController from "./controller/productController";
 import categoryController from "./controller/categoryController";
 import userController from "./controller/userController";
 import orderController from "./controller/orderController";
+import couponController from "./controller/couponController";
 import typeController from "./controller/typeController";
 import authController from "./controller/authController";
 import PaymentController from "./controller/paymentController";
@@ -71,6 +72,7 @@ import {
   validateAIAgentKey,
   authRateLimit,
   apiRateLimit,
+  couponRateLimit,
 } from "./middleware/security";
 
 const router = Router();
@@ -676,6 +678,14 @@ router.put(
   orderController.updateStatus,
 );
 router.delete("/orders/:id", authenticateToken, orderController.remove);
+
+// Coupons
+router.post("/coupons/validate", authenticateToken, couponRateLimit, couponController.validate);
+router.get("/coupons/available", authenticateToken, couponController.available);
+router.post("/admin/coupons", authenticateToken, requireAdmin, couponController.adminCreate);
+router.put("/admin/coupons/:id", authenticateToken, requireAdmin, couponController.adminUpdate);
+router.get("/admin/coupons", authenticateToken, requireAdmin, couponController.adminList);
+router.get("/admin/coupons/:id/stats", authenticateToken, requireAdmin, couponController.adminGetStats);
 router.delete(
   "/orders/canceled",
   authenticateToken,

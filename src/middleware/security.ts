@@ -145,6 +145,17 @@ export const authRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
+export const couponRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: {
+    error: "Muitas tentativas de validação de cupom, aguarde 1 minuto.",
+    code: "COUPON_THROTTLED",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const authenticateToken = async (
   req: AuthenticatedRequest,
   res: Response,

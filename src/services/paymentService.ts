@@ -8,6 +8,7 @@ import whatsappService from "./whatsappService";
 import orderCustomizationService from "./orderCustomizationService";
 import { webhookNotificationService } from "./webhookNotificationService";
 import { adminNotificationService } from "./adminNotificationService";
+import { CouponService } from "./couponService";
 import orderService from "./orderService";
 import reservationService from "./reservationService";
 import alertService from "./alertService";
@@ -105,6 +106,7 @@ export interface ProcessTransparentCheckoutData {
   payment_method_id?: string;
   frontendPublicKeyFingerprint?: string;
   frontendPublicKeyPrefix?: string;
+  couponCode?: string;
 }
 
 const buildPaymentIdempotencyKey = (params: {
@@ -978,6 +980,32 @@ export class PaymentService {
       await this.ensureOrderTotalsUpToDate(order, summary);
       await this.ensureOrderCustomizationsReady(data.orderId);
 
+      // Coupon validation and application
+      let couponApplied: { couponId: string; discountAmount: number } | null = null;
+      if (data.couponCode) {
+        const user = await prisma.user.findUnique({ where: { id: data.userId } });
+        if (user) {
+          const result = await CouponService.validateCoupon(data.couponCode, {
+            userId: data.userId,
+            email: user.email,
+            cartTotal: summary.total,
+            shipping: summary.shipping,
+          });
+          couponApplied = { couponId: result.coupon.id, discountAmount: result.discountAmount };
+          await prisma.order.update({
+            where: { id: order.id },
+            data: {
+              discount: result.discountAmount,
+              discount_amount: result.discountAmount,
+              coupon_id: result.coupon.id,
+              discount_type_snapshot: result.coupon.discount_type,
+            },
+          });
+          summary.discount = result.discountAmount;
+          summary.grandTotal = roundCurrency(summary.total + summary.shipping - result.discountAmount);
+        }
+      }
+
       const customerLabel = this.resolveCustomerLabel({
         payerName: data.payerName,
         payerEmail: data.payerEmail,
@@ -1140,6 +1168,16 @@ export class PaymentService {
         await orderService.updateOrderStatus(data.orderId, "PAID", {
           notifyCustomer: false,
         });
+
+        if (couponApplied) {
+          await CouponService.confirmUsage(
+            couponApplied.couponId,
+            data.orderId,
+            data.payerEmail,
+            couponApplied.discountAmount,
+            data.userId,
+          );
+        }
 
         this.runApprovedOrderPostProcessingInBackground({
           orderId: data.orderId,

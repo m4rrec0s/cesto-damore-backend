@@ -847,7 +847,13 @@ class OrderCustomizationService {
 
     // Lock in-memory para evitar processamento paralelo do mesmo pedido
     if (this.processingOrders.has(orderId)) {
-      logger.info(`🟢 Customizações já estão sendo processadas para ${orderId}, retornando`);
+      // Esperar o processamento em andamento terminar (max 60s)
+      const maxWait = 60000;
+      const start = Date.now();
+      while (this.processingOrders.has(orderId) && Date.now() - start < maxWait) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      logger.info(`🟢 Customizações já estão sendo processadas para ${orderId}, retornando dados existentes`);
       const existingOrder = await prisma.order.findUnique({
         where: { id: orderId },
         select: { google_drive_folder_id: true, google_drive_folder_url: true },
@@ -1010,50 +1016,6 @@ class OrderCustomizationService {
         if (artworkUrls.length === 0) {
           // Cartinha (TEXT): gerar .docx e upload ao Drive
           logger.debug(`🔎 Customização sem artwork: type=${customizationType}, hasText=${!!data.text}, textType=${typeof data.text}, text=${typeof data.text === "string" ? data.text.substring(0, 50) : "N/A"}`);
-          if (customizationType === "TEXT") {
-            // Extrair texto de múltiplas fontes possíveis
-            let messageText = "";
-            if (typeof data.text === "string" && data.text.trim().length > 0) {
-              messageText = data.text;
-            } else {
-              // Buscar nos campos field-* ou fields
-              const fieldValues = Object.entries(data)
-                .filter(([key, value]) =>
-                  (key.startsWith("field") || key === "message" || key === "mensagem") &&
-                  typeof value === "string" && value.trim().length > 0
-                )
-                .map(([, value]) => value as string);
-              if (fieldValues.length > 0) {
-                messageText = fieldValues.join("\n");
-              } else if (typeof data.fields === "object" && data.fields) {
-                messageText = Object.values(data.fields)
-                  .filter((v) => typeof v === "string" && (v as string).trim().length > 0)
-                  .join("\n");
-              }
-            }
-
-            if (messageText.trim().length > 0) {
-              const targetFolder = await ensureSubfolder(folderName);
-              const docxBuffer = await generateCartinhaBuffer({
-                message: messageText,
-                customerName: order.user?.name || undefined,
-              });
-              const fileName = `cartinha-${Date.now()}.docx`;
-              const driveFile = await googleDriveService.uploadBuffer(
-                docxBuffer,
-                fileName,
-                targetFolder,
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-              );
-              uploadedFiles++;
-              dispatchFiles.push({
-                driveFileId: driveFile.id!,
-                fileName,
-                subfolderName: folderName,
-              });
-              logger.info(`📝 Cartinha gerada e enviada ao Drive: ${fileName} (folder: ${folderName})`);
-            }
-          }
           continue;
         }
 

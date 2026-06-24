@@ -5,7 +5,7 @@ import logger from "../utils/logger";
 export class CheckoutProController {
   async createPreference(req: Request, res: Response) {
     try {
-      const { items, payer, back_urls, auto_return } = req.body;
+      const { items, payer, back_urls, auto_return, couponCode, metadata } = req.body;
 
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({
@@ -28,6 +28,8 @@ export class CheckoutProController {
         payer,
         back_urls,
         auto_return,
+        couponCode,
+        metadata,
       });
 
       res.status(201).json({

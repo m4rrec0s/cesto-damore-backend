@@ -19,6 +19,8 @@ export interface CheckoutProRequest {
     pending: string;
   };
   auto_return?: "approved" | "all";
+  couponCode?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CheckoutProResult {
@@ -54,6 +56,8 @@ class CheckoutProService {
         metadata: {
           integration_test: process.env.NODE_ENV === "development",
           source: "cesto_d_amore",
+          ...(request.couponCode ? { coupon_code: request.couponCode } : {}),
+          ...request.metadata,
         },
       };
 

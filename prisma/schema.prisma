@@ -26,11 +26,11 @@ model User {
   document              String?
   two_factor_code       String?
   two_factor_expires_at DateTime?
+  coupons               Coupon[]
   dynamicLayouts        DynamicLayout[]
+  inventoryMovements    InventoryMovement[]
   orders                Order[]
   tempUploads           TempUpload[]
-  inventoryMovements    InventoryMovement[]
-  coupons               Coupon[]
 }
 
 model Product {
@@ -40,7 +40,6 @@ model Product {
   price                  Float
   discount               Float?                 @default(0)
   stock_quantity         Int?
-  stock_mode             String                 @default("PRODUCT_ONLY")
   is_active              Boolean                @default(true)
   image_url              String?
   allows_customization   Boolean                @default(false)
@@ -50,13 +49,14 @@ model Product {
   production_time        Int?                   @default(0)
   embedding              Unsupported("vector")?
   embedding_generated_at DateTime?              @db.Timestamp(6)
+  stock_mode             String                 @default("PRODUCT_ONLY")
+  inventoryMovements     InventoryMovement[]
   orderItems             OrderItem[]
   type                   ProductType            @relation(fields: [type_id], references: [id])
   additionals            ProductAdditional[]
   categories             ProductCategory[]
   components             ProductComponent[]
   stockReservationItems  StockReservationItem[]
-  inventoryMovements     InventoryMovement[]
 
   @@index([embedding], map: "idx_product_embedding")
   @@index([embedding], map: "product_embedding_idx")
@@ -102,7 +102,6 @@ model ProductAdditional {
 model Order {
   id                                String            @id @default(uuid())
   user_id                           String
-  pending_owner_key                 String?           @unique
   status                            OrderStatus       @default(PENDING)
   discount                          Float             @default(0)
   total                             Float             @map("total_price")
@@ -120,21 +119,22 @@ model Order {
   delivery_state                    String?
   customizations_drive_processed    Boolean           @default(false)
   customizations_drive_processed_at DateTime?
-  confirmation_whatsapp_sent_at     DateTime?
   google_drive_folder_id            String?
   google_drive_folder_url           String?
   delivery_method                   String?           @default("delivery")
+  pending_owner_key                 String?           @unique
+  confirmation_whatsapp_sent_at     DateTime?
   source                            OrderSource       @default(customer)
   coupon_id                         String?
   discount_amount                   Float             @default(0)
   discount_type_snapshot            String?
-  user                              User              @relation(fields: [user_id], references: [id])
-  coupon                            Coupon?           @relation(fields: [coupon_id], references: [id])
   couponUsage                       CouponUsage?
+  coupon                            Coupon?           @relation(fields: [coupon_id], references: [id])
+  user                              User              @relation(fields: [user_id], references: [id])
   items                             OrderItem[]
   payment                           Payment?
-  printJobs                         PrintJob[]
   stockReservation                  StockReservation?
+  printJobs                         PrintJob?
 }
 
 model OrderItem {
@@ -173,7 +173,6 @@ model PrintJob {
   printedAt     DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-
   order         Order          @relation(fields: [orderId], references: [id])
 
   @@map("print_job_order")
@@ -220,8 +219,8 @@ model StockReservation {
   released_at  DateTime?
   cancelled_at DateTime?
   status       String                 @default("active")
-  items        StockReservationItem[]
   order        Order                  @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  items        StockReservationItem[]
 
   @@index([status, expires_at])
   @@index([order_id])
@@ -229,16 +228,15 @@ model StockReservation {
 }
 
 model StockReservationItem {
-  id                String  @id @default(uuid())
+  id                String           @id @default(uuid())
   reservation_id    String
   product_id        String?
   item_id           String?
   quantity_reserved Int
   item_type         String
-
-  reservation StockReservation @relation(fields: [reservation_id], references: [id], onDelete: Cascade)
-  product     Product?         @relation(fields: [product_id], references: [id], onDelete: SetNull)
-  item        Item?            @relation(fields: [item_id], references: [id], onDelete: SetNull)
+  item              Item?            @relation(fields: [item_id], references: [id])
+  product           Product?         @relation(fields: [product_id], references: [id])
+  reservation       StockReservation @relation(fields: [reservation_id], references: [id], onDelete: Cascade)
 
   @@index([reservation_id])
   @@index([product_id])
@@ -298,20 +296,6 @@ model FeedSectionItem {
   feedSection     FeedSection @relation(fields: [feed_section_id], references: [id], onDelete: Cascade)
 }
 
-model LayoutBase {
-  id              String   @id @default(uuid())
-  name            String
-  item_type       String
-  image_url       String
-  width           Int
-  height          Int
-  slots           Json
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  additional_time Int      @default(0)
-  items           Item[]
-}
-
 model Item {
   id                    String                 @id @default(uuid())
   name                  String
@@ -327,13 +311,12 @@ model Item {
   updated_at            DateTime               @updatedAt
   dynamic_layout_id     String?
   customizations        Customization[]
+  inventoryMovements    InventoryMovement[]
   dynamic_layout        DynamicLayout?         @relation(fields: [dynamic_layout_id], references: [id])
-  layout_base           LayoutBase?            @relation(fields: [layout_base_id], references: [id])
   orderItems            OrderItemAdditional[]
   additionals           ProductAdditional[]
   components            ProductComponent[]
   stockReservationItems StockReservationItem[]
-  inventoryMovements    InventoryMovement[]
 }
 
 model InventoryMovement {
@@ -345,10 +328,9 @@ model InventoryMovement {
   reason     String
   admin_id   String?
   created_at DateTime @default(now())
-
-  product Product? @relation(fields: [product_id], references: [id], onDelete: SetNull)
-  item    Item?    @relation(fields: [item_id], references: [id], onDelete: SetNull)
-  admin   User?    @relation(fields: [admin_id], references: [id], onDelete: SetNull)
+  admin      User?    @relation(fields: [admin_id], references: [id])
+  item       Item?    @relation(fields: [item_id], references: [id])
+  product    Product? @relation(fields: [product_id], references: [id])
 
   @@index([product_id])
   @@index([item_id])
@@ -421,12 +403,12 @@ model AIAgentMessage {
   session_id     String
   role           String
   content        String
-  metadata       String?
   name           String?
   tool_call_id   String?
   created_at     DateTime       @default(now())
   tool_calls     String?
   sent_to_client Boolean        @default(false)
+  metadata       String?
   session        AIAgentSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
 
   @@index([session_id])
@@ -706,6 +688,202 @@ model llm_prompt_priority_instructions {
   display_order    Int       @default(0)
 }
 
+model BotFlow {
+  id         String       @id @default(uuid())
+  name       String
+  is_active  Boolean      @default(false)
+  nodes      Json         @default("[]")
+  edges      Json         @default("[]")
+  created_at DateTime     @default(now())
+  updated_at DateTime     @updatedAt
+  BotSession BotSession[]
+}
+
+model KBKnowledgeDocument {
+  id              String        @id @default(uuid())
+  title           String
+  content         String
+  category        String
+  phases          String[]
+  tags            String[]
+  pattern_type    String?
+  created_by      String
+  approved_by     String?
+  approval_status String        @default("draft")
+  embedding_id    String?
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+  version         Int           @default(1)
+  embeddings      KBEmbedding[]
+  versions        KBVersion[]
+
+  @@index([category])
+  @@index([approval_status])
+  @@index([phases])
+  @@map("kb_knowledge_documents")
+}
+
+model KBVersion {
+  id            String              @id @default(uuid())
+  document_id   String
+  version       Int
+  content       String
+  changed_by    String
+  change_reason String?
+  created_at    DateTime            @default(now())
+  document      KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@unique([document_id, version])
+  @@index([document_id])
+  @@map("kb_versions")
+}
+
+model KBEmbedding {
+  id          String              @id @default(uuid())
+  document_id String
+  vector      String?
+  model       String
+  created_at  DateTime            @default(now())
+  document    KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@index([document_id])
+  @@map("kb_embeddings")
+}
+
+model CustomerKnowledgeProfile {
+  id                String   @id @default(uuid())
+  customer_phone    String   @unique
+  learnings         String
+  preferred_phrases String[]
+  common_objections String[]
+  success_patterns  String[]
+  last_updated_by   String
+  auto_updates      Boolean  @default(true)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@index([customer_phone])
+  @@map("customer_knowledge_profiles")
+}
+
+model PrinterConfig {
+  id          String      @id @default(uuid())
+  role        PrinterRole
+  printerName String
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deviceId    String?
+
+  @@unique([role, deviceId])
+  @@map("printer_config")
+}
+
+model AgentVersion {
+  id           String   @id @default("current")
+  version      String
+  downloadUrl  String
+  releaseNotes String?
+  publishedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("agent_version")
+}
+
+model BotSession {
+  id              String   @id @default(uuid())
+  phone           String   @unique
+  flow_id         String
+  current_node_id String?
+  is_human        Boolean  @default(false)
+  state           Json?
+  history         Json?    @default("[]")
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  dynamic_menu    Json?
+  flow            BotFlow  @relation(fields: [flow_id], references: [id])
+}
+
+model PrintDevice {
+  deviceId    String   @id
+  deviceName  String
+  ip          String   @default("")
+  isDefault   Boolean  @default(false)
+  connectedAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  printers    Json     @default("[]")
+  token       String   @unique @default(dbgenerated("gen_random_uuid()"))
+
+  @@map("print_devices")
+}
+
+model PushSubscription {
+  id           String   @id @default(dbgenerated("gen_random_uuid()"))
+  user_id      String
+  endpoint     String
+  subscription String
+  created_at   DateTime @default(now())
+
+  @@map("push_subscriptions")
+}
+
+model Coupon {
+  id                  String        @id @default(cuid())
+  code                String        @unique
+  description         String?
+  status              CouponStatus  @default(ACTIVE)
+  coupon_type         CouponType
+  discount_type       DiscountType
+  discount_value      Float
+  max_discount_cap    Float?
+  min_purchase_amount Float?
+  usage_limit         Int?
+  used_count          Int           @default(0)
+  valid_from          DateTime
+  valid_until         DateTime?
+  is_visible          Boolean       @default(false)
+  user_id             String?
+  email               String?
+  created_at          DateTime      @default(now())
+  updated_at          DateTime      @updatedAt
+  user                User?         @relation(fields: [user_id], references: [id])
+  usages              CouponUsage[]
+  orders              Order[]
+
+  @@index([code])
+  @@index([email])
+  @@index([coupon_type, status])
+}
+
+model CouponUsage {
+  id               String   @id @default(cuid())
+  coupon_id        String
+  user_id          String?
+  email_used       String
+  order_id         String   @unique
+  discount_applied Float
+  created_at       DateTime @default(now())
+  coupon           Coupon   @relation(fields: [coupon_id], references: [id])
+  order            Order    @relation(fields: [order_id], references: [id])
+
+  @@index([coupon_id])
+  @@index([email_used])
+}
+
+model print_jobs {
+  id              String    @id
+  order_id        String
+  customer_name   String
+  drive_folder_id String
+  payload         Json
+  status          String    @default("pending")
+  attempts        Int       @default(0)
+  last_error      String?
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  printed_at      DateTime? @db.Timestamptz(6)
+}
+
 enum PaymentStatus {
   PENDING
   APPROVED
@@ -721,10 +899,10 @@ enum PaymentStatus {
 enum OrderStatus {
   PENDING
   PAID
-  PAID_STOCK_FAILED
   SHIPPED
   DELIVERED
   CANCELED
+  PAID_STOCK_FAILED
 }
 
 enum OrderSource {
@@ -778,148 +956,9 @@ enum PrintJobStatus {
   FAILED
 }
 
-model BotFlow {
-  id         String   @id @default(uuid())
-  name       String
-  is_active  Boolean  @default(false)
-  nodes      Json     @default("[]")
-  edges      Json     @default("[]")
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  BotSession BotSession[]
-}
-
-model KBKnowledgeDocument {
-  id              String        @id @default(uuid())
-  title           String
-  content         String
-  category        String
-  phases          String[]
-  tags            String[]
-  pattern_type    String?
-  created_by      String
-  approved_by     String?
-  approval_status String        @default("draft")
-  version         Int           @default(1)
-  embedding_id    String?
-  created_at      DateTime      @default(now())
-  updated_at      DateTime      @updatedAt
-  versions        KBVersion[]
-  embeddings      KBEmbedding[]
-
-  @@index([category])
-  @@index([approval_status])
-  @@index([phases])
-  @@map("kb_knowledge_documents")
-}
-
-model KBVersion {
-  id            String              @id @default(uuid())
-  document_id   String
-  version       Int
-  content       String
-  changed_by    String
-  change_reason String?
-  created_at    DateTime            @default(now())
-  document      KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
-
-  @@unique([document_id, version])
-  @@index([document_id])
-  @@map("kb_versions")
-}
-
-model KBEmbedding {
-  id          String              @id @default(uuid())
-  document_id String
-  vector      String? // Armazenar como JSON string
-  model       String
-  created_at  DateTime            @default(now())
-  document    KBKnowledgeDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
-
-  @@index([document_id])
-  @@map("kb_embeddings")
-}
-
-model CustomerKnowledgeProfile {
-  id                String   @id @default(uuid())
-  customer_phone    String   @unique
-  learnings         String
-  preferred_phrases String[]
-  common_objections String[]
-  success_patterns  String[]
-  last_updated_by   String
-  auto_updates      Boolean  @default(true)
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
-
-  @@index([customer_phone])
-  @@map("customer_knowledge_profiles")
-}
-
-model PrinterConfig {
-  id          String      @id @default(uuid())
-  role        PrinterRole @unique
-  printerName String
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  @@map("printer_config")
-}
-
-model AgentVersion {
-  id           String   @id @default("current")
-  version      String
-  downloadUrl  String
-  releaseNotes String?
-  publishedAt  DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@map("agent_version")
-}
-
 enum PrinterRole {
   photo
   letter
-}
-
-model BotSession {
-  id              String   @id @default(uuid())
-  phone           String   @unique
-  flow_id         String
-  current_node_id String?
-  is_human        Boolean  @default(false)
-  state           Json?
-  history         Json?    @default("[]")
-  dynamic_menu    Json? // LLM-generated dynamic menu: { options: [{label, target_node_id}], generated_at, context }
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-
-  flow BotFlow @relation(fields: [flow_id], references: [id])
-}
-
-model PrintDevice {
-  deviceId    String   @id
-  deviceName  String
-  ip          String   @default("")
-  isDefault   Boolean  @default(false)
-  connectedAt DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
-  printers    Json     @default("[]")
-  token       String   @unique @default(uuid())
-
-  @@map("print_devices")
-}
-
-model PushSubscription {
-  id           String   @id @default(uuid())
-  user_id      String
-  endpoint     String
-  subscription String
-  created_at   DateTime @default(now())
-
-  @@map("push_subscriptions")
 }
 
 enum CouponStatus {
@@ -941,47 +980,4 @@ enum DiscountType {
   PORCENTAGEM
   VALOR_FIXO
   FRETE_GRATIS
-}
-
-model Coupon {
-  id                  String       @id @default(cuid())
-  code                String       @unique
-  description         String?
-  status              CouponStatus @default(ACTIVE)
-  coupon_type         CouponType
-  discount_type       DiscountType
-  discount_value      Float
-  max_discount_cap    Float?
-  min_purchase_amount Float?
-  usage_limit         Int?
-  used_count          Int          @default(0)
-  valid_from          DateTime
-  valid_until         DateTime?
-  is_visible          Boolean      @default(false)
-  user_id             String?
-  email               String?
-  user                User?        @relation(fields: [user_id], references: [id])
-  usages              CouponUsage[]
-  orders              Order[]
-  created_at          DateTime     @default(now())
-  updated_at          DateTime     @updatedAt
-
-  @@index([code])
-  @@index([email])
-  @@index([coupon_type, status])
-}
-
-model CouponUsage {
-  id               String   @id @default(cuid())
-  coupon_id        String
-  user_id          String?
-  email_used       String
-  order_id         String   @unique
-  discount_applied Float
-  created_at       DateTime @default(now())
-  coupon           Coupon   @relation(fields: [coupon_id], references: [id])
-  order            Order    @relation(fields: [order_id], references: [id])
-
-  @@index([coupon_id])
-  @@index([email_used])
 }

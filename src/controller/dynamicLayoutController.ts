@@ -27,7 +27,6 @@ class DynamicLayoutController {
         height,
         productionTime,
         tags,
-        relatedLayoutBaseId,
       } = req.body;
 
       if (
@@ -67,7 +66,6 @@ class DynamicLayoutController {
         height,
         productionTime: productionTime ? Number(productionTime) : 0,
         tags: tags || [],
-        relatedLayoutBaseId,
       });
 
       return res.status(201).json(layout);

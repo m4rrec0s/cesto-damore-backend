@@ -78,7 +78,6 @@ class ProductService {
                   include: {
 
                     customizations: true,
-                    layout_base: true,
                   },
                 },
               },

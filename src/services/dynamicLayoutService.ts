@@ -21,7 +21,6 @@ class DynamicLayoutService {
     productionTime?: number;
     previewImageUrl?: string;
     tags?: string[];
-    relatedLayoutBaseId?: string;
   }) {
     try {
 
@@ -46,7 +45,6 @@ class DynamicLayoutService {
           productionTime: data.productionTime || 0,
           previewImageUrl: finalPreviewImageUrl,
           tags: data.tags || [],
-          relatedLayoutBaseId: data.relatedLayoutBaseId,
           version: 1,
         },
         include: {

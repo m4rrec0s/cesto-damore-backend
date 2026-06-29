@@ -306,7 +306,6 @@ model Item {
   discount              Float?                 @default(0)
   image_url             String?
   allows_customization  Boolean                @default(false)
-  layout_base_id        String?
   created_at            DateTime               @default(now())
   updated_at            DateTime               @updatedAt
   dynamic_layout_id     String?
@@ -562,7 +561,6 @@ model DynamicLayout {
   isPublished         Boolean                @default(false)
   isShared            Boolean                @default(false)
   tags                String[]               @default([])
-  relatedLayoutBaseId String?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
   productionTime      Int                    @default(0)

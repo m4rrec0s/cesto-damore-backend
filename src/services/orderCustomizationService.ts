@@ -1411,11 +1411,6 @@ class OrderCustomizationService {
           where: { id: layoutId },
         });
         if (layout) return layout.name;
-
-        const layoutBase = await prisma.layoutBase.findUnique({
-          where: { id: layoutId },
-        });
-        return layoutBase?.name || undefined;
       } catch (error) {
         logger.warn("computeLabelSelected: erro ao buscar layout", error);
         return undefined;

@@ -34,7 +34,6 @@ import googleDriveService from "./services/googleDriveService";
 import prisma from "./database/prisma";
 import itemController from "./controller/itemController";
 import productComponentController from "./controller/productComponentController";
-import layoutBaseController from "./controller/layoutBaseController";
 import dynamicLayoutController from "./controller/dynamicLayoutController";
 import elementBankController from "./controller/elementBankController";
 import customerManagementController from "./controller/customerManagementController";

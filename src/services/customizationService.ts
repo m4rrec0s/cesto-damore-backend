@@ -1,6 +1,5 @@
 import { CustomizationType } from "@prisma/client";
 import prisma from "../database/prisma";
-import layoutBaseService from "./layoutBaseService";
 import logger from "../utils/logger";
 
 interface CustomizationDTO {
@@ -38,7 +37,6 @@ interface ItemCustomizationResponse {
     id: string;
     name: string;
     allows_customization: boolean;
-    layout_base_id?: string | null;
   };
   customizations: CustomizationDTO[];
 }
@@ -65,7 +63,6 @@ class CustomizationService {
         id: item.id,
         name: item.name,
         allows_customization: item.allows_customization,
-        layout_base_id: item.layout_base_id,
       },
       customizations: item.customizations.map((c) => ({
         id: c.id,
@@ -325,7 +322,9 @@ class CustomizationService {
 
         if (layoutId) {
           try {
-            layout = await layoutBaseService.getById(layoutId);
+            layout = await prisma.dynamicLayout.findUnique({
+              where: { id: layoutId },
+            });
           } catch (error) {
             logger.warn(`Preview: Layout ${layoutId} não encontrado`);
           }

@@ -882,6 +882,20 @@ model print_jobs {
   printed_at      DateTime? @db.Timestamptz(6)
 }
 
+model AdminNotification {
+  id         String   @id @default(uuid())
+  type       String
+  title      String
+  message    String
+  order_id   String?
+  metadata   Json?
+  seen       Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  @@index([seen, created_at])
+  @@map("admin_notifications")
+}
+
 enum PaymentStatus {
   PENDING
   APPROVED

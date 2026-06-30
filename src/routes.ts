@@ -793,9 +793,46 @@ router.get(
   },
   authenticateToken,
   requireAdmin,
-  (req, res) => {
+  async (req, res) => {
     const { adminNotificationService } = require("./services/adminNotificationService");
-    adminNotificationService.registerClient(res);
+    await adminNotificationService.registerClient(res);
+  },
+);
+
+// Admin Notifications
+router.get(
+  "/admin/notifications",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    const { adminNotificationService } = require("./services/adminNotificationService");
+    const { seen, limit, offset } = req.query;
+    const result = await adminNotificationService.getNotifications({
+      seen: seen !== undefined ? seen === "true" : undefined,
+      limit: limit ? parseInt(limit as string) : undefined,
+      offset: offset ? parseInt(offset as string) : undefined,
+    });
+    res.json(result);
+  },
+);
+router.patch(
+  "/admin/notifications/:id/seen",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    const { adminNotificationService } = require("./services/adminNotificationService");
+    await adminNotificationService.markAsSeen(req.params.id);
+    res.json({ ok: true });
+  },
+);
+router.patch(
+  "/admin/notifications/seen-all",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    const { adminNotificationService } = require("./services/adminNotificationService");
+    await adminNotificationService.markAllAsSeen();
+    res.json({ ok: true });
   },
 );
 

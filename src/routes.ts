@@ -836,6 +836,23 @@ router.patch(
   },
 );
 
+// Test notification (no auth - testing only)
+router.post(
+  "/admin/notifications/test",
+  async (req, res) => {
+    const { adminNotificationService } = require("./services/adminNotificationService");
+    await adminNotificationService.notifyNewPaidOrder({
+      orderId: `test-${Date.now()}`,
+      customerName: "Cliente Teste",
+      total: 159.90,
+      itemsCount: 3,
+      deliveryDate: new Date(Date.now() + 86400000).toISOString(),
+      paymentMethod: "credit_card",
+    });
+    res.json({ ok: true, message: "Test notification sent" });
+  },
+);
+
 // Web Push Notifications
 router.get("/push/vapid-key", (req, res) => {
   const { webPushService } = require("./services/webPushService");

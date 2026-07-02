@@ -737,6 +737,8 @@ export const requireApiKey = (
     "/api/admin/print/", // Rotas administrativas de impressao
     "/admin/orders/stream", // SSE admin (protegido por JWT)
     "/push/", // Web Push (protegido por JWT)
+    "/notification-test.html", // Página de teste de notificações
+    "/admin/notifications/test", // Teste de notificações (requer JWT admin)
     "/ai/react-chat", // Teste do reAct engine (dev only)
   ];
 

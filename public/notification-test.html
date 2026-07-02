@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste Notificações Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; padding: 40px 20px; }
+    .container { max-width: 500px; width: 100%; }
+    h1 { font-size: 1.4rem; margin-bottom: 24px; color: #fff; }
+    .card { background: #1a1a1a; border-radius: 12px; padding: 24px; margin-bottom: 16px; border: 1px solid #333; }
+    label { display: block; font-size: 0.85rem; color: #999; margin-bottom: 6px; }
+    input, textarea { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #444; background: #0f0f0f; color: #fff; font-size: 0.95rem; margin-bottom: 16px; }
+    input:focus, textarea:focus { outline: none; border-color: #666; }
+    textarea { resize: vertical; min-height: 80px; font-family: monospace; font-size: 0.85rem; }
+    button { width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .btn-sse { background: #059669; color: #fff; margin-top: 8px; }
+    .btn-sse:hover { background: #047857; }
+    .btn-sse.active { background: #dc2626; }
+    .btn-sse.active:hover { background: #b91c1c; }
+    .status { padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-top: 12px; display: none; }
+    .status.show { display: block; }
+    .status.success { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+    .status.error { background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
+    .status.info { background: #1e3a5f; color: #60a5fa; border: 1px solid #1e40af; }
+    #sse-log { max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.8rem; line-height: 1.6; }
+    #sse-log .entry { padding: 4px 0; border-bottom: 1px solid #222; }
+    #sse-log .time { color: #666; }
+    #sse-log .event { color: #4ade80; }
+    #sse-log .error { color: #f87171; }
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔔 Teste Notificações Admin</h1>
+
+    <div class="card">
+      <label for="apiUrl">Backend URL</label>
+      <input type="text" id="apiUrl" placeholder="http://localhost:3000">
+
+      <label for="token">JWT Token</label>
+      <input type="text" id="token" placeholder="Cole o token JWT aqui">
+
+      <button class="btn-primary" onclick="login()">Auto-login (produção)</button>
+    </div>
+
+    <div class="card">
+      <label>Notificação de teste</label>
+      <div class="row">
+        <div>
+          <label for="customerName">Cliente</label>
+          <input type="text" id="customerName" value="Maria Silva">
+        </div>
+        <div>
+          <label for="total">Total (R$)</label>
+          <input type="number" id="total" value="159.90" step="0.01">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="itemsCount">Itens</label>
+          <input type="number" id="itemsCount" value="3">
+        </div>
+        <div>
+          <label for="deliveryDate">Entrega</label>
+          <input type="date" id="deliveryDate">
+        </div>
+      </div>
+
+      <button class="btn-primary" id="btnSend" onclick="sendTest()">Enviar Notificação</button>
+      <div id="sendStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <label>SSE Stream</label>
+      <button class="btn-sse" id="btnSse" onclick="toggleSse()" disabled>Conectar SSE</button>
+      <div id="sse-log" style="margin-top: 12px;"></div>
+      <div id="sseStatus" class="status"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let eventSource = null;
+    let reconnectTimer = null;
+
+    // Set default delivery date to tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    $('deliveryDate').value = tomorrow.toISOString().split('T')[0];
+
+    // Auto-detect API URL
+    if (window.location.hostname === 'localhost') {
+      $('apiUrl').value = window.location.origin;
+    } else {
+      $('apiUrl').value = window.location.origin;
+    }
+
+    // Check for stored token
+    const storedToken = localStorage.getItem('token') || localStorage.getItem('appToken');
+    if (storedToken) {
+      $('token').value = storedToken;
+      $('btnSse').disabled = false;
+    }
+
+    async function login() {
+      // Try to get token from manager's localStorage if same origin
+      try {
+        const token = localStorage.getItem('token') || localStorage.getItem('appToken');
+        if (token) {
+          $('token').value = token;
+          $('btnSse').disabled = false;
+          show('sendStatus', 'success', 'Token encontrado no localStorage');
+          return;
+        }
+      } catch {}
+
+      show('sendStatus', 'error', 'Nenhum token encontrado. Cole manualmente para usar SSE.');
+    }
+
+    async function sendTest() {
+      const apiUrl = $('apiUrl').value.trim();
+      if (!apiUrl) return show('sendStatus', 'error', 'URL obrigatória');
+
+      $('btnSend').disabled = true;
+      $('btnSend').textContent = 'Enviando...';
+
+      try {
+        const res = await fetch(`${apiUrl}/admin/notifications/test`, {
+          method: 'POST'
+        });
+        const data = await res.json();
+        if (res.ok) {
+          show('sendStatus', 'success', '✓ Notificação enviada! Verifique o manager.');
+        } else {
+          show('sendStatus', 'error', `Erro ${res.status}: ${data.error || data.message || 'desconhecido'}`);
+        }
+      } catch (err) {
+        show('sendStatus', 'error', `Falha: ${err.message}`);
+      } finally {
+        $('btnSend').disabled = false;
+        $('btnSend').textContent = 'Enviar Notificação';
+      }
+    }
+
+    function toggleSse() {
+      if (eventSource) {
+        disconnectSse();
+      } else {
+        connectSse();
+      }
+    }
+
+    function connectSse() {
+      const apiUrl = $('apiUrl').value.trim();
+      const token = $('token').value.trim();
+      if (!apiUrl || !token) return show('sseStatus', 'error', 'URL e token obrigatórios');
+
+      $('btnSse').textContent = 'Desconectar';
+      $('btnSse').classList.add('active');
+      $('btnSse').disabled = false;
+
+      const url = `${apiUrl}/admin/orders/stream?token=${encodeURIComponent(token)}`;
+      logSse('info', `Conectando: ${url.substring(0, 60)}...`);
+
+      eventSource = new EventSource(url);
+
+      eventSource.onopen = () => {
+        logSse('event', '● Conectado');
+        show('sseStatus', 'success', 'SSE conectado');
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'connected') {
+            logSse('event', '● Handshake OK');
+          } else if (data.type === 'pending_notifications') {
+            logSse('event', `📋 ${data.notifications?.length || 0} notificação(ões) pendente(s) recebida(s)`);
+          } else if (data.type === 'order_paid') {
+            logSse('event', `🛒 PEDIDO: ${data.customerName} - R$ ${data.total} (${data.itemsCount} itens)`);
+          } else if (data.type === 'ping') {
+            // ignore pings
+          } else {
+            logSse('event', `📨 ${event.data.substring(0, 120)}`);
+          }
+        } catch {
+          logSse('event', `📨 ${event.data}`);
+        }
+      };
+
+      eventSource.onerror = () => {
+        logSse('error', '✕ Conexão perdida. Reconectando...');
+        show('sseStatus', 'error', 'SSE desconectado - reconectando');
+        eventSource.close();
+        eventSource = null;
+        $('btnSse').textContent = 'Conectar SSE';
+        $('btnSse').classList.remove('active');
+      };
+    }
+
+    function disconnectSse() {
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      $('btnSse').textContent = 'Conectar SSE';
+      $('btnSse').classList.remove('active');
+      $('btnSse').disabled = false;
+      show('sseStatus', 'info', 'Desconectado');
+      logSse('info', '● Desconectado');
+    }
+
+    function logSse(type, msg) {
+      const log = $('sse-log');
+      const time = new Date().toLocaleTimeString('pt-BR');
+      const entry = document.createElement('div');
+      entry.className = 'entry';
+      entry.innerHTML = `<span class="time">${time}</span> <span class="${type}">${msg}</span>`;
+      log.prepend(entry);
+      // Keep max 100 entries
+      while (log.children.length > 100) log.removeChild(log.lastChild);
+    }
+
+    function show(id, type, msg) {
+      const el = $(id);
+      el.className = `status show ${type}`;
+      el.textContent = msg;
+    }
+  </script>
+</body>
+</html>

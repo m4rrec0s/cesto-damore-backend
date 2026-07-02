@@ -836,6 +836,17 @@ router.patch(
   },
 );
 
+router.delete(
+  "/admin/notifications",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    const { adminNotificationService } = require("./services/adminNotificationService");
+    await adminNotificationService.clearAll();
+    res.json({ ok: true });
+  },
+);
+
 // Test notification (no auth - testing only)
 router.post(
   "/admin/notifications/test",

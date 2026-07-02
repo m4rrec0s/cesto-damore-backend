@@ -147,6 +147,10 @@ class AdminNotificationService {
       data: { seen: true },
     });
   }
+
+  async clearAll(): Promise<void> {
+    await prisma.adminNotification.deleteMany();
+  }
 }
 
 export const adminNotificationService = new AdminNotificationService();

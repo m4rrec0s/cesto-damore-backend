@@ -132,8 +132,16 @@
       $('btnSend').textContent = 'Enviando...';
 
       try {
+        const body = {
+          customerName: $('customerName').value || 'Cliente Teste',
+          total: parseFloat($('total').value) || 159.90,
+          itemsCount: parseInt($('itemsCount').value) || 3,
+          deliveryDate: $('deliveryDate').value ? new Date($('deliveryDate').value).toISOString() : undefined,
+        };
         const res = await fetch(`${apiUrl}/admin/notifications/test`, {
-          method: 'POST'
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
         });
         const data = await res.json();
         if (res.ok) {

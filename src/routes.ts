@@ -841,12 +841,13 @@ router.post(
   "/admin/notifications/test",
   async (req, res) => {
     const { adminNotificationService } = require("./services/adminNotificationService");
+    const { customerName, total, itemsCount, deliveryDate } = req.body || {};
     await adminNotificationService.notifyNewPaidOrder({
       orderId: `test-${Date.now()}`,
-      customerName: "Cliente Teste",
-      total: 159.90,
-      itemsCount: 3,
-      deliveryDate: new Date(Date.now() + 86400000).toISOString(),
+      customerName: customerName || "Cliente Teste",
+      total: total || 159.90,
+      itemsCount: itemsCount || 3,
+      deliveryDate: deliveryDate || new Date(Date.now() + 86400000).toISOString(),
       paymentMethod: "credit_card",
     });
     res.json({ ok: true, message: "Test notification sent" });

@@ -9,8 +9,54 @@ interface AdminClient {
   pingInterval: NodeJS.Timeout;
 }
 
+const REDIS_CHANNEL = "admin:notifications";
+
 class AdminNotificationService {
   private clients: AdminClient[] = [];
+  private redisSub: import("ioredis").default | null = null;
+  private redisPub: import("ioredis").default | null = null;
+
+  constructor() {
+    this.initRedis();
+  }
+
+  private async initRedis() {
+    try {
+      const IORedis = (await import("ioredis")).default;
+      const url = process.env.REDIS_URL;
+      if (!url) {
+        logger.warn("📡 Admin SSE: REDIS_URL não configurado — SSE funciona apenas na instância local");
+        return;
+      }
+
+      // Publisher
+      this.redisPub = new IORedis(url, { maxRetriesPerRequest: null, lazyConnect: true });
+      await this.redisPub.connect().catch(() => {});
+
+      // Subscriber (conexão separada, exigido pelo Redis)
+      this.redisSub = new IORedis(url, { maxRetriesPerRequest: null, lazyConnect: true });
+      await this.redisSub.connect().catch(() => {});
+
+      await this.redisSub.subscribe(REDIS_CHANNEL);
+      this.redisSub.on("message", (_channel, message) => {
+        this.broadcastToLocalClients(message);
+      });
+
+      logger.info("📡 Admin SSE: Redis pub/sub conectado — notificações globais ativas");
+    } catch (error) {
+      logger.warn("📡 Admin SSE: Falha ao conectar Redis — SSE funciona apenas na instância local", error);
+    }
+  }
+
+  private broadcastToLocalClients(message: string) {
+    for (const client of [...this.clients]) {
+      try {
+        client.response.write(`data: ${message}\n\n`);
+      } catch {
+        this.removeClient(client.id);
+      }
+    }
+  }
 
   async registerClient(res: Response): Promise<void> {
     res.setHeader("Content-Type", "text/event-stream");
@@ -29,7 +75,7 @@ class AdminNotificationService {
     }, 25000);
 
     this.clients.push({ id, response: res, pingInterval });
-    logger.info(`📡 Admin SSE conectado (${this.clients.length} clientes)`);
+    logger.info(`📡 Admin SSE conectado (${this.clients.length} clientes nesta instância)`);
 
     res.on("close", () => this.removeClient(id));
 
@@ -56,7 +102,7 @@ class AdminNotificationService {
     if (idx !== -1) {
       clearInterval(this.clients[idx].pingInterval);
       this.clients.splice(idx, 1);
-      logger.info(`📡 Admin SSE desconectado (${this.clients.length} clientes)`);
+      logger.info(`📡 Admin SSE desconectado (${this.clients.length} clientes nesta instância)`);
     }
   }
 
@@ -99,25 +145,25 @@ class AdminNotificationService {
       });
     }).catch(() => {});
 
-    // 3. SSE para clientes conectados
-    if (this.clients.length === 0) {
-      logger.debug(`📡 Admin SSE: nenhum cliente conectado para receber order_paid (orderId=${data.orderId}), notificação salva no DB`);
-      return;
-    }
-
+    // 3. SSE via Redis pub/sub (global) ou fallback local
     const ssePayload = dbNotification
       ? { type: "order_paid", ...data, notificationId: dbNotification.id, createdAt: dbNotification.created_at.toISOString() }
       : { type: "order_paid", ...data };
 
     const message = JSON.stringify(ssePayload);
-    for (const client of [...this.clients]) {
-      try {
-        client.response.write(`data: ${message}\n\n`);
-      } catch {
-        this.removeClient(client.id);
-      }
+
+    if (this.redisPub) {
+      // Publicar para TODAS as instâncias via Redis
+      this.redisPub.publish(REDIS_CHANNEL, message).catch(() => {
+        // Fallback: enviar localmente se Redis falhar
+        this.broadcastToLocalClients(message);
+      });
+      logger.info(`📡 Admin SSE: notificação order_paid publicada via Redis (global)`);
+    } else {
+      // Sem Redis: enviar apenas para clientes desta instância
+      this.broadcastToLocalClients(message);
+      logger.info(`📡 Admin SSE: notificação order_paid enviada para ${this.clients.length} cliente(s) (local apenas)`);
     }
-    logger.info(`📡 Admin SSE: notificação order_paid enviada para ${this.clients.length} cliente(s)`);
   }
 
   async getNotifications(options?: { seen?: boolean; limit?: number; offset?: number }) {

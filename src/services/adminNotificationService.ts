@@ -15,6 +15,7 @@ class AdminNotificationService {
   private clients: AdminClient[] = [];
   private redisSub: import("ioredis").default | null = null;
   private redisPub: import("ioredis").default | null = null;
+  private instanceId = Math.random().toString(36).substring(2, 15);
 
   constructor() {
     this.initRedis();
@@ -31,18 +32,35 @@ class AdminNotificationService {
 
       // Publisher
       this.redisPub = new IORedis(url, { maxRetriesPerRequest: null, lazyConnect: true });
-      await this.redisPub.connect().catch(() => {});
+      this.redisPub.on("error", (err) => {
+        logger.error("📡 Admin SSE: Erro no Redis Publisher:", err);
+      });
+      await this.redisPub.connect().catch((err) => {
+        logger.error("📡 Admin SSE: Falha ao conectar Redis Publisher:", err);
+      });
 
       // Subscriber (conexão separada, exigido pelo Redis)
       this.redisSub = new IORedis(url, { maxRetriesPerRequest: null, lazyConnect: true });
-      await this.redisSub.connect().catch(() => {});
+      this.redisSub.on("error", (err) => {
+        logger.error("📡 Admin SSE: Erro no Redis Subscriber:", err);
+      });
+      await this.redisSub.connect().catch((err) => {
+        logger.error("📡 Admin SSE: Falha ao conectar Redis Subscriber:", err);
+      });
 
       await this.redisSub.subscribe(REDIS_CHANNEL);
       this.redisSub.on("message", (_channel, message) => {
-        this.broadcastToLocalClients(message);
+        try {
+          const parsed = JSON.parse(message);
+          if (parsed.senderId !== this.instanceId) {
+            this.broadcastToLocalClients(message);
+          }
+        } catch (error) {
+          logger.error("📡 Admin SSE: Erro ao processar mensagem do Redis:", error);
+        }
       });
 
-      logger.info("📡 Admin SSE: Redis pub/sub conectado — notificações globais ativas");
+      logger.info(`📡 Admin SSE [Instance: ${this.instanceId}]: Redis pub/sub conectado — notificações globais ativas`);
     } catch (error) {
       logger.warn("📡 Admin SSE: Falha ao conectar Redis — SSE funciona apenas na instância local", error);
     }
@@ -75,7 +93,7 @@ class AdminNotificationService {
     }, 25000);
 
     this.clients.push({ id, response: res, pingInterval });
-    logger.info(`📡 Admin SSE conectado (${this.clients.length} clientes nesta instância)`);
+    logger.info(`📡 Admin SSE conectado [Instance: ${this.instanceId}] (${this.clients.length} clientes nesta instância)`);
 
     res.on("close", () => this.removeClient(id));
 
@@ -102,7 +120,7 @@ class AdminNotificationService {
     if (idx !== -1) {
       clearInterval(this.clients[idx].pingInterval);
       this.clients.splice(idx, 1);
-      logger.info(`📡 Admin SSE desconectado (${this.clients.length} clientes nesta instância)`);
+      logger.info(`📡 Admin SSE desconectado [Instance: ${this.instanceId}] (${this.clients.length} clientes nesta instância)`);
     }
   }
 
@@ -145,24 +163,23 @@ class AdminNotificationService {
       });
     }).catch(() => {});
 
-    // 3. SSE via Redis pub/sub (global) ou fallback local
+    // 3. SSE - Broadcast para clientes conectados localmente nesta instância imediatamente
     const ssePayload = dbNotification
-      ? { type: "order_paid", ...data, notificationId: dbNotification.id, createdAt: dbNotification.created_at.toISOString() }
-      : { type: "order_paid", ...data };
+      ? { type: "order_paid", ...data, notificationId: dbNotification.id, createdAt: dbNotification.created_at.toISOString(), senderId: this.instanceId }
+      : { type: "order_paid", ...data, senderId: this.instanceId };
 
     const message = JSON.stringify(ssePayload);
 
-    if (this.redisPub) {
-      // Publicar para TODAS as instâncias via Redis
-      this.redisPub.publish(REDIS_CHANNEL, message).catch(() => {
-        // Fallback: enviar localmente se Redis falhar
-        this.broadcastToLocalClients(message);
+    // Envia localmente de forma síncrona/imediata
+    this.broadcastToLocalClients(message);
+    logger.info(`📡 Admin SSE: notificação order_paid enviada localmente para ${this.clients.length} cliente(s)`);
+
+    // 4. SSE - Publicar via Redis para outras instâncias
+    if (this.redisPub && this.redisPub.status === "ready") {
+      this.redisPub.publish(REDIS_CHANNEL, message).catch((err) => {
+        logger.error("📡 Admin SSE: Erro ao publicar via Redis:", err);
       });
       logger.info(`📡 Admin SSE: notificação order_paid publicada via Redis (global)`);
-    } else {
-      // Sem Redis: enviar apenas para clientes desta instância
-      this.broadcastToLocalClients(message);
-      logger.info(`📡 Admin SSE: notificação order_paid enviada para ${this.clients.length} cliente(s) (local apenas)`);
     }
   }
 

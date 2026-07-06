@@ -214,6 +214,44 @@ class AdminNotificationService {
   async clearAll(): Promise<void> {
     await prisma.adminNotification.deleteMany();
   }
+
+  async notifyPendingPrintJobs(count: number): Promise<void> {
+    // Persist notification
+    let dbNotification: { id: string; created_at: Date } | null = null;
+    try {
+      dbNotification = await prisma.adminNotification.create({
+        data: {
+          type: "pending_print_jobs",
+          title: `🖨️ ${count} impressão(ões) pendente(s)`,
+          message: `${count} job(s) aguardando revisão na fila de impressão`,
+          metadata: { count } as unknown as Prisma.InputJsonValue,
+        },
+      });
+    } catch (error) {
+      logger.error("Erro ao persistir notificação de jobs pendentes:", error);
+    }
+
+    // SSE broadcast
+    const ssePayload = dbNotification
+      ? { type: "pending_print_jobs", count, notificationId: dbNotification.id, senderId: this.instanceId }
+      : { type: "pending_print_jobs", count, senderId: this.instanceId };
+
+    const message = JSON.stringify(ssePayload);
+    this.broadcastToLocalClients(message);
+
+    if (this.redisPub && this.redisPub.status === "ready") {
+      this.redisPub.publish(REDIS_CHANNEL, message).catch(() => {});
+    }
+
+    // Web Push
+    import("./webPushService").then(({ webPushService }) => {
+      webPushService.sendToAll({
+        title: `🖨️ ${count} impressão(ões) pendente(s)`,
+        body: `Abra o manager para revisar a fila de impressão`,
+        url: `/print-queue`,
+      });
+    }).catch(() => {});
+  }
 }
 
 export const adminNotificationService = new AdminNotificationService();

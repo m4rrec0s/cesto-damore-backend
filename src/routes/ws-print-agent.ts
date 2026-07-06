@@ -331,7 +331,7 @@ export class PrintAgentHub {
   }
 
   isConnected(): boolean {
-    return this.getDefaultActiveDevice() !== undefined;
+    return [...this.devices.values()].some((d) => d.isActive && d.socket?.readyState === WebSocket.OPEN);
   }
 
   getStatus(): {
@@ -573,10 +573,7 @@ export class PrintAgentHub {
   // --- Private helpers ---
 
   getDefaultActiveDevice(): DeviceConnection | undefined {
-    return (
-      [...this.devices.values()].find((d) => d.isDefault && d.isActive && d.socket?.readyState === WebSocket.OPEN) ??
-      [...this.devices.values()].find((d) => d.isActive && d.socket?.readyState === WebSocket.OPEN)
-    );
+    return [...this.devices.values()].find((d) => d.isDefault && d.isActive && d.socket?.readyState === WebSocket.OPEN);
   }
 
   private addToHistory(entry: HistoryEntry): void {

@@ -961,6 +961,7 @@ enum TrendPeriodType {
 
 enum PrintJobStatus {
   PENDING
+  PENDING_REVIEW
   SENT
   RECEIVED
   PRINTING

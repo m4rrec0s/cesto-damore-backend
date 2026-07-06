@@ -783,4 +783,106 @@ export function createPrintAdminRoutes(router: Router): void {
       });
     }
   });
+
+  // ── Print Queue Management ──────────────────────────────────────
+
+  // GET /api/print/queue — list all print jobs (with optional status filter)
+  router.get("/api/print/queue", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const { status, limit = "50", offset = "0" } = req.query;
+      const where: any = status ? { status: status as string } : {};
+      const [jobs, total] = await Promise.all([
+        prisma.printJob.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          take: parseInt(limit as string),
+          skip: parseInt(offset as string),
+          select: {
+            id: true,
+            orderId: true,
+            customerName: true,
+            status: true,
+            lastError: true,
+            createdAt: true,
+            sentAt: true,
+            ackedAt: true,
+            printedAt: true,
+          },
+        }),
+        prisma.printJob.count({ where }),
+      ]);
+      res.json({ jobs, total });
+    } catch (err: any) {
+      logger.error({ err }, "print_queue_list_failed");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/print/queue/:id/dispatch — accept and send a PENDING_REVIEW job
+  router.patch("/api/print/queue/:id/dispatch", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const result = await printAgentWSManager.dispatchReviewJob(req.params.id);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      logger.error({ err }, "print_queue_dispatch_failed");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/print/queue/:id/reject — reject a PENDING_REVIEW job
+  router.patch("/api/print/queue/:id/reject", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const result = await printAgentWSManager.rejectReviewJob(req.params.id);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      logger.error({ err }, "print_queue_reject_failed");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/print/queue/dispatch-all — dispatch all PENDING_REVIEW jobs
+  router.patch("/api/print/queue/dispatch-all", authenticateToken, requireAdmin, async (_req, res) => {
+    try {
+      const pending = await prisma.printJob.findMany({
+        where: { status: "PENDING_REVIEW" },
+      });
+      let dispatched = 0;
+      let failed = 0;
+      for (const job of pending) {
+        const result = await printAgentWSManager.dispatchReviewJob(job.id);
+        if (result.success) dispatched++;
+        else failed++;
+      }
+      res.json({ ok: true, dispatched, failed });
+    } catch (err: any) {
+      logger.error({ err }, "print_queue_dispatch_all_failed");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/print/queue/reject-all — reject all PENDING_REVIEW jobs
+  router.patch("/api/print/queue/reject-all", authenticateToken, requireAdmin, async (_req, res) => {
+    try {
+      const pending = await prisma.printJob.findMany({
+        where: { status: "PENDING_REVIEW" },
+      });
+      let rejected = 0;
+      for (const job of pending) {
+        const result = await printAgentWSManager.rejectReviewJob(job.id);
+        if (result.success) rejected++;
+      }
+      res.json({ ok: true, rejected });
+    } catch (err: any) {
+      logger.error({ err }, "print_queue_reject_all_failed");
+      res.status(500).json({ error: err.message });
+    }
+  });
 }

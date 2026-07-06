@@ -53,7 +53,10 @@ class PrintAgentWSManager {
     }
 
     const jobId = (msg as any).jobId as string | undefined;
-    logger.info({ type: msg.type, jobId }, "ws_inbound_received");
+    // Skip noisy ghost messages from unknown clients
+    if ((msg as any).type !== "PRINTER_STATUS_UPDATE") {
+      logger.info({ type: msg.type, jobId }, "ws_inbound_received");
+    }
 
     if (!jobId) {
       if (msg.type === "PRINTER_STATUS") {
@@ -207,7 +210,7 @@ class PrintAgentWSManager {
       take: 50,
     });
 
-    // Also check raw SQL print_jobs table (print-queue.service system)
+    // Also check raw SQL print_jobs table
     let rawJobs: any[] = [];
     try {
       rawJobs = await prisma.$queryRawUnsafe(
@@ -244,48 +247,79 @@ class PrintAgentWSManager {
 
     if (allJobs.length === 0) return;
 
-    // Sync config to default device
-    await this.syncPrinterConfig();
-
+    // Mark all stuck jobs as PENDING_REVIEW — do NOT auto-send
+    // User reviews and dispatches manually from the manager UI
     for (const job of allJobs) {
       try {
-        const payload: PrintJobPayload = {
-          jobId: job.id,
-          orderId: (job as any).orderId ?? job.id,
-          customerName: (job as any).customerName ?? "",
-          driveFolderId: (job as any).driveFolderId ?? "",
-          files: JSON.parse((job as any).filesJson ?? "[]") as PrintJobPayload["files"],
-        };
-
-        const sent = this.send({
-          type: "PRINT_JOB",
-          jobId: payload.jobId,
-          job: payload,
-          timestamp: new Date().toISOString(),
+        await prisma.printJob.update({
+          where: { id: job.id },
+          data: { status: "PENDING_REVIEW" },
+        }).catch(() => {
+          prisma.$executeRawUnsafe(
+            `UPDATE print_jobs SET status = 'pending_review', updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'sent')`,
+            job.id,
+          ).catch((err) => logger.error({ err, jobId: job.id }, "sync_job_review_update_raw_failed"));
         });
-
-        if (sent) {
-          // Update status in PrintJob table (Prisma) — may fail for raw SQL jobs, that's OK
-          await prisma.printJob.update({
-            where: { id: job.id },
-            data: { status: "SENT", sentAt: new Date() },
-          }).catch(() => {
-            // Job may be in print_jobs table (raw SQL) — update that instead
-            prisma.$executeRawUnsafe(
-              `UPDATE print_jobs SET status = 'sent', updated_at = NOW() WHERE id = $1`,
-              job.id,
-            ).catch((err) => logger.error({ err, jobId: job.id }, "sync_job_update_raw_failed"));
-          });
-          logger.info({ jobId: job.id }, "job_marked_as_sent");
-        } else {
-          logger.warn({ jobId: job.id }, "failed_to_send_print_job_to_agent");
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        logger.info({ jobId: job.id, orderId: (job as any).orderId }, "job_marked_pending_review");
       } catch (err) {
-        logger.error({ err, jobId: job.id }, "print_sync_pending_job_error");
+        logger.error({ err, jobId: job.id }, "print_sync_review_mark_error");
       }
     }
+
+    // Notify admin about pending jobs needing review
+    try {
+      const { adminNotificationService } = await import("./adminNotificationService");
+      await adminNotificationService.notifyPendingPrintJobs(allJobs.length);
+    } catch (err) {
+      logger.error({ err }, "notify_pending_print_jobs_failed");
+    }
+  }
+
+  /** Dispatch a single job that was in PENDING_REVIEW */
+  async dispatchReviewJob(jobId: string): Promise<{ success: boolean; error?: string }> {
+    const job = await prisma.printJob.findUnique({ where: { id: jobId } });
+    if (!job) return { success: false, error: "Job não encontrado" };
+    if (job.status !== "PENDING_REVIEW") return { success: false, error: `Job está com status ${job.status}` };
+
+    const payload: PrintJobPayload = {
+      jobId: job.id,
+      orderId: job.orderId,
+      customerName: job.customerName,
+      driveFolderId: job.driveFolderId,
+      files: JSON.parse(job.filesJson) as PrintJobPayload["files"],
+    };
+
+    const sent = this.send({
+      type: "PRINT_JOB",
+      jobId: payload.jobId,
+      job: payload,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (!sent) return { success: false, error: "Agente não conectado" };
+
+    await prisma.printJob.update({
+      where: { id: jobId },
+      data: { status: "SENT", sentAt: new Date() },
+    });
+
+    logger.info({ jobId }, "review_job_dispatched");
+    return { success: true };
+  }
+
+  /** Reject/cancel a single job */
+  async rejectReviewJob(jobId: string): Promise<{ success: boolean; error?: string }> {
+    const job = await prisma.printJob.findUnique({ where: { id: jobId } });
+    if (!job) return { success: false, error: "Job não encontrado" };
+    if (job.status !== "PENDING_REVIEW") return { success: false, error: `Job está com status ${job.status}` };
+
+    await prisma.printJob.update({
+      where: { id: jobId },
+      data: { status: "FAILED", lastError: "Rejeitado pelo operador" },
+    });
+
+    logger.info({ jobId }, "review_job_rejected");
+    return { success: true };
   }
 }
 

@@ -145,13 +145,6 @@ class PrintQueueService {
   private async processJob(job: Job<PrintJobPayload>): Promise<void> {
     const jobId = job.id || job.data.orderId;
     logger.info(`[PrintQueue] processJob iniciado jobId=${jobId}`);
-    await this.updatePrintJob(jobId, "sent");
-    logger.info(`[PrintQueue] emitindo sent jobId=${jobId}`);
-    this.emitStatus({
-      jobId,
-      status: "sent",
-      message: "Job enviado ao agente",
-    });
 
     const dispatch = printAgentHub.dispatchPrintJob(
       jobId,
@@ -160,9 +153,12 @@ class PrintQueueService {
       PRINTED_TIMEOUT_MS,
     );
 
+    // Mark as sent only AFTER dispatching to agent (not before)
+    // If process crashes before this, job stays PENDING and syncPendingJobs will recover it
     logger.info(`[PrintQueue] aguardando ACK jobId=${jobId}`);
     await dispatch.ack;
-    logger.info(`[PrintQueue] ACK recebido, emitindo received jobId=${jobId}`);
+
+    // Agent confirmed receipt — now safe to mark as sent/received
     await this.updatePrintJob(jobId, "received");
     this.emitStatus({
       jobId,

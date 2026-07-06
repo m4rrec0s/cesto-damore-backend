@@ -11,7 +11,7 @@ import { adminNotificationService } from "./adminNotificationService";
 import { CouponService } from "./couponService";
 import orderService from "./orderService";
 import reservationService from "./reservationService";
-import alertService from "./alertService";
+import alertService, { AlertCategory, AlertSeverity } from "./alertService";
 import { dispatchPrintForOrder } from "./printDispatchService";
 import logger from "../utils/logger";
 
@@ -2401,6 +2401,8 @@ export class PaymentService {
           itemsCount: dbPayment.order.items?.length || 0,
           deliveryDate: (dbPayment.order as any).delivery_date?.toISOString(),
           paymentMethod: paymentInfo.payment_method_id || undefined,
+        }).catch((err: any) => {
+          logger.error("Erro ao enviar notificação administrativa via webhook:", err);
         });
 
         // Confirma reserva de estoque (não-bloqueante)
@@ -2463,6 +2465,14 @@ export class PaymentService {
                   { err: printErr, orderId: dbPayment.order_id },
                   "print_job_enqueue_failed",
                 );
+                alertService.sendAlert({
+                  category: AlertCategory.PAYMENT_PROCESSING,
+                  severity: AlertSeverity.CRITICAL,
+                  title: "Falha ao enfileirar impressão",
+                  message: `Pagamento confirmado mas impressão não enfileirada. Pedido: ${dbPayment.order_id}`,
+                  metadata: { orderId: dbPayment.order_id, error: String(printErr) },
+                  timestamp: new Date(),
+                });
               }
             }
 
@@ -2503,6 +2513,14 @@ export class PaymentService {
                 { err: printErr, orderId: dbPayment.order_id },
                 "print_job_enqueue_failed",
               );
+              alertService.sendAlert({
+                category: AlertCategory.PAYMENT_PROCESSING,
+                severity: AlertSeverity.CRITICAL,
+                title: "Falha ao enfileirar impressão",
+                message: `Pagamento confirmado mas impressão não enfileirada. Pedido: ${dbPayment.order_id}`,
+                metadata: { orderId: dbPayment.order_id, error: String(printErr) },
+                timestamp: new Date(),
+              });
             }
 
             await prisma.webhookLog.updateMany({

@@ -160,9 +160,9 @@ router.put('/:role', async (req: Request, res: Response) => {
       data: { printers: updatedPrinters as any }
     })
 
-    // Sync config to agent
+    // Sync config to agent — target the specific device
     const config = getRoleConfig(updatedPrinters)
-    printAgentWSManager.send({
+    printAgentWSManager.sendToDevice(targetDeviceId, {
       type: 'PRINTER_CONFIG_UPDATE',
       config,
       timestamp: new Date().toISOString(),
@@ -215,9 +215,9 @@ router.delete('/:role', async (req: Request, res: Response) => {
       data: { printers: updatedPrinters as any }
     })
 
-    // Sync config to agent
+    // Sync config to agent — target the specific device
     const config = getRoleConfig(updatedPrinters)
-    printAgentWSManager.send({
+    printAgentWSManager.sendToDevice(targetDeviceId, {
       type: 'PRINTER_CONFIG_UPDATE',
       config,
       timestamp: new Date().toISOString(),

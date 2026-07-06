@@ -506,7 +506,9 @@ export const validateMercadoPagoWebhook = (
       }
 
       if (!timestamp || !hash) {
-        logger.warn("🚫 [Webhook MP] Assinatura inválida");
+        logger.debug("Assinatura MP formato inválido (esperado se MP envia formato legado)", {
+          paymentId: data?.id,
+        });
         return res.status(401).json({
           error: "Formato de assinatura inválido",
           code: "INVALID_SIGNATURE_FORMAT",
@@ -532,7 +534,7 @@ export const validateMercadoPagoWebhook = (
         .toString(crypto.enc.Hex);
 
       if (hash !== expectedHash) {
-        logger.warn("🚫 [Webhook MP] Assinatura inválida", {
+        logger.debug("Assinatura MP HMAC não confere (esperado se MP envia formato legado)", {
           paymentId: dataId,
         });
 

@@ -70,6 +70,7 @@ export interface DeviceInfo {
 
 interface DeviceConnection extends DeviceInfo {
   socket: WebSocket;
+  isClosing?: boolean; // true while replacing old socket — suppress disconnect event
 }
 
 const parseAgentEnvelope = (raw: Buffer): AgentEnvelope | null => {
@@ -143,7 +144,8 @@ export class PrintAgentHub {
   private readonly maxHistorySize = 50;
   private ackWaiters = new Map<string, Waiter>();
   private printedWaiters = new Map<string, Waiter>();
-  private _printers: AgentPrinterInfo = { available: false, printers: [] };
+  /** Per-device printer status — keyed by deviceId */
+  private _printersByDevice = new Map<string, AgentPrinterInfo>();
   private events = new EventEmitter();
 
   // --- Multi-device management ---
@@ -151,6 +153,16 @@ export class PrintAgentHub {
   connectDevice(socket: WebSocket, handshake: DeviceHandshake): void {
     const existing = this.devices.get(handshake.deviceId);
     if (existing) {
+      // Clean up old socket before replacing — prevents ghost disconnects and stale message processing
+      const oldSocket = existing.socket;
+      if (oldSocket && oldSocket !== socket) {
+        existing.isClosing = true;
+        try {
+          oldSocket.removeAllListeners();
+          oldSocket.close(1000, "replaced");
+        } catch { /* socket may already be dead */ }
+        existing.isClosing = false;
+      }
       existing.socket = socket;
       existing.isActive = true;
       existing.lastSeenAt = new Date().toISOString();
@@ -224,6 +236,11 @@ export class PrintAgentHub {
     };
   }
 
+  /** Internal use: get raw DeviceConnection (includes socket + isClosing) */
+  getDeviceById(deviceId: string): DeviceConnection | undefined {
+    return this.devices.get(deviceId);
+  }
+
   getAllDevices(): DeviceInfo[] {
     return [...this.devices.values()].map((d) => ({
       deviceId: d.deviceId,
@@ -243,6 +260,17 @@ export class PrintAgentHub {
       device.isDefault = id === deviceId;
     }
     this.events.emit("device:update", this.getDeviceInfo(deviceId));
+
+    // Persist to DB
+    prisma.$transaction([
+      prisma.printDevice.updateMany({ data: { isDefault: false } }),
+      prisma.printDevice.upsert({
+        where: { deviceId },
+        create: { deviceId, deviceName: "Dispositivo", isDefault: true, connectedAt: new Date(), lastSeenAt: new Date() },
+        update: { isDefault: true },
+      }),
+    ]).catch((err) => logger.error({ err, deviceId }, "set_default_persist_failed"));
+
     return true;
   }
 
@@ -289,11 +317,12 @@ export class PrintAgentHub {
     printers: AgentPrinterInfo;
   } {
     const target = this.getDefaultActiveDevice();
+    const printers = target ? (this._printersByDevice.get(target.deviceId) ?? { available: false, printers: [] }) : { available: false, printers: [] };
     return {
       isConnected: !!target,
       connectedAt: target ? new Date(target.connectedAt) : null,
       totalMessages: this.history.length,
-      printers: this._printers,
+      printers,
     };
   }
 
@@ -301,8 +330,14 @@ export class PrintAgentHub {
     return this.history;
   }
 
+  /** @deprecated Use getPrintersForDevice(deviceId) instead */
   get printers(): AgentPrinterInfo {
-    return this._printers;
+    const target = this.getDefaultActiveDevice();
+    return target ? (this._printersByDevice.get(target.deviceId) ?? { available: false, printers: [] }) : { available: false, printers: [] };
+  }
+
+  getPrintersForDevice(deviceId: string): AgentPrinterInfo {
+    return this._printersByDevice.get(deviceId) ?? { available: false, printers: [] };
   }
 
   onPrintersUpdated(listener: (info: AgentPrinterInfo) => void): () => void {
@@ -339,8 +374,9 @@ export class PrintAgentHub {
     this.sendRaw({ type: "CHECK_PRINTER" }, deviceId);
   }
 
-  requestPrinterList(): Promise<string[]> {
-    if (!this.isConnected()) return Promise.resolve([]);
+  requestPrinterList(deviceId?: string): Promise<string[]> {
+    const targetDeviceId = deviceId ?? this.getDefaultActiveDevice()?.deviceId;
+    if (!targetDeviceId) return Promise.resolve([]);
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.events.off("printers-updated", onUpdate);
@@ -352,18 +388,20 @@ export class PrintAgentHub {
         resolve(info.printers);
       };
       this.events.on("printers-updated", onUpdate);
-      this.sendRaw({ type: "CHECK_PRINTER" });
+      this.sendRaw({ type: "CHECK_PRINTER" }, targetDeviceId);
     });
   }
 
-  authorizePrinter(printerName: string): { success: boolean; error?: string } {
-    if (!this.isConnected()) {
+  authorizePrinter(printerName: string, deviceId?: string): { success: boolean; error?: string } {
+    const targetDeviceId = deviceId ?? this.getDefaultActiveDevice()?.deviceId;
+    if (!targetDeviceId) {
       return { success: false, error: "Agente não conectado" };
     }
-    const result = this.sendRaw({ type: "AUTHORIZE_PRINTER", selectedPrinter: printerName });
+    const result = this.sendRaw({ type: "AUTHORIZE_PRINTER", selectedPrinter: printerName }, targetDeviceId);
     if (result.success) {
-      this._printers = { ...this._printers, selectedPrinter: printerName };
-      this.events.emit("printers-updated", this._printers);
+      const existing = this._printersByDevice.get(targetDeviceId) ?? { available: false, printers: [] };
+      this._printersByDevice.set(targetDeviceId, { ...existing, selectedPrinter: printerName });
+      this.events.emit("printers-updated", this._printersByDevice.get(targetDeviceId));
     }
     return result;
   }
@@ -390,24 +428,38 @@ export class PrintAgentHub {
     this.addToHistory({ type: "RECEIVED", message, timestamp: new Date() });
 
     if (message.type === "PRINTER_STATUS") {
-      this._printers = {
+      const printerInfo: AgentPrinterInfo = {
         available: message.available ?? false,
         printers: message.printers ?? [],
-        selectedPrinter: this._printers.selectedPrinter,
+        selectedPrinter: undefined,
       };
-      this.events.emit("printers-updated", this._printers);
 
       if (deviceId) {
+        // Preserve existing selectedPrinter for this device
+        const existing = this._printersByDevice.get(deviceId);
+        printerInfo.selectedPrinter = existing?.selectedPrinter;
+        this._printersByDevice.set(deviceId, printerInfo);
+
         // Use PrinterDetails if available (has real status), fallback to name-only with status=0
         const printerInfos: DevicePrinterInfo[] = message.printerDetails && message.printerDetails.length > 0
           ? message.printerDetails.map((p) => ({ name: p.Name, status: p.PrinterStatus }))
           : (message.printers ?? []).map((name) => ({ name, status: 0 }));
         this.updateDevicePrinters(deviceId, printerInfos);
+      } else {
+        // Legacy fallback: store under default device
+        const target = this.getDefaultActiveDevice();
+        if (target) {
+          const existing = this._printersByDevice.get(target.deviceId);
+          printerInfo.selectedPrinter = existing?.selectedPrinter;
+          this._printersByDevice.set(target.deviceId, printerInfo);
+        }
       }
 
-      if (!this._printers.available && !this._printers.selectedPrinter) {
+      this.events.emit("printers-updated", deviceId ? this._printersByDevice.get(deviceId) : printerInfo);
+
+      if (!printerInfo.available && !printerInfo.selectedPrinter) {
         logger.info("[PrintAgent] Nenhuma impressora disponivel, autorizando pdf_fallback");
-        this.authorizePrinter("pdf_fallback");
+        this.authorizePrinter("pdf_fallback", deviceId);
       }
       return;
     }
@@ -426,9 +478,9 @@ export class PrintAgentHub {
     }
 
     if (message.type === "SYNC_PRINTER_CONFIG") {
-      logger.info("[PrintAgent] App solicitou sincronização de config de impressoras");
-      printAgentWSManager.syncPrinterConfig().catch((err) => {
-        logger.error({ err }, "sync_printer_config_from_app_failed");
+      logger.info({ deviceId }, "[PrintAgent] App solicitou sincronização de config de impressoras");
+      printAgentWSManager.syncPrinterConfig(deviceId).catch((err) => {
+        logger.error({ err, deviceId }, "sync_printer_config_from_app_failed");
       });
       return;
     }
@@ -601,7 +653,8 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
         // Handle HANDSHAKE as first message
         if (!handshakeReceived && parsed?.type === "HANDSHAKE") {
           handshakeReceived = true;
-          deviceId = parsed.deviceId || `legacy-${clientIp}`;
+          // Normalize legacy fallback ID to match non-HANDSHAKE path
+          deviceId = parsed.deviceId || `legacy-${clientIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
           printAgentHub.connectDevice(ws, {
             deviceId: deviceId!,
             deviceName: parsed.deviceName || "Dispositivo",
@@ -649,6 +702,12 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
     ws.on("close", () => {
       clearInterval(heartbeatInterval);
       if (deviceId) {
+        const device = printAgentHub.getDeviceById(deviceId);
+        // Skip disconnect if this socket is being replaced (isClosing) or if it's not the current socket
+        if (device?.isClosing || device?.socket !== ws) {
+          logger.debug(`[PrintAgent] Ignoring close from stale socket: ${deviceId}`);
+          return;
+        }
         printAgentHub.disconnectDevice(deviceId);
         logger.info(`[PrintAgent] Agente desconectado: ${deviceId}`);
       } else {
@@ -705,15 +764,12 @@ export function createPrintDeviceRoutes(router: Router): void {
   const setDefaultHandler = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
-      await prisma.$transaction([
-        prisma.printDevice.updateMany({ data: { isDefault: false } }),
-        prisma.printDevice.upsert({
-          where: { deviceId: id },
-          create: { deviceId: id, deviceName: "Dispositivo", isDefault: true, connectedAt: new Date(), lastSeenAt: new Date() },
-          update: { isDefault: true },
-        }),
-      ]);
-      printAgentHub.setDefault(id);
+      // setDefault() handles both in-memory + DB persistence
+      const ok = printAgentHub.setDefault(id);
+      if (!ok) {
+        res.status(404).json({ error: "Dispositivo não encontrado" });
+        return;
+      }
       res.status(204).end();
     } catch (error) {
       logger.error({ error }, "set_default_device_failed");
@@ -763,7 +819,15 @@ export function createPrintDeviceRoutes(router: Router): void {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Keepalive ping every 25s to prevent proxy/browser timeout
+    const keepaliveInterval = setInterval(() => {
+      res.write(`: keepalive\n\n`);
+    }, 25_000);
+
     const off = printAgentHub.on("device:update", send);
-    req.on("close", off);
+    req.on("close", () => {
+      clearInterval(keepaliveInterval);
+      off();
+    });
   });
 }

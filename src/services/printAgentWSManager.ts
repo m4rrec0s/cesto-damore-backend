@@ -38,6 +38,11 @@ class PrintAgentWSManager {
     return printAgentHub.sendRaw(msg as unknown as Record<string, unknown>).success;
   }
 
+  /** Send message to a specific device. Falls back to default device if deviceId omitted. */
+  sendToDevice(deviceId: string | undefined, msg: WSOutboundMessage): boolean {
+    return printAgentHub.sendRaw(msg as unknown as Record<string, unknown>, deviceId).success;
+  }
+
   async handleInbound(raw: string): Promise<void> {
     let msg: WSInboundMessage;
     try {
@@ -171,13 +176,15 @@ class PrintAgentWSManager {
         letter = letterPrinter?.name ?? null
       }
 
-      this.send({
+      // Send to specific device if provided, otherwise broadcast to default
+      const targetDeviceId = deviceId ?? device?.deviceId
+      this.sendToDevice(targetDeviceId, {
         type: "PRINTER_CONFIG_UPDATE",
         config: { photo, letter },
         timestamp: new Date().toISOString(),
       })
 
-      logger.info({ photo, letter, deviceId }, "printer_config_synced_on_connect")
+      logger.info({ photo, letter, deviceId: targetDeviceId }, "printer_config_synced_on_connect")
     } catch (err) {
       logger.error({ err }, "printer_config_sync_failed")
     }
@@ -185,29 +192,69 @@ class PrintAgentWSManager {
 
 
   async syncPendingJobs(): Promise<void> {
+    // Recovery window: 48h for PENDING, 5min+ for SENT (jobs in transit <5min may still be processing)
+    const pendingCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const sentCutoff = new Date(Date.now() - 5 * 60 * 1000);
+
     const jobs = await prisma.printJob.findMany({
       where: {
-        status: { in: ["PENDING"] },
-        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        OR: [
+          { status: "PENDING", createdAt: { gte: pendingCutoff } },
+          { status: "SENT", sentAt: { lte: sentCutoff } },
+        ],
       },
       orderBy: { createdAt: "asc" },
-      take: 10,
+      take: 50,
     });
 
-    logger.info({ count: jobs.length }, "print_sync_pending_jobs");
+    // Also check raw SQL print_jobs table (print-queue.service system)
+    let rawJobs: any[] = [];
+    try {
+      rawJobs = await prisma.$queryRawUnsafe(
+        `SELECT id, order_id, customer_name, drive_folder_id, payload, status, created_at
+         FROM print_jobs
+         WHERE (status = 'pending' AND created_at >= $1)
+            OR (status = 'sent' AND updated_at <= $2)
+         ORDER BY created_at ASC
+         LIMIT 50`,
+        pendingCutoff,
+        sentCutoff,
+      );
+    } catch (err) {
+      logger.error({ err }, "sync_pending_raw_jobs_query_failed");
+    }
 
-    if (jobs.length === 0) return;
+    // Merge and deduplicate by id
+    const allJobs = [...jobs];
+    for (const raw of rawJobs) {
+      if (!allJobs.some((j) => j.id === raw.id)) {
+        allJobs.push({
+          id: raw.id,
+          orderId: raw.order_id,
+          customerName: raw.customer_name,
+          driveFolderId: raw.drive_folder_id,
+          filesJson: typeof raw.payload === "string" ? raw.payload : JSON.stringify(raw.payload),
+          status: raw.status,
+          createdAt: raw.created_at,
+        } as any);
+      }
+    }
 
+    logger.info({ prismaCount: jobs.length, rawCount: rawJobs.length, total: allJobs.length }, "print_sync_pending_jobs");
+
+    if (allJobs.length === 0) return;
+
+    // Sync config to default device
     await this.syncPrinterConfig();
 
-    for (const job of jobs) {
+    for (const job of allJobs) {
       try {
         const payload: PrintJobPayload = {
           jobId: job.id,
-          orderId: job.orderId,
-          customerName: job.customerName,
-          driveFolderId: job.driveFolderId,
-          files: JSON.parse(job.filesJson) as PrintJobPayload["files"],
+          orderId: (job as any).orderId ?? job.id,
+          customerName: (job as any).customerName ?? "",
+          driveFolderId: (job as any).driveFolderId ?? "",
+          files: JSON.parse((job as any).filesJson ?? "[]") as PrintJobPayload["files"],
         };
 
         const sent = this.send({
@@ -218,11 +265,18 @@ class PrintAgentWSManager {
         });
 
         if (sent) {
-          const result = await prisma.printJob.update({
+          // Update status in PrintJob table (Prisma) — may fail for raw SQL jobs, that's OK
+          await prisma.printJob.update({
             where: { id: job.id },
             data: { status: "SENT", sentAt: new Date() },
+          }).catch(() => {
+            // Job may be in print_jobs table (raw SQL) — update that instead
+            prisma.$executeRawUnsafe(
+              `UPDATE print_jobs SET status = 'sent', updated_at = NOW() WHERE id = $1`,
+              job.id,
+            ).catch((err) => logger.error({ err, jobId: job.id }, "sync_job_update_raw_failed"));
           });
-          logger.info({ jobId: job.id, sentAt: result.sentAt }, "job_marked_as_sent");
+          logger.info({ jobId: job.id }, "job_marked_as_sent");
         } else {
           logger.warn({ jobId: job.id }, "failed_to_send_print_job_to_agent");
         }

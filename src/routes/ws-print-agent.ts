@@ -169,7 +169,6 @@ export class PrintAgentHub {
       existing.ip = handshake.ip || existing.ip;
       existing.deviceName = handshake.deviceName || existing.deviceName;
     } else {
-      const isFirst = this.devices.size === 0 || ![...this.devices.values()].some((d) => d.isDefault);
       this.devices.set(handshake.deviceId, {
         deviceId: handshake.deviceId,
         deviceName: handshake.deviceName,
@@ -177,7 +176,7 @@ export class PrintAgentHub {
         socket,
         connectedAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
-        isDefault: isFirst,
+        isDefault: false, // Will be corrected from DB below
         isActive: true,
         printers: [],
       });
@@ -185,10 +184,9 @@ export class PrintAgentHub {
     this.events.emit("device:update", this.getDeviceInfo(handshake.deviceId));
     this.requestPrinterCheckForDevice(handshake.deviceId);
 
-    // Persist to DB (skip legacy devices)
+    // Persist to DB and sync isDefault from DB (skip legacy devices)
     if (!handshake.deviceId.startsWith("legacy-")) {
       const now = new Date();
-      // Check if device exists in DB to preserve isDefault flag
       prisma.printDevice.findUnique({ where: { deviceId: handshake.deviceId } })
         .then((existingDb) => {
           return prisma.printDevice.upsert({
@@ -198,7 +196,6 @@ export class PrintAgentHub {
               deviceName: handshake.deviceName,
               ip: handshake.ip || "",
               lastSeenAt: now,
-              // Preserve isDefault from DB — don't overwrite with false
               ...(existingDb ? { isDefault: existingDb.isDefault } : {}),
             },
           });
@@ -206,13 +203,17 @@ export class PrintAgentHub {
         .then((persisted) => {
           // Sync in-memory isDefault with DB state
           const device = this.devices.get(handshake.deviceId);
-          if (device && persisted.isDefault && !device.isDefault) {
-            // DB says this device is default but in-memory doesn't know yet
-            // Clear other defaults first
-            for (const [, d] of this.devices) {
-              if (d.deviceId !== handshake.deviceId) d.isDefault = false;
+          if (device) {
+            const shouldBeDefault = persisted.isDefault;
+            if (shouldBeDefault && !device.isDefault) {
+              // This device is the DB default — clear others
+              for (const [, d] of this.devices) {
+                if (d.deviceId !== handshake.deviceId) d.isDefault = false;
+              }
+              device.isDefault = true;
+            } else if (!shouldBeDefault) {
+              device.isDefault = false;
             }
-            device.isDefault = true;
             this.events.emit("device:update", this.getDeviceInfo(handshake.deviceId));
           }
         })
@@ -279,13 +280,13 @@ export class PrintAgentHub {
   }
 
   setDefault(deviceId: string): boolean {
-    if (!this.devices.has(deviceId)) return false;
-    for (const [id, device] of this.devices) {
-      device.isDefault = id === deviceId;
+    // Enforce single default: clear all, set target
+    for (const [, device] of this.devices) {
+      device.isDefault = device.deviceId === deviceId;
     }
     this.events.emit("device:update", this.getDeviceInfo(deviceId));
 
-    // Persist to DB
+    // Persist to DB — works even if device is offline (not in memory)
     prisma.$transaction([
       prisma.printDevice.updateMany({ data: { isDefault: false } }),
       prisma.printDevice.upsert({
@@ -761,10 +762,11 @@ export function createPrintDeviceRoutes(router: Router): void {
           deviceId: db.deviceId,
           deviceName: live?.deviceName ?? db.deviceName,
           ip: live?.ip ?? db.ip,
-          printers: live?.printers ?? db.printers,
+          printers: live?.printers ?? (db.printers as any ?? []),
           connectedAt: live?.connectedAt ?? db.connectedAt.toISOString(),
           lastSeenAt: live?.lastSeenAt ?? db.lastSeenAt.toISOString(),
-          isDefault: live?.isDefault ?? db.isDefault,
+          // DB is source of truth for isDefault — live memory may be stale
+          isDefault: db.isDefault,
           isActive: live?.isActive ?? false,
         };
       });
@@ -785,12 +787,13 @@ export function createPrintDeviceRoutes(router: Router): void {
   const setDefaultHandler = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
-      // setDefault() handles both in-memory + DB persistence
-      const ok = printAgentHub.setDefault(id);
-      if (!ok) {
+      // Check device exists in DB (can be offline)
+      const exists = await prisma.printDevice.findUnique({ where: { deviceId: id } });
+      if (!exists) {
         res.status(404).json({ error: "Dispositivo não encontrado" });
         return;
       }
+      printAgentHub.setDefault(id);
       res.status(204).end();
     } catch (error) {
       logger.error({ error }, "set_default_device_failed");

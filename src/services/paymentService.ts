@@ -1179,6 +1179,18 @@ export class PaymentService {
           );
         }
 
+        // Notify Admin for instantly approved payment
+        adminNotificationService.notifyNewPaidOrder({
+          orderId: data.orderId,
+          customerName: customerLabel,
+          total: summary.grandTotal,
+          itemsCount: order.items.length,
+          deliveryDate: order.delivery_date?.toISOString(),
+          paymentMethod: orderPaymentMethod,
+        }).catch((err: any) => {
+          logger.error("Erro ao enviar notificação de pagamento instantâneo:", err);
+        });
+
         this.runApprovedOrderPostProcessingInBackground({
           orderId: data.orderId,
           paymentId: paymentRecord.id,
@@ -2300,6 +2312,25 @@ export class PaymentService {
             }),
             paymentMethod: paymentInfo.payment_method_id || undefined,
           });
+
+          // Check if admin notification already exists to avoid duplicates
+          const notificationExists = await prisma.adminNotification.findFirst({
+            where: { order_id: dbPayment.order_id, type: "order_paid" },
+          });
+
+          if (!notificationExists) {
+            logger.info(`📡 [Webhook MP] Notificação administrativa não encontrada para pedido ${dbPayment.order_id}. Enviando agora como fallback...`);
+            adminNotificationService.notifyNewPaidOrder({
+              orderId: dbPayment.order_id,
+              customerName: customerLabel,
+              total: Number(dbPayment.transaction_amount || 0),
+              itemsCount: dbPayment.order.items?.length || 0,
+              deliveryDate: (dbPayment.order as any).delivery_date?.toISOString(),
+              paymentMethod: paymentInfo.payment_method_id || undefined,
+            }).catch((err: any) => {
+              logger.error("Erro ao enviar notificação administrativa pendente:", err);
+            });
+          }
 
           await this.recoverApprovedOrderPostProcessingIfNeeded({
             orderId: dbPayment.order_id,

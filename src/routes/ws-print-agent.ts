@@ -24,6 +24,7 @@ interface AgentEnvelope {
   job?: PrintJobPayload & { jobId?: string };
   available?: boolean;
   printers?: string[];
+  printerDetails?: { Name: string; PrinterStatus: number }[];
   selectedPrinter?: string;
   error?: string;
 }
@@ -88,6 +89,14 @@ const parseAgentEnvelope = (raw: Buffer): AgentEnvelope | null => {
     envelope.printers = parsed.printers.filter(
       (printer): printer is string => typeof printer === "string",
     );
+  }
+  if (Array.isArray(parsed.printerDetails)) {
+    envelope.printerDetails = parsed.printerDetails
+      .filter(isRecord)
+      .map((p) => ({
+        Name: typeof p.Name === "string" ? p.Name : typeof p.name === "string" ? p.name : "",
+        PrinterStatus: typeof p.PrinterStatus === "number" ? p.PrinterStatus : typeof p.status === "number" ? p.status : 0,
+      }));
   }
   if (isRecord(parsed.job)) {
     const files = Array.isArray(parsed.job.files) ? parsed.job.files : [];
@@ -389,7 +398,10 @@ export class PrintAgentHub {
       this.events.emit("printers-updated", this._printers);
 
       if (deviceId) {
-        const printerInfos: DevicePrinterInfo[] = (message.printers ?? []).map((name) => ({ name, status: 0 }));
+        // Use PrinterDetails if available (has real status), fallback to name-only with status=0
+        const printerInfos: DevicePrinterInfo[] = message.printerDetails && message.printerDetails.length > 0
+          ? message.printerDetails.map((p) => ({ name: p.Name, status: p.PrinterStatus }))
+          : (message.printers ?? []).map((name) => ({ name, status: 0 }));
         this.updateDevicePrinters(deviceId, printerInfos);
       }
 
@@ -401,10 +413,15 @@ export class PrintAgentHub {
     }
 
     if (message.type === "PRINTER_STATUS_UPDATE" && deviceId) {
-      const printerInfos: DevicePrinterInfo[] = Array.isArray((message as any).printers)
-        ? (message as any).printers.map((p: any) => ({ name: p.Name || p.name, status: p.PrinterStatus ?? p.status ?? 0 }))
-        : [];
-      this.updateDevicePrinters(deviceId, printerInfos);
+      const raw = (message as any).printers;
+      // Only update if we actually received printer data — skip empty/missing to avoid clearing
+      if (Array.isArray(raw) && raw.length > 0) {
+        const printerInfos: DevicePrinterInfo[] = raw.map((p: any) => ({
+          name: p.Name || p.name,
+          status: p.PrinterStatus ?? p.status ?? 0,
+        }));
+        this.updateDevicePrinters(deviceId, printerInfos);
+      }
       return;
     }
 

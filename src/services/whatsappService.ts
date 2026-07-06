@@ -7,13 +7,8 @@ type OrderStatus = "PENDING" | "PAID" | "PAID_STOCK_FAILED" | "SHIPPED" | "DELIV
 interface WhatsAppConfig {
   apiUrl: string;
   apiKey: string;
-  instanceName: string;
+  session: string;
   groupId: string;
-}
-
-interface SendMessagePayload {
-  number: string;
-  text: string;
 }
 
 class WhatsAppService {
@@ -24,9 +19,9 @@ class WhatsAppService {
 
   constructor() {
     if (
-      !process.env.EVOLUTION_API_URL ||
-      !process.env.EVOLUTION_API_KEY ||
-      !process.env.EVOLUTION_INSTANCE ||
+      !process.env.WAHA_API_URL ||
+      !process.env.WAHA_API_KEY ||
+      !process.env.WAHA_INSTANCE ||
       !process.env.WHATSAPP_GROUP_ID
     ) {
       logger.warn(
@@ -35,9 +30,9 @@ class WhatsAppService {
     }
 
     this.config = {
-      apiUrl: process.env.EVOLUTION_API_URL as string,
-      apiKey: process.env.EVOLUTION_API_KEY as string,
-      instanceName: process.env.EVOLUTION_INSTANCE as string,
+      apiUrl: process.env.WAHA_API_URL as string,
+      apiKey: process.env.WAHA_API_KEY as string,
+      session: process.env.WAHA_INSTANCE as string,
       groupId: process.env.WHATSAPP_GROUP_ID as string,
     };
 
@@ -45,7 +40,7 @@ class WhatsAppService {
       baseURL: this.config.apiUrl,
       headers: {
         "Content-Type": "application/json",
-        apikey: this.config.apiKey,
+        "X-Api-Key": this.config.apiKey,
       },
       timeout: 10000,
     });
@@ -64,15 +59,18 @@ class WhatsAppService {
     }
 
     try {
-      const payload: SendMessagePayload = {
-        number: phoneNumber || this.config.groupId,
+      const targetNumber = phoneNumber || this.config.groupId;
+      const chatId = targetNumber.includes("@")
+        ? targetNumber
+        : `${targetNumber}@c.us`;
+
+      const payload = {
+        chatId,
         text,
+        session: this.config.session,
       };
 
-      const response = await this.client.post(
-        `/message/sendText/${this.config.instanceName}`,
-        payload,
-      );
+      const response = await this.client.post("/api/sendText", payload);
 
       return true;
     } catch (error: any) {
@@ -571,32 +569,23 @@ class WhatsAppService {
     return `55${digits}`;
   }
 
+  private buildChatId(phoneNumber: string): string {
+    const normalized = this.normalizePhoneForWhatsApp(phoneNumber);
+    return `${normalized}@c.us`;
+  }
+
   public async sendDirectMessage(
     phoneNumber: string,
     message: string,
   ): Promise<boolean> {
     try {
-      const normalizedPhone = this.normalizePhoneForWhatsApp(phoneNumber);
+      const chatId = this.buildChatId(phoneNumber);
 
-      const url = `${this.config.apiUrl}/message/sendText/${this.config.instanceName}`;
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: this.config.apiKey,
-        },
-        body: JSON.stringify({
-          number: normalizedPhone,
-          text: message,
-        }),
+      const response = await this.client.post("/api/sendText", {
+        chatId,
+        text: message,
+        session: this.config.session,
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error("Erro ao enviar mensagem direta:", errorText);
-        return false;
-      }
 
       return true;
     } catch (error: any) {
@@ -967,6 +956,72 @@ class WhatsAppService {
     const date = typeof isoDate === "string" ? new Date(isoDate) : isoDate;
     if (isNaN(date.getTime())) return "";
     return date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  }
+
+  // ── WAHA Session / QR Auth ──────────────────────────────────────────
+
+  async listSessions(): Promise<any[]> {
+    try {
+      const response = await this.client.get("/api/sessions");
+      return response.data;
+    } catch (error: any) {
+      logger.error("Erro ao listar sessões WAHA:", error.message);
+      return [];
+    }
+  }
+
+  async getSessionStatus(sessionName: string): Promise<any | null> {
+    try {
+      const response = await this.client.get(
+        `/api/sessions/${encodeURIComponent(sessionName)}`,
+      );
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) return null;
+      logger.error("Erro ao obter status da sessão WAHA:", error.message);
+      return null;
+    }
+  }
+
+  async createSession(sessionName: string): Promise<any | null> {
+    try {
+      const response = await this.client.post("/api/sessions", {
+        name: sessionName,
+        start: true,
+      });
+      return response.data;
+    } catch (error: any) {
+      logger.error("Erro ao criar sessão WAHA:", error.message);
+      return null;
+    }
+  }
+
+  async startSession(sessionName: string): Promise<any | null> {
+    try {
+      const response = await this.client.post(
+        `/api/sessions/${encodeURIComponent(sessionName)}/start`,
+      );
+      return response.data;
+    } catch (error: any) {
+      logger.error("Erro ao iniciar sessão WAHA:", error.message);
+      return null;
+    }
+  }
+
+  async getQRCode(sessionName: string): Promise<Buffer | null> {
+    try {
+      const response = await this.client.get(
+        `/api/${encodeURIComponent(sessionName)}/auth/qr`,
+        {
+          params: { format: "image" },
+          responseType: "arraybuffer",
+        },
+      );
+      return Buffer.from(response.data);
+    } catch (error: any) {
+      logger.error("Erro ao obter QR code WAHA:", error.message);
+      return null;
+    }
   }
 }
 

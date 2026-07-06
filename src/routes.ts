@@ -1483,6 +1483,12 @@ router.post(
   whatsappController.testMessage,
 );
 
+// ── WhatsApp Auth Page (public — no auth required) ───────────────────
+router.get("/whatsapp/auth", whatsappController.authPage);
+router.get("/whatsapp/auth/check-session", whatsappController.checkSession);
+router.post("/whatsapp/auth/create-session", whatsappController.createSession);
+router.get("/whatsapp/auth/qr", whatsappController.getQRCode);
+
 router.get(
   "/admin/holidays",
   authenticateToken,

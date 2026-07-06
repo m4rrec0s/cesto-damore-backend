@@ -740,6 +740,7 @@ export const requireApiKey = (
     "/notification-test.html", // Página de teste de notificações
     "/admin/notifications/test", // Teste de notificações (requer JWT admin)
     "/ai/react-chat", // Teste do reAct engine (dev only)
+    "/whatsapp/auth", // Página de autenticação WAHA (sem API key)
   ];
 
   // Verifica se é um path público

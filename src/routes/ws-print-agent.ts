@@ -188,11 +188,35 @@ export class PrintAgentHub {
     // Persist to DB (skip legacy devices)
     if (!handshake.deviceId.startsWith("legacy-")) {
       const now = new Date();
-      prisma.printDevice.upsert({
-        where: { deviceId: handshake.deviceId },
-        create: { deviceId: handshake.deviceId, deviceName: handshake.deviceName, ip: handshake.ip || "", connectedAt: now, lastSeenAt: now },
-        update: { deviceName: handshake.deviceName, ip: handshake.ip || "", lastSeenAt: now },
-      }).catch((err) => logger.error({ err }, "persist_device_failed"));
+      // Check if device exists in DB to preserve isDefault flag
+      prisma.printDevice.findUnique({ where: { deviceId: handshake.deviceId } })
+        .then((existingDb) => {
+          return prisma.printDevice.upsert({
+            where: { deviceId: handshake.deviceId },
+            create: { deviceId: handshake.deviceId, deviceName: handshake.deviceName, ip: handshake.ip || "", connectedAt: now, lastSeenAt: now },
+            update: {
+              deviceName: handshake.deviceName,
+              ip: handshake.ip || "",
+              lastSeenAt: now,
+              // Preserve isDefault from DB — don't overwrite with false
+              ...(existingDb ? { isDefault: existingDb.isDefault } : {}),
+            },
+          });
+        })
+        .then((persisted) => {
+          // Sync in-memory isDefault with DB state
+          const device = this.devices.get(handshake.deviceId);
+          if (device && persisted.isDefault && !device.isDefault) {
+            // DB says this device is default but in-memory doesn't know yet
+            // Clear other defaults first
+            for (const [, d] of this.devices) {
+              if (d.deviceId !== handshake.deviceId) d.isDefault = false;
+            }
+            device.isDefault = true;
+            this.events.emit("device:update", this.getDeviceInfo(handshake.deviceId));
+          }
+        })
+        .catch((err) => logger.error({ err }, "persist_device_failed"));
     }
   }
 

@@ -30,7 +30,8 @@ export interface PrinterConfigMap {
 export type WSOutboundMessage =
   | { type: 'PRINT_JOB'; jobId: string; job: PrintJobPayload; timestamp: string }
   | { type: 'CHECK_PRINTER'; timestamp: string }
-  | { type: 'PRINTER_CONFIG_UPDATE'; config: PrinterConfigMap; timestamp: string }
+  | { type: 'PRINTER_CONFIG_UPDATE'; config: PrinterConfigMap; isDefault?: boolean; timestamp: string }
+  | { type: 'DEVICE_ROLE_UPDATE'; isDefault: boolean; timestamp: string }
   | {
       type: 'UPDATE_AVAILABLE'
       version: string

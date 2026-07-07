@@ -167,6 +167,8 @@ class PrintAgentWSManager {
         device = await prisma.printDevice.findFirst({ where: { isDefault: true } })
       }
       
+      const deviceInfo = deviceId ? printAgentHub.getDeviceInfo(deviceId) : null
+
       // Extract role assignments from the device's printers array
       const printers = device?.printers as any
       let photo = null
@@ -184,10 +186,19 @@ class PrintAgentWSManager {
       this.sendToDevice(targetDeviceId, {
         type: "PRINTER_CONFIG_UPDATE",
         config: { photo, letter },
+        isDefault: device?.isDefault ?? deviceInfo?.isDefault ?? false,
         timestamp: new Date().toISOString(),
       })
 
-      logger.info({ photo, letter, deviceId: targetDeviceId }, "printer_config_synced_on_connect")
+      logger.info(
+        {
+          photo,
+          letter,
+          isDefault: device?.isDefault ?? deviceInfo?.isDefault ?? false,
+          deviceId: targetDeviceId,
+        },
+        "printer_config_synced_on_connect",
+      )
     } catch (err) {
       logger.error({ err }, "printer_config_sync_failed")
     }

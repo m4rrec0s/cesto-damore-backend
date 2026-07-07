@@ -26,6 +26,7 @@ interface AgentEnvelope {
   printers?: string[];
   printerDetails?: { Name: string; PrinterStatus: number }[];
   selectedPrinter?: string;
+  isDefault?: boolean;
   error?: string;
 }
 
@@ -86,6 +87,7 @@ const parseAgentEnvelope = (raw: Buffer): AgentEnvelope | null => {
   if (typeof parsed.error === "string") envelope.error = parsed.error;
   if (typeof parsed.available === "boolean") envelope.available = parsed.available;
   if (typeof parsed.selectedPrinter === "string") envelope.selectedPrinter = parsed.selectedPrinter;
+  if (typeof parsed.isDefault === "boolean") envelope.isDefault = parsed.isDefault;
   if (Array.isArray(parsed.printers)) {
     envelope.printers = parsed.printers.filter(
       (printer): printer is string => typeof printer === "string",
@@ -215,6 +217,7 @@ export class PrintAgentHub {
               device.isDefault = false;
             }
             this.events.emit("device:update", this.getDeviceInfo(handshake.deviceId));
+            this.notifyDeviceRole(handshake.deviceId);
           }
         })
         .catch((err) => logger.error({ err }, "persist_device_failed"));
@@ -285,6 +288,7 @@ export class PrintAgentHub {
       device.isDefault = device.deviceId === deviceId;
     }
     this.events.emit("device:update", this.getDeviceInfo(deviceId));
+    this.notifyAllDeviceRoles();
 
     // Persist to DB — works even if device is offline (not in memory)
     prisma.$transaction([
@@ -577,6 +581,30 @@ export class PrintAgentHub {
     return [...this.devices.values()].find((d) => d.isDefault && d.isActive && d.socket?.readyState === WebSocket.OPEN);
   }
 
+  private notifyDeviceRole(deviceId: string): void {
+    const device = this.devices.get(deviceId);
+    if (!device || !device.isActive || device.socket?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    try {
+      device.socket.send(
+        JSON.stringify({
+          type: "DEVICE_ROLE_UPDATE",
+          isDefault: device.isDefault,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    } catch (err) {
+      logger.warn({ err, deviceId }, "notify_device_role_failed");
+    }
+  }
+
+  private notifyAllDeviceRoles(): void {
+    for (const [deviceId] of this.devices) {
+      this.notifyDeviceRole(deviceId);
+    }
+  }
+
   private addToHistory(entry: HistoryEntry): void {
     this.history.push(entry);
     if (this.history.length > this.maxHistorySize) {
@@ -676,18 +704,25 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
         if (!handshakeReceived && parsed?.type === "HANDSHAKE") {
           handshakeReceived = true;
           // Normalize legacy fallback ID to match non-HANDSHAKE path
-          deviceId = parsed.deviceId || `legacy-${clientIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
+          const currentDeviceId: string = parsed.deviceId || `legacy-${clientIp.replace(/[^a-zA-Z0-9]/g, "-")}`;
+          deviceId = currentDeviceId;
           printAgentHub.connectDevice(ws, {
-            deviceId: deviceId!,
+            deviceId: currentDeviceId,
             deviceName: parsed.deviceName || "Dispositivo",
             ip: parsed.ip || clientIp,
           });
-          ws.send(JSON.stringify({ type: "HANDSHAKE_ACK", ok: true }));
+          ws.send(
+            JSON.stringify({
+              type: "HANDSHAKE_ACK",
+              ok: true,
+              isDefault: printAgentHub.getDeviceInfo(currentDeviceId)?.isDefault ?? false,
+            }),
+          );
           logger.info(`[PrintAgent] Handshake concluido: ${deviceId} (${parsed.deviceName})`);
 
           // Sync printer config for this device
-          printAgentWSManager.syncPrinterConfig(deviceId).catch((err) => {
-            logger.error({ err, deviceId }, "printer_config_sync_on_connect_failed");
+          printAgentWSManager.syncPrinterConfig(currentDeviceId).catch((err) => {
+            logger.error({ err, deviceId: currentDeviceId }, "printer_config_sync_on_connect_failed");
           });
           return;
         }

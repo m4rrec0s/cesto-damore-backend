@@ -274,6 +274,7 @@ export class PaymentService {
               orderId,
               finalizeRes.folderId,
               orderInfo?.user?.name || "Cliente",
+              finalizeRes.files,
             );
             logger.info(
               `✅ Impressão enfileirada (background) para pedido ${orderId}`,
@@ -2511,6 +2512,7 @@ export class PaymentService {
                       dbPayment.order_id,
                       retryRes.folderId,
                       orderInfo?.user?.name || "Cliente",
+                      retryRes.files,
                     );
                     logger.info(
                       `✅ Impressão enfileirada (retry de customização) para pedido ${dbPayment.order_id}`,
@@ -2563,6 +2565,7 @@ export class PaymentService {
                     dbPayment.order_id,
                     retryRes.folderId,
                     orderInfo?.user?.name || "Cliente",
+                    retryRes.files,
                   );
                   logger.info(
                     `✅ Impressão enfileirada (retry de URL vazia) para pedido ${dbPayment.order_id}`,
@@ -2627,6 +2630,7 @@ export class PaymentService {
                   dbPayment.order_id,
                   finalizeRes.folderId,
                   dbPayment.order.user?.name || "Cliente",
+                  finalizeRes.files,
                 );
               }
             } catch (printErr) {

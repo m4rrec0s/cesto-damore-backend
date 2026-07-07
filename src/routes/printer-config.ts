@@ -25,6 +25,16 @@ function getRoleConfig(printers: unknown): { photo: string | null; letter: strin
   }
 }
 
+// Helper to extract print settings from a device's printSettings JSON
+function getPrintSettings(printSettings: unknown): { photoSettings?: any; letterSettings?: any } {
+  if (!printSettings || typeof printSettings !== 'object') return {}
+  const ps = printSettings as any
+  return {
+    ...(ps.photo ? { photoSettings: ps.photo } : {}),
+    ...(ps.letter ? { letterSettings: ps.letter } : {}),
+  }
+}
+
 // Helper to update role in a device's printers array
 function updatePrinterRole(
   printers: unknown,
@@ -87,7 +97,8 @@ router.get('/', async (req: Request, res: Response) => {
         return
       }
       const config = getRoleConfig(defaultDevice.printers)
-      res.json(config)
+      const settings = getPrintSettings(defaultDevice.printSettings)
+      res.json({ ...config, ...settings })
       return
     }
     
@@ -101,7 +112,8 @@ router.get('/', async (req: Request, res: Response) => {
     }
     
     const config = getRoleConfig(device.printers)
-    res.json(config)
+    const settings = getPrintSettings(device.printSettings)
+    res.json({ ...config, ...settings })
   } catch (err: any) {
     logger.error({ err }, 'printer_config_get_failed')
     res.status(500).json({ error: err.message })
@@ -162,15 +174,80 @@ router.put('/:role', async (req: Request, res: Response) => {
 
     // Sync config to agent — target the specific device
     const config = getRoleConfig(updatedPrinters)
+    const settings = getPrintSettings(device.printSettings)
     printAgentWSManager.sendToDevice(targetDeviceId, {
       type: 'PRINTER_CONFIG_UPDATE',
-      config,
+      config: { ...config, ...settings },
       timestamp: new Date().toISOString(),
     })
 
-    res.json(config)
+    res.json({ ...config, ...settings })
   } catch (err: any) {
     logger.error({ err }, 'printer_config_put_failed')
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// PUT /:role/settings - Update print settings for a role on a device
+router.put('/:role/settings', async (req: Request, res: Response) => {
+  try {
+    const { role } = req.params
+    if (role !== 'photo' && role !== 'letter') {
+      res.status(400).json({ error: 'role deve ser photo ou letter' })
+      return
+    }
+
+    const { settings, deviceId } = req.body as {
+      settings?: { paperSize?: string; orientation?: string; fitToPage?: boolean; customFlags?: string }
+      deviceId?: string
+    }
+
+    let targetDeviceId = deviceId
+    if (!targetDeviceId) {
+      const defaultDevice = await prisma.printDevice.findFirst({
+        where: { isDefault: true }
+      })
+      targetDeviceId = defaultDevice?.deviceId
+    }
+
+    if (!targetDeviceId) {
+      res.status(400).json({ error: 'Nenhum dispositivo encontrado' })
+      return
+    }
+
+    const device = await prisma.printDevice.findUnique({
+      where: { deviceId: targetDeviceId }
+    })
+
+    if (!device) {
+      res.status(404).json({ error: 'Dispositivo não encontrado' })
+      return
+    }
+
+    // Merge settings into printSettings JSON
+    const currentSettings = (device.printSettings as any) || {}
+    const updatedSettings = {
+      ...currentSettings,
+      [role]: settings || null,
+    }
+
+    await prisma.printDevice.update({
+      where: { deviceId: targetDeviceId },
+      data: { printSettings: updatedSettings as any }
+    })
+
+    // Sync config to agent
+    const config = getRoleConfig(device.printers)
+    const allSettings = getPrintSettings(updatedSettings)
+    printAgentWSManager.sendToDevice(targetDeviceId, {
+      type: 'PRINTER_CONFIG_UPDATE',
+      config: { ...config, ...allSettings },
+      timestamp: new Date().toISOString(),
+    })
+
+    res.json({ ...config, ...allSettings })
+  } catch (err: any) {
+    logger.error({ err }, 'printer_config_settings_put_failed')
     res.status(500).json({ error: err.message })
   }
 })
@@ -217,9 +294,10 @@ router.delete('/:role', async (req: Request, res: Response) => {
 
     // Sync config to agent — target the specific device
     const config = getRoleConfig(updatedPrinters)
+    const settings = getPrintSettings(device.printSettings)
     printAgentWSManager.sendToDevice(targetDeviceId, {
       type: 'PRINTER_CONFIG_UPDATE',
-      config,
+      config: { ...config, ...settings },
       timestamp: new Date().toISOString(),
     })
 

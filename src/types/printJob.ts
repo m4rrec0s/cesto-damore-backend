@@ -22,9 +22,18 @@ export interface PrinterConfigEntry {
   isActive: boolean
 }
 
+export interface PrintSettings {
+  paperSize?: string    // e.g. "PR (4x6)", "A4", "Letter"
+  orientation?: string  // e.g. "landscape", "portrait", "auto"
+  fitToPage?: boolean   // e.g. true
+  customFlags?: string  // extra SumatraPDF flags
+}
+
 export interface PrinterConfigMap {
   photo: string | null
   letter: string | null
+  photoSettings?: PrintSettings
+  letterSettings?: PrintSettings
 }
 
 export type WSOutboundMessage =

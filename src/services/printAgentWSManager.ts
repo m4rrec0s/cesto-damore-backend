@@ -181,11 +181,16 @@ class PrintAgentWSManager {
         letter = letterPrinter?.name ?? null
       }
 
+      // Extract print settings
+      const printSettings = (device?.printSettings as any) || {}
+      const photoSettings = printSettings.photo || undefined
+      const letterSettings = printSettings.letter || undefined
+
       // Send to specific device if provided, otherwise broadcast to default
       const targetDeviceId = deviceId ?? device?.deviceId
       this.sendToDevice(targetDeviceId, {
         type: "PRINTER_CONFIG_UPDATE",
-        config: { photo, letter },
+        config: { photo, letter, photoSettings, letterSettings },
         isDefault: device?.isDefault ?? deviceInfo?.isDefault ?? false,
         timestamp: new Date().toISOString(),
       })
@@ -194,6 +199,8 @@ class PrintAgentWSManager {
         {
           photo,
           letter,
+          photoSettings,
+          letterSettings,
           isDefault: device?.isDefault ?? deviceInfo?.isDefault ?? false,
           deviceId: targetDeviceId,
         },

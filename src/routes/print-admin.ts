@@ -386,10 +386,11 @@ export function createPrintAdminRoutes(router: Router): void {
           ? (req.files as Express.Multer.File[])
           : [];
         const filesBySlot = new Map<string, Express.Multer.File>();
+        let hasComposedImage = false;
 
         for (const file of uploadedFiles) {
           const field = file.fieldname || "";
-          if (field === "composedImage") continue;
+          if (field === "composedImage") { hasComposedImage = true; continue; }
           const slotId =
             field.match(/^slots?\.(.+)$/)?.[1] ||
             field.match(/^slots?\[(.+)\]$/)?.[1] ||
@@ -400,20 +401,35 @@ export function createPrintAdminRoutes(router: Router): void {
           if (slotId) filesBySlot.set(slotId, file);
         }
 
-        const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
-        const missing = slots.filter((slot) => slot.required && !filesBySlot.has(slot.id));
-        if (missing.length > 0) {
-          res.status(400).json({
-            error: "Preencha todos os slots obrigatórios",
-            missingSlots: missing.map((slot) => ({ id: slot.id, label: slot.label })),
-          });
-          return;
+        // Skip slot validation when composed image was sent (all slots baked into one PNG)
+        if (!hasComposedImage) {
+          const slots = extractDynamicLayoutSlots(layout.fabricJsonState);
+          const missing = slots.filter((slot) => slot.required && !filesBySlot.has(slot.id));
+          if (missing.length > 0) {
+            res.status(400).json({
+              error: "Preencha todos os slots obrigatórios",
+              missingSlots: missing.map((slot) => ({ id: slot.id, label: slot.label })),
+            });
+            return;
+          }
         }
 
-        // Sempre gerar PDF com tamanho PR 4x6 (100x150mm) e orientação correta
-        const designBuffer = await composeManualLayoutPdf({ layout, filesBySlot });
-        const designFileName = `${safeDriveName(layout.name)}_${shortId}.pdf`;
-        const designMimeType = "application/pdf";
+        let designBuffer: Buffer;
+        let designFileName: string;
+        let designMimeType: string;
+
+        if (hasComposedImage) {
+          // Composed image was sent client-side — use it directly
+          const composedFile = uploadedFiles.find((f) => f.fieldname === "composedImage");
+          designBuffer = composedFile!.buffer;
+          designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
+          designMimeType = "image/png";
+        } else {
+          // Individual slot files — compose server-side
+          designBuffer = await composeManualLayoutPdf({ layout, filesBySlot });
+          designFileName = `${safeDriveName(layout.name)}_${shortId}.pdf`;
+          designMimeType = "application/pdf";
+        }
 
         const designUpload = await googleDriveService.uploadBuffer(
           designBuffer,

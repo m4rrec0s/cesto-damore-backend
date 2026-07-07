@@ -263,6 +263,41 @@ export class PaymentService {
           )}`,
         );
 
+        // Enfileira impressão após finalizar customizações
+        try {
+          if (finalizeRes.folderId) {
+            const orderInfo = await prisma.order.findUnique({
+              where: { id: orderId },
+              select: { user: { select: { name: true } } },
+            });
+            await dispatchPrintForOrder(
+              orderId,
+              finalizeRes.folderId,
+              orderInfo?.user?.name || "Cliente",
+            );
+            logger.info(
+              `✅ Impressão enfileirada (background) para pedido ${orderId}`,
+            );
+          } else {
+            logger.warn(
+              `⚠️ Nenhum folderId disponível para enfileirar impressão do pedido ${orderId}`,
+            );
+          }
+        } catch (printErr) {
+          logger.error(
+            { err: printErr, orderId },
+            "print_job_enqueue_failed_background",
+          );
+          alertService.sendAlert({
+            category: AlertCategory.PAYMENT_PROCESSING,
+            severity: AlertSeverity.CRITICAL,
+            title: "Falha ao enfileirar impressão (background)",
+            message: `Customizações finalizadas mas impressão não enfileirada. Pedido: ${orderId}`,
+            metadata: { orderId, error: String(printErr) },
+            timestamp: new Date(),
+          });
+        }
+
         webhookNotificationService.notifyPaymentUpdate(orderId, {
           status: "approved",
           paymentId,
@@ -2459,6 +2494,41 @@ export class PaymentService {
                     orderInfo.google_drive_folder_id,
                     orderInfo.user?.name || "Cliente",
                   );
+                  logger.info(
+                    `✅ Impressão enfileirada (fallback finalizado) para pedido ${dbPayment.order_id}`,
+                  );
+                } else {
+                  logger.warn(
+                    `⚠️ google_drive_folder_id vazio para pedido ${dbPayment.order_id}, tentando reprocessar customizações`,
+                  );
+                  // Fallback: tenta finalizar customizações novamente se google_drive_folder_id estiver vazio
+                  const retryRes =
+                    await orderCustomizationService.finalizeOrderCustomizations(
+                      dbPayment.order_id,
+                    );
+                  if (retryRes.folderId) {
+                    await dispatchPrintForOrder(
+                      dbPayment.order_id,
+                      retryRes.folderId,
+                      orderInfo?.user?.name || "Cliente",
+                    );
+                    logger.info(
+                      `✅ Impressão enfileirada (retry de customização) para pedido ${dbPayment.order_id}`,
+                    );
+                  } else {
+                    logger.error(
+                      { orderId: dbPayment.order_id },
+                      "print_dispatch_missing_folder_id",
+                    );
+                    alertService.sendAlert({
+                      category: AlertCategory.PAYMENT_PROCESSING,
+                      severity: AlertSeverity.CRITICAL,
+                      title: "Falha crítica ao enfileirar impressão",
+                      message: `Customizações finalizadas mas folderId indisponível. Pedido: ${dbPayment.order_id}`,
+                      metadata: { orderId: dbPayment.order_id },
+                      timestamp: new Date(),
+                    });
+                  }
                 }
               } catch (printErr) {
                 logger.error(
@@ -2471,6 +2541,57 @@ export class PaymentService {
                   title: "Falha ao enfileirar impressão",
                   message: `Pagamento confirmado mas impressão não enfileirada. Pedido: ${dbPayment.order_id}`,
                   metadata: { orderId: dbPayment.order_id, error: String(printErr) },
+                  timestamp: new Date(),
+                });
+              }
+            } else {
+              logger.warn(
+                `⚠️ Customizações finalizadas mas URL do Google Drive vazia para ${dbPayment.order_id}, tentando reprocessar`,
+              );
+              // Fallback: tenta finalizar customizações novamente se URL estiver vazia
+              try {
+                const retryRes =
+                  await orderCustomizationService.finalizeOrderCustomizations(
+                    dbPayment.order_id,
+                  );
+                if (retryRes.folderId) {
+                  const orderInfo = await prisma.order.findUnique({
+                    where: { id: dbPayment.order_id },
+                    select: { user: { select: { name: true } } },
+                  });
+                  await dispatchPrintForOrder(
+                    dbPayment.order_id,
+                    retryRes.folderId,
+                    orderInfo?.user?.name || "Cliente",
+                  );
+                  logger.info(
+                    `✅ Impressão enfileirada (retry de URL vazia) para pedido ${dbPayment.order_id}`,
+                  );
+                } else {
+                  logger.error(
+                    { orderId: dbPayment.order_id },
+                    "print_dispatch_missing_folder_id_retry",
+                  );
+                  alertService.sendAlert({
+                    category: AlertCategory.PAYMENT_PROCESSING,
+                    severity: AlertSeverity.CRITICAL,
+                    title: "Falha crítica ao enfileirar impressão (retry falhou)",
+                    message: `Customizações finalizadas mas folderId indisponível mesmo após retry. Pedido: ${dbPayment.order_id}`,
+                    metadata: { orderId: dbPayment.order_id },
+                    timestamp: new Date(),
+                  });
+                }
+              } catch (retryErr) {
+                logger.error(
+                  { err: retryErr, orderId: dbPayment.order_id },
+                  "print_dispatch_retry_failed",
+                );
+                alertService.sendAlert({
+                  category: AlertCategory.PAYMENT_PROCESSING,
+                  severity: AlertSeverity.CRITICAL,
+                  title: "Falha ao reprocessar customizações para impressão",
+                  message: `Tentativa de reprocessar customizações falhou. Pedido: ${dbPayment.order_id}`,
+                  metadata: { orderId: dbPayment.order_id, error: String(retryErr) },
                   timestamp: new Date(),
                 });
               }

@@ -327,6 +327,8 @@ export function createPrintAdminRoutes(router: Router): void {
       const giftMessageMaxLength = Number(req.body.maxLength) || 500;
       const giftMessage = String(req.body.giftMessage || "").trim().slice(0, giftMessageMaxLength);
 
+      logger.info({ customerName, layoutId, bodyKeys: Object.keys(req.body || {}), filesCount: (req.files || []).length }, "manual_print_received");
+
       if (!customerName || !layoutId) {
         res.status(400).json({ error: "customerName e layoutId são obrigatórios" });
         return;

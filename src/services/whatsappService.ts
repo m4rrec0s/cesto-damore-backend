@@ -652,9 +652,9 @@ class WhatsAppService {
       CANCELED: {
         label: "Pedido Cancelado",
         emoji: "❌",
-        description: "Pedido cancelado.",
+        description: "Pedido cancelado. O estorno foi solicitado.",
         customerHint:
-          "O pedido foi cancelado. Caso tenha dúvidas, estamos à disposição para ajudar.",
+          "O pedido foi cancelado e o estorno foi solicitado. O valor será devolvido na mesma forma de pagamento utilizada na compra. Aguarde o prazo de até 10 dias úteis para que o valor apareça na sua conta. Caso tenha dúvidas, estamos à disposição para ajudar.",
       },
     };
 
@@ -903,7 +903,6 @@ class WhatsAppService {
       .join("\n");
 
     let teamMessage = `🎨 *CUSTOMIZAÇÕES PRONTAS* 🎨\n\n`;
-    teamMessage += `📁 *Link do Drive (prioritário):*\n${data.googleDriveUrl}\n\n`;
     teamMessage += `📦 Pedido: #${data.orderNumber}\n`;
     teamMessage += `👤 Cliente: ${data.customerName}\n`;
     teamMessage += `📱 Número do cliente: ${customerPhoneLabel}\n`;
@@ -912,7 +911,6 @@ class WhatsAppService {
     teamMessage += `🛒 Produtos:\n${itemsSummary}\n`;
 
     let customerMessage = `🎉 *Suas customizações estão prontas!* 🎉\n\n`;
-    customerMessage += `📁 *Link do Drive:*\n${data.googleDriveUrl}\n\n`;
     customerMessage += `📦 Pedido: #${data.orderNumber}\n`;
     customerMessage += `👤 Cliente: ${data.customerName}\n`;
     customerMessage += `📱 Número cadastrado: ${customerPhoneLabel}\n`;

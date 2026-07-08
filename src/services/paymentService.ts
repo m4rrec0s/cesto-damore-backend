@@ -2839,7 +2839,7 @@ export class PaymentService {
       });
     } else {
       logger.warn(
-        "Telefone do comprador não disponível, não foi possível enviar notificação via WhatsApp.",
+        `[WhatsApp] Telefone do comprador não disponível para pedido ${orderId}. user_id=${order.user_id}. Não foi possível enviar confirmação via WhatsApp.`,
       );
     }
   }

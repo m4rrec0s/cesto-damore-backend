@@ -251,6 +251,34 @@ export async function composeManualLayoutPdf(params: {
   );
 }
 
+/** Convert a composed PNG buffer into a PDF with correct page dimensions from layout */
+async function pngToLayoutPdf(pngBuffer: Buffer, widthPx: number, heightPx: number): Promise<Buffer> {
+  const aspectRatio = widthPx / heightPx;
+  const PR_SHORT_MM = 100;
+  const PR_LONG_MM = 150;
+  const mmToPt = (mm: number) => (mm / 25.4) * 72;
+
+  let pageWidthPt: number, pageHeightPt: number;
+  if (aspectRatio >= 1) {
+    pageWidthPt = mmToPt(PR_LONG_MM);
+    pageHeightPt = mmToPt(PR_SHORT_MM);
+  } else {
+    pageWidthPt = mmToPt(PR_SHORT_MM);
+    pageHeightPt = mmToPt(PR_LONG_MM);
+  }
+
+  const doc = new PDFDocument({ size: [pageWidthPt, pageHeightPt], autoFirstPage: false });
+  const buffers: Buffer[] = [];
+  doc.on("data", (chunk: Buffer) => buffers.push(chunk));
+  doc.addPage({ size: [pageWidthPt, pageHeightPt] });
+  doc.image(pngBuffer, 0, 0, { width: pageWidthPt, height: pageHeightPt });
+  doc.end();
+
+  return new Promise((resolve) =>
+    doc.on("end", () => resolve(Buffer.concat(buffers))),
+  );
+}
+
 export function createPrintAdminRoutes(router: Router): void {
   // GET /api/print/agent-status - returns default device connection status
   router.get("/api/print/agent-status", (_req, res) => {
@@ -419,11 +447,11 @@ export function createPrintAdminRoutes(router: Router): void {
         let designMimeType: string;
 
         if (hasComposedImage) {
-          // Composed image was sent client-side — use it directly
+          // Composed image was sent client-side — wrap in PDF using layout dimensions
           const composedFile = uploadedFiles.find((f) => f.fieldname === "composedImage");
-          designBuffer = composedFile!.buffer;
-          designFileName = `${safeDriveName(layout.name)}_${shortId}.png`;
-          designMimeType = "image/png";
+          designBuffer = await pngToLayoutPdf(composedFile!.buffer, Number(layout.width || 1000), Number(layout.height || 1500));
+          designFileName = `${safeDriveName(layout.name)}_${shortId}.pdf`;
+          designMimeType = "application/pdf";
         } else {
           // Individual slot files — compose server-side
           designBuffer = await composeManualLayoutPdf({ layout, filesBySlot });

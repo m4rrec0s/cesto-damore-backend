@@ -148,6 +148,8 @@ export class PrintAgentHub {
   private printedWaiters = new Map<string, Waiter>();
   /** Per-device printer status — keyed by deviceId */
   private _printersByDevice = new Map<string, AgentPrinterInfo>();
+  /** Paper sizes response waiters — keyed by printerName */
+  private _paperSizesWaiters = new Map<string, { resolve: (data: any[]) => void; timer: NodeJS.Timeout }>();
   private events = new EventEmitter();
 
   // --- Multi-device management ---
@@ -453,6 +455,19 @@ export class PrintAgentHub {
     return { ack, printed };
   }
 
+  requestPaperSizes(printerName: string, deviceId?: string): Promise<any[]> {
+    const targetDeviceId = deviceId ?? this.getDefaultActiveDevice()?.deviceId;
+    if (!targetDeviceId) return Promise.resolve([]);
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this._paperSizesWaiters.delete(printerName);
+        resolve([]);
+      }, 15_000);
+      this._paperSizesWaiters.set(printerName, { resolve, timer: timeout });
+      this.sendRaw({ type: "GET_PAPER_SIZES", printerName }, targetDeviceId);
+    });
+  }
+
   handleAgentMessage(message: AgentEnvelope, deviceId?: string): void {
     this.addToHistory({ type: "RECEIVED", message, timestamp: new Date() });
 
@@ -511,6 +526,18 @@ export class PrintAgentHub {
       printAgentWSManager.syncPrinterConfig(deviceId).catch((err) => {
         logger.error({ err, deviceId }, "sync_printer_config_from_app_failed");
       });
+      return;
+    }
+
+    if (message.type === "PAPER_SIZES_RESPONSE") {
+      const printerName = (message as any).printerName;
+      const paperSizes = (message as any).paperSizes ?? [];
+      const waiter = this._paperSizesWaiters.get(printerName);
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        this._paperSizesWaiters.delete(printerName);
+        waiter.resolve(paperSizes);
+      }
       return;
     }
 
@@ -793,11 +820,26 @@ export function createPrintDeviceRoutes(router: Router): void {
       const liveDevices = printAgentHub.getAllDevices();
       const merged = dbDevices.map((db) => {
         const live = liveDevices.find((d) => d.deviceId === db.deviceId);
+        // Merge role assignments from DB into live printers
+        let printers: DevicePrinterInfo[];
+        if (live?.printers) {
+          const dbPrinters = (db.printers as any ?? []) as { name: string; role?: string }[];
+          const roleMap = new Map<string, string>();
+          for (const dp of dbPrinters) {
+            if (dp.role && dp.name) roleMap.set(dp.name, dp.role);
+          }
+          printers = live.printers.map((p) => ({
+            ...p,
+            role: (roleMap.get(p.name) as 'photo' | 'letter' | null | undefined) ?? p.role ?? null,
+          }));
+        } else {
+          printers = (db.printers as any ?? []) as DevicePrinterInfo[];
+        }
         return {
           deviceId: db.deviceId,
           deviceName: live?.deviceName ?? db.deviceName,
           ip: live?.ip ?? db.ip,
-          printers: live?.printers ?? (db.printers as any ?? []),
+          printers,
           connectedAt: live?.connectedAt ?? db.connectedAt.toISOString(),
           lastSeenAt: live?.lastSeenAt ?? db.lastSeenAt.toISOString(),
           // DB is source of truth for isDefault — live memory may be stale
@@ -864,6 +906,28 @@ export function createPrintDeviceRoutes(router: Router): void {
     } catch (error) {
       logger.error({ error }, "delete_device_failed");
       res.status(500).json({ error: "Falha ao remover dispositivo" });
+    }
+  });
+
+  // GET /api/print-agent/devices/:id/paper-sizes — query printer paper sizes from device
+  router.get("/print-agent/devices/:id/paper-sizes", async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const printerName = req.query.printerName as string;
+    if (!printerName) {
+      res.status(400).json({ error: "printerName é obrigatório" });
+      return;
+    }
+    try {
+      const device = printAgentHub.getDeviceInfo(id);
+      if (!device?.isActive) {
+        res.status(503).json({ error: "Dispositivo offline" });
+        return;
+      }
+      const paperSizes = await printAgentHub.requestPaperSizes(printerName, id);
+      res.json({ printerName, paperSizes });
+    } catch (error: any) {
+      logger.error({ error, deviceId: id }, "get_paper_sizes_failed");
+      res.status(500).json({ error: error.message });
     }
   });
 

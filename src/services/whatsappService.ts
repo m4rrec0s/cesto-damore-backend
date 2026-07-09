@@ -64,6 +64,8 @@ class WhatsAppService {
         ? targetNumber
         : `${targetNumber}@c.us`;
 
+      logger.info(`[WhatsApp] Enviando mensagem para ${chatId}`);
+
       const payload = {
         chatId,
         text,
@@ -72,11 +74,13 @@ class WhatsAppService {
 
       const response = await this.client.post("/api/sendText", payload);
 
+      logger.info(`[WhatsApp] Mensagem enviada com sucesso para ${chatId}`);
       return true;
     } catch (error: any) {
-      logger.error("Erro ao enviar mensagem WhatsApp:", {
-        message: error.message,
-        response: error.response?.data,
+      logger.error("[WhatsApp] Erro ao enviar mensagem:", {
+        chatId: phoneNumber || this.config.groupId,
+        error: error.message,
+        responseData: error.response?.data,
         status: error.response?.status,
       });
       return false;
@@ -580,6 +584,7 @@ class WhatsAppService {
   ): Promise<boolean> {
     try {
       const chatId = this.buildChatId(phoneNumber);
+      logger.info(`[WhatsApp] Enviando mensagem direta para ${chatId}`);
 
       const response = await this.client.post("/api/sendText", {
         chatId,
@@ -587,9 +592,15 @@ class WhatsAppService {
         session: this.config.session,
       });
 
+      logger.info(`[WhatsApp] Mensagem enviada com sucesso para ${chatId}`);
       return true;
     } catch (error: any) {
-      logger.error("Erro ao enviar mensagem direta:", error.message);
+      logger.error("[WhatsApp] Erro ao enviar mensagem direta:", {
+        phoneNumber,
+        error: error.message,
+        responseData: error.response?.data,
+        status: error.response?.status,
+      });
       return false;
     }
   }
@@ -863,17 +874,18 @@ class WhatsAppService {
       message += `Agradecemos pela preferência! ❤️\n`;
       message += `_Equipe Cesto d'Amore_`;
 
+      logger.info(`[WhatsApp] Tentando enviar confirmação ao comprador. Phone原始: ${data.phone}, Normalizado: ${phoneWithCountry}, Tamanho: ${phoneWithCountry.length}`);
       const sent = await this.sendDirectMessage(phoneWithCountry, message);
 
       if (sent) {
-        console.info(
-          `✅ Confirmação enviada ao comprador ${phoneWithCountry} - Pedido #${data.orderNumber}`,
-        );
+        logger.info(`[WhatsApp] ✅ Confirmação enviada ao comprador ${phoneWithCountry} - Pedido #${data.orderNumber}`);
+      } else {
+        logger.warn(`[WhatsApp] ❌ Falha ao enviar confirmação ao comprador ${phoneWithCountry} - Pedido #${data.orderNumber}`);
       }
 
       return sent;
     } catch (error: any) {
-      logger.error("Erro ao enviar confirmação ao comprador:", error.message);
+      logger.error("[WhatsApp] Erro ao enviar confirmação ao comprador:", { phone: data.phone, error: error.message });
       return false;
     }
   }
@@ -903,6 +915,9 @@ class WhatsAppService {
       .join("\n");
 
     let teamMessage = `🎨 *CUSTOMIZAÇÕES PRONTAS* 🎨\n\n`;
+    if (data.googleDriveUrl) {
+      teamMessage += `📁 *Link do Drive:*\n${data.googleDriveUrl}\n\n`;
+    }
     teamMessage += `📦 Pedido: #${data.orderNumber}\n`;
     teamMessage += `👤 Cliente: ${data.customerName}\n`;
     teamMessage += `📱 Número do cliente: ${customerPhoneLabel}\n`;
@@ -911,6 +926,9 @@ class WhatsAppService {
     teamMessage += `🛒 Produtos:\n${itemsSummary}\n`;
 
     let customerMessage = `🎉 *Suas customizações estão prontas!* 🎉\n\n`;
+    if (data.googleDriveUrl) {
+      customerMessage += `📁 *Link do Drive:*\n${data.googleDriveUrl}\n\n`;
+    }
     customerMessage += `📦 Pedido: #${data.orderNumber}\n`;
     customerMessage += `👤 Cliente: ${data.customerName}\n`;
     customerMessage += `📱 Número cadastrado: ${customerPhoneLabel}\n`;

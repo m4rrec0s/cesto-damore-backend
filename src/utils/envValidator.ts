@@ -42,4 +42,15 @@ export const validateEnv = () => {
   } else {
     logger.info("✅ Variáveis de ambiente validadas com sucesso.");
   }
+
+  // Meta Conversions API (optional — disables tracking if missing)
+  const optionalMetaVars = ["META_PIXEL_ID", "META_ACCESS_TOKEN"];
+  const missingMeta = optionalMetaVars.filter((v) => !process.env[v]);
+  if (missingMeta.length > 0) {
+    logger.warn(
+      `⚠️ Variáveis Meta não definidas (${missingMeta.join(", ")}). Rastreamento Meta Conversions desabilitado.`,
+    );
+  } else {
+    logger.info("✅ Meta Conversions API configurada.");
+  }
 };

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import orderService from "../services/orderService";
+import metaConversionsService from "../services/metaConversionsService";
 import logger from "../utils/logger";
 
 class OrderController {
@@ -233,6 +234,21 @@ class OrderController {
       const order = await orderService.createOrder(orderPayload);
 
       console.log("✅ Pedido criado com sucesso:", order.id);
+
+      // Meta Conversions API - InitiateCheckout event (non-blocking)
+      const orderItems = Array.isArray(orderPayload.items) ? orderPayload.items : [];
+      const checkoutTotal = orderPayload.total || orderPayload.grand_total || 0;
+      metaConversionsService.sendInitiateCheckoutEvent({
+        email: (req as any).user?.email,
+        phone: (req as any).user?.phone,
+        userId: currentUserId,
+        orderId: order.id,
+        value: Number(checkoutTotal),
+        numItems: orderItems.length,
+      }).catch((err: any) => {
+        // silently fail
+      });
+
       res.status(201).json(order);
     } catch (error: any) {
       logger.error("❌ Erro ao criar pedido:", error);
@@ -466,6 +482,26 @@ class OrderController {
       }
 
       const updated = await orderService.updateOrderItems(id, items);
+
+      // Meta Conversions API - AddToCart event (non-blocking)
+      if (items && Array.isArray(items)) {
+        const user = (req as any).user;
+        for (const item of items) {
+          metaConversionsService.sendAddToCartEvent({
+            email: user?.email,
+            phone: user?.phone,
+            userId: userId,
+            orderId: id,
+            productId: item.product_id || item.id,
+            productName: item.name,
+            value: Number(item.price || 0),
+            quantity: item.quantity || 1,
+          }).catch((err: any) => {
+            // silently fail
+          });
+        }
+      }
+
       res.json(updated);
     } catch (error: any) {
       logger.error("Erro ao atualizar itens do pedido:", error);

@@ -13,6 +13,7 @@ import orderService from "./orderService";
 import reservationService from "./reservationService";
 import alertService, { AlertCategory, AlertSeverity } from "./alertService";
 import { dispatchPrintForOrder } from "./printDispatchService";
+import metaConversionsService from "./metaConversionsService";
 import logger from "../utils/logger";
 
 type OrderWithPaymentDetails = Prisma.OrderGetPayload<{
@@ -1227,6 +1228,23 @@ export class PaymentService {
           logger.error("Erro ao enviar notificação de pagamento instantâneo:", err);
         });
 
+        // Meta Conversions API - Purchase event (non-blocking)
+        metaConversionsService.sendPurchaseEvent({
+          email: data.payerEmail,
+          phone: data.payerPhone,
+          userId: data.userId,
+          orderId: data.orderId,
+          value: summary.grandTotal,
+          products: order.items.map((item: any) => ({
+            id: item.product_id,
+            name: item.product?.name || item.product_id,
+            quantity: item.quantity,
+            price: Number(item.price || 0),
+          })),
+        }).catch((err: any) => {
+          logger.error("[MetaConversions] Falha ao enviar Purchase (transparent):", err?.message || err);
+        });
+
         this.runApprovedOrderPostProcessingInBackground({
           orderId: data.orderId,
           paymentId: paymentRecord.id,
@@ -2427,6 +2445,25 @@ export class PaymentService {
           notifyCustomer: false,
         }).catch((err: any) => {
           logger.error(`⚠️ Falha ao atualizar status do pedido ${dbPayment.order_id} para PAID:`, err?.message || err);
+        });
+
+        // Meta Conversions API - Purchase event (non-blocking)
+        const purchaseAmount = Number(updatedPayment?.transaction_amount || dbPayment.transaction_amount || 0);
+        const orderItems = dbPayment.order.items || [];
+        metaConversionsService.sendPurchaseEvent({
+          email: dbPayment.order.user?.email,
+          phone: dbPayment.order.user?.phone,
+          userId: dbPayment.order.user_id,
+          orderId: dbPayment.order_id,
+          value: purchaseAmount,
+          products: orderItems.map((item: any) => ({
+            id: item.product_id,
+            name: item.product?.name || item.product_id,
+            quantity: item.quantity,
+            price: Number(item.price || 0),
+          })),
+        }).catch((err: any) => {
+          logger.error("[MetaConversions] Falha ao enviar Purchase:", err?.message || err);
         });
 
         // Notifica Manager/Admin instantaneamente via SSE

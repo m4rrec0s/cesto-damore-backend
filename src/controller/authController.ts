@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import authService from "../services/authService";
 import sharp from "sharp";
 import { saveImageLocally } from "../config/localStorage";
+import metaConversionsService from "../services/metaConversionsService";
 
 class AuthController {
   async google(req: Request, res: Response) {
@@ -13,6 +14,19 @@ class AuthController {
       }
 
       const result = await authService.googleLogin({ idToken, ...req.body });
+
+      // Meta Conversions API - Login event (non-blocking)
+      if (result.user) {
+        metaConversionsService.sendLoginEvent({
+          email: result.user.email,
+          phone: result.user.phone,
+          userId: result.user.id,
+          method: "google",
+        }).catch((err: any) => {
+          // silently fail
+        });
+      }
+
       res.json(result);
     } catch (error: any) {
       if (
@@ -37,6 +51,19 @@ class AuthController {
       }
 
       const result = await authService.login(email, password);
+
+      // Meta Conversions API - Login event (non-blocking)
+      if (result.user) {
+        metaConversionsService.sendLoginEvent({
+          email: result.user.email || email,
+          phone: result.user.phone,
+          userId: result.user.id,
+          method: "email",
+        }).catch((err: any) => {
+          // silently fail
+        });
+      }
+
       res.json(result);
     } catch (error: any) {
       const errorMessage =

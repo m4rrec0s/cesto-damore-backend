@@ -17,14 +17,16 @@ class AuthController {
 
       // Meta Conversions API - Login event (non-blocking)
       if (result.user) {
-        metaConversionsService.sendLoginEvent({
-          email: result.user.email,
-          phone: result.user.phone,
-          userId: result.user.id,
-          method: "google",
-        }).catch((err: any) => {
-          // silently fail
-        });
+        metaConversionsService
+          .sendLoginEvent({
+            email: result.user.email,
+            phone: result.user.phone || "",
+            userId: result.user.id,
+            method: "google",
+          })
+          .catch((err: any) => {
+            // silently fail
+          });
       }
 
       res.json(result);
@@ -54,20 +56,26 @@ class AuthController {
 
       // Meta Conversions API - Login event (non-blocking)
       if (result.user) {
-        metaConversionsService.sendLoginEvent({
-          email: result.user.email || email,
-          phone: result.user.phone,
-          userId: result.user.id,
-          method: "email",
-        }).catch((err: any) => {
-          // silently fail
-        });
+        metaConversionsService
+          .sendLoginEvent({
+            email: result.user.email || email,
+            phone: result.user.phone || "",
+            userId: result.user.id,
+            method: "email",
+          })
+          .catch((err: any) => {
+            // silently fail
+          });
       }
 
       res.json(result);
     } catch (error: any) {
       const errorMessage =
-        error instanceof Error ? error.message : typeof error === "string" ? error : "";
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "";
 
       if (
         errorMessage.includes("não encontrado") ||

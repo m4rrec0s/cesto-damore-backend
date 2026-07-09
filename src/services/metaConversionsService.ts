@@ -181,6 +181,11 @@ class MetaConversionsService {
     };
   }
 
+  private getContext(req?: { headers?: Record<string, string | string[]>; ip?: string; connection?: { remoteAddress?: string } }) {
+    if (!req) return { clientIp: "", clientUserAgent: "", fbc: "", fbp: "" };
+    return this.extractRequestContext(req);
+  }
+
   // ── Convenience: Purchase Event ───────────────────────────────────────────
 
   async sendPurchaseEvent(params: {
@@ -194,7 +199,7 @@ class MetaConversionsService {
     req?: { headers?: Record<string, string | string[]>; ip?: string; connection?: { remoteAddress?: string } };
     eventSourceUrl?: string;
   }): Promise<boolean> {
-    const ctx = params.req ? this.extractRequestContext(params.req) : {};
+    const ctx = this.getContext(params.req);
 
     return this.sendEvent({
       eventName: "Purchase",
@@ -229,7 +234,7 @@ class MetaConversionsService {
     req?: { headers?: Record<string, string | string[]>; ip?: string; connection?: { remoteAddress?: string } };
     eventSourceUrl?: string;
   }): Promise<boolean> {
-    const ctx = params.req ? this.extractRequestContext(params.req) : {};
+    const ctx = this.getContext(params.req);
 
     return this.sendEvent({
       eventName: "InitiateCheckout",
@@ -266,7 +271,7 @@ class MetaConversionsService {
     req?: { headers?: Record<string, string | string[]>; ip?: string; connection?: { remoteAddress?: string } };
     eventSourceUrl?: string;
   }): Promise<boolean> {
-    const ctx = params.req ? this.extractRequestContext(params.req) : {};
+    const ctx = this.getContext(params.req);
 
     return this.sendEvent({
       eventName: "AddToCart",
@@ -301,7 +306,7 @@ class MetaConversionsService {
     req?: { headers?: Record<string, string | string[]>; ip?: string; connection?: { remoteAddress?: string } };
     eventSourceUrl?: string;
   }): Promise<boolean> {
-    const ctx = params.req ? this.extractRequestContext(params.req) : {};
+    const ctx = this.getContext(params.req);
 
     return this.sendEvent({
       eventName: "Login",
@@ -333,7 +338,7 @@ class MetaConversionsService {
     req?: { headers?: Record<string, string | string[]>; ip?: string; connection?: { remoteAddress?: string } };
     eventSourceUrl?: string;
   }): Promise<boolean> {
-    const ctx = params.req ? this.extractRequestContext(params.req) : {};
+    const ctx = this.getContext(params.req);
 
     return this.sendEvent({
       eventName: "ViewContent",
@@ -366,7 +371,7 @@ class MetaConversionsService {
     req?: { headers?: Record<string, string | string[]>; ip?: string; connection?: { remoteAddress?: string } };
     eventSourceUrl?: string;
   }): Promise<boolean> {
-    const ctx = params.req ? this.extractRequestContext(params.req) : {};
+    const ctx = this.getContext(params.req);
 
     return this.sendEvent({
       eventName: "Contact",

@@ -1231,7 +1231,6 @@ export class PaymentService {
         // Meta Conversions API - Purchase event (non-blocking)
         metaConversionsService.sendPurchaseEvent({
           email: data.payerEmail,
-          phone: data.payerPhone,
           userId: data.userId,
           orderId: data.orderId,
           value: summary.grandTotal,
@@ -2451,8 +2450,8 @@ export class PaymentService {
         const purchaseAmount = Number(updatedPayment?.transaction_amount || dbPayment.transaction_amount || 0);
         const orderItems = dbPayment.order.items || [];
         metaConversionsService.sendPurchaseEvent({
-          email: dbPayment.order.user?.email,
-          phone: dbPayment.order.user?.phone,
+          email: dbPayment.order.user?.email || undefined,
+          phone: dbPayment.order.user?.phone || undefined,
           userId: dbPayment.order.user_id,
           orderId: dbPayment.order_id,
           value: purchaseAmount,

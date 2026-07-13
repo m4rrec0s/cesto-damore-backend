@@ -554,6 +554,13 @@ class OrderService {
           },
           user: true,
           payment: true,
+          coupon: {
+            select: {
+              code: true,
+              discount_type: true,
+              discount_value: true,
+            },
+          },
         },
       });
 

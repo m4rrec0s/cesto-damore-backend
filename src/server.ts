@@ -351,34 +351,13 @@ cron.schedule("*/10 * * * *", () => {
   }
 });
 
-cron.schedule("*/10 * * * *", async () => {
-  try {
-    await followUpService.triggerFollowUpFunction();
-  } catch (error) {
-    logger.error("❌ [Cron] Erro ao disparar follow-up automático:", error);
-  }
-});
-
-cron.schedule("*/15 * * * *", async () => {
-  try {
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-    const result = await prisma.botSession.deleteMany({
-      where: {
-        updated_at: {
-          lt: threeDaysAgo,
-        },
-      },
-    });
-
-    if (result.count > 0) {
-      logger.info(
-        `🧹 [Cron] Sessões do bot expiradas removidas: ${result.count}`,
-      );
-    }
-  } catch (error) {
-    logger.error("❌ [Cron] Erro ao limpar sessões expiradas do bot:", error);
-  }
-});
+// cron.schedule("*/10 * * * *", async () => {
+//   try {
+//     await followUpService.triggerFollowUpFunction();
+//   } catch (error) {
+//     logger.error("❌ [Cron] Erro ao disparar follow-up automático:", error);
+//   }
+// });
 
 cron.schedule("*/20 * * * *", async () => {
   try {

@@ -1024,8 +1024,19 @@ class WhatsAppService {
     }
   }
 
+  async logoutSession(sessionName: string): Promise<void> {
+    try {
+      await this.client.post(
+        `/api/sessions/${encodeURIComponent(sessionName)}/logout`,
+      );
+    } catch (error: any) {
+      logger.warn("Logout prévio WAHA (ignorado):", error.message);
+    }
+  }
+
   async getQRCode(sessionName: string): Promise<Buffer | null> {
     try {
+      await this.logoutSession(sessionName);
       const response = await this.client.get(
         `/api/${encodeURIComponent(sessionName)}/auth/qr`,
         {

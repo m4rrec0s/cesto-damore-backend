@@ -1,16 +1,19 @@
-import type OpenAI from "openai";
+import OpenAI from "openai";
 import statusService from "../../services/statusService";
 import logger from "../../utils/logger";
 import prisma from "../../database/prisma";
 import { startOfDay, endOfDay, isMonday } from "date-fns";
-import { createOpenAIClient, OPENAI_MODELS } from "../config/openai";
 
 class AISummaryService {
   private openai: OpenAI;
-  private model: string = OPENAI_MODELS.summary;
+  private model: string =
+    process.env.NVIDIA_SUMMARY_MODEL || "meta/llama-3.1-8b-instruct";
 
   constructor() {
-    this.openai = createOpenAIClient();
+    this.openai = new OpenAI({
+      apiKey: process.env.NVIDIA_API_KEY,
+      baseURL: "https://integrate.api.nvidia.com/v1",
+    });
   }
 
   async getWeeklySummary(forceRefresh: boolean = false) {

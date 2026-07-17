@@ -1,7 +1,6 @@
 import IORedis from "ioredis";
 import { Queue } from "bullmq";
 import logger from "../utils/logger";
-import prisma from "../database/prisma";
 
 const QUEUE_NAME = "agent-async";
 
@@ -52,22 +51,7 @@ export async function pingRedisHealth(): Promise<boolean> {
 }
 
 export async function runCustomerMemorySyncJob(sessionId: string): Promise<void> {
-  const session = await prisma.aIAgentSession.findUnique({
-    where: { id: sessionId },
-  });
-  if (!session) return;
-  if (session.customer_phone) {
-    const profile = await prisma.customerKnowledgeProfile.findUnique({
-      where: { customer_phone: session.customer_phone },
-    });
-    if (profile?.auto_updates) {
-      const customerKnowledgeService = (
-        await import("../agent/service/customerKnowledgeProfileService")
-      ).default;
-      await customerKnowledgeService.learnFromSession(sessionId);
-    }
-  }
-  logger.info(`[JobQueues] customer_memory_sync done session=${sessionId}`);
+  logger.info(`[JobQueues] customer_memory_sync skipped (service removed) session=${sessionId}`);
 }
 
 export async function enqueuePostSessionLearnings(

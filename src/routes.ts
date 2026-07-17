@@ -37,18 +37,15 @@ import productComponentController from "./controller/productComponentController"
 import dynamicLayoutController from "./controller/dynamicLayoutController";
 import elementBankController from "./controller/elementBankController";
 import customerManagementController from "./controller/customerManagementController";
-import aiAgentController from "./agent/controller/aiAgentController";
-import * as promptOrchestrationController from "./agent/controller/promptOrchestrationController";
+
 import holidayController from "./controller/holidayController";
 import followUpController from "./controller/followUpController";
 import trendStatsController from "./controller/trendStatsController";
 import webhookNotificationController from "./controller/webhookNotificationController";
-import chatRealtimeController from "./controller/chatRealtimeController";
-import aiLabController from "./agent/controller/aiLabController";
-import * as reactChatController from "./agent/controller/reactChatController";
+
 import tempFileController from "./controller/tempFileController";
 import { TestPaymentController } from "./controller/testPaymentController";
-import { knowledgeBaseController } from "./agent/controller/knowledgeBaseController";
+
 import reservationService from "./services/reservationService";
 import inventoryController from "./controller/inventoryController";
 import { printAgentWSManager } from "./services/printAgentWSManager";
@@ -1157,200 +1154,6 @@ router.delete(
   feedController.deleteSectionItem,
 );
 
-// reAct engine test endpoint
-router.post("/ai/react-chat", reactChatController.reactChat);
-router.get("/ai/react-chat", (_req: Request, res: Response) => {
-  res.sendFile(path.resolve(__dirname, "../public/react-chat.html"));
-});
-
-router.post("/ai/agent/chat", validateAIAgentKey, aiAgentController.chat);
-router.get(
-  "/ai/agent/history/:sessionId",
-  validateAIAgentKey,
-  aiAgentController.getHistory,
-);
-router.get(
-  "/ai/agent/messages/service/:sessionId",
-  validateAIAgentKey,
-  aiAgentController.getHistory,
-);
-router.get(
-  "/ai/agent/messages/stream/sessions",
-  validateAIAgentKey,
-  chatRealtimeController.streamSessions,
-);
-router.get(
-  "/ai/agent/messages/stream/:sessionId",
-  validateAIAgentKey,
-  chatRealtimeController.streamSessionMessages,
-);
-
-router.get(
-  "/admin/ai/agent/sessions",
-  authenticateToken,
-  requireAdmin,
-  aiAgentController.listSessions,
-);
-router.get(
-  "/admin/ai/agent/messages/sessions",
-  authenticateToken,
-  requireAdmin,
-  aiAgentController.listSessions,
-);
-router.get(
-  "/admin/ai/agent/messages/service/:sessionId",
-  authenticateToken,
-  requireAdmin,
-  aiAgentController.getHistory,
-);
-router.post(
-  "/admin/ai/agent/sessions/:sessionId/block",
-  authenticateToken,
-  requireAdmin,
-  aiAgentController.blockSession,
-);
-router.post(
-  "/admin/ai/agent/sessions/:sessionId/unblock",
-  authenticateToken,
-  requireAdmin,
-  aiAgentController.unblockSession,
-);
-router.delete(
-  "/admin/ai/agent/sessions/:sessionId/history",
-  authenticateToken,
-  requireAdmin,
-  aiAgentController.clearSessionHistory,
-);
-
-router.post(
-  "/admin/ai/lab/sessions",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) => aiLabController.createSession(req, res),
-);
-router.get(
-  "/admin/ai/lab/sessions",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) => aiLabController.listSessions(req, res),
-);
-router.get(
-  "/admin/ai/lab/sessions/:sessionId/messages",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) => aiLabController.getSessionMessages(req, res),
-);
-router.get(
-  "/admin/ai/lab/sessions/:sessionId/memory",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) =>
-    aiLabController.getSessionMemorySnapshot(req, res),
-);
-router.delete(
-  "/admin/ai/lab/sessions/:sessionId",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) => aiLabController.deleteSession(req, res),
-);
-router.post(
-  "/admin/ai/lab/chat/stream",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) => aiLabController.chatStream(req, res),
-);
-router.get(
-  "/admin/ai/lab/link-preview",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) => aiLabController.getLinkPreview(req, res),
-);
-router.post(
-  "/admin/ai/lab/knowledge/upload",
-  authenticateToken,
-  requireAdmin,
-  uploadAny.single("file"),
-  (req: Request, res: Response) =>
-    aiLabController.uploadKnowledgeDocument(req, res),
-);
-router.get(
-  "/admin/ai/lab/knowledge/documents",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) =>
-    aiLabController.listKnowledgeDocuments(req, res),
-);
-router.delete(
-  "/admin/ai/lab/knowledge/documents/:documentId",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) =>
-    aiLabController.deleteKnowledgeDocument(req, res),
-);
-router.post(
-  "/admin/ai/lab/knowledge/documents/:documentId/reindex",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) =>
-    aiLabController.reindexKnowledgeDocument(req, res),
-);
-router.post(
-  "/admin/ai/lab/knowledge/search",
-  authenticateToken,
-  requireAdmin,
-  (req: Request, res: Response) => aiLabController.searchKnowledge(req, res),
-);
-
-router.post(
-  "/ai/orchestrate-prompt",
-  promptOrchestrationController.orchestratePrompt,
-);
-
-router.get(
-  "/ai/prompts/:promptName",
-  promptOrchestrationController.getPromptByName,
-);
-
-router.post(
-  "/ai/customer-memory",
-  promptOrchestrationController.updateCustomerMemory,
-);
-
-router.get(
-  "/admin/ai/prompt-overrides",
-  authenticateToken,
-  requireAdmin,
-  promptOrchestrationController.listPromptPriorityOverrides,
-);
-
-router.post(
-  "/admin/ai/prompt-overrides",
-  authenticateToken,
-  requireAdmin,
-  promptOrchestrationController.createPromptPriorityOverrideHandler,
-);
-
-router.put(
-  "/admin/ai/prompt-overrides/:id",
-  authenticateToken,
-  requireAdmin,
-  promptOrchestrationController.updatePromptPriorityOverrideHandler,
-);
-
-router.post(
-  "/admin/ai/prompt-overrides/reorder",
-  authenticateToken,
-  requireAdmin,
-  promptOrchestrationController.reorderPromptPriorityOverrides,
-);
-
-router.delete(
-  "/admin/ai/prompt-overrides/:id",
-  authenticateToken,
-  requireAdmin,
-  promptOrchestrationController.deletePromptPriorityOverrideHandler,
-);
-
 router.get(
   "/admin/ai/summary",
   authenticateToken,
@@ -1601,63 +1404,6 @@ router.post(
   authenticateToken,
   requireAdmin,
   botFlowController.saveFlow,
-);
-
-// ========================================
-// 📚 ROTAS DE KNOWLEDGE BASE (Obsidian-style)
-// ========================================
-router.post(
-  "/kb/documents",
-  authenticateToken,
-  requireAdmin,
-  knowledgeBaseController.create,
-);
-router.get("/kb/documents", authenticateToken, knowledgeBaseController.index);
-router.get(
-  "/kb/documents/:id",
-  authenticateToken,
-  knowledgeBaseController.show,
-);
-router.put(
-  "/kb/documents/:id",
-  authenticateToken,
-  requireAdmin,
-  knowledgeBaseController.update,
-);
-router.delete(
-  "/kb/documents/:id",
-  authenticateToken,
-  requireAdmin,
-  knowledgeBaseController.delete,
-);
-router.post(
-  "/kb/documents/:id/approve",
-  authenticateToken,
-  requireAdmin,
-  knowledgeBaseController.approve,
-);
-router.post("/kb/search", authenticateToken, knowledgeBaseController.search);
-router.get(
-  "/kb/documents/by-phase/:phase",
-  authenticateToken,
-  knowledgeBaseController.getByPhase,
-);
-router.get(
-  "/kb/documents/:id/versions",
-  authenticateToken,
-  knowledgeBaseController.getVersions,
-);
-router.post(
-  "/kb/documents/:id/revert/:version",
-  authenticateToken,
-  requireAdmin,
-  knowledgeBaseController.revert,
-);
-router.get(
-  "/kb/analytics",
-  authenticateToken,
-  requireAdmin,
-  knowledgeBaseController.getAnalytics,
 );
 
 // ========================================

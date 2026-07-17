@@ -1477,6 +1477,8 @@ class OrderService {
           where: { orderId: id },
         });
 
+        await tx.printJob.deleteMany({ where: { orderId: id } });
+
         await tx.order.delete({ where: { id } });
         logger.info("  ✓ Pedido deletado com sucesso do banco");
       });
@@ -2746,6 +2748,11 @@ class OrderService {
           where: { order_id: { in: orderIds } },
         });
         console.log(`  ✓ Pagamentos deletados: ${deletedPayments.count}`);
+
+        const deletedPrintJobs = await tx.printJob.deleteMany({
+          where: { orderId: { in: orderIds } },
+        });
+        console.log(`  ✓ Print jobs deletados: ${deletedPrintJobs.count}`);
 
         const deletedOrders = await tx.order.deleteMany({
           where: { id: { in: orderIds } },

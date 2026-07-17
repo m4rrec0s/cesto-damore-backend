@@ -605,7 +605,10 @@ export class PrintAgentHub {
   // --- Private helpers ---
 
   getDefaultActiveDevice(): DeviceConnection | undefined {
-    return [...this.devices.values()].find((d) => d.isDefault && d.isActive && d.socket?.readyState === WebSocket.OPEN);
+    const defaultDevice = [...this.devices.values()].find((d) => d.isDefault && d.isActive && d.socket?.readyState === WebSocket.OPEN);
+    if (defaultDevice) return defaultDevice;
+    // Fallback: no device flagged default — use first active+open so prints still dispatch
+    return [...this.devices.values()].find((d) => d.isActive && d.socket?.readyState === WebSocket.OPEN);
   }
 
   private notifyDeviceRole(deviceId: string): void {
@@ -738,13 +741,27 @@ export function setupPrintAgentWebSocket(server: Server): WebSocketServer {
             deviceName: parsed.deviceName || "Dispositivo",
             ip: parsed.ip || clientIp,
           });
-          ws.send(
-            JSON.stringify({
-              type: "HANDSHAKE_ACK",
-              ok: true,
-              isDefault: printAgentHub.getDeviceInfo(currentDeviceId)?.isDefault ?? false,
-            }),
-          );
+          // Resolve isDefault from DB (connectDevice persists async) before ACK
+          prisma.printDevice.findUnique({ where: { deviceId: currentDeviceId } })
+            .then((dbDevice) => {
+              const isDefault = dbDevice?.isDefault ?? printAgentHub.getDeviceInfo(currentDeviceId)?.isDefault ?? false;
+              ws.send(
+                JSON.stringify({
+                  type: "HANDSHAKE_ACK",
+                  ok: true,
+                  isDefault,
+                }),
+              );
+            })
+            .catch(() => {
+              ws.send(
+                JSON.stringify({
+                  type: "HANDSHAKE_ACK",
+                  ok: true,
+                  isDefault: printAgentHub.getDeviceInfo(currentDeviceId)?.isDefault ?? false,
+                }),
+              );
+            });
           logger.info(`[PrintAgent] Handshake concluido: ${deviceId} (${parsed.deviceName})`);
 
           // Sync printer config for this device

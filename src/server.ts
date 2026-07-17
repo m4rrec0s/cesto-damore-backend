@@ -31,6 +31,7 @@ import path from "path";
 import { setupPrintAgentWebSocket } from "./routes/ws-print-agent";
 import { printQueueService } from "./services/print-queue.service";
 import { startPrintQueue } from "./services/printQueueService";
+import { printAgentWSManager } from "./services/printAgentWSManager";
 
 const app = express();
 
@@ -492,6 +493,14 @@ cron.schedule("*/5 * * * *", async () => {
     }
   } catch (error) {
     logger.error("❌ [Cron] Erro ao limpar reservas expiradas:", error);
+  }
+});
+
+cron.schedule("*/5 * * * *", async () => {
+  try {
+    await printAgentWSManager.syncPendingJobs();
+  } catch (error) {
+    logger.error("❌ [Cron] Erro ao sincronizar print jobs pendentes:", error);
   }
 });
 

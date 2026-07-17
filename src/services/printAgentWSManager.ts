@@ -213,15 +213,20 @@ class PrintAgentWSManager {
 
 
   async syncPendingJobs(): Promise<void> {
-    // Recovery window: 48h for PENDING, 5min+ for SENT (jobs in transit <5min may still be processing)
+    // Recovery windows:
+    //  - PENDING: 48h (old, manual review)
+    //  - SENT: 5min, no ACK → never reached app → FAILED
+    //  - RECEIVED/PRINTING: 10min, no terminal status → app crashed/errored → FAILED
     const pendingCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
     const sentCutoff = new Date(Date.now() - 5 * 60 * 1000);
+    const printingCutoff = new Date(Date.now() - 10 * 60 * 1000);
 
     const jobs = await prisma.printJob.findMany({
       where: {
         OR: [
           { status: "PENDING", createdAt: { gte: pendingCutoff } },
           { status: "SENT", sentAt: { lte: sentCutoff } },
+          { status: { in: ["RECEIVED", "PRINTING"] }, updatedAt: { lte: printingCutoff } },
         ],
       },
       orderBy: { createdAt: "asc" },
@@ -236,10 +241,12 @@ class PrintAgentWSManager {
          FROM print_jobs
          WHERE (status = 'pending' AND created_at >= $1)
             OR (status = 'sent' AND updated_at <= $2)
+            OR (status IN ('received', 'printing') AND updated_at <= $3)
          ORDER BY created_at ASC
          LIMIT 50`,
         pendingCutoff,
         sentCutoff,
+        printingCutoff,
       );
     } catch (err) {
       logger.error({ err }, "sync_pending_raw_jobs_query_failed");
@@ -265,20 +272,29 @@ class PrintAgentWSManager {
 
     if (allJobs.length === 0) return;
 
-    // Mark all stuck jobs as PENDING_REVIEW — do NOT auto-send
-    // User reviews and dispatches manually from the manager UI
+    // SENT/RECEIVED/PRINTING jobs stuck (no terminal status) → FAILED.
+    // PENDING jobs stuck >48h → PENDING_REVIEW for manual dispatch from manager.
     for (const job of allJobs) {
+      const rawStatus = String((job as any).status ?? "").toUpperCase();
+      const isPending = rawStatus === "PENDING";
       try {
+        const targetStatus = isPending ? "PENDING_REVIEW" : "FAILED";
+        const failedErr = rawStatus === "SENT"
+          ? "Job enviado não recebeu ACK do app (timeout)"
+          : "Job travado em impressão sem status final (app crashou/erro)";
         await prisma.printJob.update({
           where: { id: job.id },
-          data: { status: "PENDING_REVIEW" },
+          data: isPending
+            ? { status: "PENDING_REVIEW" }
+            : { status: "FAILED", lastError: failedErr },
         }).catch(() => {
           prisma.$executeRawUnsafe(
-            `UPDATE print_jobs SET status = 'pending_review', updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'sent')`,
+            `UPDATE print_jobs SET status = $2, updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'sent', 'received', 'printing')`,
             job.id,
+            isPending ? "pending_review" : "failed",
           ).catch((err) => logger.error({ err, jobId: job.id }, "sync_job_review_update_raw_failed"));
         });
-        logger.info({ jobId: job.id, orderId: (job as any).orderId }, "job_marked_pending_review");
+        logger.info({ jobId: job.id, orderId: (job as any).orderId, status: targetStatus }, "job_marked_stuck");
       } catch (err) {
         logger.error({ err, jobId: job.id }, "print_sync_review_mark_error");
       }

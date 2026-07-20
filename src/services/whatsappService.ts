@@ -473,6 +473,7 @@ class WhatsAppService {
 
     if (orderData.deliveryMethod === "pickup") {
       teamMessage += `\n📍 *Retirada na Loja*\n`;
+      teamMessage += `🏠 Rua José de Alencar, 480, Prata, Campina Grande - PB, 58400-515\n`;
       teamMessage += `Endereço: https://maps.app.goo.gl/YwimXyog4pTBeEjP8?g_st=aw\n`;
     }
 
@@ -514,6 +515,7 @@ class WhatsAppService {
 
     if (orderData.deliveryMethod === "pickup") {
       customerMessage += `📍 *Retirada na Loja*\n`;
+      customerMessage += `🏠 Rua José de Alencar, 480, Prata, Campina Grande - PB, 58400-515\n`;
       customerMessage += `🗺️ Localização: https://maps.app.goo.gl/YwimXyog4pTBeEjP8?g_st=aw\n\n`;
     }
 

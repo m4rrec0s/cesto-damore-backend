@@ -312,7 +312,7 @@ async function checkSession() {
     const data = await res.json();
 
     if (data.status === 'connected') {
-      setStatus('Instância já conectada!', 'ok');
+      showConnectedChoice(name);
       $btn.disabled = false;
       return;
     }
@@ -330,6 +330,33 @@ async function checkSession() {
     setStatus('<span class="spinner"></span> Aguardando QR Code…', 'info');
     await fetchQR(name);
 
+  } catch (e) {
+    setStatus('Erro: ' + e.message, 'err');
+  }
+  $btn.disabled = false;
+}
+
+function showConnectedChoice(name) {
+  $qrBox.innerHTML =
+    '<div style="font-size:2.2rem;margin-bottom:10px">✅</div>' +
+    '<div class="qr-label" style="margin-bottom:16px">Já existe um número conectado a esta instância.</div>' +
+    '<button class="btn btn-primary" onclick="chooseNew(\'' + name + '\')">Conectar novo número</button>' +
+    '<button class="btn btn-secondary" onclick="chooseKeep()">Manter conexão</button>';
+  setStatus('Escolha uma opção para continuar.', 'info');
+}
+
+function chooseKeep() {
+  setStatus('Conexão atual mantida. Nenhuma alteração feita.', 'ok');
+  $qrBox.innerHTML = '';
+}
+
+async function chooseNew(name) {
+  $btn.disabled = true;
+  $qrBox.innerHTML = '';
+  setStatus('<span class="spinner"></span> Desconectando número atual e aguardando QR Code…', 'info');
+  try {
+    setStatus('<span class="spinner"></span> Aguardando QR Code…', 'info');
+    await fetchQR(name);
   } catch (e) {
     setStatus('Erro: ' + e.message, 'err');
   }

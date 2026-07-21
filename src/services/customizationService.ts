@@ -41,6 +41,31 @@ interface ItemCustomizationResponse {
   customizations: CustomizationDTO[];
 }
 
+const normalizeTextMaxLength = (value: unknown): number => {
+  const maxLength = Number(value);
+  if (!Number.isFinite(maxLength) || maxLength <= 0) return 0;
+  return Math.floor(maxLength);
+};
+
+const getTextValueForField = (
+  inputData: Record<string, any>,
+  fieldId: string,
+): string | undefined => {
+  const value = inputData?.[fieldId];
+  if (typeof value === "string") return value;
+
+  const providedFields = Array.isArray(inputData?.fields)
+    ? inputData.fields
+    : [];
+  const providedField = providedFields.find(
+    (field: any) => field?.field_id === fieldId || field?.id === fieldId,
+  );
+
+  return typeof providedField?.value === "string"
+    ? providedField.value
+    : undefined;
+};
+
 class CustomizationService {
   async getItemCustomizations(
     itemId: string,
@@ -203,34 +228,27 @@ class CustomizationService {
     errors: string[],
   ) {
     const fields = data?.fields || [];
-    const providedFields = input.data.fields || [];
 
     fields
       .filter((f: any) => f.required)
       .forEach((field: any) => {
-        const providedField = providedFields.find(
-          (pf: any) => pf.field_id === field.id,
-        );
+        const value = getTextValueForField(input.data, field.id);
 
-        if (!providedField || !providedField.value) {
+        if (!value) {
           errors.push(
             `${customization.name}: Campo "${field.label}" é obrigatório`,
           );
         }
       });
 
-    providedFields.forEach((providedField: any) => {
-      const field = fields.find((f: any) => f.id === providedField.field_id);
+    fields.forEach((field: any) => {
+      const maxLength = normalizeTextMaxLength(field.max_length);
+      const value = getTextValueForField(input.data, field.id);
 
-      if (field && field.max_length) {
-        if (
-          providedField.value &&
-          providedField.value.length > field.max_length
-        ) {
-          errors.push(
-            `${customization.name}: Campo "${field.label}" excede limite de ${field.max_length} caracteres`,
-          );
-        }
+      if (maxLength > 0 && value && value.length > maxLength) {
+        errors.push(
+          `${customization.name}: Campo "${field.label}" excede limite de ${maxLength} caracteres`,
+        );
       }
     });
   }
@@ -583,6 +601,15 @@ class CustomizationService {
         if (!data.fields || !Array.isArray(data.fields)) {
           throw new Error("TEXT requer array de fields");
         }
+        data.fields.forEach((field: any) => {
+          const maxLength = field?.max_length;
+          if (
+            maxLength !== undefined &&
+            (!Number.isFinite(Number(maxLength)) || Number(maxLength) < 0)
+          ) {
+            throw new Error("max_length deve ser 0 ou maior");
+          }
+        });
         break;
 
       case "IMAGES":

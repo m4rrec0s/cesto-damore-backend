@@ -67,6 +67,28 @@ type JsonCustomizationPayload = {
   [key: string]: unknown;
 };
 
+const normalizeTextMaxLength = (value: unknown): number => {
+  const maxLength = Number(value);
+  if (!Number.isFinite(maxLength) || maxLength <= 0) return 0;
+  return Math.floor(maxLength);
+};
+
+const getTextValueForField = (
+  data: Record<string, any>,
+  fieldId: string,
+): string | undefined => {
+  const directValue = data?.[fieldId];
+  if (typeof directValue === "string") return directValue;
+
+  const fields = Array.isArray(data?.fields) ? data.fields : [];
+  const field = fields.find(
+    (candidate: any) =>
+      candidate?.field_id === fieldId || candidate?.id === fieldId,
+  );
+
+  return typeof field?.value === "string" ? field.value : undefined;
+};
+
 const customizationDataSchema = {
   type: "object",
   additionalProperties: true,
@@ -156,6 +178,42 @@ addFormats(ajv);
 const validateCustomizationData = ajv.compile(customizationDataSchema);
 
 class OrderCustomizationController {
+  private async validateTextCustomizationLimit(
+    customizationRuleId: string | null | undefined,
+    data: Record<string, any>,
+  ) {
+    if (!customizationRuleId) return;
+
+    const customization = await prisma.customization.findUnique({
+      where: { id: customizationRuleId },
+      select: {
+        name: true,
+        type: true,
+        customization_data: true,
+      },
+    });
+
+    if (!customization || customization.type !== "TEXT") return;
+
+    const customizationData = customization.customization_data as any;
+    const fields = Array.isArray(customizationData?.fields)
+      ? customizationData.fields
+      : [];
+
+    fields.forEach((field: any) => {
+      const maxLength = normalizeTextMaxLength(field?.max_length);
+      const value = getTextValueForField(data, String(field?.id || ""));
+
+      if (maxLength > 0 && value && value.length > maxLength) {
+        const error = new Error(
+          `${customization.name}: Campo "${field?.label || "Texto"}" excede limite de ${maxLength} caracteres`,
+        ) as Error & { statusCode?: number };
+        error.statusCode = 400;
+        throw error;
+      }
+    });
+  }
+
   private normalizeImagesCustomizationData(data: Record<string, any>) {
     const normalized = { ...data };
     const previews = Array.isArray(normalized.previews)
@@ -493,6 +551,13 @@ class OrderCustomizationController {
         ...payload.data,
       };
 
+      if (payload.customizationType === "TEXT") {
+        await this.validateTextCustomizationLimit(
+          payload.customizationRuleId,
+          customizationData,
+        );
+      }
+
       if (payload.customizationType === "IMAGES") {
         Object.assign(
           customizationData,
@@ -638,6 +703,12 @@ class OrderCustomizationController {
         return res.status(404).json({
           error: "Item do pedido não encontrado",
           details: "Erro interno do servidor",
+        });
+      }
+
+      if ((error as any)?.statusCode === 400) {
+        return res.status(400).json({
+          error: error.message,
         });
       }
 

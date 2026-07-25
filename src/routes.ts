@@ -1050,6 +1050,7 @@ router.post(
   customerManagementController.syncAppUser,
 );
 
+router.get("/feed/initial", optionalAuthenticateToken, feedController.getPublicFeedInitial);
 router.get("/feed", optionalAuthenticateToken, feedController.getPublicFeed);
 router.get("/feed/section-types", feedController.getSectionTypes);
 router.get(

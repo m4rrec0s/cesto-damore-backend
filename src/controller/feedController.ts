@@ -356,6 +356,23 @@ class FeedController {
     }
   }
 
+
+  async getPublicFeedInitial(req: Request, res: Response) {
+    try {
+      const configId = req.query.config_id as string;
+      const feed = await feedService.getPublicFeedInitial(configId);
+      void trendStatsService.recordAccess(req);
+      res.json(feed);
+    } catch (error: any) {
+      logger.error("Erro ao buscar feed inicial:", error);
+      if (error.message.includes("não encontrada")) {
+        res.status(404).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "Erro interno do servidor" });
+      }
+    }
+  }
+
   async getSectionTypes(req: Request, res: Response) {
     try {
       const sectionTypes = [

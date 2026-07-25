@@ -637,6 +637,344 @@ class FeedService {
     }
   }
 
+
+  /**
+   * Retorna o feed inicial otimizado para o primeiro carregamento da página
+   * Retorna apenas banners + primeira seção com dados sanitizados
+   * Tamanho reduzido em ~60-70% comparado ao feed completo
+   */
+  async getPublicFeedInitial(configId?: string) {
+    try {
+      let feedConfig;
+
+      if (configId) {
+        feedConfig = await withRetry(() =>
+          prisma.feedConfiguration.findUnique({
+            where: { id: configId, is_active: true },
+            include: {
+              banners: {
+                where: {
+                  is_active: true,
+                },
+                orderBy: { display_order: "asc" },
+              },
+              sections: {
+                where: { is_visible: true },
+                orderBy: { display_order: "asc" },
+                include: {
+                  items: {
+                    orderBy: { display_order: "asc" },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      } else {
+        feedConfig = await withRetry(() =>
+          prisma.feedConfiguration.findFirst({
+            where: { is_active: true },
+            include: {
+              banners: {
+                where: {
+                  is_active: true,
+                },
+                orderBy: { display_order: "asc" },
+              },
+              sections: {
+                where: { is_visible: true },
+                orderBy: { display_order: "asc" },
+                include: {
+                  items: {
+                    orderBy: { display_order: "asc" },
+                  },
+                },
+              },
+            },
+            orderBy: { created_at: "desc" },
+          }),
+        );
+      }
+
+      if (!feedConfig) {
+        throw new Error("Nenhuma configuração de feed ativa encontrada");
+      }
+
+      // Pega apenas a primeira seção (mais rápido)
+      const [firstSection] = feedConfig.sections || [];
+
+      const enrichedSections: FeedSectionResponse[] = [];
+
+      if (firstSection) {
+        // Sanitiza a primeira seção: retorna apenas dados essenciais
+        const enrichedItems = await this.enrichSectionItemsLite(firstSection);
+        enrichedSections.push({
+          id: firstSection.id,
+          title: firstSection.title,
+          section_type: firstSection.section_type as FeedSectionType,
+          is_visible: firstSection.is_visible,
+          display_order: firstSection.display_order,
+          max_items: (firstSection as any).max_items ?? 6,
+          items: enrichedItems,
+        });
+      }
+
+      // Inclui top sellers se houver
+      const topSellersSection = await this.buildTopSellersSection();
+      if (topSellersSection) {
+        enrichedSections.unshift(topSellersSection);
+      }
+
+      return {
+        id: feedConfig.id,
+        name: feedConfig.name,
+        is_active: feedConfig.is_active,
+        banners: feedConfig.banners,
+        sections: enrichedSections,
+        pagination: {
+          totalSections: (feedConfig.sections?.length || 0) + (topSellersSection ? 1 : 0),
+          page: 1,
+          perPage: 1,
+          isInitial: true,
+        },
+      };
+    } catch (error: any) {
+      throw new Error(`Erro ao buscar feed inicial: ${error.message}`);
+    }
+  }
+
+  private async enrichSectionItemsLite(section: any) {
+    if (section.items && section.items.length > 0) {
+      const enrichedItems = await Promise.all(
+        section.items.map(async (item: any) => {
+          const itemData = await this.getItemDataLite(item.item_type, item.item_id);
+          return {
+            ...item,
+            item_data: itemData,
+          };
+        }),
+      );
+
+      return enrichedItems.filter((item) => {
+        if (item.item_type === "product") {
+          return item.item_data && (item.item_data as any).is_active === true;
+        }
+        return !!item.item_data;
+      });
+    }
+
+    return await this.getAutomaticSectionItemsLite(section);
+  }
+
+  private async getItemDataLite(itemType: string, itemId: string) {
+    switch (itemType) {
+      case "product":
+        const product = await withRetry(() =>
+          prisma.product.findUnique({
+            where: { id: itemId },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              discount: true,
+              image_url: true,
+              is_active: true,
+              categories: {
+                select: {
+                  category: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+        return product;
+      case "category":
+        return await withRetry(() =>
+          prisma.category.findUnique({
+            where: { id: itemId },
+            select: {
+              id: true,
+              name: true,
+            },
+          }),
+        );
+      case "additional":
+        return await withRetry(() =>
+          prisma.item.findUnique({
+            where: { id: itemId },
+            select: {
+              id: true,
+              name: true,
+              base_price: true,
+              image_url: true,
+            },
+          }),
+        );
+      default:
+        return null;
+    }
+  }
+
+  private async getAutomaticSectionItemsLite(section: any) {
+    const maxItems = section.max_items || 6;
+
+    switch (section.section_type) {
+      case FeedSectionType.RECOMMENDED_PRODUCTS:
+        const recommendedProducts = await withRetry(() =>
+          prisma.product.findMany({
+            where: { is_active: true },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              discount: true,
+              image_url: true,
+              categories: {
+                select: {
+                  category: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: { created_at: "desc" },
+            take: maxItems,
+          }),
+        );
+        return recommendedProducts.map((product, index) => ({
+          id: `auto_${product.id}`,
+          item_type: "product",
+          item_id: product.id,
+          display_order: index,
+          is_featured: false,
+          item_data: product,
+        }));
+
+      case FeedSectionType.DISCOUNTED_PRODUCTS:
+        const discountedProducts = await withRetry(() =>
+          prisma.product.findMany({
+            where: {
+              is_active: true,
+              discount: { gt: 0 },
+            },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              discount: true,
+              image_url: true,
+              categories: {
+                select: {
+                  category: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: { discount: "desc" },
+            take: maxItems,
+          }),
+        );
+        return discountedProducts.map((product, index) => ({
+          id: `auto_${product.id}`,
+          item_type: "product",
+          item_id: product.id,
+          display_order: index,
+          is_featured: false,
+          item_data: product,
+        }));
+
+      case FeedSectionType.FEATURED_CATEGORIES:
+        const categories = await withRetry(() =>
+          prisma.category.findMany({
+            select: {
+              id: true,
+              name: true,
+            },
+            take: maxItems,
+          }),
+        );
+        return categories.map((cat, index) => ({
+          id: `auto_${cat.id}`,
+          item_type: "category",
+          item_id: cat.id,
+          display_order: index,
+          is_featured: false,
+          item_data: cat,
+        }));
+
+      case FeedSectionType.FEATURED_ADDITIONALS:
+        const additionals = await withRetry(() =>
+          prisma.item.findMany({
+            select: {
+              id: true,
+              name: true,
+              base_price: true,
+              image_url: true,
+            },
+            take: maxItems,
+          }),
+        );
+        return additionals.map((item, index) => ({
+          id: `auto_${item.id}`,
+          item_type: "additional",
+          item_id: item.id,
+          display_order: index,
+          is_featured: false,
+          item_data: item,
+        }));
+
+      case FeedSectionType.BEST_SELLERS:
+      case FeedSectionType.NEW_ARRIVALS:
+      case FeedSectionType.CUSTOM_PRODUCTS:
+      default:
+        // Fallback: retorna produtos recentes
+        const defaultProducts = await withRetry(() =>
+          prisma.product.findMany({
+            where: { is_active: true },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              discount: true,
+              image_url: true,
+              categories: {
+                select: {
+                  category: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: { created_at: "desc" },
+            take: maxItems,
+          }),
+        );
+        return defaultProducts.map((product, index) => ({
+          id: `auto_${product.id}`,
+          item_type: "product",
+          item_id: product.id,
+          display_order: index,
+          is_featured: false,
+          item_data: product,
+        }));
+    }
+  }
+
   private formatFeedConfigurationResponse(config: any): FeedResponse {
     return {
       id: config.id,

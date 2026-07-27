@@ -96,6 +96,7 @@ export const convertImagesToWebPLossy = async (
       }
 
       const webpBuffer = await sharp(file.buffer)
+        .rotate()
         .webp({ quality: 80 })
         .toBuffer();
 
@@ -156,6 +157,7 @@ export const convertImagesToWebPLossless = async (
         : (file.originalname || `file_${Date.now()}`).replace(/\.[^.]+$/, "");
 
       const webpBuffer = await sharp(file.buffer)
+        .rotate()
         .withMetadata()
         .webp({ lossless: true })
         .toBuffer();

@@ -423,7 +423,7 @@ class FeedService {
       const item = await prisma.feedSectionItem.create({
         data: {
           feed_section_id: data.feed_section_id,
-          item_type: data.item_type,
+          item_type: data.item_type.toLowerCase(),
           item_id: data.item_id,
           display_order: data.display_order ?? 0,
           is_featured: data.is_featured ?? false,
@@ -456,7 +456,7 @@ class FeedService {
 
       if (data.item_type !== undefined && data.item_id !== undefined) {
         await this.validateItemExists(data.item_type, data.item_id);
-        updateData.item_type = data.item_type;
+        updateData.item_type = data.item_type.toLowerCase();
         updateData.item_id = data.item_id;
       } else if (data.item_type !== undefined || data.item_id !== undefined) {
         throw new Error("item_type e item_id devem ser fornecidos juntos");
@@ -756,7 +756,7 @@ class FeedService {
       );
 
       return enrichedItems.filter((item) => {
-        if (item.item_type === "product") {
+        if (item.item_type.toLowerCase() === "product") {
           return item.item_data && (item.item_data as any).is_active === true;
         }
         return !!item.item_data;
@@ -767,7 +767,8 @@ class FeedService {
   }
 
   private async getItemDataLite(itemType: string, itemId: string) {
-    switch (itemType) {
+    const type = itemType.toLowerCase();
+    switch (type) {
       case "product":
         const product = await withRetry(() =>
           prisma.product.findUnique({
@@ -1041,7 +1042,7 @@ class FeedService {
       );
 
       return enrichedItems.filter((item) => {
-        if (item.item_type === "product") {
+        if (item.item_type.toLowerCase() === "product") {
           return item.item_data && (item.item_data as any).is_active === true;
         }
         return !!item.item_data;
@@ -1052,7 +1053,8 @@ class FeedService {
   }
 
   private async getItemData(itemType: string, itemId: string) {
-    switch (itemType) {
+    const type = itemType.toLowerCase();
+    switch (type) {
       case "product":
         return await withRetry(() =>
           prisma.product.findUnique({

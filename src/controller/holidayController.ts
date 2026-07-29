@@ -2,6 +2,15 @@ import { Request, Response } from "express";
 import holidayService from "../services/holidayService";
 
 class HolidayController {
+    async deliveryDates(req: Request, res: Response) {
+        try {
+            const holidays = await holidayService.listActiveForDelivery();
+            res.json(holidays);
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+
     async index(req: Request, res: Response) {
         try {
             const holidays = await holidayService.listAll();

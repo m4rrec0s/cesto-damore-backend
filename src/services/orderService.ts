@@ -5,6 +5,7 @@ import whatsappService from "./whatsappService";
 import productComponentService from "./productComponentService";
 import customerManagementService from "./customerManagementService";
 import googleDriveService from "./googleDriveService";
+import holidayService from "./holidayService";
 import logger from "../utils/logger";
 import fs from "fs";
 import path from "path";
@@ -2045,6 +2046,10 @@ class OrderService {
       const now = new Date();
       if (dt < now) {
         throw new Error("Data de entrega não pode ser no passado");
+      }
+      const holiday = await holidayService.isDeliveryDateBlocked(dt);
+      if (holiday) {
+        throw new Error(`Não realizamos entregas no feriado ${holiday.name}`);
       }
       updateData.delivery_date = dt;
     }

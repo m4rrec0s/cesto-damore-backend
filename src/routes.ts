@@ -675,6 +675,8 @@ router.put(
 );
 router.delete("/orders/:id", authenticateToken, orderController.remove);
 
+router.get("/delivery/holidays", holidayController.deliveryDates);
+
 // Coupons
 router.post("/coupons/validate", authenticateToken, couponRateLimit, couponController.validate);
 router.get("/coupons/available", authenticateToken, couponController.available);

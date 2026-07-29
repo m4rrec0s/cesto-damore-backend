@@ -20,6 +20,41 @@ class HolidayService {
     });
   }
 
+  async listActiveForDelivery() {
+    return prisma.holiday.findMany({
+      where: { is_active: true },
+      select: {
+        start_date: true,
+        end_date: true,
+      },
+      orderBy: { start_date: "asc" },
+    });
+  }
+
+  async isDeliveryDateBlocked(deliveryDate: Date) {
+    const dateInBrazil = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(deliveryDate);
+    const year = Number(dateInBrazil.find((part) => part.type === "year")?.value);
+    const month = Number(dateInBrazil.find((part) => part.type === "month")?.value);
+    const day = Number(dateInBrazil.find((part) => part.type === "day")?.value);
+    const deliveryDay = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+
+    const holiday = await prisma.holiday.findFirst({
+      where: {
+        is_active: true,
+        start_date: { lte: deliveryDay },
+        end_date: { gte: deliveryDay },
+      },
+      select: { name: true },
+    });
+
+    return holiday;
+  }
+
   async create(data: {
     name: string;
     start_date: Date | string;

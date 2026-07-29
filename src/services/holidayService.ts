@@ -41,13 +41,14 @@ class HolidayService {
     const year = Number(dateInBrazil.find((part) => part.type === "year")?.value);
     const month = Number(dateInBrazil.find((part) => part.type === "month")?.value);
     const day = Number(dateInBrazil.find((part) => part.type === "day")?.value);
-    const deliveryDay = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    const deliveryDayStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+    const deliveryDayEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59));
 
     const holiday = await prisma.holiday.findFirst({
       where: {
         is_active: true,
-        start_date: { lte: deliveryDay },
-        end_date: { gte: deliveryDay },
+        start_date: { lte: deliveryDayEnd },
+        end_date: { gte: deliveryDayStart },
       },
       select: { name: true },
     });

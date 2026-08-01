@@ -1009,6 +1009,21 @@ class WhatsAppService {
       });
       return response.data;
     } catch (error: any) {
+      if (error.response?.status === 422) {
+        try {
+          const response = await this.client.put(
+            `/api/sessions/${encodeURIComponent(sessionName)}`,
+            {
+              name: sessionName,
+              start: true,
+            },
+          );
+          return response.data;
+        } catch (updateError: any) {
+          logger.error("Erro ao atualizar sessão WAHA:", updateError.message);
+          return null;
+        }
+      }
       logger.error("Erro ao criar sessão WAHA:", error.message);
       return null;
     }

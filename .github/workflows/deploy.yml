@@ -28,10 +28,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build e Push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          provenance: false
+          sbom: false
           tags: ghcr.io/${{ github.repository }}:latest
 
       - name: Trigger deploy no Easypanel

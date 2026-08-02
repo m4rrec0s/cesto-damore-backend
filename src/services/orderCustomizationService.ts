@@ -9,6 +9,7 @@ import { Readable } from "stream";
 import axios from "axios";
 import tempFileService from "./tempFileService";
 import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
+import { generateOrderPrintSummaryBuffer } from "../utils/orderPrintSummaryGenerator";
 
 interface SaveOrderCustomizationInput {
   orderItemId: string;
@@ -29,6 +30,9 @@ interface FinalizeResult {
     driveFileId: string;
     fileName: string;
     subfolderName: string;
+    type?: "foto" | "carta" | "outro";
+    printerRole?: "photo" | "letter";
+    documentType?: "artwork" | "cartinha" | "order_summary";
   }>;
 }
 
@@ -901,6 +905,7 @@ class OrderCustomizationService {
       where: { id: orderId },
       include: {
         user: true,
+        payment: true,
         items: {
           include: {
             product: {
@@ -1281,6 +1286,94 @@ class OrderCustomizationService {
         }
       } catch (cartinhaErr: any) {
         logger.error({ err: cartinhaErr, orderId: order.id }, 'cartinha_docx_failed');
+      }
+    }
+
+    if (mainFolderId) {
+      try {
+        const summaryItems = order.items.map((item) => ({
+          name: item.product?.name || "Produto não identificado",
+          quantity: item.quantity,
+          unitPrice: Number(item.price || 0),
+          additionals: item.additionals.map((addition) => ({
+            name: addition.additional?.name || "Adicional não identificado",
+            quantity: addition.quantity,
+            price: Number(addition.price || 0),
+          })),
+          customizations: item.customizations.map((customization) => {
+            const data = this.parseCustomizationData(customization.value);
+            const previewUrl =
+              data.final_artwork?.preview_url ||
+              data.finalArtwork?.preview_url ||
+              data.final_artworks?.[0]?.preview_url ||
+              data.image?.preview_url ||
+              data.photos?.[0]?.preview_url ||
+              data.previewUrl;
+            return {
+              type: String(data.customization_type || "CUSTOMIZAÇÃO"),
+              text: typeof data.text === "string" ? data.text.trim() : undefined,
+              label: typeof data.label_selected === "string" ? data.label_selected : undefined,
+              previewUrl: typeof previewUrl === "string" ? previewUrl : undefined,
+            };
+          }),
+        }));
+        const itemTotal = order.items.reduce(
+          (total, item) => total + Number(item.price || 0) * item.quantity,
+          0,
+        );
+        const summaryBuffer = await generateOrderPrintSummaryBuffer({
+          orderId,
+          createdAt: order.created_at,
+          customer: {
+            name: order.user?.name || "Cliente",
+            email: order.user?.email || "Não informado",
+            phone: order.user?.phone,
+            document: order.user?.document,
+          },
+          delivery: {
+            method: order.delivery_method,
+            address: order.delivery_address || order.user?.address,
+            complement: order.complement,
+            city: order.delivery_city || order.user?.city,
+            state: order.delivery_state || order.user?.state,
+            zipCode: order.user?.zip_code,
+            recipientPhone: order.recipient_phone,
+            date: order.delivery_date,
+          },
+          payment: {
+            orderMethod: order.payment_method,
+            confirmedMethod: order.payment?.payment_method,
+          },
+          amounts: {
+            items: itemTotal,
+            shipping: Number(order.shipping_price || 0),
+            discount: Number(order.discount_amount || order.discount || 0),
+            total: Number(order.grand_total || order.total || 0),
+          },
+          items: summaryItems,
+        });
+        const summaryFolderId = await googleDriveService.createFolder("Resumo do Pedido", mainFolderId);
+        const fileName = `Resumo_Pedido_${orderId.slice(0, 8)}.docx`;
+        const uploadedFile = await googleDriveService.uploadBuffer(
+          summaryBuffer,
+          fileName,
+          summaryFolderId,
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        );
+        await googleDriveService.makeFolderPublic(summaryFolderId);
+        uploadedFiles += 1;
+        dispatchFiles.push({
+          driveFileId: uploadedFile.id,
+          fileName,
+          subfolderName: "Resumo do Pedido",
+          type: "carta",
+          printerRole: "letter",
+          documentType: "order_summary",
+        });
+        logger.info({ orderId, fileId: uploadedFile.id }, "order_print_summary_added_to_dispatch");
+      } catch (summaryErr: any) {
+        logger.error({ err: summaryErr, orderId }, "order_print_summary_failed");
+        throw summaryErr;
       }
     }
 

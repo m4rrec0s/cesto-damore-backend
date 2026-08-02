@@ -3,7 +3,7 @@ import prisma from "../database/prisma";
 import googleDriveService from "./googleDriveService";
 import { enqueue as enqueuePrintJob } from "./printQueueService";
 import type { PrintJobFile } from "../types/printJob";
-import { resolveCustomizationType, resolvePrinterRole, PRINT_SIZES } from "../utils/customizationTypeResolver";
+import { resolveCustomizationType, resolvePrinterRole, PRINT_SIZES, type PrintFileType, type PrinterRole } from "../utils/customizationTypeResolver";
 import logger from "../utils/logger";
 
 type DispatchPreloadedFile = {
@@ -11,6 +11,9 @@ type DispatchPreloadedFile = {
   fileName: string;
   subfolderName: string;
   folderId?: string;
+  type?: PrintFileType;
+  printerRole?: PrinterRole;
+  documentType?: PrintJobFile["documentType"];
 };
 
 type PrintCustomizationRecord = {
@@ -74,14 +77,15 @@ export async function dispatchPrintForOrder(
       continue;
     }
 
-    const type = resolveCustomizationType(file.subfolderName, file.fileName);
+    const type = file.type ?? resolveCustomizationType(file.subfolderName, file.fileName);
     allFiles.push({
       name: file.fileName,
       driveFileId: file.driveFileId,
       subfolderName: file.subfolderName,
       type,
       sizeConfig: PRINT_SIZES[type],
-      printerRole: resolvePrinterRole(type),
+      printerRole: file.printerRole ?? resolvePrinterRole(type),
+      documentType: file.documentType,
     });
   }
 

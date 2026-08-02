@@ -7,6 +7,7 @@ export interface PrintJobFile {
   type: PrintFileType
   sizeConfig: PrintSizeConfig
   printerRole: PrinterRole
+  documentType?: 'artwork' | 'cartinha' | 'order_summary'
 }
 
 export interface PrintJobPayload {

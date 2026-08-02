@@ -119,7 +119,7 @@ class PrintAgentWSManager {
           const result = await prisma.printJob.updateMany({
             where: {
               ...whereClause,
-              status: { notIn: ["FAILED"] },
+              status: { notIn: ["PRINTED"] },
             },
             data: { status: "PRINTED", printedAt: new Date() },
           });

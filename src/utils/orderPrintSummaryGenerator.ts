@@ -53,12 +53,20 @@ const cell = (text: string, bold = false) =>
   new TableCell({ children: [new Paragraph({ children: [run(text, bold)] })] });
 
 async function grayscalePreview(url: string): Promise<Buffer> {
-  const response = await axios.get<ArrayBuffer>(url, {
-    responseType: "arraybuffer",
-    timeout: 15_000,
-    maxContentLength: 10 * 1024 * 1024,
-  });
-  return sharp(Buffer.from(response.data))
+  let input: Buffer;
+  if (url.startsWith("data:")) {
+    const commaIdx = url.indexOf(",");
+    if (commaIdx < 0) throw new Error("Invalid data URL");
+    input = Buffer.from(url.slice(commaIdx + 1), "base64");
+  } else {
+    const response = await axios.get<ArrayBuffer>(url, {
+      responseType: "arraybuffer",
+      timeout: 15_000,
+      maxContentLength: 10 * 1024 * 1024,
+    });
+    input = Buffer.from(response.data);
+  }
+  return sharp(input)
     .rotate()
     .resize({ width: 280, height: 180, fit: "inside", withoutEnlargement: true })
     .grayscale()

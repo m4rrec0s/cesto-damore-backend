@@ -543,7 +543,9 @@ export function createPrintAdminRoutes(router: Router): void {
                 quantity: 1,
                 unitPrice: 0,
                 additionals: [],
-                customizations: [],
+                customizations: l.artworkPreview
+                  ? [{ type: "ARTWORK", previewUrl: String(l.artworkPreview), label: "Arte gerada" }]
+                  : [],
               }));
 
             const summaryBuffer = await generateOrderPrintSummaryBuffer({

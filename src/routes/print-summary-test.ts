@@ -4,7 +4,7 @@ import { generateOrderPrintSummaryBuffer } from "../utils/orderPrintSummaryGener
 
 export function createPrintSummaryTestRoutes(router: Router): Router {
   router.get("/api/print-summary-test", (_req: Request, res: Response) => {
-    const filePath = path.join(__dirname, "../public/print-summary-test.html");
+    const filePath = path.join(__dirname, "../../public/print-summary-test.html");
     res.sendFile(filePath);
   });
 

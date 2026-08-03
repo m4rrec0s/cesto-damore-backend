@@ -1469,6 +1469,13 @@ createPrintSimulatorRoutes(router);
 logger.info("🖨️ Rotas do simulador de impressão habilitadas");
 
 // ========================================
+// 🖨️ ROTAS DE TESTE - RESUMO DE IMPRESSÃO
+// ========================================
+import { createPrintSummaryTestRoutes } from "./routes/print-summary-test";
+createPrintSummaryTestRoutes(router);
+logger.info("🖨️ Rotas de teste de resumo de impressão habilitadas");
+
+// ========================================
 // 🖨️ AUTO-UPDATE DO AGENTE DE IMPRESSÃO
 // ========================================
 router.post("/api/agent/version", async (req: Request, res: Response) => {

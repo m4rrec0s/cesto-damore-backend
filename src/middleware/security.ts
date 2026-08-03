@@ -720,6 +720,7 @@ export const requireApiKey = (
     "/api/uploads/temp",
     "/mercadopago/public-config",
     "/print-test",
+    "/print-summary-test",
     "/admin/print-simulator",
     "/api/admin/print-simulator",
   ];
@@ -733,6 +734,7 @@ export const requireApiKey = (
     "/static",
     "/test/", // Rotas de teste (ainda requerem JWT, mas não API key)
     "/api/print-test/", // Rotas de teste de impressão
+    "/api/print-summary-test/", // Rotas de teste de resumo de impressão
     "/api/print/", // Rotas admin de impressão (status, impressoras, jobs)
     "/api/simulator/", // Rotas do simulador de impressão (requerem JWT admin)
     "/api/print/files/", // Download URLs para o agente de impressao

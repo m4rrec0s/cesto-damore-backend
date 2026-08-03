@@ -19,6 +19,7 @@ import scheduledJobsService from "./services/scheduledJobsService";
 import logger from "./utils/logger";
 import prisma from "./database/prisma";
 import tempFileService from "./services/tempFileService";
+import tempUploadService from "./services/tempUploadService";
 import followUpService from "./services/followUpService";
 import reservationService from "./services/reservationService";
 import { pingRedisHealth } from "./jobs/jobQueues";
@@ -340,6 +341,19 @@ cron.schedule("0 */6 * * *", async () => {
     );
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de arquivos temporários:", error);
+  }
+});
+
+cron.schedule("15 */6 * * *", async () => {
+  try {
+    const result = await tempUploadService.cleanupExpiredUploads();
+    if (result.deletedCount > 0) {
+      logger.info(
+        `🗑️ [Cron] Temp uploads cleanup: ${result.deletedCount} uploads removidos`,
+      );
+    }
+  } catch (error) {
+    logger.error("❌ [Cron] Erro na limpeza de temp uploads:", error);
   }
 });
 

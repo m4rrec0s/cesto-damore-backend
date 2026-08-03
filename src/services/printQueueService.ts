@@ -94,7 +94,7 @@ export async function enqueue(payload: PrintJobPayload): Promise<void> {
 async function dispatch(payload: PrintJobPayload): Promise<boolean> {
   if (!printAgentWSManager.isConnected()) return false;
 
-  const sent = printAgentWSManager.send({
+  const sent = printAgentWSManager.sendToDevice(payload.deviceId, {
     type: "PRINT_JOB",
     jobId: payload.jobId,
     job: payload,

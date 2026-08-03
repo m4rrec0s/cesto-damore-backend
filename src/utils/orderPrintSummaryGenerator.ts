@@ -1,4 +1,5 @@
 import axios from "axios";
+import { STORE_INFO } from "../config/store";
 import {
   AlignmentType,
   Document,
@@ -75,6 +76,20 @@ async function grayscalePreview(url: string): Promise<Buffer> {
 }
 
 export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryInput): Promise<Buffer> {
+  const isPickup =
+    input.delivery.method?.toLowerCase() === "pickup" ||
+    input.delivery.method?.toLowerCase() === "retirada";
+  const delivery = isPickup
+    ? {
+        ...input.delivery,
+        address: STORE_INFO.address,
+        city: "Campina Grande",
+        state: "PB",
+        zipCode: "58400-515",
+        complement: input.delivery.complement || "Retirada na loja",
+      }
+    : input.delivery;
+
   const children: Array<Paragraph | Table> = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -91,13 +106,13 @@ export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryIn
     ] }),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Entrega", true)] }),
     new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
-      new TableRow({ children: [cell("Método", true), cell(value(input.delivery.method))] }),
-      new TableRow({ children: [cell("Endereço", true), cell(value(input.delivery.address))] }),
-      new TableRow({ children: [cell("Complemento", true), cell(value(input.delivery.complement))] }),
-      new TableRow({ children: [cell("Cidade / UF", true), cell(`${value(input.delivery.city)} / ${value(input.delivery.state)}`)] }),
-      new TableRow({ children: [cell("CEP", true), cell(value(input.delivery.zipCode))] }),
-      new TableRow({ children: [cell("Telefone destinatário", true), cell(value(input.delivery.recipientPhone))] }),
-      new TableRow({ children: [cell("Data", true), cell(input.delivery.date?.toLocaleDateString("pt-BR") || "Não informado")] }),
+      new TableRow({ children: [cell("Método", true), cell(isPickup ? "Retirada na loja" : value(delivery.method))] }),
+      new TableRow({ children: [cell("Endereço", true), cell(value(delivery.address))] }),
+      new TableRow({ children: [cell("Complemento", true), cell(value(delivery.complement))] }),
+      new TableRow({ children: [cell("Cidade / UF", true), cell(`${value(delivery.city)} / ${value(delivery.state)}`)] }),
+      new TableRow({ children: [cell("CEP", true), cell(value(delivery.zipCode))] }),
+      new TableRow({ children: [cell("Telefone destinatário", true), cell(value(delivery.recipientPhone))] }),
+      new TableRow({ children: [cell("Data", true), cell(delivery.date?.toLocaleDateString("pt-BR") || "Não informado")] }),
     ] }),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Pagamento e valores", true)] }),
     new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [

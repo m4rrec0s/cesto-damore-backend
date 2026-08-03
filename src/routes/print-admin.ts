@@ -355,6 +355,7 @@ export function createPrintAdminRoutes(router: Router): void {
       const layoutId = String(req.body.layoutId || "").trim();
       const giftMessageMaxLength = Number(req.body.maxLength) || 500;
       const giftMessage = String(req.body.giftMessage || "").trim().slice(0, giftMessageMaxLength);
+      const deviceId = String(req.body.deviceId || "").trim() || undefined;
 
       logger.info({ customerName, layoutId, bodyKeys: Object.keys(req.body || {}), filesCount: (req.files || []).length }, "manual_print_received");
 
@@ -593,7 +594,7 @@ export function createPrintAdminRoutes(router: Router): void {
           },
         });
 
-        await dispatchPrintForOrder(order.id, mainFolderId, customerName, dispatchFiles);
+        await dispatchPrintForOrder(order.id, mainFolderId, customerName, dispatchFiles, deviceId);
         const job = await prisma.printJob.findUnique({
           where: { orderId: order.id },
           select: { id: true, status: true },

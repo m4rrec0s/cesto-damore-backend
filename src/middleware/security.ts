@@ -719,6 +719,7 @@ export const requireApiKey = (
     "/api/webhook/mercadopago",
     "/api/uploads/temp",
     "/mercadopago/public-config",
+    "/api/store-info",
     "/print-test",
     "/print-summary-test",
     "/api/print-summary-test",

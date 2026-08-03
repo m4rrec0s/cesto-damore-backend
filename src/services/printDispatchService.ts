@@ -26,6 +26,7 @@ export async function dispatchPrintForOrder(
   driveFolderId: string,
   customerName: string,
   preloadedFiles: DispatchPreloadedFile[] = [],
+  deviceId?: string,
 ): Promise<void> {
   if (!driveFolderId) {
     logger.warn({ orderId }, "print_skip_no_drive_folder");
@@ -136,6 +137,7 @@ export async function dispatchPrintForOrder(
     customerName,
     driveFolderId,
     files: allFiles,
+    deviceId,
   });
 }
 

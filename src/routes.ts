@@ -57,6 +57,8 @@ import {
   convertImagesToWebPLossless,
 } from "./config/multer";
 
+import { STORE_INFO } from "./config/store";
+
 import {
   authenticateToken,
   optionalAuthenticateToken,
@@ -1474,6 +1476,13 @@ logger.info("🖨️ Rotas do simulador de impressão habilitadas");
 import { createPrintSummaryTestRoutes } from "./routes/print-summary-test";
 createPrintSummaryTestRoutes(router);
 logger.info("🖨️ Rotas de teste de resumo de impressão habilitadas");
+
+// ========================================
+// 🏪 INFORMAÇÕES DA LOJA (pública)
+// ========================================
+router.get("/api/store-info", (_req: Request, res: Response) => {
+  res.json({ ...STORE_INFO });
+});
 
 // ========================================
 // 🖨️ AUTO-UPDATE DO AGENTE DE IMPRESSÃO

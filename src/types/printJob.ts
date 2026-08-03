@@ -16,6 +16,7 @@ export interface PrintJobPayload {
   customerName: string
   driveFolderId: string
   files: PrintJobFile[]
+  deviceId?: string
 }
 
 export interface PrinterConfigEntry {

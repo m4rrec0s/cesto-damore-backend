@@ -175,6 +175,30 @@ class PrintQueueService {
       status: "printed",
       message: "Impressao confirmada",
     });
+
+    await this.markManualPrintOrderDelivered(job.data.orderId);
+  }
+
+  private async markManualPrintOrderDelivered(orderId: string): Promise<void> {
+    try {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { id: true, source: true, status: true },
+      });
+
+      if (!order || order.source !== "manual_print" || order.status !== "PENDING") {
+        return;
+      }
+
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { status: "DELIVERED" },
+      });
+
+      logger.info(`[PrintQueue] Pedido manual ${orderId} marcado como DELIVERED`);
+    } catch (error) {
+      logger.error(`[PrintQueue] Erro ao marcar pedido ${orderId} como DELIVERED:`, error);
+    }
   }
 
   private async ensureTable(): Promise<void> {

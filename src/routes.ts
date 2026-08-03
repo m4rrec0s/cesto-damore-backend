@@ -38,6 +38,7 @@ import dynamicLayoutController from "./controller/dynamicLayoutController";
 import elementBankController from "./controller/elementBankController";
 import customerManagementController from "./controller/customerManagementController";
 
+import specialDeliveryController from "./controller/specialDeliveryController";
 import holidayController from "./controller/holidayController";
 import followUpController from "./controller/followUpController";
 import trendStatsController from "./controller/trendStatsController";
@@ -678,6 +679,7 @@ router.put(
 router.delete("/orders/:id", authenticateToken, orderController.remove);
 
 router.get("/delivery/holidays", holidayController.deliveryDates);
+router.get("/delivery/special-days", specialDeliveryController.list);
 
 // Coupons
 router.post("/coupons/validate", authenticateToken, couponRateLimit, couponController.validate);

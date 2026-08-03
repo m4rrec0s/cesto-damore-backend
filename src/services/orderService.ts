@@ -1064,37 +1064,7 @@ class OrderService {
         (total - discount + shipping_price).toFixed(2),
       );
 
-      // DEBUG: log detalhado para diagnosticar grand_total <= 0
-      logger.debug("🔍 [OrderService] Cálculo de total:", {
-        itemsTotal,
-        total,
-        discount,
-        shipping_price,
-        grand_total,
-        "itemsTotal - discount": itemsTotal - discount,
-        "total - discount + shipping": total - discount + shipping_price,
-      });
-
       if (grand_total <= 0) {
-        logger.error("❌ [OrderService] Grand total inválido:", {
-          itemsTotal,
-          total,
-          discount,
-          shipping_price,
-          grand_total,
-          items: data.items.map((i) => ({
-            product_id: i.product_id,
-            quantity: i.quantity,
-            catalogPrice: productPriceMap.get(i.product_id),
-            payloadPrice: i.price,
-            additionals: i.additionals?.map((a) => ({
-              additional_id: a.additional_id,
-              quantity: a.quantity,
-              payloadPrice: a.price,
-              resolvedPrice: resolveAdditionalPrice(i.product_id, a.additional_id, a.price),
-            })),
-          })),
-        });
         throw new Error("Valor final do pedido deve ser maior que zero");
       }
 
@@ -1114,6 +1084,7 @@ class OrderService {
         where: {
           user_id: orderData.user_id,
           status: "PENDING",
+          source: "customer",
         },
         select: { id: true },
         orderBy: { created_at: "desc" },
@@ -1298,7 +1269,7 @@ class OrderService {
         );
 
         const existingPending = await prisma.order.findFirst({
-          where: { user_id: data.user_id, status: "PENDING" },
+          where: { user_id: data.user_id, status: "PENDING", source: "customer" },
           select: { id: true },
           orderBy: { created_at: "desc" },
         });
@@ -2145,28 +2116,32 @@ class OrderService {
       typeof updateData.discount === "number" ||
       typeof updateData.payment_method === "string"
     ) {
+      // Para pedidos em construção (carrinho/draft), order.total pode ser null/0.
+      // Pulamos a validação de grand_total aqui - a validação final ocorre no checkout.
       const currentTotal = order.total;
-      const nextDiscount =
-        typeof updateData.discount === "number"
-          ? updateData.discount
-          : order.discount || 0;
-      const nextShipping =
-        typeof updateData.shipping_price === "number"
-          ? updateData.shipping_price
-          : order.shipping_price || 0;
+      if (currentTotal != null && currentTotal > 0) {
+        const nextDiscount =
+          typeof updateData.discount === "number"
+            ? updateData.discount
+            : order.discount || 0;
+        const nextShipping =
+          typeof updateData.shipping_price === "number"
+            ? updateData.shipping_price
+            : order.shipping_price || 0;
 
-      if (nextDiscount > currentTotal) {
-        throw new Error("Desconto não pode ser maior que o total dos itens");
+        if (nextDiscount > currentTotal) {
+          throw new Error("Desconto não pode ser maior que o total dos itens");
+        }
+
+        const newGrandTotal = parseFloat(
+          (currentTotal - nextDiscount + nextShipping).toFixed(2),
+        );
+
+        if (newGrandTotal <= 0) {
+          throw new Error("Valor final do pedido deve ser maior que zero");
+        }
+        updateData.grand_total = newGrandTotal;
       }
-
-      const newGrandTotal = parseFloat(
-        (currentTotal - nextDiscount + nextShipping).toFixed(2),
-      );
-
-      if (newGrandTotal <= 0) {
-        throw new Error("Valor final do pedido deve ser maior que zero");
-      }
-      updateData.grand_total = newGrandTotal;
     }
 
     updateData.pending_owner_key = order.user_id;
@@ -2455,6 +2430,7 @@ class OrderService {
       where: {
         user_id: userId,
         status: "PENDING",
+        source: "customer",
       },
       include: {
         items: {
@@ -2622,27 +2598,28 @@ class OrderService {
       const abandonedOrders = await prisma.order.findMany({
         where: {
           status: "PENDING",
-          created_at: {
+          source: "customer",
+          updated_at: {
             lt: twentyFourHoursAgo,
           },
         },
         select: {
           id: true,
           user_id: true,
-          created_at: true,
+          updated_at: true,
           google_drive_folder_id: true,
         },
       });
 
       if (abandonedOrders.length === 0) {
-        console.log(
-          "ℹ️ [OrderService] Nenhum pedido abandonado encontrado para limpeza",
+        logger.debug(
+          "ℹ️ [OrderService] Nenhum pedido pendente expirado para limpeza",
         );
         return { cleaned: 0 };
       }
 
-      console.log(
-        `🧹 [OrderService] Limpando ${abandonedOrders.length} pedido(s) abandonado(s)`,
+      logger.info(
+        `🧹 [OrderService] Limpando ${abandonedOrders.length} pedido(s) pendente(s) expirado(s) (>24h sem atualização)`,
       );
 
       const driveDeletePromises = abandonedOrders
@@ -2667,49 +2644,27 @@ class OrderService {
       let cleanedCount = 0;
       for (const order of abandonedOrders) {
         try {
-          await this.cancelOrder(order.id, order.user_id);
+          await this.deleteOrder(order.id);
           cleanedCount++;
         } catch (error) {
           logger.error(
-            `⚠️ Erro ao limpar pedido abandonado ${order.id}:`,
+            `⚠️ Erro ao limpar pedido expirado ${order.id}:`,
             error instanceof Error ? error.message : error,
           );
         }
       }
 
-      console.log(
-        `✅ [OrderService] ${cleanedCount} pedido(s) abandonado(s) limpo(s) com sucesso`,
+      logger.info(
+        `✅ [OrderService] ${cleanedCount} pedido(s) pendente(s) expirado(s) deletado(s) com sucesso`,
       );
-
-      try {
-        const emptyOrders = await prisma.order.findMany({
-          where: {
-            items: { none: {} },
-            status: "PENDING",
-            created_at: { lt: new Date(Date.now() - 2 * 60 * 60 * 1000) },
-          },
-          select: { id: true, google_drive_folder_id: true },
-        });
-
-        if (emptyOrders.length > 0) {
-          logger.info(
-            `🧹 [OrderService] Limpando ${emptyOrders.length} rascunhos vazios...`,
-          );
-          for (const order of emptyOrders) {
-            await this.deleteOrder(order.id).catch(() => {});
-          }
-        }
-      } catch (err) {
-        logger.warn("⚠️ Erro ao limpar rascunhos vazios:", err);
-      }
 
       return { cleaned: cleanedCount };
     } catch (error: any) {
       logger.error(
-        `❌ [OrderService] Erro ao limpar pedidos abandonados:`,
+        `❌ [OrderService] Erro ao limpar pedidos pendentes expirados:`,
         error,
       );
-      throw new Error(`Erro ao limpar pedidos abandonados: ${error.message}`);
+      throw new Error(`Erro ao limpar pedidos pendentes: ${error.message}`);
     }
   }
 

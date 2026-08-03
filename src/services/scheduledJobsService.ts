@@ -9,6 +9,7 @@ class ScheduledJobsService {
   private driveRetryInterval: NodeJS.Timeout | null = null;
   private backupCleanupInterval: NodeJS.Timeout | null = null;
   private trendStatsInterval: NodeJS.Timeout | null = null;
+  private pendingOrderCleanupInterval: NodeJS.Timeout | null = null;
 
   
 
@@ -23,6 +24,8 @@ class ScheduledJobsService {
     this.startBackupCleanupJob();
 
     this.startTrendStatsJob();
+
+    this.startPendingOrderCleanupJob();
 
     logger.info("✅ Scheduled jobs iniciados");
   }
@@ -55,6 +58,11 @@ class ScheduledJobsService {
     if (this.trendStatsInterval) {
       clearInterval(this.trendStatsInterval);
       this.trendStatsInterval = null;
+    }
+
+    if (this.pendingOrderCleanupInterval) {
+      clearInterval(this.pendingOrderCleanupInterval);
+      this.pendingOrderCleanupInterval = null;
     }
 
     logger.info("✅ Scheduled jobs parados");
@@ -282,6 +290,44 @@ class ScheduledJobsService {
 
   
 
+  private startPendingOrderCleanupJob() {
+    const INTERVAL_MS = 30 * 60 * 1000;
+
+    logger.info(
+      `🧹 Agendando limpeza de pedidos pendentes expirados (intervalo: ${INTERVAL_MS / 1000 / 60}min)`,
+    );
+
+    setTimeout(
+      () => {
+        this.cleanupExpiredPendingOrders();
+
+        this.pendingOrderCleanupInterval = setInterval(() => {
+          this.cleanupExpiredPendingOrders();
+        }, INTERVAL_MS);
+      },
+      5 * 60 * 1000,
+    );
+  }
+
+  private async cleanupExpiredPendingOrders() {
+    try {
+      logger.debug("🧹 Verificando pedidos pendentes expirados (>24h)...");
+      const { default: orderService } = await import("./orderService");
+      const result = await orderService.cleanupAbandonedOrders();
+      if (result.cleaned > 0) {
+        logger.info(
+          `✅ Limpeza: ${result.cleaned} pedido(s) pendente(s) expirado(s) deletado(s)`,
+        );
+      } else {
+        logger.debug(
+          "✅ Nenhum pedido pendente expirado para limpar",
+        );
+      }
+    } catch (error) {
+      logger.error("❌ Erro na limpeza de pedidos pendentes:", error);
+    }
+  }
+
   async forceRetryOrder(orderId: string): Promise<{
     success: boolean;
     message: string;
@@ -356,6 +402,10 @@ class ScheduledJobsService {
       backupCleanupJob: {
         running: this.backupCleanupInterval !== null,
         interval: "24 hours",
+      },
+      pendingOrderCleanupJob: {
+        running: this.pendingOrderCleanupInterval !== null,
+        interval: "30 minutes",
       },
     };
   }

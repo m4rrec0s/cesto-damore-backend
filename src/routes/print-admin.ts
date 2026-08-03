@@ -6,7 +6,7 @@ import PDFDocument from "pdfkit";
 import { printAgentHub } from "./ws-print-agent";
 import { printAgentWSManager } from "../services/printAgentWSManager";
 import prisma from "../database/prisma";
-import { dispatchPrintForOrder } from "../services/printDispatchService";
+import { dispatchPrintForOrder, type DispatchPreloadedFile } from "../services/printDispatchService";
 import { enqueue as enqueuePrintJob } from "../services/printQueueService";
 import orderCustomizationService from "../services/orderCustomizationService";
 import googleDriveService from "../services/googleDriveService";
@@ -15,6 +15,7 @@ import { authenticateToken, requireAdmin } from "../middleware/security";
 import tempFileService from "../services/tempFileService";
 import { uploadAny } from "../config/multer";
 import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
+import { generateOrderPrintSummaryBuffer } from "../utils/orderPrintSummaryGenerator";
 import { extractDynamicLayoutSlots } from "../utils/dynamicLayoutSlots";
 import { extractPages } from "../types/dynamicLayout";
 
@@ -466,7 +467,7 @@ export function createPrintAdminRoutes(router: Router): void {
           designMimeType,
         );
 
-        const dispatchFiles = [
+        const dispatchFiles: DispatchPreloadedFile[] = [
           {
             driveFileId: designUpload.id,
             fileName: designFileName,
@@ -495,6 +496,88 @@ export function createPrintAdminRoutes(router: Router): void {
             fileId: cartinhaUpload.id,
             totalFiles: dispatchFiles.length,
           }, "manual_cartinha_added_to_dispatch");
+        }
+
+        // ── Order Print Summary ──────────────────────────────────────────
+        const includeSummary = String(req.body.includeSummary || "false").toLowerCase() === "true";
+        if (includeSummary) {
+          try {
+            const customer = {
+              name: String(req.body.summaryCustomerName || customerName || "Cliente"),
+              email: String(req.body.summaryCustomerEmail || "Não informado"),
+              phone: String(req.body.summaryCustomerPhone || ""),
+              document: String(req.body.summaryCustomerDocument || ""),
+            };
+            const delivery = {
+              method: String(req.body.summaryDeliveryMethod || "pickup"),
+              address: String(req.body.summaryDeliveryAddress || ""),
+              complement: String(req.body.summaryDeliveryComplement || ""),
+              city: String(req.body.summaryDeliveryCity || ""),
+              state: String(req.body.summaryDeliveryState || ""),
+              zipCode: String(req.body.summaryDeliveryZipCode || ""),
+              recipientPhone: String(req.body.summaryDeliveryRecipientPhone || ""),
+              date: req.body.summaryDeliveryDate ? new Date(req.body.summaryDeliveryDate) : null,
+            };
+            const payment = {
+              orderMethod: String(req.body.summaryPaymentOrderMethod || "manual"),
+              confirmedMethod: String(req.body.summaryPaymentConfirmedMethod || "manual"),
+            };
+            const amounts = {
+              items: Number(req.body.summaryAmountItems || 0),
+              shipping: Number(req.body.summaryAmountShipping || 0),
+              discount: Number(req.body.summaryAmountDiscount || 0),
+              total: Number(req.body.summaryAmountTotal || 0),
+            };
+
+            // Parse layouts from request body
+            const layouts = Array.isArray(req.body.layouts)
+              ? req.body.layouts
+              : typeof req.body.layouts === "object" && req.body.layouts
+              ? Object.values(req.body.layouts)
+              : [];
+
+            const summaryItems = layouts
+              .filter((l: any) => l && l.id)
+              .map((l: any) => ({
+                name: String(l.name || "Layout"),
+                quantity: 1,
+                unitPrice: 0,
+                additionals: [],
+                customizations: [],
+              }));
+
+            const summaryBuffer = await generateOrderPrintSummaryBuffer({
+              orderId: order.id,
+              createdAt: order.created_at,
+              customer,
+              delivery,
+              payment,
+              amounts,
+              items: summaryItems,
+            });
+
+            const summaryFolderId = await googleDriveService.createFolder("Resumo do Pedido", mainFolderId);
+            const summaryFileName = `Resumo_Pedido_${shortId}.docx`;
+            const summaryUpload = await googleDriveService.uploadBuffer(
+              summaryBuffer,
+              summaryFileName,
+              summaryFolderId,
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            );
+            await googleDriveService.makeFolderPublic(summaryFolderId);
+            dispatchFiles.push({
+              driveFileId: summaryUpload.id,
+              fileName: summaryFileName,
+              subfolderName: "Resumo do Pedido",
+              type: "carta",
+              printerRole: "letter",
+              documentType: "order_summary",
+            });
+            logger.info({ orderId: order.id, fileId: summaryUpload.id }, "manual_order_summary_added_to_dispatch");
+          } catch (summaryErr: any) {
+            logger.error({ err: summaryErr, orderId: order.id }, "manual_order_summary_failed");
+            // Não falha o pedido inteiro se o resumo falhar
+          }
         }
 
         const folderUrl = googleDriveService.getFolderUrl(mainFolderId);

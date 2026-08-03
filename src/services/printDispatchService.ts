@@ -6,7 +6,7 @@ import type { PrintJobFile } from "../types/printJob";
 import { resolveCustomizationType, resolvePrinterRole, PRINT_SIZES, type PrintFileType, type PrinterRole } from "../utils/customizationTypeResolver";
 import logger from "../utils/logger";
 
-type DispatchPreloadedFile = {
+export type DispatchPreloadedFile = {
   driveFileId: string;
   fileName: string;
   subfolderName: string;

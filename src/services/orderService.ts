@@ -1064,7 +1064,37 @@ class OrderService {
         (total - discount + shipping_price).toFixed(2),
       );
 
+      // DEBUG: log detalhado para diagnosticar grand_total <= 0
+      logger.debug("🔍 [OrderService] Cálculo de total:", {
+        itemsTotal,
+        total,
+        discount,
+        shipping_price,
+        grand_total,
+        "itemsTotal - discount": itemsTotal - discount,
+        "total - discount + shipping": total - discount + shipping_price,
+      });
+
       if (grand_total <= 0) {
+        logger.error("❌ [OrderService] Grand total inválido:", {
+          itemsTotal,
+          total,
+          discount,
+          shipping_price,
+          grand_total,
+          items: data.items.map((i) => ({
+            product_id: i.product_id,
+            quantity: i.quantity,
+            catalogPrice: productPriceMap.get(i.product_id),
+            payloadPrice: i.price,
+            additionals: i.additionals?.map((a) => ({
+              additional_id: a.additional_id,
+              quantity: a.quantity,
+              payloadPrice: a.price,
+              resolvedPrice: resolveAdditionalPrice(i.product_id, a.additional_id, a.price),
+            })),
+          })),
+        });
         throw new Error("Valor final do pedido deve ser maior que zero");
       }
 

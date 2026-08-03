@@ -721,6 +721,7 @@ export const requireApiKey = (
     "/mercadopago/public-config",
     "/print-test",
     "/print-summary-test",
+    "/api/print-summary-test",
     "/admin/print-simulator",
     "/api/admin/print-simulator",
   ];

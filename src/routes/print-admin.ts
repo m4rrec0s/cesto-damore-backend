@@ -576,16 +576,21 @@ export function createPrintAdminRoutes(router: Router): void {
               ? Object.values(req.body.layouts)
               : [];
 
-            const summaryItems = layouts
-              .filter((l: any) => l && l.id)
-              .map((l: any) => ({
+            const composedFile = uploadedFiles.find((f) => f.fieldname === "composedImage");
+            const artworkPreviewUrl = composedFile?.buffer?.length
+              ? `data:image/png;base64,${composedFile.buffer.toString("base64")}`
+              : undefined;
+
+            const summaryItems = (layouts.length > 0 ? layouts : [{}])
+              .filter((l: any) => !l || l.id)
+              .map(() => ({
                 name: product.name,
                 quantity: 1,
                 unitPrice: Number(product.price || 0),
                 additionals: [],
                 customizations: [
-                  ...(l.artworkPreview
-                    ? [{ type: "ARTWORK", previewUrl: String(l.artworkPreview), label: layout.name }]
+                  ...(artworkPreviewUrl
+                    ? [{ type: "ARTWORK", previewUrl: artworkPreviewUrl, label: layout.name }]
                     : []),
                   ...(giftMessage
                     ? [{ type: "CARTINHA", text: giftMessage.slice(0, 30), label: "Cartinha" }]

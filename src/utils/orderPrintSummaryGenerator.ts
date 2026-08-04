@@ -9,6 +9,7 @@ import {
   Paragraph,
   Table,
   TableCell,
+  TableLayoutType,
   TableRow,
   TextRun,
   WidthType,
@@ -49,11 +50,13 @@ const font = "Arial";
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 const value = (input?: string | null) => input?.trim() || "Não informado";
-const run = (text: string, bold = false) => new TextRun({ text, font, size: 24, bold });
+const run = (text: string, bold = false) => new TextRun({ text, font, size: 22, bold });
 const cell = (text: string, bold = false) =>
-  new TableCell({ children: [new Paragraph({ children: [run(text, bold)] })] });
+  new TableCell({ width: { size: bold ? 2600 : 6400, type: WidthType.DXA }, children: [new Paragraph({ children: [run(text, bold)] })] });
+const detailsTable = (rows: TableRow[]) =>
+  new Table({ width: { size: 9000, type: WidthType.DXA }, layout: TableLayoutType.FIXED, rows });
 
-async function grayscalePreview(url: string): Promise<Buffer> {
+async function grayscalePreview(url: string): Promise<{ data: Buffer; width: number; height: number }> {
   let input: Buffer;
   if (url.startsWith("data:")) {
     const commaIdx = url.indexOf(",");
@@ -67,12 +70,14 @@ async function grayscalePreview(url: string): Promise<Buffer> {
     });
     input = Buffer.from(response.data);
   }
-  return sharp(input)
+  const data = await sharp(input)
     .rotate()
     .resize({ width: 280, height: 180, fit: "inside", withoutEnlargement: true })
     .grayscale()
     .jpeg({ quality: 80 })
     .toBuffer();
+  const metadata = await sharp(data).metadata();
+  return { data, width: metadata.width || 210, height: metadata.height || 135 };
 }
 
 export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryInput): Promise<Buffer> {
@@ -94,18 +99,18 @@ export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryIn
     new Paragraph({
       alignment: AlignmentType.CENTER,
       heading: HeadingLevel.TITLE,
-      children: [new TextRun({ text: "RESUMO DO PEDIDO", font, size: 24, bold: true })],
+      children: [new TextRun({ text: "RESUMO DO PEDIDO", font, size: 22, bold: true })],
     }),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [run(`Pedido #${input.orderId.slice(0, 8)} | ${input.createdAt.toLocaleString("pt-BR")}`)] }),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Cliente", true)] }),
-    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
+    detailsTable([
       new TableRow({ children: [cell("Nome", true), cell(value(input.customer.name))] }),
       new TableRow({ children: [cell("E-mail", true), cell(value(input.customer.email))] }),
       new TableRow({ children: [cell("Telefone", true), cell(value(input.customer.phone))] }),
       new TableRow({ children: [cell("Documento", true), cell(value(input.customer.document))] }),
-    ] }),
+    ]),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Entrega", true)] }),
-    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
+    detailsTable([
       new TableRow({ children: [cell("Método", true), cell(isPickup ? "Retirada na loja" : value(delivery.method))] }),
       new TableRow({ children: [cell("Endereço", true), cell(value(delivery.address))] }),
       new TableRow({ children: [cell("Complemento", true), cell(value(delivery.complement))] }),
@@ -113,15 +118,15 @@ export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryIn
       new TableRow({ children: [cell("CEP", true), cell(value(delivery.zipCode))] }),
       new TableRow({ children: [cell("Telefone destinatário", true), cell(value(delivery.recipientPhone))] }),
       new TableRow({ children: [cell("Data", true), cell(delivery.date?.toLocaleDateString("pt-BR") || "Não informado")] }),
-    ] }),
+    ]),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Pagamento e valores", true)] }),
-    new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [
+    detailsTable([
       new TableRow({ children: [cell("Método", true), cell(value(input.payment.confirmedMethod || input.payment.orderMethod))] }),
       new TableRow({ children: [cell("Itens", true), cell(formatCurrency(input.amounts.items))] }),
       new TableRow({ children: [cell("Frete", true), cell(formatCurrency(input.amounts.shipping))] }),
       new TableRow({ children: [cell("Desconto", true), cell(formatCurrency(input.amounts.discount))] }),
       new TableRow({ children: [cell("TOTAL", true), cell(formatCurrency(input.amounts.total), true)] }),
-    ] }),
+    ]),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Itens e artes", true)] }),
   ];
 
@@ -137,7 +142,8 @@ export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryIn
       if (!customization.previewUrl) continue;
       try {
         const image = await grayscalePreview(customization.previewUrl);
-        children.push(new Paragraph({ indent: { left: 720 }, children: [new ImageRun({ data: image, type: "jpg", transformation: { width: 210, height: 135 } })] }));
+        const scale = Math.min(210 / image.width, 135 / image.height);
+        children.push(new Paragraph({ indent: { left: 720 }, children: [new ImageRun({ data: image.data, type: "jpg", transformation: { width: Math.round(image.width * scale), height: Math.round(image.height * scale) } })] }));
       } catch {
         children.push(new Paragraph({ indent: { left: 720 }, children: [run("Preview indisponível para esta arte.", true)] }));
       }

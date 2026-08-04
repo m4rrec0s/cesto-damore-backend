@@ -349,18 +349,19 @@ export function createPrintAdminRoutes(router: Router): void {
     "/api/impressao/manual",
     authenticateToken,
     requireAdmin,
-    uploadAny.any(),
-    async (req, res) => {
-      const customerName = String(req.body.customerName || "").trim();
-      const layoutId = String(req.body.layoutId || "").trim();
+      uploadAny.any(),
+      async (req, res) => {
+        const customerName = String(req.body.customerName || "").trim();
+        const productId = String(req.body.productId || "").trim();
+        const layoutId = String(req.body.layoutId || "").trim();
       const giftMessageMaxLength = Number(req.body.maxLength) || 500;
       const giftMessage = String(req.body.giftMessage || "").trim().slice(0, giftMessageMaxLength);
       const deviceId = String(req.body.deviceId || "").trim() || undefined;
 
       logger.info({ customerName, layoutId, bodyKeys: Object.keys(req.body || {}), filesCount: (req.files || []).length }, "manual_print_received");
 
-      if (!customerName || !layoutId) {
-        res.status(400).json({ error: "customerName e layoutId são obrigatórios" });
+        if (!customerName || !productId || !layoutId) {
+          res.status(400).json({ error: "customerName, productId e layoutId são obrigatórios" });
         return;
       }
 
@@ -379,6 +380,15 @@ export function createPrintAdminRoutes(router: Router): void {
 
         if (!layout) {
           res.status(404).json({ error: "Layout não encontrado" });
+          return;
+        }
+
+        const product = await prisma.product.findUnique({
+          where: { id: productId },
+          select: { id: true, name: true, price: true },
+        });
+        if (!product) {
+          res.status(404).json({ error: "Produto não encontrado" });
           return;
         }
 
@@ -442,6 +452,7 @@ export function createPrintAdminRoutes(router: Router): void {
             });
             return;
           }
+
         }
 
         let designBuffer: Buffer;
@@ -467,6 +478,53 @@ export function createPrintAdminRoutes(router: Router): void {
           layoutFolderId,
           designMimeType,
         );
+
+        const slotUploads = await Promise.all(
+          [...filesBySlot.entries()].map(async ([slotId, file]) => {
+            const upload = await googleDriveService.uploadBuffer(
+              file.buffer,
+              `slot_${safeDriveName(slotId)}_${safeDriveName(file.originalname)}`,
+              layoutFolderId,
+              file.mimetype,
+            );
+            return [slotId, upload] as const;
+          }),
+        );
+        const slotImages = Object.fromEntries(
+          slotUploads.map(([slotId, upload]) => [slotId, upload.webContentLink]),
+        );
+
+        const orderItem = await prisma.orderItem.create({
+          data: {
+            order_id: order.id,
+            product_id: product.id,
+            quantity: 1,
+            price: product.price,
+          },
+        });
+        await prisma.orderItemCustomization.create({
+          data: {
+            order_item_id: orderItem.id,
+            google_drive_folder_id: layoutFolderId,
+            google_drive_url: googleDriveService.getFolderUrl(layoutFolderId),
+            value: JSON.stringify({
+              customization_type: "DYNAMIC_LAYOUT",
+              selected_layout_id: layout.id,
+              layout_id: layout.id,
+              label_selected: layout.name,
+              selected_item_label: layout.name,
+              slotImages,
+              image: Object.values(slotImages)[0]
+                ? { preview_url: Object.values(slotImages)[0] }
+                : undefined,
+              final_artwork: {
+                preview_url: designUpload.webContentLink,
+                drive_file_id: designUpload.id,
+                file_name: designFileName,
+              },
+            }),
+          },
+        });
 
         const dispatchFiles: DispatchPreloadedFile[] = [
           {
@@ -540,13 +598,18 @@ export function createPrintAdminRoutes(router: Router): void {
             const summaryItems = layouts
               .filter((l: any) => l && l.id)
               .map((l: any) => ({
-                name: String(l.name || "Layout"),
+                name: product.name,
                 quantity: 1,
-                unitPrice: 0,
+                unitPrice: Number(product.price || 0),
                 additionals: [],
-                customizations: l.artworkPreview
-                  ? [{ type: "ARTWORK", previewUrl: String(l.artworkPreview), label: "Arte gerada" }]
-                  : [],
+                customizations: [
+                  ...(l.artworkPreview
+                    ? [{ type: "ARTWORK", previewUrl: String(l.artworkPreview), label: layout.name }]
+                    : []),
+                  ...(giftMessage
+                    ? [{ type: "CARTINHA", text: giftMessage.slice(0, 30), label: "Cartinha" }]
+                    : []),
+                ],
               }));
 
             const summaryBuffer = await generateOrderPrintSummaryBuffer({

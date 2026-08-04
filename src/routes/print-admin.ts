@@ -479,12 +479,15 @@ export function createPrintAdminRoutes(router: Router): void {
           designMimeType,
         );
 
+        // Arquivos originais dos slots precisam ficar no Drive para a customização,
+        // mas fora da pasta de arte, pois todo arquivo dessa pasta entra na fila de impressão.
+        const slotAssetsFolderId = await googleDriveService.createFolder("Imagens dos Slots", mainFolderId);
         const slotUploads = await Promise.all(
           [...filesBySlot.entries()].map(async ([slotId, file]) => {
             const upload = await googleDriveService.uploadBuffer(
               file.buffer,
               `slot_${safeDriveName(slotId)}_${safeDriveName(file.originalname)}`,
-              layoutFolderId,
+              slotAssetsFolderId,
               file.mimetype,
             );
             return [slotId, upload] as const;

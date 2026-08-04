@@ -569,21 +569,13 @@ export function createPrintAdminRoutes(router: Router): void {
               total: Number(req.body.summaryAmountTotal || 0),
             };
 
-            // Parse layouts from request body
-            const layouts = Array.isArray(req.body.layouts)
-              ? req.body.layouts
-              : typeof req.body.layouts === "object" && req.body.layouts
-              ? Object.values(req.body.layouts)
-              : [];
-
             const composedFile = uploadedFiles.find((f) => f.fieldname === "composedImage");
             const artworkPreviewUrl = composedFile?.buffer?.length
               ? `data:image/png;base64,${composedFile.buffer.toString("base64")}`
               : undefined;
 
-            const summaryItems = (layouts.length > 0 ? layouts : [{}])
-              .filter((l: any) => !l || l.id)
-              .map(() => ({
+            const summaryItems = [
+              {
                 name: product.name,
                 quantity: 1,
                 unitPrice: Number(product.price || 0),
@@ -596,7 +588,8 @@ export function createPrintAdminRoutes(router: Router): void {
                     ? [{ type: "CARTINHA", text: giftMessage.slice(0, 30), label: "Cartinha" }]
                     : []),
                 ],
-              }));
+              },
+            ];
 
             const summaryBuffer = await generateOrderPrintSummaryBuffer({
               orderId: order.id,

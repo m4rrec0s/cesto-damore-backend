@@ -479,24 +479,6 @@ export function createPrintAdminRoutes(router: Router): void {
           designMimeType,
         );
 
-        // Arquivos originais dos slots precisam ficar no Drive para a customização,
-        // mas fora da pasta de arte, pois todo arquivo dessa pasta entra na fila de impressão.
-        const slotAssetsFolderId = await googleDriveService.createFolder("Imagens dos Slots", mainFolderId);
-        const slotUploads = await Promise.all(
-          [...filesBySlot.entries()].map(async ([slotId, file]) => {
-            const upload = await googleDriveService.uploadBuffer(
-              file.buffer,
-              `slot_${safeDriveName(slotId)}_${safeDriveName(file.originalname)}`,
-              slotAssetsFolderId,
-              file.mimetype,
-            );
-            return [slotId, upload] as const;
-          }),
-        );
-        const slotImages = Object.fromEntries(
-          slotUploads.map(([slotId, upload]) => [slotId, upload.webContentLink]),
-        );
-
         const orderItem = await prisma.orderItem.create({
           data: {
             order_id: order.id,
@@ -516,10 +498,6 @@ export function createPrintAdminRoutes(router: Router): void {
               layout_id: layout.id,
               label_selected: layout.name,
               selected_item_label: layout.name,
-              slotImages,
-              image: Object.values(slotImages)[0]
-                ? { preview_url: Object.values(slotImages)[0] }
-                : undefined,
               final_artwork: {
                 preview_url: designUpload.webContentLink,
                 drive_file_id: designUpload.id,

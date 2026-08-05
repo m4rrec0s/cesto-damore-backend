@@ -656,7 +656,7 @@ router.get(
 );
 
 router.get("/orders", authenticateToken, orderController.index);
-router.get("/orders/:id", authenticateToken, orderController.show);
+router.get("/orders/:id", optionalAuthenticateToken, orderController.show);
 router.post("/orders", optionalAuthenticateToken, orderController.create);
 router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
 router.put(

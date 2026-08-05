@@ -110,13 +110,18 @@ class OrderController {
   async show(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const userId = (req as any).user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: "Autenticação necessária" });
-      }
+      const currentUserId = (req as any).user?.id;
 
       const order = await orderService.getOrderById(id);
-      if (!this.canAccessOrder(req, order.user_id)) {
+
+      if (!currentUserId) {
+        const owner = order.user;
+        if (!owner || !guestUserService.isGuest(owner)) {
+          return res
+            .status(403)
+            .json({ error: "Você não tem permissão para acessar este pedido" });
+        }
+      } else if (!this.canAccessOrder(req, order.user_id)) {
         return res
           .status(403)
           .json({ error: "Você não tem permissão para acessar este pedido" });

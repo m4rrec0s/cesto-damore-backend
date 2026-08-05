@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import PaymentService from "../services/paymentService";
 import statusService from "../services/statusService";
 import prisma from "../database/prisma";
+import orderService from "../services/orderService";
+import guestUserService from "../services/guestUserService";
 import logger from "../utils/logger";
 
 export class PaymentController {
@@ -128,12 +130,83 @@ export class PaymentController {
     return walk(payload);
   }
 
+private static async resolveCheckoutContext(
+    req: Request,
+    orderId: string,
+  ): Promise<
+    | { ok: true; userId: string; owner: any }
+    | { ok: false; statusCode: number; body: any }
+  > {
+    const currentUserId = (req as any).user?.id;
+    if (currentUserId) {
+      return { ok: true, userId: currentUserId, owner: null };
+    }
+
+    if (!orderId || orderId === "null" || orderId === "undefined") {
+      return {
+        ok: false,
+        statusCode: 400,
+        body: { error: "OrderId é obrigatório", required: ["orderId"] },
+      };
+    }
+
+    let order;
+    try {
+      order = await orderService.getOrderById(orderId);
+    } catch {
+      return {
+        ok: false,
+        statusCode: 404,
+        body: { error: "Pedido não encontrado" },
+      };
+    }
+
+    const owner = order?.user;
+    if (!owner || !guestUserService.isGuest(owner)) {
+      return {
+        ok: false,
+        statusCode: 403,
+        body: { error: "Pedido inválido para checkout como convidado" },
+      };
+    }
+
+    const missing: string[] = [];
+    if (!owner.name) missing.push("name");
+    if (!owner.email) missing.push("email");
+    if (missing.length) {
+      return {
+        ok: false,
+        statusCode: 400,
+        body: {
+          error: "Preencha seus dados de contato para continuar",
+          required: missing,
+        },
+      };
+    }
+
+    return { ok: true, userId: owner.id, owner };
+  }
+
   static async createPreference(req: Request, res: Response) {
     try {
       const { orderId, payerEmail, payerName, payerPhone } = req.body;
-      const userId = (req as any).user?.id;
+      const currentUserId = (req as any).user?.id;
 
-      if (!orderId || !payerEmail || !userId) {
+      let userId = currentUserId;
+      let effectivePayerEmail = payerEmail;
+      let effectivePayerName = payerName;
+
+      if (!currentUserId) {
+        const ctx = await PaymentController.resolveCheckoutContext(req, orderId);
+        if (!ctx.ok) {
+          return res.status(ctx.statusCode).json(ctx.body);
+        }
+        userId = ctx.userId;
+        effectivePayerEmail = ctx.owner.email;
+        effectivePayerName = ctx.owner.name;
+      }
+
+      if (!orderId || !effectivePayerEmail || !userId) {
         return res.status(400).json({
           error: "Dados obrigatórios não fornecidos",
           required: ["orderId", "payerEmail"],
@@ -143,8 +216,8 @@ export class PaymentController {
       const preference = await PaymentService.createPreference({
         orderId,
         userId,
-        payerEmail,
-        payerName,
+        payerEmail: effectivePayerEmail,
+        payerName: effectivePayerName || undefined,
         payerPhone,
       });
 
@@ -234,7 +307,21 @@ export class PaymentController {
         frontendPublicKeyPrefix,
       } = req.body;
 
-      const userId = (req as any).user?.id;
+      const currentUserId = (req as any).user?.id;
+
+      let userId = currentUserId;
+      let effectivePayerEmail = payerEmail;
+      let effectivePayerName = payerName;
+
+      if (!currentUserId) {
+        const ctx = await PaymentController.resolveCheckoutContext(req, orderId);
+        if (!ctx.ok) {
+          return res.status(ctx.statusCode).json(ctx.body);
+        }
+        userId = ctx.userId;
+        effectivePayerEmail = ctx.owner.email;
+        effectivePayerName = ctx.owner.name;
+      }
 
       console.log(
         `[Checkout] Iniciando processamento - Pedido: ${orderId}, Usuário: ${userId}, Método: ${paymentMethodId}`,
@@ -242,8 +329,8 @@ export class PaymentController {
 
       if (
         !orderId ||
-        !payerEmail ||
-        !payerName ||
+        !effectivePayerEmail ||
+        !effectivePayerName ||
         !userId ||
         orderId === "null" ||
         orderId === "undefined"
@@ -288,8 +375,8 @@ export class PaymentController {
       const payment = await PaymentService.processTransparentCheckout({
         orderId,
         userId,
-        payerEmail,
-        payerName,
+        payerEmail: effectivePayerEmail,
+        payerName: effectivePayerName,
         payerDocument,
         payerDocumentType,
         paymentMethodId,

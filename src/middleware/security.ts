@@ -10,8 +10,8 @@ import logger from "../utils/logger";
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
-    email: string;
-    name: string;
+    email: string | null;
+    name: string | null;
     role?: string;
   };
 }

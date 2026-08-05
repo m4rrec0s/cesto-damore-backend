@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import { validateOrderCustomizations } from "../utils/customizationValidator";
 import customizationAssetPersistenceService from "./customizationAssetPersistenceService";
+import guestUserService from "./guestUserService";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -1979,7 +1980,15 @@ class OrderService {
       payment_method?: "pix" | "card";
       discount?: number;
       delivery_method?: "delivery" | "pickup";
+      customer_name?: string | null;
+      customer_email?: string | null;
+      customer_phone?: string | null;
+      customer_address?: string | null;
+      customer_city?: string | null;
+      customer_state?: string | null;
+      customer_zip_code?: string | null;
     },
+    options?: { isGuest?: boolean },
   ) {
     if (!orderId) {
       throw new Error("ID do pedido é obrigatório");
@@ -2144,7 +2153,59 @@ class OrderService {
       }
     }
 
-    updateData.pending_owner_key = order.user_id;
+    let ownerId = order.user_id;
+
+    if (options?.isGuest) {
+      const customer = {
+        name: data.customer_name,
+        email: data.customer_email,
+        phone: data.customer_phone,
+        address: data.customer_address,
+        city: data.customer_city,
+        state: data.customer_state,
+        zipCode: data.customer_zip_code,
+      };
+
+      const hasCustomerData = [
+        customer.name,
+        customer.email,
+        customer.phone,
+        customer.address,
+        customer.city,
+        customer.state,
+        customer.zipCode,
+      ].some((value) => typeof value === "string" && value.trim() !== "");
+
+      if (hasCustomerData) {
+        const resolved = await guestUserService.resolveGuestUser(
+          customer,
+          order.user_id,
+        );
+
+        if (resolved.changed) {
+          ownerId = resolved.user.id;
+          updateData.user_id = resolved.user.id;
+        }
+
+        if (typeof customer.phone === "string" && customer.phone.trim() !== "") {
+          const digits = customer.phone.replace(/\D/g, "");
+          updateData.recipient_phone = digits.startsWith("55")
+            ? digits
+            : "55" + digits;
+        }
+        if (typeof customer.address === "string" && customer.address.trim() !== "") {
+          updateData.delivery_address = customer.address;
+        }
+        if (typeof customer.city === "string" && customer.city.trim() !== "") {
+          updateData.delivery_city = customer.city;
+        }
+        if (typeof customer.state === "string" && customer.state.trim() !== "") {
+          updateData.delivery_state = customer.state;
+        }
+      }
+    }
+
+    updateData.pending_owner_key = ownerId;
 
     await prisma.order.update({ where: { id: orderId }, data: updateData });
 
@@ -2396,8 +2457,8 @@ class OrderService {
               price: item.price,
             })),
             customer: {
-              name: updated.user.name,
-              email: updated.user.email,
+              name: updated.user.name || "Cliente",
+              email: updated.user.email || "",
               phone: updated.user.phone || undefined,
             },
             delivery: updated.delivery_address

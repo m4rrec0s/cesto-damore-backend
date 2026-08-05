@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import orderService from "../services/orderService";
 import metaConversionsService from "../services/metaConversionsService";
+import guestUserService from "../services/guestUserService";
 import logger from "../utils/logger";
 
 class OrderController {
@@ -206,13 +207,24 @@ class OrderController {
   async create(req: Request, res: Response) {
     try {
       const currentUserId = (req as any).user?.id;
-      if (!currentUserId) {
-        return res.status(401).json({
-          error: "Autenticação necessária para criar pedidos",
-        });
-      }
+      let orderUserId = currentUserId;
+      let guestCustomerEmail: string | undefined;
+      let guestCustomerPhone: string | undefined;
 
-      if (req.body?.user_id && req.body.user_id !== currentUserId) {
+      if (!currentUserId) {
+        const resolved = await guestUserService.resolveGuestUser({
+          name: req.body?.customer_name,
+          email: req.body?.customer_email,
+          phone: req.body?.customer_phone,
+          address: req.body?.customer_address,
+          city: req.body?.customer_city,
+          state: req.body?.customer_state,
+          zipCode: req.body?.customer_zip_code,
+        });
+        orderUserId = resolved.user.id;
+        guestCustomerEmail = resolved.user.email ?? undefined;
+        guestCustomerPhone = resolved.user.phone ?? undefined;
+      } else if (req.body?.user_id && req.body.user_id !== currentUserId) {
         return res.status(403).json({
           error: "Você não tem permissão para criar pedidos para outro usuário",
         });
@@ -220,11 +232,12 @@ class OrderController {
 
       const orderPayload = {
         ...req.body,
-        user_id: currentUserId,
+        user_id: orderUserId,
       };
 
       console.log("📝 Criando pedido - resumo:", {
         user_id: orderPayload.user_id,
+        isGuest: !currentUserId,
         itemsCount: Array.isArray(orderPayload.items)
           ? orderPayload.items.length
           : 0,
@@ -239,9 +252,9 @@ class OrderController {
       const orderItems = Array.isArray(orderPayload.items) ? orderPayload.items : [];
       const checkoutTotal = orderPayload.total || orderPayload.grand_total || 0;
       metaConversionsService.sendInitiateCheckoutEvent({
-        email: (req as any).user?.email,
-        phone: (req as any).user?.phone,
-        userId: currentUserId,
+        email: guestCustomerEmail ?? (req as any).user?.email,
+        phone: guestCustomerPhone ?? (req as any).user?.phone,
+        userId: orderUserId,
         orderId: order.id,
         value: Number(checkoutTotal),
         numItems: orderItems.length,
@@ -395,37 +408,63 @@ class OrderController {
         payment_method,
         discount,
         delivery_method,
+        customer_name,
+        customer_email,
+        customer_phone,
+        customer_address,
+        customer_city,
+        customer_state,
+        customer_zip_code,
       } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: "ID do pedido é obrigatório" });
       }
 
-      const userId = (req as any).user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: "Autenticação necessária" });
-      }
-
+      const currentUserId = (req as any).user?.id;
       const existingOrder = await orderService.getOrderById(id);
-      if (!this.canAccessOrder(req, existingOrder.user_id)) {
+
+      let isGuest = false;
+      if (!currentUserId) {
+        const owner = existingOrder.user
+          ? guestUserService.isGuest(existingOrder.user)
+          : true;
+        if (existingOrder.status !== "PENDING" || !owner) {
+          return res
+            .status(403)
+            .json({ error: "Você não tem permissão para modificar este pedido" });
+        }
+        isGuest = true;
+      } else if (!this.canAccessOrder(req, existingOrder.user_id)) {
         return res
           .status(403)
           .json({ error: "Você não tem permissão para modificar este pedido" });
       }
 
-      const updated = await orderService.updateOrderMetadata(id, {
-        send_anonymously,
-        complement,
-        delivery_address,
-        delivery_city,
-        delivery_state,
-        recipient_phone,
-        delivery_date,
-        shipping_price,
-        payment_method,
-        discount,
-        delivery_method,
-      });
+      const updated = await orderService.updateOrderMetadata(
+        id,
+        {
+          send_anonymously,
+          complement,
+          delivery_address,
+          delivery_city,
+          delivery_state,
+          recipient_phone,
+          delivery_date,
+          shipping_price,
+          payment_method,
+          discount,
+          delivery_method,
+          customer_name,
+          customer_email,
+          customer_phone,
+          customer_address,
+          customer_city,
+          customer_state,
+          customer_zip_code,
+        },
+        { isGuest },
+      );
       res.json(updated);
     } catch (error: any) {
       logger.error("Erro ao atualizar metadata do pedido:", error);

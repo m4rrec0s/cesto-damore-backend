@@ -478,7 +478,7 @@ export class PaymentService {
       await whatsappService.sendCustomizationReadyNotification({
         orderId: order.id,
         orderNumber: order.id.substring(0, 8).toUpperCase(),
-        customerName: order.user.name,
+        customerName: order.user.name || "Cliente",
         customerPhone: order.user.phone || undefined,
         recipientPhone: order.recipient_phone || undefined,
         purchaseDate: order.created_at,
@@ -1024,7 +1024,7 @@ export class PaymentService {
         if (user) {
           const result = await CouponService.validateCoupon(data.couponCode, {
             userId: data.userId,
-            email: user.email,
+            email: user.email || "",
             cartTotal: summary.total,
             shipping: summary.shipping,
           });
@@ -2836,8 +2836,8 @@ export class PaymentService {
       hasImageCustomizations,
       recipientPhone: order.recipient_phone || undefined,
       customer: {
-        name: order.user.name,
-        email: order.user.email,
+        name: order.user.name || "Cliente",
+        email: order.user.email || "",
         phone: order.user.phone || undefined,
       },
       delivery: order.delivery_address
@@ -2862,7 +2862,7 @@ export class PaymentService {
       await whatsappService.sendOrderConfirmation({
         phone: order.user.phone,
         orderNumber: order.id.substring(0, 8).toUpperCase(),
-        customerName: order.user.name,
+        customerName: order.user.name || "Cliente",
         recipientPhone: order.recipient_phone || undefined,
         deliveryDate: order.delivery_date || undefined,
         createdAt: order.created_at,

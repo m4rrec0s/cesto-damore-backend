@@ -143,6 +143,31 @@ class UserService {
     }
   }
 
+async backfillUserFromOrders(userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return null;
+
+    const lastOrder = await prisma.order.findFirst({
+      where: { user_id: userId },
+      orderBy: { created_at: "desc" },
+    });
+    if (!lastOrder) return user;
+
+    const data: Record<string, string> = {};
+    if (!user.phone && lastOrder.recipient_phone)
+      data.phone = lastOrder.recipient_phone;
+    if (!user.address && lastOrder.delivery_address)
+      data.address = lastOrder.delivery_address;
+    if (!user.city && lastOrder.delivery_city)
+      data.city = lastOrder.delivery_city;
+    if (!user.state && lastOrder.delivery_state)
+      data.state = lastOrder.delivery_state;
+
+    if (Object.keys(data).length === 0) return user;
+
+    return await prisma.user.update({ where: { id: userId }, data });
+  }
+
   async deleteUser(id: string) {
     if (!id) {
       throw new Error("ID do usuário é obrigatório");

@@ -657,11 +657,11 @@ router.get(
 
 router.get("/orders", authenticateToken, orderController.index);
 router.get("/orders/:id", authenticateToken, orderController.show);
-router.post("/orders", authenticateToken, orderController.create);
+router.post("/orders", optionalAuthenticateToken, orderController.create);
 router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
 router.put(
   "/orders/:id/metadata",
-  authenticateToken,
+  optionalAuthenticateToken,
   orderController.updateMetadata,
 );
 router.patch(
@@ -682,7 +682,7 @@ router.get("/delivery/holidays", holidayController.deliveryDates);
 router.get("/delivery/special-days", specialDeliveryController.list);
 
 // Coupons
-router.post("/coupons/validate", authenticateToken, couponRateLimit, couponController.validate);
+router.post("/coupons/validate", optionalAuthenticateToken, couponRateLimit, couponController.validate);
 router.get("/coupons/available", authenticateToken, couponController.available);
 router.post("/admin/coupons", authenticateToken, requireAdmin, couponController.adminCreate);
 router.put("/admin/coupons/:id", authenticateToken, requireAdmin, couponController.adminUpdate);
@@ -721,14 +721,14 @@ router.get(
 router.get("/payment/health", PaymentController.healthCheck);
 router.post(
   "/payment/preference",
-  authenticateToken,
+  optionalAuthenticateToken,
   paymentRateLimit,
   logFinancialOperation("CREATE_PREFERENCE"),
   PaymentController.createPreference,
 );
 router.post(
   "/payment/create",
-  authenticateToken,
+  optionalAuthenticateToken,
   paymentRateLimit,
   validatePaymentData,
   logFinancialOperation("CREATE_PAYMENT"),
@@ -736,7 +736,7 @@ router.post(
 );
 router.post(
   "/payment/transparent-checkout",
-  authenticateToken,
+  optionalAuthenticateToken,
   paymentRateLimit,
   logFinancialOperation("TRANSPARENT_CHECKOUT"),
   PaymentController.processTransparentCheckout,

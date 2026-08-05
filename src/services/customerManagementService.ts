@@ -13,8 +13,8 @@ interface N8NCustomer {
 
 interface AppUserWithOrders {
   id: string;
-  name: string;
-  email: string;
+  name: string | null;
+  email: string | null;
   phone?: string | null;
   address?: string | null;
   city?: string | null;
@@ -275,7 +275,7 @@ class CustomerManagementService {
 
       await this.upsertN8NCustomer({
         number: user.phone,
-        name: user.name,
+        name: user.name ?? undefined,
         already_a_customer: true,
         follow_up: true,
       });

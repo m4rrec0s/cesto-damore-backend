@@ -82,9 +82,22 @@ class GuestUserService {
       });
 
       if (existingUser && !existingUser.firebaseUId) {
+        const emailOwner =
+          email && email !== existingUser.email
+            ? await prisma.user.findUnique({
+                where: { email },
+                select: { id: true },
+              })
+            : null;
+
         const updated = await prisma.user.update({
           where: { id: existingUser.id },
-          data: { ...buildUserData(input), ...(email ? { email } : {}) },
+          // Keep a signed guest identity separate from an existing account or
+          // another guest record that already owns this unique email.
+          data: {
+            ...buildUserData(input),
+            ...(email && !emailOwner ? { email } : {}),
+          },
           select: this.baseSelect,
         });
         return { user: updated, changed: false };

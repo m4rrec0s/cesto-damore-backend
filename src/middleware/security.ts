@@ -707,6 +707,7 @@ export const requireApiKey = (
     "/images",
     "/uploads/temp",
     "/api/uploads/temp",
+    "/api/backend/uploads/temp",
     "/public",
     "/assets",
     "/static",

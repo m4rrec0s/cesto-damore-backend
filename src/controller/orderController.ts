@@ -228,15 +228,21 @@ class OrderController {
         let existingGuestUserId: string | undefined;
         if (req.header("authorization")?.startsWith("Guest ")) {
           const claims = getGuestOrderClaims(req);
-          const existingOrder = await orderService.getOrderById(claims.orderId);
-          if (
-            existingOrder.status !== "PENDING" ||
-            existingOrder.user_id !== claims.userId ||
-            !guestUserService.isGuest(existingOrder.user)
-          ) {
-            return res.status(403).json({ error: "Token de acesso não pertence a um pedido pendente" });
+          try {
+            const existingOrder = await orderService.getOrderById(claims.orderId);
+            if (
+              existingOrder.status !== "PENDING" ||
+              existingOrder.user_id !== claims.userId ||
+              !guestUserService.isGuest(existingOrder.user)
+            ) {
+              return res.status(403).json({ error: "Token de acesso não pertence a um pedido pendente" });
+            }
+            existingGuestUserId = claims.userId;
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== "Pedido não encontrado") {
+              throw error;
+            }
           }
-          existingGuestUserId = claims.userId;
         }
         const resolved = await guestUserService.resolveGuestUser({
           name: req.body?.customer_name,

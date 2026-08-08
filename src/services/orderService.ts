@@ -85,6 +85,10 @@ type CreateOrderInput = {
   is_draft?: boolean;
   send_anonymously?: boolean;
   delivery_method?: "delivery" | "pickup";
+  metadata?: {
+    guestEmailHash: string;
+    guestIpHash: string;
+  };
 };
 
 const ACCEPTED_CITIES: Record<string, { pix: number; card: number }> = {
@@ -1133,6 +1137,7 @@ class OrderService {
           delivery_city: orderData.delivery_city,
           delivery_state: orderData.delivery_state,
           delivery_method: orderData.delivery_method || "delivery",
+          metadata: orderData.metadata,
           source: "customer",
         },
       });

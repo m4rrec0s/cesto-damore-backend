@@ -776,7 +776,7 @@ router.get("/mercadopago/public-config", async (req, res) => {
 });
 router.get(
   "/webhooks/notifications/:orderId",
-  authenticateToken,
+  optionalAuthenticateToken,
   webhookNotificationController.streamNotifications,
 );
 router.get(

@@ -180,20 +180,6 @@ private static async resolveCheckoutContext(
       };
     }
 
-    const missing: string[] = [];
-    if (!owner.name) missing.push("name");
-    if (!owner.email) missing.push("email");
-    if (missing.length) {
-      return {
-        ok: false,
-        statusCode: 400,
-        body: {
-          error: "Preencha seus dados de contato para continuar",
-          required: missing,
-        },
-      };
-    }
-
     return { ok: true, userId: owner.id, owner };
   }
 
@@ -212,8 +198,8 @@ private static async resolveCheckoutContext(
           return res.status(ctx.statusCode).json(ctx.body);
         }
         userId = ctx.userId;
-        effectivePayerEmail = ctx.owner.email;
-        effectivePayerName = ctx.owner.name;
+        effectivePayerEmail = payerEmail || ctx.owner.email;
+        effectivePayerName = payerName || ctx.owner.name;
       }
 
       if (!orderId || !effectivePayerEmail || !userId) {
@@ -335,8 +321,8 @@ private static async resolveCheckoutContext(
           return res.status(ctx.statusCode).json(ctx.body);
         }
         userId = ctx.userId;
-        effectivePayerEmail = ctx.owner.email;
-        effectivePayerName = ctx.owner.name;
+        effectivePayerEmail = payerEmail || ctx.owner.email;
+        effectivePayerName = payerName || ctx.owner.name;
       }
 
       console.log(

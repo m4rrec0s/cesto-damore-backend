@@ -11,10 +11,17 @@ class ScheduledJobsService {
   private trendStatsInterval: NodeJS.Timeout | null = null;
   private pendingOrderCleanupInterval: NodeJS.Timeout | null = null;
   private metricsCleanupInterval: NodeJS.Timeout | null = null;
+  private started = false;
+  private metricsCleanupRunning = false;
 
   
 
   start() {
+    if (this.started) {
+      logger.warn("⚠️ Scheduled jobs já estão em execução");
+      return;
+    }
+    this.started = true;
     logger.info("🕐 Iniciando scheduled jobs...");
 
     this.startWebhookReplayJob();
@@ -70,6 +77,7 @@ class ScheduledJobsService {
       clearInterval(this.metricsCleanupInterval);
       this.metricsCleanupInterval = null;
     }
+    this.started = false;
 
     logger.info("✅ Scheduled jobs parados");
   }
@@ -317,14 +325,21 @@ class ScheduledJobsService {
 
   private startMetricsCleanupJob() {
     const run = async () => {
+      if (this.metricsCleanupRunning) return;
+      this.metricsCleanupRunning = true;
+
       const cutoff = new Date();
       cutoff.setMonth(cutoff.getMonth() - 12);
-      const result = await prisma.orderMetricSnapshot.deleteMany({
-        where: { archived_at: { lt: cutoff } },
-      });
-      if (result.count) logger.info(`🧹 ${result.count} snapshots de métricas expirados removidos`);
+      try {
+        const result = await prisma.orderMetricSnapshot.deleteMany({
+          where: { archived_at: { lt: cutoff } },
+        });
+        if (result.count) logger.info(`🧹 ${result.count} snapshots de métricas expirados removidos`);
+      } finally {
+        this.metricsCleanupRunning = false;
+      }
     };
-    void run().catch((error) => logger.error("Erro ao limpar snapshots de métricas:", error));
+
     this.metricsCleanupInterval = setInterval(() => {
       void run().catch((error) => logger.error("Erro ao limpar snapshots de métricas:", error));
     }, 30 * 24 * 60 * 60 * 1000);

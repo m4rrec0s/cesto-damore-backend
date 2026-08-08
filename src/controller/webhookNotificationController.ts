@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { webhookNotificationService } from "../services/webhookNotificationService";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
+import { requireGuestOrderAccess } from "../utils/guestOrderToken";
 
 class WebhookNotificationController {
   
@@ -15,20 +16,24 @@ class WebhookNotificationController {
       return res.status(400).json({ error: "Order ID é obrigatório" });
     }
 
-    if (!userId) {
-      return res.status(401).json({ error: "Autenticação necessária" });
-    }
-
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      select: { user_id: true },
+      select: { id: true, user_id: true },
     });
 
     if (!order) {
       return res.status(404).json({ error: "Pedido não encontrado" });
     }
 
-    if (userRole !== "ADMIN" && order.user_id !== userId) {
+    if (!userId) {
+      try {
+        requireGuestOrderAccess(req, order);
+      } catch (error) {
+        return res.status(403).json({
+          error: error instanceof Error ? error.message : "Acesso negado",
+        });
+      }
+    } else if (userRole !== "ADMIN" && order.user_id !== userId) {
       return res.status(403).json({ error: "Você não tem permissão para acessar estas notificações" });
     }
 

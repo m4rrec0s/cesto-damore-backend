@@ -62,7 +62,7 @@ class GuestUserService {
   /**
    * Resolve (find-or-create) a guest user from customer data.
    * - email present + found guest -> update fields
-   * - email present + found registered user (has firebaseUId) -> throw 403 (anti-hijack)
+   * - email present + found registered user (has firebaseUId) -> create a separate guest without copying email
    * - email present + not found -> create guest
    * - no email + existingUserId is a guest -> reuse it (update fields)
    * - no email + no reusable guest -> create anonymous guest
@@ -112,11 +112,11 @@ class GuestUserService {
 
       if (existing) {
         if (existing.firebaseUId) {
-          const error: any = new Error(
-            "Este email pertence a uma conta cadastrada. Faça login para continuar.",
-          );
-          error.status = 403;
-          throw error;
+          const created = await prisma.user.create({
+            data: buildUserData(input),
+            select: this.baseSelect,
+          });
+          return { user: created, changed: true };
         }
 
         const pendingOrder = await prisma.order.findFirst({

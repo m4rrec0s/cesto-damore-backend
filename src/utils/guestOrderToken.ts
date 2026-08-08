@@ -27,12 +27,18 @@ export function createGuestOrderToken(orderId: string, userId: string) {
 
 export function getGuestOrderClaims(req: Request): GuestOrderClaims {
   const authorization = req.header("authorization");
-  if (!authorization?.startsWith("Guest ")) {
+  const queryToken =
+    typeof req.query.guestToken === "string" ? req.query.guestToken : undefined;
+  const token = authorization?.startsWith("Guest ")
+    ? authorization.slice(6)
+    : queryToken;
+
+  if (!token) {
     throw new Error("Token de acesso do pedido é obrigatório");
   }
 
   try {
-    const claims = jwt.verify(authorization.slice(6), getSecret(), {
+    const claims = jwt.verify(token, getSecret(), {
       algorithms: ["HS256"],
       audience: AUDIENCE,
       issuer: ISSUER,

@@ -2,12 +2,14 @@ import { Request, Response } from "express";
 import orderService from "../services/orderService";
 import metaConversionsService from "../services/metaConversionsService";
 import guestUserService from "../services/guestUserService";
+import prisma from "../database/prisma";
 import logger from "../utils/logger";
 import {
   createGuestOrderToken,
   getGuestOrderClaims,
   requireGuestOrderAccess,
 } from "../utils/guestOrderToken";
+import { getGuestOrderIdentity } from "../utils/guestOrderIdentity";
 
 class OrderController {
   constructor() {
@@ -223,6 +225,9 @@ class OrderController {
       let orderUserId = currentUserId;
       let guestCustomerEmail: string | undefined;
       let guestCustomerPhone: string | undefined;
+      const guestIdentity = !currentUserId
+        ? getGuestOrderIdentity(req, req.body?.customer_email)
+        : undefined;
 
       if (!currentUserId) {
         let existingGuestUserId: string | undefined;
@@ -243,6 +248,19 @@ class OrderController {
               throw error;
             }
           }
+        }
+        if (!existingGuestUserId && guestIdentity) {
+          const matchingOrder = await prisma.order.findFirst({
+            where: {
+              status: "PENDING",
+              source: "customer",
+              metadata: { equals: guestIdentity },
+              user: { is: { firebaseUId: null } },
+            },
+            select: { user_id: true },
+            orderBy: { created_at: "desc" },
+          });
+          existingGuestUserId = matchingOrder?.user_id;
         }
         const resolved = await guestUserService.resolveGuestUser({
           name: req.body?.customer_name,
@@ -265,6 +283,7 @@ class OrderController {
       const orderPayload = {
         ...req.body,
         user_id: orderUserId,
+        metadata: guestIdentity,
       };
 
       console.log("📝 Criando pedido - resumo:", {

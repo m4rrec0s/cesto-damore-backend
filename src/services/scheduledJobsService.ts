@@ -10,6 +10,7 @@ class ScheduledJobsService {
   private backupCleanupInterval: NodeJS.Timeout | null = null;
   private trendStatsInterval: NodeJS.Timeout | null = null;
   private pendingOrderCleanupInterval: NodeJS.Timeout | null = null;
+  private metricsCleanupInterval: NodeJS.Timeout | null = null;
 
   
 
@@ -26,6 +27,7 @@ class ScheduledJobsService {
     this.startTrendStatsJob();
 
     this.startPendingOrderCleanupJob();
+    this.startMetricsCleanupJob();
 
     logger.info("✅ Scheduled jobs iniciados");
   }
@@ -63,6 +65,10 @@ class ScheduledJobsService {
     if (this.pendingOrderCleanupInterval) {
       clearInterval(this.pendingOrderCleanupInterval);
       this.pendingOrderCleanupInterval = null;
+    }
+    if (this.metricsCleanupInterval) {
+      clearInterval(this.metricsCleanupInterval);
+      this.metricsCleanupInterval = null;
     }
 
     logger.info("✅ Scheduled jobs parados");
@@ -307,6 +313,21 @@ class ScheduledJobsService {
       },
       5 * 60 * 1000,
     );
+  }
+
+  private startMetricsCleanupJob() {
+    const run = async () => {
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - 12);
+      const result = await prisma.orderMetricSnapshot.deleteMany({
+        where: { archived_at: { lt: cutoff } },
+      });
+      if (result.count) logger.info(`🧹 ${result.count} snapshots de métricas expirados removidos`);
+    };
+    void run().catch((error) => logger.error("Erro ao limpar snapshots de métricas:", error));
+    this.metricsCleanupInterval = setInterval(() => {
+      void run().catch((error) => logger.error("Erro ao limpar snapshots de métricas:", error));
+    }, 30 * 24 * 60 * 60 * 1000);
   }
 
   private async cleanupExpiredPendingOrders() {

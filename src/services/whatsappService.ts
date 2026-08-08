@@ -332,6 +332,7 @@ class WhatsAppService {
       hasImageCustomizations?: boolean;
       recipientPhone?: string;
       deliveryMethod?: string;
+      deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
     },
     options: { notifyTeam?: boolean; notifyCustomer?: boolean } = {
       notifyTeam: true,
@@ -410,6 +411,7 @@ class WhatsAppService {
     send_anonymously?: boolean;
     complement?: string;
     deliveryMethod?: string;
+    deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
   }) {
     const orderLabel =
       orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase();
@@ -465,9 +467,9 @@ class WhatsAppService {
       }
       if (orderData.delivery.date) {
         teamMessage += `\n⏰ *Data/Hora de Entrega:*\n`;
-        teamMessage += `${this.formatToBrasiliaTime(
-          orderData.delivery.date as any,
-        )}\n`;
+        teamMessage += orderData.deliverySlot === "to_be_arranged"
+          ? `${this.formatDateOnlyToBrasilia(orderData.delivery.date)} - A combinar\n`
+          : `${this.formatToBrasiliaTime(orderData.delivery.date as any)}\n`;
       }
     }
 
@@ -491,7 +493,7 @@ class WhatsAppService {
     if (orderData.delivery && orderData.delivery.date) {
       const deliveryDateTime = new Date(orderData.delivery.date);
       deliveryDateBrasilia = this.formatDateOnlyToBrasilia(deliveryDateTime);
-      deliveryTimeBrasilia = deliveryDateTime.toLocaleTimeString("pt-BR", {
+      deliveryTimeBrasilia = orderData.deliverySlot === "to_be_arranged" ? "A combinar" : deliveryDateTime.toLocaleTimeString("pt-BR", {
         timeZone: "America/Sao_Paulo",
         hour: "2-digit",
         minute: "2-digit",
@@ -507,7 +509,9 @@ class WhatsAppService {
     customerMessage += `═══════════════════════════════\n\n`;
 
     customerMessage += `📅 *Data do Pedido:* ${createdAtBrasilia}\n`;
-    if (deliveryTimeBrasilia) {
+    if (deliveryTimeBrasilia === "A combinar") {
+      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} - A combinar\n\n`;
+    } else if (deliveryTimeBrasilia) {
       customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} às ${deliveryTimeBrasilia}\n\n`;
     } else {
       customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia}\n\n`;
@@ -577,7 +581,7 @@ class WhatsAppService {
 
   private buildChatId(phoneNumber: string): string {
     const normalized = this.normalizePhoneForWhatsApp(phoneNumber);
-    return `${normalized}@c.us`;
+    return `${normalized}@s.whatsapp.net`;
   }
 
   public async sendDirectMessage(
@@ -750,10 +754,6 @@ class WhatsAppService {
         message += `• ${item.quantity}x ${item.name} (R$ ${lineTotal})\n`;
       });
 
-      if (orderData.googleDriveUrl) {
-        message += `\n🎨 *Customizações:* ${orderData.googleDriveUrl}\n`;
-      }
-
       message += `\n${statusInfo.description}\n`;
       message += `\n⏰ ${this.formatToBrasiliaTime(new Date())}`;
 
@@ -771,9 +771,6 @@ class WhatsAppService {
         message += `Olá, ${orderData.customer.name}!\n`;
         message += `O status do seu pedido #${orderLabel} agora é *${statusInfo.label}*.\n\n`;
         message += `${statusInfo.customerHint}\n`;
-
-        if (orderData.googleDriveUrl) {
-        }
 
         if (orderData.delivery) {
           message += `\n📍 Entrega: ${orderData.delivery.address}`;

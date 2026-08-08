@@ -52,7 +52,8 @@ class MetaConversionsService {
   constructor() {
     this.pixelId = process.env.META_PIXEL_ID;
     this.accessToken = process.env.META_ACCESS_TOKEN;
-    this.apiUrl = `https://graph.facebook.com/v19.0/${this.pixelId}/events`;
+    const apiVersion = process.env.META_GRAPH_API_VERSION || "v22.0";
+    this.apiUrl = `https://graph.facebook.com/${apiVersion}/${this.pixelId}/events`;
   }
 
   isConfigured(): boolean {
@@ -133,7 +134,12 @@ class MetaConversionsService {
       logger.warn(`[MetaConversions] ⚠️ Resposta inesperada:`, result);
       return false;
     } catch (error: any) {
-      logger.error(`[MetaConversions] ❌ Erro ao enviar evento ${options.eventName}:`, error.message);
+      logger.error(`[MetaConversions] Erro ao enviar evento ${options.eventName}`, {
+        status: error.response?.status || null,
+        code: error.response?.data?.error?.code || null,
+        subcode: error.response?.data?.error?.error_subcode || null,
+        fbtraceId: error.response?.data?.error?.fbtrace_id || null,
+      });
       return false;
     }
   }
@@ -216,7 +222,19 @@ class MetaConversionsService {
         currency: params.currency || "BRL",
         value: params.value,
         order_id: params.orderId,
-        ...(params.products && { contents: params.products }),
+        ...(params.products?.length && {
+          content_type: "product",
+          content_ids: params.products.map((product) => product.id),
+          contents: params.products
+            .filter((product) =>
+              Number.isInteger(product.quantity) && product.quantity > 0 && Number.isFinite(product.price) && product.price >= 0,
+            )
+            .map((product) => ({
+              id: product.id,
+              quantity: product.quantity,
+              item_price: product.price,
+            })),
+        }),
       },
     });
   }

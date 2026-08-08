@@ -658,7 +658,7 @@ router.get(
 router.get("/orders", authenticateToken, orderController.index);
 router.get("/orders/:id", optionalAuthenticateToken, orderController.show);
 router.post("/orders", optionalAuthenticateToken, orderController.create);
-router.put("/orders/:id/items", authenticateToken, orderController.updateItems);
+router.put("/orders/:id/items", optionalAuthenticateToken, orderController.updateItems);
 router.put(
   "/orders/:id/metadata",
   optionalAuthenticateToken,
@@ -676,7 +676,7 @@ router.put(
   requireAdmin,
   orderController.updateStatus,
 );
-router.delete("/orders/:id", authenticateToken, orderController.remove);
+router.delete("/orders/:id", optionalAuthenticateToken, orderController.remove);
 
 router.get("/delivery/holidays", holidayController.deliveryDates);
 router.get("/delivery/special-days", specialDeliveryController.list);
@@ -743,13 +743,13 @@ router.post(
 );
 router.get(
   "/payment/:paymentId/status",
-  authenticateToken,
+  optionalAuthenticateToken,
   logFinancialOperation("GET_PAYMENT_STATUS"),
   PaymentController.getPaymentStatus,
 );
 router.post(
   "/payment/:paymentId/cancel",
-  authenticateToken,
+  optionalAuthenticateToken,
   logFinancialOperation("CANCEL_PAYMENT"),
   PaymentController.cancelPayment,
 );

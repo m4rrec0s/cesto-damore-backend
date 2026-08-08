@@ -3,6 +3,11 @@ import orderService from "../services/orderService";
 import metaConversionsService from "../services/metaConversionsService";
 import guestUserService from "../services/guestUserService";
 import logger from "../utils/logger";
+import {
+  createGuestOrderToken,
+  getGuestOrderClaims,
+  requireGuestOrderAccess,
+} from "../utils/guestOrderToken";
 
 class OrderController {
   constructor() {
@@ -121,6 +126,7 @@ class OrderController {
             .status(403)
             .json({ error: "Você não tem permissão para acessar este pedido" });
         }
+        requireGuestOrderAccess(req, order);
       } else if (!this.canAccessOrder(req, order.user_id)) {
         return res
           .status(403)
@@ -134,6 +140,8 @@ class OrderController {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
+      } else if (error.message.includes("Token de acesso")) {
+        res.status(403).json({ error: error.message });
       } else {
         res.status(500).json({ error: "Erro interno do servidor" });
       }
@@ -217,6 +225,19 @@ class OrderController {
       let guestCustomerPhone: string | undefined;
 
       if (!currentUserId) {
+        let existingGuestUserId: string | undefined;
+        if (req.header("authorization")?.startsWith("Guest ")) {
+          const claims = getGuestOrderClaims(req);
+          const existingOrder = await orderService.getOrderById(claims.orderId);
+          if (
+            existingOrder.status !== "PENDING" ||
+            existingOrder.user_id !== claims.userId ||
+            !guestUserService.isGuest(existingOrder.user)
+          ) {
+            return res.status(403).json({ error: "Token de acesso não pertence a um pedido pendente" });
+          }
+          existingGuestUserId = claims.userId;
+        }
         const resolved = await guestUserService.resolveGuestUser({
           name: req.body?.customer_name,
           email: req.body?.customer_email,
@@ -225,7 +246,7 @@ class OrderController {
           city: req.body?.customer_city,
           state: req.body?.customer_state,
           zipCode: req.body?.customer_zip_code,
-        });
+        }, existingGuestUserId);
         orderUserId = resolved.user.id;
         guestCustomerEmail = resolved.user.email ?? undefined;
         guestCustomerPhone = resolved.user.phone ?? undefined;
@@ -267,6 +288,12 @@ class OrderController {
         // silently fail
       });
 
+      if (!currentUserId) {
+        return res.status(201).json({
+          order,
+          guestOrderToken: createGuestOrderToken(order.id, order.user_id),
+        });
+      }
       res.status(201).json(order);
     } catch (error: any) {
       logger.error("❌ Erro ao criar pedido:", error);
@@ -290,6 +317,9 @@ class OrderController {
         });
       }
 
+      if ((error as any).code === "GUEST_ORDER_TOKEN_REQUIRED") {
+        return res.status(409).json({ error: error.message, code: error.code });
+      }
       if ((error as any).code === "MISSING_PRODUCTS") {
         return res.status(404).json({
           error: error.message,
@@ -327,26 +357,37 @@ class OrderController {
       const userRole = (req as any).user?.role;
       const isAdmin = userRole?.toUpperCase() === "ADMIN";
 
-      if (!userId) {
-        return res.status(401).json({ error: "Autenticação necessária" });
-      }
-
       const order = await orderService.getOrderById(id);
 
       if (!isAdmin) {
-        if (order.user_id !== userId) {
-          logger.warn(
-            `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`,
-          );
-          return res.status(403).json({
-            error: "Você não tem permissão para deletar este pedido",
-          });
-        }
+        if (!userId) {
+          if (
+            order.status !== "PENDING" ||
+            !guestUserService.isGuest(order.user)
+          ) {
+            logger.warn(
+              "⚠️ [remove] Acesso guest negado - pedido não pendente ou não é guest",
+            );
+            return res.status(403).json({
+              error: "Você não tem permissão para deletar este pedido",
+            });
+          }
+          requireGuestOrderAccess(req, order);
+        } else {
+          if (order.user_id !== userId) {
+            logger.warn(
+              `⚠️ [remove] Acesso negado: usuário ${userId} tentou deletar pedido de outro usuário ${order.user_id}`,
+            );
+            return res.status(403).json({
+              error: "Você não tem permissão para deletar este pedido",
+            });
+          }
 
-        if (order.status !== "PENDING") {
-          return res.status(400).json({
-            error: `Apenas pedidos pendentes podem ser deletados por usuários. Status atual: ${order.status}`,
-          });
+          if (order.status !== "PENDING") {
+            return res.status(400).json({
+              error: `Apenas pedidos pendentes podem ser deletados por usuários. Status atual: ${order.status}`,
+            });
+          }
         }
       }
 
@@ -361,6 +402,8 @@ class OrderController {
         res.status(404).json({ error: error.message });
       } else if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
+      } else if (error.message.includes("Token de acesso")) {
+        res.status(403).json({ error: error.message });
       } else {
         res.status(500).json({ error: "Erro interno do servidor" });
       }
@@ -409,9 +452,9 @@ class OrderController {
         delivery_state,
         recipient_phone,
         delivery_date,
+        delivery_slot,
         shipping_price,
         payment_method,
-        discount,
         delivery_method,
         customer_name,
         customer_email,
@@ -439,6 +482,7 @@ class OrderController {
             .status(403)
             .json({ error: "Você não tem permissão para modificar este pedido" });
         }
+        requireGuestOrderAccess(req, existingOrder);
         isGuest = true;
       } else if (!this.canAccessOrder(req, existingOrder.user_id)) {
         return res
@@ -456,9 +500,9 @@ class OrderController {
           delivery_state,
           recipient_phone,
           delivery_date,
+          delivery_slot,
           shipping_price,
           payment_method,
-          discount,
           delivery_method,
           customer_name,
           customer_email,
@@ -478,6 +522,9 @@ class OrderController {
       }
       if (error.message.includes("não encontrado")) {
         return res.status(404).json({ error: error.message });
+      }
+      if (error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
       }
       if ((error as any).code === "MISSING_PRODUCTS") {
         return res.status(404).json({
@@ -502,12 +549,8 @@ class OrderController {
         return res.status(400).json({ error: "ID do pedido é obrigatório" });
       }
 
-      const userId = (req as any).user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: "Autenticação necessária" });
-      }
-
       const existingOrder = await orderService.getOrderById(id);
+      const userId = (req as any).user?.id;
 
       console.log("🔍 [updateItems] Verificação de permissão:", {
         userId,
@@ -516,7 +559,12 @@ class OrderController {
         hasUser: !!(req as any).user,
       });
 
-      if (!this.canAccessOrder(req, existingOrder.user_id)) {
+      if (!userId) {
+        if (existingOrder.status !== "PENDING" || !guestUserService.isGuest(existingOrder.user)) {
+          return res.status(403).json({ error: "Você não tem permissão para modificar este pedido" });
+        }
+        requireGuestOrderAccess(req, existingOrder);
+      } else if (!this.canAccessOrder(req, existingOrder.user_id)) {
         logger.warn(
           "⚠️ [updateItems] Acesso negado: usuário não é dono do pedido",
         );
@@ -555,6 +603,9 @@ class OrderController {
       }
       if (error.message.includes("não encontrado")) {
         return res.status(404).json({ error: error.message });
+      }
+      if (error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
       }
       if (error.message.includes("pendentes")) {
         return res.status(403).json({ error: error.message });

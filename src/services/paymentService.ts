@@ -457,6 +457,22 @@ export class PaymentService {
       return false;
     }
 
+    // If Drive finished before confirmation, link was already part of that message.
+    if (
+      order.confirmation_whatsapp_sent_at &&
+      order.customizations_drive_processed_at &&
+      order.customizations_drive_processed_at <= order.confirmation_whatsapp_sent_at
+    ) {
+      return false;
+    }
+
+    const claimedAt = new Date();
+    const claimResult = await prisma.order.updateMany({
+      where: { id: orderId, customization_whatsapp_sent_at: null },
+      data: { customization_whatsapp_sent_at: claimedAt },
+    });
+    if (claimResult.count === 0) return false;
+
     const items: Array<{ name: string; quantity: number; price: number }> = [];
     order.items.forEach((item) => {
       items.push({
@@ -492,6 +508,10 @@ export class PaymentService {
       return true;
     }
 
+    await prisma.order.updateMany({
+      where: { id: orderId, customization_whatsapp_sent_at: claimedAt },
+      data: { customization_whatsapp_sent_at: null },
+    });
     return false;
   }
 
@@ -532,10 +552,13 @@ export class PaymentService {
     }
 
     try {
-      await this.performSendOrderConfirmationNotification(
+      const customerSent = await this.performSendOrderConfirmationNotification(
         orderId,
         confirmationContext.resolvedGoogleDriveUrl,
       );
+      if (!customerSent) {
+        throw new Error("Confirmação WhatsApp não enviada ao cliente");
+      }
       PaymentService.notificationSentOrders.add(orderId);
       this.scheduleNotificationCacheRelease(orderId);
       return true;
@@ -566,7 +589,7 @@ export class PaymentService {
       return rule[method];
     }
 
-    return order.shipping_price ?? 0;
+    throw new Error("Ainda não fazemos entrega nesse endereço");
   }
   private static async loadOrderWithDetails(
     orderId: string,
@@ -677,6 +700,10 @@ export class PaymentService {
         throw new Error("Pedido não pertence ao usuário informado");
       }
 
+      if (order.status !== "PENDING") {
+        throw new Error("Apenas pedidos pendentes podem iniciar pagamento");
+      }
+
       if (!order.items.length) {
         throw new Error("Pedido sem itens não pode gerar pagamento");
       }
@@ -694,6 +721,18 @@ export class PaymentService {
 
       if (!orderPaymentMethod) {
         throw new Error("Forma de pagamento do pedido não definida");
+      }
+
+      const resolvedShipping = this.resolveShippingPrice(
+        order,
+        orderPaymentMethod,
+      );
+      if (Number(order.shipping_price ?? 0) !== resolvedShipping) {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { shipping_price: resolvedShipping },
+        });
+        order.shipping_price = resolvedShipping;
       }
 
       if (order.payment) {
@@ -838,6 +877,37 @@ export class PaymentService {
     }
   }
 
+  private static async createMercadoPagoPaymentWithRetry(
+    paymentData: any,
+    idempotencyKey: string,
+  ) {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await payment.create({
+          body: paymentData,
+          requestOptions: { idempotencyKey },
+        });
+      } catch (error: any) {
+        const status = error?.status || error?.statusCode || error?.response?.status;
+        const retryable = !status || status === 408 || status === 429 || status >= 500;
+        if (!retryable || attempt === maxAttempts) throw error;
+
+        const delayMs = 500 * 2 ** (attempt - 1);
+        logger.warn("Falha transitória ao criar pagamento; tentando novamente", {
+          attempt,
+          delayMs,
+          orderId: paymentData.metadata?.order_id || null,
+          status: status || null,
+        });
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    throw new Error("Não foi possível criar pagamento");
+  }
+
   static async processTransparentCheckout(
     data: ProcessTransparentCheckoutData,
   ) {
@@ -887,6 +957,10 @@ export class PaymentService {
 
       if (order.user_id !== data.userId) {
         throw new Error("Pedido não pertence ao usuário informado");
+      }
+
+      if (order.status !== "PENDING") {
+        throw new Error("Apenas pedidos pendentes podem iniciar pagamento");
       }
 
       if (!order.items.length) {
@@ -1151,21 +1225,32 @@ export class PaymentService {
         idempotencyKey,
       });
 
-      logger.info('📦 Payload completo enviado ao MP:', JSON.stringify(paymentData, null, 2));
+       logger.info('📦 Enviando pagamento ao MP:', {
+         orderId: data.orderId,
+         paymentMethodId: data.paymentMethodId,
+         amount: summary.grandTotal,
+       });
 
-      const paymentResponse = await payment.create({
-        body: paymentData,
-        requestOptions: {
-          idempotencyKey,
-        },
-      });
+      const paymentResponse = await this.createMercadoPagoPaymentWithRetry(
+        paymentData,
+        idempotencyKey,
+      );
 
-      logger.info('✅ MP SDK payment.create respondeu:', {
+       logger.info('✅ MP SDK payment.create respondeu:', {
         orderId: data.orderId,
         mercadoPagoId: paymentResponse.id,
         status: paymentResponse.status,
         statusDetail: paymentResponse.status_detail,
-      });
+       });
+
+       if (paymentResponse.status === "rejected") {
+         logger.warn("Pagamento recusado pelo Mercado Pago", {
+           orderId: data.orderId,
+           mercadoPagoId: String(paymentResponse.id),
+           paymentMethodId: data.paymentMethodId,
+           statusDetail: paymentResponse.status_detail || null,
+         });
+       }
 
       logger.info('💾 Executando upsert no banco:', {
         orderId: data.orderId,
@@ -1294,33 +1379,13 @@ export class PaymentService {
         }),
       };
     } catch (error) {
-      logger.error("Erro ao processar checkout transparente:", error);
-
-      if (error && typeof error === "object") {
-        const serializedError = JSON.stringify(
-          error,
-          Object.getOwnPropertyNames(error),
-          2,
-        );
-        logger.error("📛 Detalhes completos do erro:", serializedError);
-
-        const mpError = error as any;
-        if (mpError.cause) {
-          logger.error(
-            "📛 Causa do erro:",
-            JSON.stringify(mpError.cause, null, 2),
-          );
-        }
-        if (mpError.response) {
-          logger.error(
-            "📛 Resposta da API:",
-            JSON.stringify(mpError.response, null, 2),
-          );
-        }
-        if (mpError.status || mpError.statusCode) {
-          logger.error("📛 Status HTTP:", mpError.status || mpError.statusCode);
-        }
-      }
+       const mpError = error as any;
+       logger.error("Erro ao processar checkout transparente", {
+         orderId: data.orderId,
+         paymentMethodId: data.paymentMethodId,
+         status: mpError?.status || mpError?.statusCode || null,
+         statusDetail: mpError?.cause?.status_detail || mpError?.response?.status_detail || null,
+       });
 
       let errorMessage = "Erro desconhecido";
       if (error instanceof Error) {
@@ -1379,17 +1444,12 @@ export class PaymentService {
         throw new Error("Pedido não pertence ao usuário informado");
       }
 
-      if (!order.items.length) {
-        throw new Error("Pedido sem itens não pode ser pago");
+      if (order.status !== "PENDING") {
+        throw new Error("Apenas pedidos pendentes podem iniciar pagamento");
       }
 
-      const summary = this.calculateOrderSummary(order);
-      await this.ensureOrderTotalsUpToDate(order, summary);
-      await this.ensureOrderCustomizationsReady(orderId);
-
-      const amount = roundCurrency(data.amount ?? summary.grandTotal);
-      if (amount <= 0) {
-        throw new Error("Valor total do pedido inválido");
+      if (!order.items.length) {
+        throw new Error("Pedido sem itens não pode ser pago");
       }
 
       const normalizedOrderMethod = normalizeOrderPaymentMethod(
@@ -1412,6 +1472,28 @@ export class PaymentService {
         throw new Error(
           "Token do cartão é obrigatório para pagamentos com cartão",
         );
+      }
+
+      const resolvedShipping = this.resolveShippingPrice(
+        order,
+        resolvedMethod === "pix" ? "pix" : "card",
+      );
+      if (Number(order.shipping_price ?? 0) !== resolvedShipping) {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { shipping_price: resolvedShipping },
+        });
+        order.shipping_price = resolvedShipping;
+      }
+
+      const summary = this.calculateOrderSummary(order);
+      await this.ensureOrderTotalsUpToDate(order, summary);
+      await this.ensureOrderCustomizationsReady(orderId);
+
+      // Charge server-calculated order total, never a client-provided amount.
+      const amount = roundCurrency(summary.grandTotal);
+      if (amount <= 0) {
+        throw new Error("Valor total do pedido inválido");
       }
 
       const installments =
@@ -2769,7 +2851,7 @@ export class PaymentService {
   private static async performSendOrderConfirmationNotification(
     orderId: string,
     googleDriveUrl?: string,
-  ) {
+  ): Promise<boolean> {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -2849,6 +2931,11 @@ export class PaymentService {
             date: order.delivery_date || undefined,
           }
         : undefined,
+      deliverySlot: order.delivery_slot as
+        | "morning"
+        | "afternoon"
+        | "to_be_arranged"
+        | null,
     };
 
     (orderData as any).send_anonymously = order.send_anonymously || false;
@@ -2859,7 +2946,7 @@ export class PaymentService {
     });
 
     if (order.user.phone) {
-      await whatsappService.sendOrderConfirmation({
+      return whatsappService.sendOrderConfirmation({
         phone: order.user.phone,
         orderNumber: order.id.substring(0, 8).toUpperCase(),
         customerName: order.user.name || "Cliente",
@@ -2873,11 +2960,12 @@ export class PaymentService {
         items,
         total: Number(order.grand_total || order.total || 0),
       });
-    } else {
-      logger.warn(
-        `[WhatsApp] Telefone do comprador não disponível para pedido ${orderId}. user_id=${order.user_id}. Não foi possível enviar confirmação via WhatsApp.`,
-      );
     }
+
+    logger.warn(
+      `[WhatsApp] Telefone do comprador não disponível para pedido ${orderId}. user_id=${order.user_id}. Não foi possível enviar confirmação via WhatsApp.`,
+    );
+    return false;
   }
 
   static async sendOrderConfirmationNotification(

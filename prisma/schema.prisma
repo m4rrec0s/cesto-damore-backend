@@ -107,6 +107,7 @@ model Order {
   total                             Float             @map("total_price")
   delivery_address                  String?
   delivery_date                     DateTime?
+  delivery_slot                     String?
   shipping_price                    Float?
   payment_method                    String?
   grand_total                       Float?
@@ -124,6 +125,7 @@ model Order {
   delivery_method                   String?           @default("delivery")
   pending_owner_key                 String?           @unique
   confirmation_whatsapp_sent_at     DateTime?
+  customization_whatsapp_sent_at    DateTime?
   source                            OrderSource       @default(customer)
   coupon_id                         String?
   discount_amount                   Float             @default(0)
@@ -638,6 +640,21 @@ model TrendStat {
   updated_at   DateTime        @updatedAt
 
   @@index([stat_type, entity_type, period_type, period_start])
+}
+
+model OrderMetricSnapshot {
+  id          String   @id @default(uuid())
+  order_ref   String   @unique
+  status      String
+  total       Float    @default(0)
+  city        String?
+  state       String?
+  item_count  Int      @default(0)
+  created_at  DateTime
+  archived_at DateTime @default(now())
+
+  @@index([created_at])
+  @@index([city, state])
 }
 
 model EmbeddingCache {

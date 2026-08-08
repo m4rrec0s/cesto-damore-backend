@@ -5,6 +5,7 @@ import prisma from "../database/prisma";
 import orderService from "../services/orderService";
 import guestUserService from "../services/guestUserService";
 import logger from "../utils/logger";
+import { requireGuestOrderAccess } from "../utils/guestOrderToken";
 
 export class PaymentController {
   private static mercadoPagoErrorMessages: Record<string, string> = {
@@ -169,6 +170,15 @@ private static async resolveCheckoutContext(
         body: { error: "Pedido inválido para checkout como convidado" },
       };
     }
+    try {
+      requireGuestOrderAccess(req, order);
+    } catch (error) {
+      return {
+        ok: false,
+        statusCode: 403,
+        body: { error: error instanceof Error ? error.message : "Acesso negado" },
+      };
+    }
 
     const missing: string[] = [];
     if (!owner.name) missing.push("name");
@@ -249,7 +259,13 @@ private static async resolveCheckoutContext(
         token,
       } = req.body;
 
-      const userId = (req as any).user?.id;
+      let userId = (req as any).user?.id;
+
+      if (!userId) {
+        const ctx = await PaymentController.resolveCheckoutContext(req, orderId);
+        if (!ctx.ok) return res.status(ctx.statusCode).json(ctx.body);
+        userId = ctx.userId;
+      }
 
       if (!orderId || !payerEmail || !userId) {
         return res.status(400).json({
@@ -398,10 +414,6 @@ private static async resolveCheckoutContext(
             : "Pagamento processado com sucesso!",
       });
     } catch (error) {
-      logger.error("Erro ao processar checkout transparente:", error);
-
-      const friendlyMessage = PaymentController.extractMercadoPagoError(error);
-
       let statusDetail: string | undefined;
       if (error && typeof error === "object") {
         const err = error as any;
@@ -410,6 +422,14 @@ private static async resolveCheckoutContext(
           err.response?.status_detail ||
           (Array.isArray(err.cause) ? err.cause[0]?.code : undefined);
       }
+
+      logger.error("Erro no checkout transparente", {
+        orderId: req.body?.orderId || null,
+        status: (error as any)?.status || (error as any)?.statusCode || null,
+        statusDetail: statusDetail || null,
+      });
+
+      const friendlyMessage = PaymentController.extractMercadoPagoError(error);
 
       const status = PaymentController.mapErrorToStatus(error);
       res.status(status).json({
@@ -450,11 +470,12 @@ private static async resolveCheckoutContext(
         });
       }
 
-      if (dbPayment.order.user_id !== userId) {
+      if (userId ? dbPayment.order.user_id !== userId : false) {
         return res.status(403).json({
           error: "Acesso negado",
         });
       }
+      if (!userId) requireGuestOrderAccess(req, dbPayment.order);
 
       let mercadoPagoData = null;
       if (dbPayment.mercado_pago_id) {
@@ -487,11 +508,38 @@ private static async resolveCheckoutContext(
             payment_method: dbPayment.order.payment_method,
             status: dbPayment.order.status,
           },
-          mercado_pago_data: mercadoPagoData,
+          // Mercado Pago response can include payer identification and card metadata.
+          // Checkout only needs this minimal PIX/status projection.
+          mercado_pago_data: mercadoPagoData
+            ? {
+                id: mercadoPagoData.id,
+                status: mercadoPagoData.status,
+                status_detail: mercadoPagoData.status_detail,
+                transaction_amount: mercadoPagoData.transaction_amount,
+                date_of_expiration: mercadoPagoData.date_of_expiration,
+                payer: mercadoPagoData.payer
+                  ? {
+                      id: mercadoPagoData.payer.id,
+                      email: mercadoPagoData.payer.email,
+                      first_name: mercadoPagoData.payer.first_name,
+                      last_name: mercadoPagoData.payer.last_name,
+                    }
+                  : undefined,
+                point_of_interaction: mercadoPagoData.point_of_interaction
+                  ? {
+                      transaction_data:
+                        mercadoPagoData.point_of_interaction.transaction_data,
+                    }
+                  : undefined,
+              }
+            : null,
         },
       });
     } catch (error) {
       logger.error("Erro ao consultar status do pagamento:", error);
+      if (error instanceof Error && error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
+      }
       res.status(500).json({
         error: "Falha ao consultar status do pagamento",
         details: "Erro interno do servidor",
@@ -584,9 +632,19 @@ private static async resolveCheckoutContext(
         });
       }
 
-      if (dbPayment.order.user_id !== userId) {
+      if (userId ? dbPayment.order.user_id !== userId : false) {
         return res.status(403).json({
           error: "Acesso negado",
+        });
+      }
+      if (!userId) requireGuestOrderAccess(req, dbPayment.order);
+
+      if (
+        dbPayment.order.status !== "PENDING" ||
+        !["PENDING", "IN_PROCESS"].includes(dbPayment.status)
+      ) {
+        return res.status(409).json({
+          error: "Apenas pagamentos pendentes podem ser cancelados",
         });
       }
 
@@ -607,6 +665,9 @@ private static async resolveCheckoutContext(
       });
     } catch (error) {
       logger.error("Erro ao cancelar pagamento:", error);
+      if (error instanceof Error && error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
+      }
       res.status(500).json({
         error: "Falha ao cancelar pagamento",
         details: "Erro interno do servidor",

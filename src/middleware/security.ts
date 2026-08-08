@@ -411,37 +411,13 @@ export const validateMercadoPagoWebhook = (
     let { type, data, live_mode, action, resource, topic } = req.body;
 
     if (!type && !action && topic && resource) {
-      logger.info("🔄 [Webhook MP] Normalizando formato legado");
-
-      let resourceId: string | null = null;
-
-      if (resource.includes("/")) {
-
-        const resourceMatch = resource.match(/\/([^\/]+)$/);
-        resourceId = resourceMatch ? resourceMatch[1] : null;
-      } else {
-
-        resourceId = resource.trim();
-      }
-
-      if (!resourceId || resourceId.length === 0) {
-        logger.error("❌ Formato antigo inválido - resource vazio", {
-          resource,
-          topic,
-        });
-        return res.status(400).json({
-          error: "Formato de webhook antigo inválido",
-          code: "INVALID_LEGACY_WEBHOOK",
-        });
-      }
-
-      type = topic;
-      data = { id: resourceId } as any;
-      logger.warn("🟡 [Webhook MP] Evento legado normalizado para processamento");
-
-      // Formato legado não tem headers x-signature - pular validação
-      req.body = { ...req.body, type, data, action: `${topic}.updated` };
-      return next();
+      logger.warn("🚫 [SECURITY] Webhook legado sem assinatura rejeitado", {
+        topic,
+      });
+      return res.status(401).json({
+        error: "Webhooks sem assinatura não são aceitos",
+        code: "UNSIGNED_LEGACY_WEBHOOK",
+      });
     }
 
     if (!type && action) {

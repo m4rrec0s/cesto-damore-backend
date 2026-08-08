@@ -58,6 +58,12 @@ class StatusService {
                 total_products_sold: 0,
                 total_additionals_sold: 0,
             };
+            const salesRegions = new Map<string, {
+                city: string;
+                state: string;
+                orders: number;
+                revenue: number;
+            }>();
 
             orders.forEach(order => {
                 const dateKey = order.created_at.toISOString().split('T')[0];
@@ -90,6 +96,16 @@ class StatusService {
                     totals.total_sales += orderValue;
                     totals.total_net_revenue += netValue;
                     totals.total_fees += fees;
+
+                    if (order.delivery_city && order.delivery_state) {
+                        const city = order.delivery_city.trim();
+                        const state = order.delivery_state.trim().toUpperCase();
+                        const key = `${city.toLowerCase()}:${state}`;
+                        const region = salesRegions.get(key) || { city, state, orders: 0, revenue: 0 };
+                        region.orders++;
+                        region.revenue += orderValue;
+                        salesRegions.set(key, region);
+                    }
 
                     order.items.forEach(item => {
                         dayData.total_products_sold += item.quantity;
@@ -166,6 +182,9 @@ class StatusService {
                     totalClients,
                 },
                 daily_data: summaries,
+                sales_regions: Array.from(salesRegions.values())
+                    .map((region) => ({ ...region, revenue: Number(region.revenue.toFixed(2)) }))
+                    .sort((a, b) => b.revenue - a.revenue),
             };
         } catch (error: any) {
             logger.error("Erro ao calcular status do negócio:", error);

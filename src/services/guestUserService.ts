@@ -73,6 +73,24 @@ class GuestUserService {
   ): Promise<GuestUserResult> {
     const email = normalize(input.email);
 
+    // Existing guest identity is accepted only when a signed order capability
+    // supplied its ID. Email alone is not proof of ownership.
+    if (existingUserId) {
+      const existingUser = await prisma.user.findUnique({
+        where: { id: existingUserId },
+        select: this.baseSelect,
+      });
+
+      if (existingUser && !existingUser.firebaseUId) {
+        const updated = await prisma.user.update({
+          where: { id: existingUser.id },
+          data: { ...buildUserData(input), ...(email ? { email } : {}) },
+          select: this.baseSelect,
+        });
+        return { user: updated, changed: false };
+      }
+    }
+
     if (email) {
       const existing = await prisma.user.findUnique({
         where: { email },
@@ -88,33 +106,27 @@ class GuestUserService {
           throw error;
         }
 
+        const pendingOrder = await prisma.order.findFirst({
+          where: {
+            user_id: existing.id,
+            status: "PENDING",
+            source: "customer",
+          },
+          select: { id: true },
+        });
+        if (pendingOrder) {
+          const error: any = new Error(
+            "Existe um pedido pendente para este contato. Use o mesmo navegador para continuar.",
+          );
+          error.code = "GUEST_ORDER_TOKEN_REQUIRED";
+          throw error;
+        }
+
         const updated = await prisma.user.update({
           where: { id: existing.id },
           data: buildUserData(input),
           select: this.baseSelect,
         });
-
-        return { user: updated, changed: existingUserId !== existing.id };
-      }
-    }
-
-    if (existingUserId) {
-      const existingUser = await prisma.user.findUnique({
-        where: { id: existingUserId },
-        select: this.baseSelect,
-      });
-
-      if (
-        existingUser &&
-        !existingUser.firebaseUId &&
-        (!email || existingUser.email === email)
-      ) {
-        const updated = await prisma.user.update({
-          where: { id: existingUser.id },
-          data: { ...buildUserData(input), ...(email ? { email } : {}) },
-          select: this.baseSelect,
-        });
-
         return { user: updated, changed: false };
       }
     }

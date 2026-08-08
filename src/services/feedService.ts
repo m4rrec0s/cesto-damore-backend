@@ -1224,7 +1224,6 @@ class FeedService {
 
   private async buildTopSellersSection(): Promise<FeedSectionResponse | null> {
     const topSelling = await trendStatsService.getTopSellingProducts(4);
-    if (!topSelling.length) return null;
 
     const productIds = topSelling.map((entry) => entry.product_id);
     const products = await withRetry(() =>
@@ -1253,11 +1252,30 @@ class FeedService {
       })
       .filter(Boolean) as FeedSectionResponse["items"];
 
+    if (items.length < 4) {
+      const fallbackProducts = await withRetry(() =>
+        prisma.product.findMany({
+          where: { is_active: true, id: { notIn: items.map((item) => item.item_id) } },
+          include: { type: true, categories: { include: { category: true } } },
+          orderBy: { updated_at: "desc" },
+          take: 4 - items.length,
+        }),
+      );
+      items.push(...fallbackProducts.map((product, index) => ({
+        id: `top_fallback_${product.id}`,
+        item_type: "product" as const,
+        item_id: product.id,
+        display_order: items.length + index,
+        is_featured: false,
+        item_data: product,
+      })));
+    }
+
     if (!items.length) return null;
 
     return {
       id: "best_sellers",
-      title: "Mais vendidos da semana",
+      title: "Mais vendidos",
       section_type: FeedSectionType.BEST_SELLERS,
       is_visible: true,
       display_order: 0,

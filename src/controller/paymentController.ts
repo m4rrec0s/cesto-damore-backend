@@ -2,7 +2,10 @@ import { Request, Response } from "express";
 import PaymentService from "../services/paymentService";
 import statusService from "../services/statusService";
 import prisma from "../database/prisma";
+import orderService from "../services/orderService";
+import guestUserService from "../services/guestUserService";
 import logger from "../utils/logger";
+import { requireGuestOrderAccess } from "../utils/guestOrderToken";
 
 export class PaymentController {
   private static mercadoPagoErrorMessages: Record<string, string> = {
@@ -128,12 +131,92 @@ export class PaymentController {
     return walk(payload);
   }
 
+private static async resolveCheckoutContext(
+    req: Request,
+    orderId: string,
+  ): Promise<
+    | { ok: true; userId: string; owner: any }
+    | { ok: false; statusCode: number; body: any }
+  > {
+    const currentUserId = (req as any).user?.id;
+    if (currentUserId) {
+      return { ok: true, userId: currentUserId, owner: null };
+    }
+
+    if (!orderId || orderId === "null" || orderId === "undefined") {
+      return {
+        ok: false,
+        statusCode: 400,
+        body: { error: "OrderId é obrigatório", required: ["orderId"] },
+      };
+    }
+
+    let order;
+    try {
+      order = await orderService.getOrderById(orderId);
+    } catch {
+      return {
+        ok: false,
+        statusCode: 404,
+        body: { error: "Pedido não encontrado" },
+      };
+    }
+
+    const owner = order?.user;
+    if (!owner || !guestUserService.isGuest(owner)) {
+      return {
+        ok: false,
+        statusCode: 403,
+        body: { error: "Pedido inválido para checkout como convidado" },
+      };
+    }
+    try {
+      requireGuestOrderAccess(req, order);
+    } catch (error) {
+      return {
+        ok: false,
+        statusCode: 403,
+        body: { error: error instanceof Error ? error.message : "Acesso negado" },
+      };
+    }
+
+    const missing: string[] = [];
+    if (!owner.name) missing.push("name");
+    if (!owner.email) missing.push("email");
+    if (missing.length) {
+      return {
+        ok: false,
+        statusCode: 400,
+        body: {
+          error: "Preencha seus dados de contato para continuar",
+          required: missing,
+        },
+      };
+    }
+
+    return { ok: true, userId: owner.id, owner };
+  }
+
   static async createPreference(req: Request, res: Response) {
     try {
       const { orderId, payerEmail, payerName, payerPhone } = req.body;
-      const userId = (req as any).user?.id;
+      const currentUserId = (req as any).user?.id;
 
-      if (!orderId || !payerEmail || !userId) {
+      let userId = currentUserId;
+      let effectivePayerEmail = payerEmail;
+      let effectivePayerName = payerName;
+
+      if (!currentUserId) {
+        const ctx = await PaymentController.resolveCheckoutContext(req, orderId);
+        if (!ctx.ok) {
+          return res.status(ctx.statusCode).json(ctx.body);
+        }
+        userId = ctx.userId;
+        effectivePayerEmail = ctx.owner.email;
+        effectivePayerName = ctx.owner.name;
+      }
+
+      if (!orderId || !effectivePayerEmail || !userId) {
         return res.status(400).json({
           error: "Dados obrigatórios não fornecidos",
           required: ["orderId", "payerEmail"],
@@ -143,8 +226,8 @@ export class PaymentController {
       const preference = await PaymentService.createPreference({
         orderId,
         userId,
-        payerEmail,
-        payerName,
+        payerEmail: effectivePayerEmail,
+        payerName: effectivePayerName || undefined,
         payerPhone,
       });
 
@@ -176,7 +259,13 @@ export class PaymentController {
         token,
       } = req.body;
 
-      const userId = (req as any).user?.id;
+      let userId = (req as any).user?.id;
+
+      if (!userId) {
+        const ctx = await PaymentController.resolveCheckoutContext(req, orderId);
+        if (!ctx.ok) return res.status(ctx.statusCode).json(ctx.body);
+        userId = ctx.userId;
+      }
 
       if (!orderId || !payerEmail || !userId) {
         return res.status(400).json({
@@ -234,7 +323,21 @@ export class PaymentController {
         frontendPublicKeyPrefix,
       } = req.body;
 
-      const userId = (req as any).user?.id;
+      const currentUserId = (req as any).user?.id;
+
+      let userId = currentUserId;
+      let effectivePayerEmail = payerEmail;
+      let effectivePayerName = payerName;
+
+      if (!currentUserId) {
+        const ctx = await PaymentController.resolveCheckoutContext(req, orderId);
+        if (!ctx.ok) {
+          return res.status(ctx.statusCode).json(ctx.body);
+        }
+        userId = ctx.userId;
+        effectivePayerEmail = ctx.owner.email;
+        effectivePayerName = ctx.owner.name;
+      }
 
       console.log(
         `[Checkout] Iniciando processamento - Pedido: ${orderId}, Usuário: ${userId}, Método: ${paymentMethodId}`,
@@ -242,8 +345,8 @@ export class PaymentController {
 
       if (
         !orderId ||
-        !payerEmail ||
-        !payerName ||
+        !effectivePayerEmail ||
+        !effectivePayerName ||
         !userId ||
         orderId === "null" ||
         orderId === "undefined"
@@ -288,8 +391,8 @@ export class PaymentController {
       const payment = await PaymentService.processTransparentCheckout({
         orderId,
         userId,
-        payerEmail,
-        payerName,
+        payerEmail: effectivePayerEmail,
+        payerName: effectivePayerName,
         payerDocument,
         payerDocumentType,
         paymentMethodId,
@@ -311,10 +414,6 @@ export class PaymentController {
             : "Pagamento processado com sucesso!",
       });
     } catch (error) {
-      logger.error("Erro ao processar checkout transparente:", error);
-
-      const friendlyMessage = PaymentController.extractMercadoPagoError(error);
-
       let statusDetail: string | undefined;
       if (error && typeof error === "object") {
         const err = error as any;
@@ -323,6 +422,14 @@ export class PaymentController {
           err.response?.status_detail ||
           (Array.isArray(err.cause) ? err.cause[0]?.code : undefined);
       }
+
+      logger.error("Erro no checkout transparente", {
+        orderId: req.body?.orderId || null,
+        status: (error as any)?.status || (error as any)?.statusCode || null,
+        statusDetail: statusDetail || null,
+      });
+
+      const friendlyMessage = PaymentController.extractMercadoPagoError(error);
 
       const status = PaymentController.mapErrorToStatus(error);
       res.status(status).json({
@@ -363,11 +470,12 @@ export class PaymentController {
         });
       }
 
-      if (dbPayment.order.user_id !== userId) {
+      if (userId ? dbPayment.order.user_id !== userId : false) {
         return res.status(403).json({
           error: "Acesso negado",
         });
       }
+      if (!userId) requireGuestOrderAccess(req, dbPayment.order);
 
       let mercadoPagoData = null;
       if (dbPayment.mercado_pago_id) {
@@ -400,11 +508,38 @@ export class PaymentController {
             payment_method: dbPayment.order.payment_method,
             status: dbPayment.order.status,
           },
-          mercado_pago_data: mercadoPagoData,
+          // Mercado Pago response can include payer identification and card metadata.
+          // Checkout only needs this minimal PIX/status projection.
+          mercado_pago_data: mercadoPagoData
+            ? {
+                id: mercadoPagoData.id,
+                status: mercadoPagoData.status,
+                status_detail: mercadoPagoData.status_detail,
+                transaction_amount: mercadoPagoData.transaction_amount,
+                date_of_expiration: mercadoPagoData.date_of_expiration,
+                payer: mercadoPagoData.payer
+                  ? {
+                      id: mercadoPagoData.payer.id,
+                      email: mercadoPagoData.payer.email,
+                      first_name: mercadoPagoData.payer.first_name,
+                      last_name: mercadoPagoData.payer.last_name,
+                    }
+                  : undefined,
+                point_of_interaction: mercadoPagoData.point_of_interaction
+                  ? {
+                      transaction_data:
+                        mercadoPagoData.point_of_interaction.transaction_data,
+                    }
+                  : undefined,
+              }
+            : null,
         },
       });
     } catch (error) {
       logger.error("Erro ao consultar status do pagamento:", error);
+      if (error instanceof Error && error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
+      }
       res.status(500).json({
         error: "Falha ao consultar status do pagamento",
         details: "Erro interno do servidor",
@@ -497,9 +632,19 @@ export class PaymentController {
         });
       }
 
-      if (dbPayment.order.user_id !== userId) {
+      if (userId ? dbPayment.order.user_id !== userId : false) {
         return res.status(403).json({
           error: "Acesso negado",
+        });
+      }
+      if (!userId) requireGuestOrderAccess(req, dbPayment.order);
+
+      if (
+        dbPayment.order.status !== "PENDING" ||
+        !["PENDING", "IN_PROCESS"].includes(dbPayment.status)
+      ) {
+        return res.status(409).json({
+          error: "Apenas pagamentos pendentes podem ser cancelados",
         });
       }
 
@@ -520,6 +665,9 @@ export class PaymentController {
       });
     } catch (error) {
       logger.error("Erro ao cancelar pagamento:", error);
+      if (error instanceof Error && error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
+      }
       res.status(500).json({
         error: "Falha ao cancelar pagamento",
         details: "Erro interno do servidor",

@@ -21,6 +21,7 @@ services:
       - BASE_URL=${BASE_URL}
       - DATABASE_URL=${DATABASE_URL}
       - SPECIAL_DELIVERY_DAYS=${SPECIAL_DELIVERY_DAYS}
+      - GUEST_ORDER_TOKEN_SECRET=${GUEST_ORDER_TOKEN_SECRET}
       # Adicione outras variáveis de ambiente necessárias
     restart: unless-stopped
     networks:

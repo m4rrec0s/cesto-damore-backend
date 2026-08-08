@@ -19,7 +19,7 @@ class AuthController {
       if (result.user) {
         metaConversionsService
           .sendLoginEvent({
-            email: result.user.email,
+            email: result.user.email || "",
             phone: result.user.phone || "",
             userId: result.user.id,
             method: "google",

@@ -11,6 +11,7 @@ export const validateEnv = () => {
   const requiredEnvVars = [
     "DATABASE_URL",
     "JWT_SECRET",
+    "GUEST_ORDER_TOKEN_SECRET",
     "MERCADO_PAGO_WEBHOOK_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",

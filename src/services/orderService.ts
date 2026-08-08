@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import { validateOrderCustomizations } from "../utils/customizationValidator";
 import customizationAssetPersistenceService from "./customizationAssetPersistenceService";
+import guestUserService from "./guestUserService";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -77,6 +78,7 @@ type CreateOrderInput = {
   delivery_city: string;
   delivery_state: string;
   delivery_date?: Date | null;
+  delivery_slot?: "morning" | "afternoon" | "to_be_arranged";
   recipient_phone: string;
   complement?: string;
   items: CreateOrderItem[];
@@ -842,7 +844,7 @@ class OrderService {
           `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`,
         );
       }
-      if (!item.quantity || item.quantity <= 0) {
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
         throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
       }
 
@@ -857,7 +859,7 @@ class OrderService {
               `Item ${i + 1}: adicional ${j + 1} precisa de um ID válido`,
             );
           }
-          if (!additional.quantity || additional.quantity <= 0) {
+          if (!Number.isInteger(additional.quantity) || additional.quantity <= 0) {
             throw new Error(
               `Item ${i + 1}: adicional ${
                 j + 1
@@ -1046,14 +1048,9 @@ class OrderService {
         );
       }
 
-      const discount = data.discount && data.discount > 0 ? data.discount : 0;
-      if (discount < 0) {
-        throw new Error("Desconto não pode ser negativo");
-      }
-
-      if (discount > itemsTotal) {
-        throw new Error("Desconto não pode ser maior que o total dos itens");
-      }
+      // Client input never defines a discount. Coupons are validated and applied
+      // during checkout by CouponService.
+      const discount = 0;
 
       const shipping_price = shippingRules
         ? shippingRules[paymentMethod as "pix" | "card"]
@@ -1103,6 +1100,7 @@ class OrderService {
           delivery_state: orderData.delivery_state,
           recipient_phone: phoneDigits.length >= 10 ? phoneDigits : undefined,
           delivery_date: orderData.delivery_date || null,
+          delivery_slot: orderData.delivery_slot,
           shipping_price,
           payment_method:
             paymentMethod === "pix" || paymentMethod === "card"
@@ -1126,6 +1124,7 @@ class OrderService {
           delivery_address: orderData.delivery_address,
           complement: orderData.complement,
           delivery_date: orderData.delivery_date || null,
+          delivery_slot: orderData.delivery_slot,
           shipping_price,
           payment_method: paymentMethod,
           grand_total,
@@ -1560,7 +1559,7 @@ class OrderService {
           `Item ${i + 1}: ID do produto inválido (formato UUID esperado)`,
         );
       }
-      if (!item.quantity || item.quantity <= 0) {
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
         throw new Error(`Item ${i + 1}: Quantidade deve ser maior que zero`);
       }
       if (Array.isArray(item.additionals)) {
@@ -1572,6 +1571,11 @@ class OrderService {
           ) {
             throw new Error(
               `Item ${i + 1}: adicional ${j + 1} precisa de um ID válido`,
+            );
+          }
+          if (!Number.isInteger(additional.quantity) || additional.quantity <= 0) {
+            throw new Error(
+              `Item ${i + 1}: adicional ${j + 1} deve possuir quantidade maior que zero`,
             );
           }
         }
@@ -1975,11 +1979,20 @@ class OrderService {
       delivery_state?: string | null;
       recipient_phone?: string | null;
       delivery_date?: Date | string | null;
+      delivery_slot?: "morning" | "afternoon" | "to_be_arranged";
       shipping_price?: number;
       payment_method?: "pix" | "card";
       discount?: number;
       delivery_method?: "delivery" | "pickup";
+      customer_name?: string | null;
+      customer_email?: string | null;
+      customer_phone?: string | null;
+      customer_address?: string | null;
+      customer_city?: string | null;
+      customer_state?: string | null;
+      customer_zip_code?: string | null;
     },
+    options?: { isGuest?: boolean },
   ) {
     if (!orderId) {
       throw new Error("ID do pedido é obrigatório");
@@ -2030,7 +2043,7 @@ class OrderService {
       updateData.recipient_phone = normalized;
     }
 
-    if (data.delivery_date === null) {
+      if (data.delivery_date === null) {
       updateData.delivery_date = null;
     } else if (
       typeof data.delivery_date === "string" ||
@@ -2043,6 +2056,13 @@ class OrderService {
       if (isNaN(Number(dt))) {
         throw new Error("Data de entrega inválida");
       }
+
+    if (data.delivery_slot !== undefined) {
+      if (!['morning', 'afternoon', 'to_be_arranged'].includes(data.delivery_slot)) {
+        throw new Error("Faixa de entrega inválida");
+      }
+      updateData.delivery_slot = data.delivery_slot;
+    }
 
       const now = new Date();
       if (dt < now) {
@@ -2074,25 +2094,14 @@ class OrderService {
       updateData.payment_method = normalizedPayment;
     }
 
-    if (typeof data.discount === "number") {
-      if (data.discount < 0) {
-        throw new Error("Desconto não pode ser negativo");
-      }
-      updateData.discount = data.discount;
-    }
+    const effectivePaymentMethod =
+      (updateData.payment_method as string | undefined) || order.payment_method;
+    const deliveryChanged =
+      typeof updateData.delivery_city === "string" ||
+      typeof updateData.delivery_method === "string" ||
+      typeof updateData.payment_method === "string";
 
-    if (typeof data.shipping_price === "number") {
-      if (data.shipping_price < 0) {
-        throw new Error("O valor do frete não pode ser negativo");
-      }
-      updateData.shipping_price = data.shipping_price;
-    }
-
-    if (
-      typeof data.payment_method === "string" &&
-      typeof data.shipping_price !== "number"
-    ) {
-      const normalizedMethod = normalizeText(data.payment_method || "");
+    if (deliveryChanged && (effectivePaymentMethod === "pix" || effectivePaymentMethod === "card")) {
       const deliveryMethod =
         (updateData.delivery_method as string) || order.delivery_method;
       if (deliveryMethod === "pickup") {
@@ -2100,20 +2109,16 @@ class OrderService {
       } else {
         const city =
           (updateData.delivery_city as string) || order.delivery_city || "";
-        const normalizedCity = normalizeText(city);
-        const rule = ACCEPTED_CITIES[normalizedCity as string];
-        if (
-          rule &&
-          (normalizedMethod === "pix" || normalizedMethod === "card")
-        ) {
-          updateData.shipping_price = rule[normalizedMethod as "pix" | "card"];
+        const rule = ACCEPTED_CITIES[normalizeText(city)];
+        if (!rule) {
+          throw new Error("Ainda não fazemos entrega nesse endereço");
         }
+        updateData.shipping_price = rule[effectivePaymentMethod];
       }
     }
 
     if (
       typeof updateData.shipping_price === "number" ||
-      typeof updateData.discount === "number" ||
       typeof updateData.payment_method === "string"
     ) {
       // Para pedidos em construção (carrinho/draft), order.total pode ser null/0.
@@ -2144,7 +2149,59 @@ class OrderService {
       }
     }
 
-    updateData.pending_owner_key = order.user_id;
+    let ownerId = order.user_id;
+
+    if (options?.isGuest) {
+      const customer = {
+        name: data.customer_name,
+        email: data.customer_email,
+        phone: data.customer_phone,
+        address: data.customer_address,
+        city: data.customer_city,
+        state: data.customer_state,
+        zipCode: data.customer_zip_code,
+      };
+
+      const hasCustomerData = [
+        customer.name,
+        customer.email,
+        customer.phone,
+        customer.address,
+        customer.city,
+        customer.state,
+        customer.zipCode,
+      ].some((value) => typeof value === "string" && value.trim() !== "");
+
+      if (hasCustomerData) {
+        const resolved = await guestUserService.resolveGuestUser(
+          customer,
+          order.user_id,
+        );
+
+        if (resolved.changed) {
+          ownerId = resolved.user.id;
+          updateData.user_id = resolved.user.id;
+        }
+
+        if (typeof customer.phone === "string" && customer.phone.trim() !== "") {
+          const digits = customer.phone.replace(/\D/g, "");
+          updateData.recipient_phone = digits.startsWith("55")
+            ? digits
+            : "55" + digits;
+        }
+        if (typeof customer.address === "string" && customer.address.trim() !== "") {
+          updateData.delivery_address = customer.address;
+        }
+        if (typeof customer.city === "string" && customer.city.trim() !== "") {
+          updateData.delivery_city = customer.city;
+        }
+        if (typeof customer.state === "string" && customer.state.trim() !== "") {
+          updateData.delivery_state = customer.state;
+        }
+      }
+    }
+
+    updateData.pending_owner_key = ownerId;
 
     await prisma.order.update({ where: { id: orderId }, data: updateData });
 
@@ -2396,8 +2453,8 @@ class OrderService {
               price: item.price,
             })),
             customer: {
-              name: updated.user.name,
-              email: updated.user.email,
+              name: updated.user.name || "Cliente",
+              email: updated.user.email || "",
               phone: updated.user.phone || undefined,
             },
             delivery: updated.delivery_address
@@ -2608,6 +2665,13 @@ class OrderService {
           user_id: true,
           updated_at: true,
           google_drive_folder_id: true,
+          status: true,
+          total: true,
+          grand_total: true,
+          delivery_city: true,
+          delivery_state: true,
+          created_at: true,
+          _count: { select: { items: true } },
         },
       });
 
@@ -2644,6 +2708,19 @@ class OrderService {
       let cleanedCount = 0;
       for (const order of abandonedOrders) {
         try {
+          await prisma.orderMetricSnapshot.upsert({
+            where: { order_ref: order.id },
+            update: {},
+            create: {
+              order_ref: order.id,
+              status: order.status,
+              total: order.grand_total || order.total || 0,
+              city: order.delivery_city,
+              state: order.delivery_state,
+              item_count: order._count.items,
+              created_at: order.created_at,
+            },
+          });
           await this.deleteOrder(order.id);
           cleanedCount++;
         } catch (error) {

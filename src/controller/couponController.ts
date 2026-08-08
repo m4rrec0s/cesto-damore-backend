@@ -5,26 +5,47 @@ import prisma from "../database/prisma";
 class CouponController {
   async validate(req: Request, res: Response) {
     try {
-      const { code } = req.body;
+      const { code, email, orderId } = req.body;
       const userId = (req as any).user?.id;
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
 
-      const order = await prisma.order.findFirst({
-        where: { user_id: userId, status: "PENDING", source: "customer" },
-        include: { items: { include: { additionals: true } } },
-      });
+      let targetUserId = userId;
+      let targetEmail: string | null = null;
+      let order: any;
+
+      if (userId) {
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
+        targetEmail = user.email;
+        order = await prisma.order.findFirst({
+          where: { user_id: userId, status: "PENDING", source: "customer" },
+          include: { items: { include: { additionals: true } } },
+        });
+      } else {
+        if (!orderId) {
+          return res.status(400).json({ error: "Pedido não encontrado" });
+        }
+        order = await prisma.order.findFirst({
+          where: { id: orderId, status: "PENDING", source: "customer" },
+          include: { items: { include: { additionals: true } }, user: true },
+        });
+        if (!order || !order.user || order.user.firebaseUId) {
+          return res.status(403).json({ error: "Pedido inválido" });
+        }
+        targetUserId = order.user_id;
+        targetEmail = email || order.user.email;
+      }
+
       if (!order) return res.status(400).json({ error: "Nenhum pedido pendente" });
 
-      const cartTotal = order.items.reduce((sum, item) => {
+      const cartTotal = order.items.reduce((sum: number, item: any) => {
         const base = Number(item.price) * item.quantity;
-        const adds = item.additionals.reduce((a, ad) => a + Number(ad.price) * ad.quantity, 0);
+        const adds = item.additionals.reduce((a: number, ad: any) => a + Number(ad.price) * ad.quantity, 0);
         return sum + base + adds;
       }, 0);
 
       const result = await CouponService.validateCoupon(code, {
-        userId,
-        email: user.email,
+        userId: targetUserId,
+        email: targetEmail || "",
         cartTotal,
         shipping: order.shipping_price ?? 0,
       });
@@ -66,7 +87,7 @@ class CouponController {
                 { coupon_type: "GLOBAL" },
                 { coupon_type: "EVENTO" },
                 { coupon_type: "PRIMEIRA_COMPRA" },
-                { email: user.email.toLowerCase() },
+                { email: user.email?.toLowerCase() || "" },
                 { user_id: userId },
               ],
             },

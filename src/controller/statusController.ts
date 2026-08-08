@@ -5,7 +5,10 @@ import logger from "../utils/logger";
 class StatusController {
     async getBusinessStatus(req: Request, res: Response) {
         try {
-            const days = req.query.days ? parseInt(req.query.days as string, 10) : 30;
+            const requestedDays = req.query.days ? parseInt(req.query.days as string, 10) : 30;
+            const days = Number.isFinite(requestedDays)
+                ? Math.max(1, Math.min(requestedDays, 365))
+                : 30;
             const status = await statusService.getBusinessStatus(days);
             const topProducts = await statusService.getTopSellingProducts(5);
 

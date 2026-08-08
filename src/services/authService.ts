@@ -3,6 +3,7 @@ import axios from "axios";
 import prisma from "../database/prisma";
 import jwt from "jsonwebtoken";
 import logger from "../utils/logger";
+import userService from "./userService";
 
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 
@@ -49,7 +50,7 @@ function ensureGoogleOAuthTokens() {
   }
 }
 
-function createAppJWT(userId: string, email: string) {
+function createAppJWT(userId: string, email: string | null) {
   const jwtSecret = process.env.JWT_SECRET;
 
   if (!jwtSecret) {
@@ -79,6 +80,30 @@ class AuthService {
       where: { firebaseUId: firebaseUid },
     });
     if (existingUser) throw new Error("Usuário já registrado");
+
+    const existingByEmail = await prisma.user.findUnique({
+      where: { email },
+    });
+    if (existingByEmail) {
+      const user = await prisma.user.update({
+        where: { id: existingByEmail.id },
+        data: {
+          firebaseUId: firebaseUid,
+          name: existingByEmail.name || name,
+          image_url: imageUrl ?? existingByEmail.image_url,
+          updated_at: new Date(),
+        },
+      });
+      try {
+        return (
+          (await userService.backfillUserFromOrders(user.id)) || user
+        );
+      } catch (error) {
+        logger.warn("Backfill de dados a partir de pedidos falhou:", error);
+        return user;
+      }
+    }
+
     const user = await prisma.user.create({
       data: {
         firebaseUId: firebaseUid,
@@ -105,14 +130,34 @@ class AuthService {
         photoURL: imageUrl ?? undefined,
       });
 
-      const user = await prisma.user.create({
-        data: {
-          firebaseUId: firebaseUser.uid,
-          email,
-          name,
-          image_url: imageUrl ?? null,
-        },
-      });
+      let user = await prisma.user.findUnique({ where: { email } });
+
+      if (user) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            firebaseUId: firebaseUser.uid,
+            name: user.name || name,
+            image_url: imageUrl ?? user.image_url,
+            updated_at: new Date(),
+          },
+        });
+
+        try {
+          user = (await userService.backfillUserFromOrders(user.id)) || user;
+        } catch (error) {
+          logger.warn("Backfill de dados a partir de pedidos falhou:", error);
+        }
+      } else {
+        user = await prisma.user.create({
+          data: {
+            firebaseUId: firebaseUser.uid,
+            email,
+            name,
+            image_url: imageUrl ?? null,
+          },
+        });
+      }
 
       const sessionToken = await createCustomToken(firebaseUser.uid);
       const appToken = createAppJWT(user.id, user.email);
@@ -204,6 +249,12 @@ class AuthService {
       data: updateData,
     });
 
+    try {
+      user = (await userService.backfillUserFromOrders(user.id)) || user;
+    } catch (error) {
+      logger.warn("Backfill de dados a partir de pedidos falhou:", error);
+    }
+
     const sessionToken = await createCustomToken(uid);
     const appToken = createAppJWT(user.id, user.email);
 
@@ -244,6 +295,12 @@ class AuthService {
           where: { firebaseUId: uid },
           data: { updated_at: new Date() },
         });
+      }
+
+      try {
+        user = (await userService.backfillUserFromOrders(user.id)) || user;
+      } catch (error) {
+        logger.warn("Backfill de dados a partir de pedidos falhou:", error);
       }
 
       if (user.role.toLowerCase() === "admin") {

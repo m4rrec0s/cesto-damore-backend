@@ -651,7 +651,7 @@ router.post(
 router.post("/customizations/preview", customizationController.buildPreview);
 router.get(
   "/customization/review/:orderId",
-  authenticateToken,
+  optionalAuthenticateToken,
   customizationReviewController.getReviewData,
 );
 
@@ -683,7 +683,7 @@ router.get("/delivery/special-days", specialDeliveryController.list);
 
 // Coupons
 router.post("/coupons/validate", optionalAuthenticateToken, couponRateLimit, couponController.validate);
-router.get("/coupons/available", authenticateToken, couponController.available);
+router.get("/coupons/available", optionalAuthenticateToken, couponController.available);
 router.post("/admin/coupons", authenticateToken, requireAdmin, couponController.adminCreate);
 router.put("/admin/coupons/:id", authenticateToken, requireAdmin, couponController.adminUpdate);
 router.get("/admin/coupons", authenticateToken, requireAdmin, couponController.adminList);
@@ -708,13 +708,13 @@ router.get(
 );
 router.post(
   "/orders/:orderId/items/:itemId/customizations",
-  authenticateToken,
+  optionalAuthenticateToken,
   orderCustomizationController.saveOrderItemCustomization,
 );
 
 router.get(
   "/orders/:orderId/customizations/validate",
-  authenticateToken,
+  optionalAuthenticateToken,
   orderCustomizationController.validateOrderCustomizationsFiles,
 );
 
@@ -909,7 +909,7 @@ router.post(
 );
 router.post(
   "/mercadopago/get-installments",
-  authenticateToken,
+  optionalAuthenticateToken,
   paymentRateLimit,
   async (req, res) => {
     const { getInstallments } =

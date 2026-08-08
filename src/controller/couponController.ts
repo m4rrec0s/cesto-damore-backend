@@ -68,8 +68,12 @@ class CouponController {
   async available(req: Request, res: Response) {
     try {
       const userId = (req as any).user?.id;
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      if (!user) return res.status(401).json({ error: "Usuário não encontrado" });
+      const user = userId
+        ? await prisma.user.findUnique({ where: { id: userId } })
+        : null;
+      if (userId && !user) {
+        return res.status(401).json({ error: "Usuário não encontrado" });
+      }
 
       const now = new Date();
       const coupons = await prisma.coupon.findMany({
@@ -87,8 +91,12 @@ class CouponController {
                 { coupon_type: "GLOBAL" },
                 { coupon_type: "EVENTO" },
                 { coupon_type: "PRIMEIRA_COMPRA" },
-                { email: user.email?.toLowerCase() || "" },
-                { user_id: userId },
+                ...(user
+                  ? [
+                      { email: user.email?.toLowerCase() || "" },
+                      { user_id: userId },
+                    ]
+                  : []),
               ],
             },
           ],

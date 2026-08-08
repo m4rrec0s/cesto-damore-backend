@@ -7,6 +7,7 @@ import prisma from "../database/prisma";
 import orderCustomizationService from "../services/orderCustomizationService";
 import tempFileService from "../services/tempFileService";
 import logger from "../utils/logger";
+import { requireGuestOrderAccess } from "../utils/guestOrderToken";
 
 const uuidSchema = z.string().uuid({ message: "Identificador inválido" });
 
@@ -541,6 +542,27 @@ class OrderCustomizationController {
         );
       }
 
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { user_id: true },
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: "Pedido não encontrado" });
+      }
+
+      const user = (req as any).user;
+      if (!user) {
+        requireGuestOrderAccess(req, { id: orderId, user_id: order.user_id });
+      } else if (
+        String(user.role || "").toUpperCase() !== "ADMIN" &&
+        user.id !== order.user_id
+      ) {
+        return res.status(403).json({
+          error: "Você não tem permissão para personalizar este pedido",
+        });
+      }
+
       await orderCustomizationService.ensureOrderItem(orderId, itemId);
 
       logger.info(
@@ -712,6 +734,10 @@ class OrderCustomizationController {
         });
       }
 
+      if (error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
+      }
+
       logger.error("Erro ao salvar customização do item:", error);
       return res.status(500).json({
         error: "Erro ao salvar customização",
@@ -727,6 +753,27 @@ class OrderCustomizationController {
 
       const { orderId } = paramsSchema.parse(req.params);
 
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { user_id: true },
+      });
+
+      if (!order) {
+        return res.status(404).json({ error: "Pedido não encontrado" });
+      }
+
+      const user = (req as any).user;
+      if (!user) {
+        requireGuestOrderAccess(req, { id: orderId, user_id: order.user_id });
+      } else if (
+        String(user.role || "").toUpperCase() !== "ADMIN" &&
+        user.id !== order.user_id
+      ) {
+        return res.status(403).json({
+          error: "Você não tem permissão para validar este pedido",
+        });
+      }
+
       const result =
         await orderCustomizationService.validateOrderCustomizationsFiles(
           orderId,
@@ -738,6 +785,9 @@ class OrderCustomizationController {
         return res
           .status(400)
           .json({ error: "Dados inválidos", details: error.issues });
+      }
+      if (error.message.includes("Token de acesso")) {
+        return res.status(403).json({ error: error.message });
       }
       logger.error("Erro ao validar arquivos de customização:", error);
       return res

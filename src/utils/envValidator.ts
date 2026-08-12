@@ -54,4 +54,5 @@ export const validateEnv = () => {
   } else {
     logger.info("✅ Meta Conversions API configurada.");
   }
+
 };

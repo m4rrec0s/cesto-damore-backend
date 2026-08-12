@@ -118,6 +118,9 @@ model Order {
   send_anonymously                  Boolean?          @default(false)
   delivery_city                     String?
   delivery_state                    String?
+  delivery_zip_code                 String?
+  delivery_latitude                 Float?
+  delivery_longitude                Float?
   customizations_drive_processed    Boolean           @default(false)
   customizations_drive_processed_at DateTime?
   google_drive_folder_id            String?

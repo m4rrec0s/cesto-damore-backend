@@ -7,6 +7,7 @@ import customerManagementService from "./customerManagementService";
 import googleDriveService from "./googleDriveService";
 import holidayService from "./holidayService";
 import logger from "../utils/logger";
+import cepGeocodingService from "./cepGeocodingService";
 import fs from "fs";
 import path from "path";
 import { validateOrderCustomizations } from "../utils/customizationValidator";
@@ -85,6 +86,8 @@ type CreateOrderInput = {
   is_draft?: boolean;
   send_anonymously?: boolean;
   delivery_method?: "delivery" | "pickup";
+  customer_address?: string | null;
+  customer_zip_code?: string | null;
   metadata?: {
     guestEmailHash: string;
     guestIpHash: string;
@@ -1136,11 +1139,27 @@ class OrderService {
           send_anonymously: data.send_anonymously || false,
           delivery_city: orderData.delivery_city,
           delivery_state: orderData.delivery_state,
+          delivery_zip_code: data.customer_zip_code?.replace(/\D/g, "") || null,
           delivery_method: orderData.delivery_method || "delivery",
           metadata: orderData.metadata,
           source: "customer",
         },
       });
+
+      if (orderData.delivery_method !== "pickup") {
+        const coordinates = await cepGeocodingService.geocode(
+          data.customer_zip_code,
+        );
+        if (coordinates) {
+          await prisma.order.update({
+            where: { id: created.id },
+            data: {
+              delivery_latitude: coordinates.latitude,
+              delivery_longitude: coordinates.longitude,
+            },
+          });
+        }
+      }
 
       const createdItems: { id: string; index: number }[] = [];
       const additionalsBatch: any[] = [];
@@ -2207,6 +2226,18 @@ class OrderService {
     }
 
     updateData.pending_owner_key = ownerId;
+
+    if (typeof data.customer_zip_code === "string") {
+      updateData.delivery_zip_code = data.customer_zip_code.replace(/\D/g, "");
+    }
+    const geocodeZipCode = updateData.delivery_zip_code || order.delivery_zip_code;
+    if (geocodeZipCode && (updateData.delivery_method || order.delivery_method) !== "pickup") {
+      const coordinates = await cepGeocodingService.geocode(geocodeZipCode);
+      if (coordinates) {
+        updateData.delivery_latitude = coordinates.latitude;
+        updateData.delivery_longitude = coordinates.longitude;
+      }
+    }
 
     await prisma.order.update({ where: { id: orderId }, data: updateData });
 

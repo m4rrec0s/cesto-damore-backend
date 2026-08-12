@@ -64,6 +64,15 @@ class StatusService {
                 orders: number;
                 revenue: number;
             }>();
+            const salesPoints: Array<{
+                id: string;
+                latitude: number;
+                longitude: number;
+                city: string | null;
+                state: string | null;
+                orders: number;
+                revenue: number;
+            }> = [];
 
             orders.forEach(order => {
                 const dateKey = order.created_at.toISOString().split('T')[0];
@@ -105,6 +114,20 @@ class StatusService {
                         region.orders++;
                         region.revenue += orderValue;
                         salesRegions.set(key, region);
+                    }
+                    if (
+                        typeof order.delivery_latitude === "number" &&
+                        typeof order.delivery_longitude === "number"
+                    ) {
+                        salesPoints.push({
+                            id: order.id,
+                            latitude: order.delivery_latitude,
+                            longitude: order.delivery_longitude,
+                            city: order.delivery_city,
+                            state: order.delivery_state,
+                            orders: 1,
+                            revenue: Number(orderValue.toFixed(2)),
+                        });
                     }
 
                     order.items.forEach(item => {
@@ -185,6 +208,7 @@ class StatusService {
                 sales_regions: Array.from(salesRegions.values())
                     .map((region) => ({ ...region, revenue: Number(region.revenue.toFixed(2)) }))
                     .sort((a, b) => b.revenue - a.revenue),
+                sales_points: salesPoints,
             };
         } catch (error: any) {
             logger.error("Erro ao calcular status do negócio:", error);

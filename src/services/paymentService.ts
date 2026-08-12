@@ -5,6 +5,7 @@ import type { PaymentStatus, Prisma } from "@prisma/client";
 import * as crypto from "crypto-js";
 import { mercadoPagoDirectService } from "./mercadoPagoDirectService";
 import whatsappService from "./whatsappService";
+import { getToBeArrangedTimeRange } from "../utils/deliveryTimeRange";
 import orderCustomizationService from "./orderCustomizationService";
 import { webhookNotificationService } from "./webhookNotificationService";
 import { adminNotificationService } from "./adminNotificationService";
@@ -2936,6 +2937,19 @@ export class PaymentService {
         | "afternoon"
         | "to_be_arranged"
         | null,
+      toBeArrangedTimeRange:
+        order.delivery_slot === "to_be_arranged" && order.delivery_date
+          ? getToBeArrangedTimeRange(
+              order.delivery_date,
+              order.created_at,
+              Math.max(
+                1,
+                ...order.items.map((item) =>
+                  Number(item.product?.production_time || 0),
+                ),
+              ),
+            )
+          : undefined,
     };
 
     (orderData as any).send_anonymously = order.send_anonymously || false;

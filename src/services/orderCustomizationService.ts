@@ -10,6 +10,7 @@ import axios from "axios";
 import tempFileService from "./tempFileService";
 import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
 import { generateOrderPrintSummaryBuffer } from "../utils/orderPrintSummaryGenerator";
+import { getToBeArrangedTimeRange } from "../utils/deliveryTimeRange";
 
 interface SaveOrderCustomizationInput {
   orderItemId: string;
@@ -1321,6 +1322,21 @@ class OrderCustomizationService {
           (total, item) => total + Number(item.price || 0) * item.quantity,
           0,
         );
+        const maxProductionHours = Math.max(
+          1,
+          ...order.items.map((item) => Number(item.product?.production_time || 0)),
+        );
+        const deliveryTime = order.delivery_slot === "to_be_arranged" && order.delivery_date
+          ? getToBeArrangedTimeRange(
+              order.delivery_date,
+              order.created_at,
+              maxProductionHours,
+            )
+          : order.delivery_date?.toLocaleTimeString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
         const summaryBuffer = await generateOrderPrintSummaryBuffer({
           orderId,
           createdAt: order.created_at,
@@ -1339,6 +1355,7 @@ class OrderCustomizationService {
             zipCode: order.user?.zip_code,
             recipientPhone: order.recipient_phone,
             date: order.delivery_date,
+            time: deliveryTime,
           },
           payment: {
             orderMethod: order.payment_method,

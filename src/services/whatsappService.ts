@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import reportService from "./reportService";
 import logger from "../utils/logger";
+import { getToBeArrangedTimeRange } from "../utils/deliveryTimeRange";
 
 type OrderStatus = "PENDING" | "PAID" | "PAID_STOCK_FAILED" | "SHIPPED" | "DELIVERED" | "CANCELED";
 
@@ -333,6 +334,7 @@ class WhatsAppService {
       recipientPhone?: string;
       deliveryMethod?: string;
       deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
+      toBeArrangedTimeRange?: string;
     },
     options: { notifyTeam?: boolean; notifyCustomer?: boolean } = {
       notifyTeam: true,
@@ -412,6 +414,7 @@ class WhatsAppService {
     complement?: string;
     deliveryMethod?: string;
     deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
+    toBeArrangedTimeRange?: string;
   }) {
     const orderLabel =
       orderData.orderNumber || orderData.orderId.substring(0, 8).toUpperCase();
@@ -468,7 +471,7 @@ class WhatsAppService {
       if (orderData.delivery.date) {
         teamMessage += `\n⏰ *Data/Hora de Entrega:*\n`;
         teamMessage += orderData.deliverySlot === "to_be_arranged"
-          ? `${this.formatDateOnlyToBrasilia(orderData.delivery.date)} - A combinar\n`
+          ? `${this.formatDateOnlyToBrasilia(orderData.delivery.date)} - ${orderData.toBeArrangedTimeRange || "Horário sujeito à confirmação"}\n`
           : `${this.formatToBrasiliaTime(orderData.delivery.date as any)}\n`;
       }
     }
@@ -493,7 +496,7 @@ class WhatsAppService {
     if (orderData.delivery && orderData.delivery.date) {
       const deliveryDateTime = new Date(orderData.delivery.date);
       deliveryDateBrasilia = this.formatDateOnlyToBrasilia(deliveryDateTime);
-      deliveryTimeBrasilia = orderData.deliverySlot === "to_be_arranged" ? "A combinar" : deliveryDateTime.toLocaleTimeString("pt-BR", {
+      deliveryTimeBrasilia = orderData.deliverySlot === "to_be_arranged" ? (orderData.toBeArrangedTimeRange || "Horário sujeito à confirmação") : deliveryDateTime.toLocaleTimeString("pt-BR", {
         timeZone: "America/Sao_Paulo",
         hour: "2-digit",
         minute: "2-digit",
@@ -509,8 +512,8 @@ class WhatsAppService {
     customerMessage += `═══════════════════════════════\n\n`;
 
     customerMessage += `📅 *Data do Pedido:* ${createdAtBrasilia}\n`;
-    if (deliveryTimeBrasilia === "A combinar") {
-      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} - A combinar\n\n`;
+    if (orderData.deliverySlot === "to_be_arranged") {
+      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} - ${deliveryTimeBrasilia}\n\n`;
     } else if (deliveryTimeBrasilia) {
       customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} às ${deliveryTimeBrasilia}\n\n`;
     } else {

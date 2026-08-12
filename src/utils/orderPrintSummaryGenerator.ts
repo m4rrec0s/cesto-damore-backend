@@ -34,6 +34,7 @@ export interface OrderPrintSummaryInput {
     zipCode?: string | null;
     recipientPhone?: string | null;
     date?: Date | null;
+    time?: string | null;
   };
   payment: { orderMethod?: string | null; confirmedMethod?: string | null };
   amounts: { items: number; shipping: number; discount: number; total: number };
@@ -118,6 +119,7 @@ export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryIn
       new TableRow({ children: [cell("CEP", true), cell(value(delivery.zipCode))] }),
       new TableRow({ children: [cell("Telefone destinatário", true), cell(value(delivery.recipientPhone))] }),
       new TableRow({ children: [cell("Data", true), cell(delivery.date?.toLocaleDateString("pt-BR") || "Não informado")] }),
+      new TableRow({ children: [cell("Horário", true), cell(value(delivery.time))] }),
     ]),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Pagamento e valores", true)] }),
     detailsTable([

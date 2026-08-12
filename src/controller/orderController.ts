@@ -422,10 +422,13 @@ class OrderController {
       );
       res.json(result);
     } catch (error: any) {
-      logger.error("Erro ao deletar pedido:", error);
       if (error.message.includes("não encontrado")) {
-        res.status(404).json({ error: error.message });
-      } else if (error.message.includes("obrigatório")) {
+        // Delete é idempotente: uma requisição concorrente já pode ter removido
+        // o rascunho pendente antes desta chegar.
+        return res.status(204).end();
+      }
+      logger.error("Erro ao deletar pedido:", error);
+      if (error.message.includes("obrigatório")) {
         res.status(400).json({ error: error.message });
       } else if (error.message.includes("Token de acesso")) {
         res.status(403).json({ error: error.message });

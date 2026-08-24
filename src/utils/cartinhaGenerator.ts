@@ -3,14 +3,12 @@ import { Document, Packer, Paragraph, TextRun, AlignmentType } from 'docx'
 export interface CartinhaOptions {
   message: string
   customerName?: string
-  maxLength?: number
 }
 
 export async function generateCartinhaBuffer(options: CartinhaOptions): Promise<Buffer> {
-  let text = options.message
-  if (options.maxLength && text.length > options.maxLength) {
-    text = text.slice(0, options.maxLength)
-  }
+  // docx não converte "\n" em quebra de linha — cada linha vira um parágrafo próprio.
+  // Sem truncamento: a mensagem vai completa (paginação fica a cargo do Word/viewer).
+  const lines = options.message.split('\n')
 
   const doc = new Document({
     sections: [{
@@ -22,19 +20,19 @@ export async function generateCartinhaBuffer(options: CartinhaOptions): Promise<
           },
         },
       },
-      children: [
+      children: lines.map((line, index) =>
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          spacing: { before: 4000 },
+          spacing: { before: index === 0 ? 4000 : 0 },
           children: [
             new TextRun({
-              text,
+              text: line,
               font: 'Arial',
               size: 22, // half-points: 22 = 11pt
             }),
           ],
         }),
-      ],
+      ),
     }],
   })
 

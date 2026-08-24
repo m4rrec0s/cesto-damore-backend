@@ -252,8 +252,23 @@ export async function composeManualLayoutPdf(params: {
   );
 }
 
-/** Convert a composed PNG buffer into a PDF with correct page dimensions from layout */
-async function pngToLayoutPdf(pngBuffer: Buffer, widthPx: number, heightPx: number): Promise<Buffer> {
+/**
+ * Parse a date-only string ("YYYY-MM-DD") as a LOCAL date, avoiding the UTC-shift
+ * that makes the formatted day come out one day earlier in negative-offset timezones.
+ */
+function parseSummaryDeliveryDate(value: unknown): Date | null {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** Convert composed PNG buffers (one per page) into a PDF with correct page dimensions from layout */
+async function pngsToLayoutPdf(pngBuffers: Buffer[], widthPx: number, heightPx: number): Promise<Buffer> {
   const aspectRatio = widthPx / heightPx;
   const PR_SHORT_MM = 100;
   const PR_LONG_MM = 150;
@@ -271,8 +286,15 @@ async function pngToLayoutPdf(pngBuffer: Buffer, widthPx: number, heightPx: numb
   const doc = new PDFDocument({ size: [pageWidthPt, pageHeightPt], autoFirstPage: false });
   const buffers: Buffer[] = [];
   doc.on("data", (chunk: Buffer) => buffers.push(chunk));
-  doc.addPage({ size: [pageWidthPt, pageHeightPt] });
-  doc.image(pngBuffer, 0, 0, { width: pageWidthPt, height: pageHeightPt });
+
+  const pages = pngBuffers.length > 0 ? pngBuffers : [];
+  for (const pngBuffer of pages) {
+    doc.addPage({ size: [pageWidthPt, pageHeightPt] });
+    doc.image(pngBuffer, 0, 0, { width: pageWidthPt, height: pageHeightPt });
+  }
+  if (pages.length === 0) {
+    doc.addPage({ size: [pageWidthPt, pageHeightPt] });
+  }
   doc.end();
 
   return new Promise((resolve) =>
@@ -354,8 +376,7 @@ export function createPrintAdminRoutes(router: Router): void {
         const customerName = String(req.body.customerName || "").trim();
         const productId = String(req.body.productId || "").trim();
         const layoutId = String(req.body.layoutId || "").trim();
-      const giftMessageMaxLength = Number(req.body.maxLength) || 500;
-      const giftMessage = String(req.body.giftMessage || "").trim().slice(0, giftMessageMaxLength);
+      const giftMessage = String(req.body.giftMessage || "").trim();
       const deviceId = String(req.body.deviceId || "").trim() || undefined;
 
       logger.info({ customerName, layoutId, bodyKeys: Object.keys(req.body || {}), filesCount: (req.files || []).length }, "manual_print_received");
@@ -426,11 +447,13 @@ export function createPrintAdminRoutes(router: Router): void {
           ? (req.files as Express.Multer.File[])
           : [];
         const filesBySlot = new Map<string, Express.Multer.File>();
-        let hasComposedImage = false;
+        // Client may send one composed PNG per layout page (multi-page layouts)
+        const composedFiles = uploadedFiles.filter((f) => f.fieldname === "composedImage");
+        const hasComposedImage = composedFiles.length > 0;
 
         for (const file of uploadedFiles) {
           const field = file.fieldname || "";
-          if (field === "composedImage") { hasComposedImage = true; continue; }
+          if (field === "composedImage") { continue; }
           const slotId =
             field.match(/^slots?\.(.+)$/)?.[1] ||
             field.match(/^slots?\[(.+)\]$/)?.[1] ||
@@ -460,9 +483,12 @@ export function createPrintAdminRoutes(router: Router): void {
         let designMimeType: string;
 
         if (hasComposedImage) {
-          // Composed image was sent client-side — wrap in PDF using layout dimensions
-          const composedFile = uploadedFiles.find((f) => f.fieldname === "composedImage");
-          designBuffer = await pngToLayoutPdf(composedFile!.buffer, Number(layout.width || 1000), Number(layout.height || 1500));
+          // Composed images were sent client-side (one per page) — wrap all in a single PDF
+          designBuffer = await pngsToLayoutPdf(
+            composedFiles.map((f) => f.buffer),
+            Number(layout.width || 1000),
+            Number(layout.height || 1500),
+          );
           designFileName = `${safeDriveName(layout.name)}_${shortId}.pdf`;
           designMimeType = "application/pdf";
         } else {
@@ -518,7 +544,7 @@ export function createPrintAdminRoutes(router: Router): void {
         if (giftMessage) {
           const cartinhaFolderId = await googleDriveService.createFolder("Cartinha", mainFolderId);
           const cartinhaFileName = `Cartinha_${shortId}.docx`;
-          const cartinhaBuffer = await generateCartinhaBuffer({ message: giftMessage, maxLength: giftMessageMaxLength });
+          const cartinhaBuffer = await generateCartinhaBuffer({ message: giftMessage });
           const cartinhaUpload = await googleDriveService.uploadBuffer(
             cartinhaBuffer,
             cartinhaFileName,
@@ -556,7 +582,7 @@ export function createPrintAdminRoutes(router: Router): void {
               state: String(req.body.summaryDeliveryState || ""),
               zipCode: String(req.body.summaryDeliveryZipCode || ""),
               recipientPhone: String(req.body.summaryDeliveryRecipientPhone || ""),
-              date: req.body.summaryDeliveryDate ? new Date(req.body.summaryDeliveryDate) : null,
+              date: parseSummaryDeliveryDate(req.body.summaryDeliveryDate),
             };
             const payment = {
               orderMethod: String(req.body.summaryPaymentOrderMethod || "manual"),
@@ -569,9 +595,8 @@ export function createPrintAdminRoutes(router: Router): void {
               total: Number(req.body.summaryAmountTotal || 0),
             };
 
-            const composedFile = uploadedFiles.find((f) => f.fieldname === "composedImage");
-            const artworkPreviewUrl = composedFile?.buffer?.length
-              ? `data:image/png;base64,${composedFile.buffer.toString("base64")}`
+            const artworkPreviewUrl = composedFiles[0]?.buffer?.length
+              ? `data:image/png;base64,${composedFiles[0].buffer.toString("base64")}`
               : undefined;
 
             const summaryItems = [

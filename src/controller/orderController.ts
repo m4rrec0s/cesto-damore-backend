@@ -232,8 +232,8 @@ class OrderController {
       if (!currentUserId) {
         let existingGuestUserId: string | undefined;
         if (req.header("authorization")?.startsWith("Guest ")) {
-          const claims = getGuestOrderClaims(req);
           try {
+            const claims = getGuestOrderClaims(req);
             const existingOrder = await orderService.getOrderById(claims.orderId);
             if (
               existingOrder.status !== "PENDING" ||
@@ -244,9 +244,12 @@ class OrderController {
             }
             existingGuestUserId = claims.userId;
           } catch (error) {
-            if (!(error instanceof Error) || error.message !== "Pedido não encontrado") {
-              throw error;
-            }
+            // Invalid/expired token or unresolvable order: fall back to
+            // creating a fresh guest order instead of failing with a 500.
+            logger.debug(
+              "⚠️ Token de convidado inválido/expirado ignorado (novo pedido será criado):",
+              (error as Error)?.message,
+            );
           }
         }
         if (!existingGuestUserId && guestIdentity) {

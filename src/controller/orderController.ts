@@ -314,10 +314,19 @@ class OrderController {
       });
 
       if (!currentUserId) {
-        return res.status(201).json({
-          order,
-          guestOrderToken: createGuestOrderToken(order.id, order.user_id),
-        });
+        let guestOrderToken: string | undefined;
+        try {
+          guestOrderToken = createGuestOrderToken(order.id, order.user_id);
+        } catch (tokenError) {
+          // The order was created successfully; a missing/invalid guest token
+          // secret must not turn a valid order into a 500. Fall back to
+          // returning the order without a token and surface the real cause.
+          logger.error(
+            "⚠️ Falha ao gerar guestOrderToken (pedido criado sem token):",
+            tokenError,
+          );
+        }
+        return res.status(201).json({ order, guestOrderToken });
       }
       res.status(201).json(order);
     } catch (error: any) {

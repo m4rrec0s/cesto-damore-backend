@@ -11,6 +11,7 @@ import cepGeocodingService from "./cepGeocodingService";
 import fs from "fs";
 import path from "path";
 import { validateOrderCustomizations } from "../utils/customizationValidator";
+import { getToBeArrangedTimeRange } from "../utils/deliveryTimeRange";
 import customizationAssetPersistenceService from "./customizationAssetPersistenceService";
 import guestUserService from "./guestUserService";
 import orderCustomizationService from "./orderCustomizationService";
@@ -2542,6 +2543,24 @@ class OrderService {
                   date: updated.delivery_date || undefined,
                 }
               : undefined,
+            deliverySlot: updated.delivery_slot as
+              | "morning"
+              | "afternoon"
+              | "to_be_arranged"
+              | null,
+            toBeArrangedTimeRange:
+              updated.delivery_slot === "to_be_arranged" && updated.delivery_date
+                ? getToBeArrangedTimeRange(
+                    updated.delivery_date,
+                    updated.created_at,
+                    Math.max(
+                      1,
+                      ...updated.items.map((item) =>
+                        Number(item.product?.production_time || 0),
+                      ),
+                    ),
+                  )
+                : undefined,
             googleDriveUrl: driveLink || undefined,
           },
           normalizedStatus,

@@ -468,11 +468,9 @@ class WhatsAppService {
       if (complement) {
         teamMessage += `_Complemento: ${complement}_\n`;
       }
-      if (orderData.delivery.date) {
-        teamMessage += `\n⏰ *Data/Hora de Entrega:*\n`;
-        teamMessage += orderData.deliverySlot === "to_be_arranged"
-          ? `${this.formatDateOnlyToBrasilia(orderData.delivery.date)} - ${orderData.toBeArrangedTimeRange || "Horário sujeito à confirmação"}\n`
-          : `${this.formatToBrasiliaTime(orderData.delivery.date as any)}\n`;
+      const teamSchedule = this.formatDeliverySchedule(orderData);
+      if (teamSchedule) {
+        teamMessage += `\n⏰ *Data/Hora de Entrega:*\n${teamSchedule}\n`;
       }
     }
 
@@ -491,17 +489,7 @@ class WhatsAppService {
     teamMessage += `🚀 *Preparar pedido para entrega!*`;
 
     const createdAtBrasilia = this.formatToBrasiliaTime(new Date());
-    let deliveryDateBrasilia = "A definir";
-    let deliveryTimeBrasilia = "";
-    if (orderData.delivery && orderData.delivery.date) {
-      const deliveryDateTime = new Date(orderData.delivery.date);
-      deliveryDateBrasilia = this.formatDateOnlyToBrasilia(deliveryDateTime);
-      deliveryTimeBrasilia = orderData.deliverySlot === "to_be_arranged" ? (orderData.toBeArrangedTimeRange || "Horário sujeito à confirmação") : deliveryDateTime.toLocaleTimeString("pt-BR", {
-        timeZone: "America/Sao_Paulo",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    }
+    const deliverySchedule = this.formatDeliverySchedule(orderData);
 
     let customerMessage = `🎉 *PEDIDO CONFIRMADO!* 🎉\n\n`;
     customerMessage += `Olá, *${orderData.customer.name}*! ✨\n`;
@@ -512,13 +500,7 @@ class WhatsAppService {
     customerMessage += `═══════════════════════════════\n\n`;
 
     customerMessage += `📅 *Data do Pedido:* ${createdAtBrasilia}\n`;
-    if (orderData.deliverySlot === "to_be_arranged") {
-      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} - ${deliveryTimeBrasilia}\n\n`;
-    } else if (deliveryTimeBrasilia) {
-      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia} às ${deliveryTimeBrasilia}\n\n`;
-    } else {
-      customerMessage += `🚚 *Entrega Prevista:* ${deliveryDateBrasilia}\n\n`;
-    }
+    customerMessage += `🚚 *Entrega Prevista:* ${deliverySchedule || "A definir"}\n\n`;
 
     if (orderData.deliveryMethod === "pickup") {
       customerMessage += `📍 *Retirada na Loja*\n`;
@@ -585,6 +567,22 @@ class WhatsAppService {
   private buildChatId(phoneNumber: string): string {
     const normalized = this.normalizePhoneForWhatsApp(phoneNumber);
     return `${normalized}@s.whatsapp.net`;
+  }
+
+  private formatDeliverySchedule(orderData: {
+    delivery?: { date?: string | Date | null };
+    deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
+    toBeArrangedTimeRange?: string;
+  }): string | null {
+    if (!orderData.delivery || !orderData.delivery.date) return null;
+    const dateStr = this.formatDateOnlyToBrasilia(orderData.delivery.date);
+    const slot = orderData.deliverySlot;
+    if (slot === "to_be_arranged") {
+      return `${dateStr} - ${orderData.toBeArrangedTimeRange || "Horário a combinar"}`;
+    }
+    if (slot === "morning") return `${dateStr} - Manhã`;
+    if (slot === "afternoon") return `${dateStr} - Tarde`;
+    return dateStr;
   }
 
   public async sendDirectMessage(
@@ -699,6 +697,8 @@ class WhatsAppService {
         state?: string;
         date?: Date | string | null;
       };
+      deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
+      toBeArrangedTimeRange?: string;
       googleDriveUrl?: string;
     },
     newStatus: OrderStatus,
@@ -741,10 +741,9 @@ class WhatsAppService {
             message += ` (${locationParts})`;
           }
         }
-        if (orderData.delivery.date) {
-          message += `\n🗓️ ${this.formatDateOnlyToBrasilia(
-            orderData.delivery.date,
-          )}`;
+        const groupSchedule = this.formatDeliverySchedule(orderData);
+        if (groupSchedule) {
+          message += `\n🗓️ ${groupSchedule}`;
         }
         message += "\n";
       }
@@ -788,10 +787,9 @@ class WhatsAppService {
               message += ` (${locationParts})`;
             }
           }
-          if (orderData.delivery.date) {
-            message += `\n🗓️ Data prevista: ${this.formatDateOnlyToBrasilia(
-              orderData.delivery.date,
-            )}`;
+          const customerSchedule = this.formatDeliverySchedule(orderData);
+          if (customerSchedule) {
+            message += `\n🗓️ Data prevista: ${customerSchedule}`;
           }
         }
 

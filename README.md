@@ -1,1 +1,1 @@
-# 🧺 Cesto d'Amore - Backend API
+# Cesto d'Amore - Backend API

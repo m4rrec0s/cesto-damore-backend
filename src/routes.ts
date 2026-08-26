@@ -741,6 +741,11 @@ router.post(
   logFinancialOperation("TRANSPARENT_CHECKOUT"),
   PaymentController.processTransparentCheckout,
 );
+router.post(
+  "/payment/validate-document",
+  optionalAuthenticateToken,
+  PaymentController.validateDocument,
+);
 router.get(
   "/payment/:paymentId/status",
   optionalAuthenticateToken,

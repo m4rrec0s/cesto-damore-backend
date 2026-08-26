@@ -1290,6 +1290,7 @@ export class PaymentService {
       if (paymentResponse.status === "approved") {
         await orderService.updateOrderStatus(data.orderId, "PAID", {
           notifyCustomer: false,
+          skipPostPaymentProcessing: true,
         });
 
         if (couponApplied) {
@@ -2525,6 +2526,7 @@ export class PaymentService {
         // Atualiza status do pedido (não-bloqueante)
         await orderService.updateOrderStatus(dbPayment.order_id, "PAID", {
           notifyCustomer: false,
+          skipPostPaymentProcessing: true,
         }).catch((err: any) => {
           logger.error(`⚠️ Falha ao atualizar status do pedido ${dbPayment.order_id} para PAID:`, err?.message || err);
         });

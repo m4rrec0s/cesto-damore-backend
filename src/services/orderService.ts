@@ -13,6 +13,9 @@ import path from "path";
 import { validateOrderCustomizations } from "../utils/customizationValidator";
 import customizationAssetPersistenceService from "./customizationAssetPersistenceService";
 import guestUserService from "./guestUserService";
+import orderCustomizationService from "./orderCustomizationService";
+import { dispatchPrintForOrder } from "./printDispatchService";
+import alertService, { AlertCategory, AlertSeverity } from "./alertService";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -52,6 +55,12 @@ interface PaginatedResponse<T> {
 
 interface UpdateStatusOptions {
   notifyCustomer?: boolean;
+  /**
+   * Quando true, não dispara o pós-processamento (finalize customizações +
+   * despacho de impressão) na transição para PAID. Usado pelo fluxo de
+   * pagamento, que já executa esse pipeline por conta própria.
+   */
+  skipPostPaymentProcessing?: boolean;
 }
 
 type CreateOrderItem = {
@@ -2018,6 +2027,9 @@ class OrderService {
     },
     options?: { isGuest?: boolean },
   ) {
+    const validationError = (message: string) =>
+      Object.assign(new Error(message), { statusCode: 400 });
+
     if (!orderId) {
       throw new Error("ID do pedido é obrigatório");
     }
@@ -2028,7 +2040,9 @@ class OrderService {
     }
 
     if (order.status !== "PENDING") {
-      throw new Error("Apenas pedidos pendentes podem ser atualizados");
+      throw validationError(
+        "Apenas pedidos pendentes podem ser atualizados. Revise o carrinho e tente novamente.",
+      );
     }
 
     const updateData: any = {};
@@ -2062,7 +2076,9 @@ class OrderService {
         ? normalized.substring(2)
         : normalized;
       if (localDigits.length < 10 || localDigits.length > 11) {
-        throw new Error("Telefone do destinatário inválido");
+        throw validationError(
+          "Telefone do destinatário inválido. Verifique o número com DDD.",
+        );
       }
       updateData.recipient_phone = normalized;
     }
@@ -2078,23 +2094,27 @@ class OrderService {
           ? data.delivery_date
           : new Date(String(data.delivery_date));
       if (isNaN(Number(dt))) {
-        throw new Error("Data de entrega inválida");
+        throw validationError("Data de entrega inválida");
       }
 
     if (data.delivery_slot !== undefined) {
       if (!['morning', 'afternoon', 'to_be_arranged'].includes(data.delivery_slot)) {
-        throw new Error("Faixa de entrega inválida");
+        throw validationError("Faixa de entrega inválida");
       }
       updateData.delivery_slot = data.delivery_slot;
     }
 
       const now = new Date();
       if (dt < now) {
-        throw new Error("Data de entrega não pode ser no passado");
+        throw validationError(
+          "Data de entrega não pode ser no passado. Escolha uma nova data.",
+        );
       }
       const holiday = await holidayService.isDeliveryDateBlocked(dt);
       if (holiday) {
-        throw new Error(`Não realizamos entregas no feriado ${holiday.name}`);
+        throw validationError(
+          `Não realizamos entregas no feriado ${holiday.name}. Escolha outra data.`,
+        );
       }
       updateData.delivery_date = dt;
     }
@@ -2106,14 +2126,18 @@ class OrderService {
         normalizedState !== "pb" &&
         normalizedState !== "paraiba"
       ) {
-        throw new Error("Atualmente só entregamos na Paraíba (PB)");
+        throw validationError(
+          "Atualmente só entregamos na Paraíba (PB). Revise o endereço.",
+        );
       }
     }
 
     if (typeof data.payment_method === "string") {
       const normalizedPayment = normalizeText(data.payment_method || "");
       if (normalizedPayment !== "pix" && normalizedPayment !== "card") {
-        throw new Error("Forma de pagamento inválida. Utilize pix ou card");
+        throw validationError(
+          "Forma de pagamento inválida. Utilize pix ou card",
+        );
       }
       updateData.payment_method = normalizedPayment;
     }
@@ -2135,15 +2159,22 @@ class OrderService {
           (updateData.delivery_city as string) || order.delivery_city || "";
         const rule = ACCEPTED_CITIES[normalizeText(city)];
         if (!rule) {
-          throw new Error("Ainda não fazemos entrega nesse endereço");
+          throw validationError(
+            "Ainda não fazemos entrega nesse endereço. Revise a cidade informada.",
+          );
         }
         updateData.shipping_price = rule[effectivePaymentMethod];
       }
     }
 
+    if (typeof data.discount === "number") {
+      updateData.discount = data.discount;
+    }
+
     if (
       typeof updateData.shipping_price === "number" ||
-      typeof updateData.payment_method === "string"
+      typeof updateData.payment_method === "string" ||
+      typeof updateData.discount === "number"
     ) {
       // Para pedidos em construção (carrinho/draft), order.total pode ser null/0.
       // Pulamos a validação de grand_total aqui - a validação final ocorre no checkout.
@@ -2159,7 +2190,9 @@ class OrderService {
             : order.shipping_price || 0;
 
         if (nextDiscount > currentTotal) {
-          throw new Error("Desconto não pode ser maior que o total dos itens");
+          throw validationError(
+            "Desconto não pode ser maior que o total dos itens",
+          );
         }
 
         const newGrandTotal = parseFloat(
@@ -2167,7 +2200,9 @@ class OrderService {
         );
 
         if (newGrandTotal <= 0) {
-          throw new Error("Valor final do pedido deve ser maior que zero");
+          throw validationError(
+            "Valor final do pedido deve ser maior que zero",
+          );
         }
         updateData.grand_total = newGrandTotal;
       }
@@ -2332,6 +2367,14 @@ class OrderService {
 
         return this.getOrderById(id);
       }
+    }
+
+    if (
+      normalizedStatus === "PAID" &&
+      current.status !== "PAID" &&
+      !options.skipPostPaymentProcessing
+    ) {
+      this.runPaidOrderPostProcessingInBackground(id);
     }
 
     if (normalizedStatus === "DELIVERED") {
@@ -2512,6 +2555,76 @@ class OrderService {
     }
 
     return this.getOrderById(id);
+  }
+
+  /**
+   * Pós-processamento de pedido marcado como PAID fora do fluxo de pagamento
+   * (ex.: admin setando pagamento manualmente no manager). Garante que o
+   * pipeline completo rode: upload das artes para o Drive + despacho do job
+   * de impressão para o CDA-Print-Agent via WebSocket.
+   *
+   * Idempotente: `enqueuePrintJob` faz upsert por orderId e
+   * `finalizeOrderCustomizations` possui lock in-memory + claim atômico.
+   */
+  private runPaidOrderPostProcessingInBackground(orderId: string): void {
+    void (async () => {
+      try {
+        logger.info(
+          `🚀 [OrderService] PAID manual - iniciando pós-processamento do pedido ${orderId}`,
+        );
+
+        const finalizeRes =
+          await orderCustomizationService.finalizeOrderCustomizations(orderId);
+
+        logger.info(
+          `✅ [OrderService] finalizeOrderCustomizations (PAID manual) do pedido ${orderId}: ${JSON.stringify(
+            finalizeRes,
+          )}`,
+        );
+
+        if (finalizeRes.folderId) {
+          const orderInfo = await prisma.order.findUnique({
+            where: { id: orderId },
+            select: { user: { select: { name: true } } },
+          });
+
+          await dispatchPrintForOrder(
+            orderId,
+            finalizeRes.folderId,
+            orderInfo?.user?.name || "Cliente",
+            finalizeRes.files,
+          );
+
+          logger.info(
+            `✅ [OrderService] Impressão enfileirada (PAID manual) para pedido ${orderId}`,
+          );
+        } else {
+          logger.warn(
+            `⚠️ [OrderService] Nenhum folderId do Drive para enfileirar impressão do pedido ${orderId} (PAID manual)`,
+          );
+        }
+      } catch (error) {
+        logger.error(
+          `❌ [OrderService] Erro no pós-processamento manual do pedido ${orderId}:`,
+          error,
+        );
+        alertService
+          .sendAlert({
+            category: AlertCategory.PAYMENT_PROCESSING,
+            severity: AlertSeverity.CRITICAL,
+            title: "Falha no pós-processamento de pagamento manual",
+            message: `Pedido ${orderId} marcado como PAID manualmente, mas finalize/impressão falhou. Pedido pode precisar de intervenção.`,
+            metadata: { orderId, error: String(error) },
+            timestamp: new Date(),
+          })
+          .catch((alertErr) =>
+            logger.warn(
+              "Falha ao enviar alerta de pós-processamento:",
+              alertErr,
+            ),
+          );
+      }
+    })();
   }
 
   async getPendingOrder(userId: string) {

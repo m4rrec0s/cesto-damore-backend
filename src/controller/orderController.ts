@@ -496,6 +496,7 @@ class OrderController {
         shipping_price,
         payment_method,
         delivery_method,
+        discount,
         customer_name,
         customer_email,
         customer_phone,
@@ -544,6 +545,7 @@ class OrderController {
           shipping_price,
           payment_method,
           delivery_method,
+          discount,
           customer_name,
           customer_email,
           customer_phone,
@@ -557,7 +559,7 @@ class OrderController {
       res.json(updated);
     } catch (error: any) {
       logger.error("Erro ao atualizar metadata do pedido:", error);
-      if (error.message.includes("obrigatório")) {
+      if (error.statusCode === 400 || error.message.includes("obrigatório")) {
         return res.status(400).json({ error: error.message });
       }
       if (error.message.includes("não encontrado")) {

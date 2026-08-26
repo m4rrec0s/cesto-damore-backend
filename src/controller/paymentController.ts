@@ -5,6 +5,8 @@ import prisma from "../database/prisma";
 import orderService from "../services/orderService";
 import guestUserService from "../services/guestUserService";
 import logger from "../utils/logger";
+import { validateBrazilianDocument } from "../utils/documentValidator";
+import { verifyDocumentExists } from "../services/documentVerificationService";
 import { requireGuestOrderAccess } from "../utils/guestOrderToken";
 
 export class PaymentController {
@@ -307,6 +309,7 @@ private static async resolveCheckoutContext(
         payment_method_id,
         frontendPublicKeyFingerprint,
         frontendPublicKeyPrefix,
+        couponCode,
       } = req.body;
 
       const currentUserId = (req as any).user?.id;
@@ -353,6 +356,61 @@ private static async resolveCheckoutContext(
         });
       }
 
+      const documentValidation = validateBrazilianDocument(payerDocument);
+      if (!documentValidation.valid) {
+        logger.warn("[Checkout] Documento do pagador inválido", {
+          orderId,
+          userId,
+          documentType: payerDocumentType,
+          reason: documentValidation.message,
+        });
+        return res.status(400).json({
+          error:
+            documentValidation.message ||
+            "CPF/CNPJ inválido. Verifique os números digitados.",
+          code: "INVALID_PAYER_DOCUMENT",
+        });
+      }
+
+      if (
+        documentValidation.type &&
+        payerDocumentType !== documentValidation.type
+      ) {
+        logger.warn(
+          "[Checkout] Tipo de documento não corresponde ao número informado",
+          {
+            orderId,
+            userId,
+            informedType: payerDocumentType,
+            detectedType: documentValidation.type,
+          },
+        );
+        return res.status(400).json({
+          error: `O documento informado é um ${documentValidation.type}. Selecione o tipo correto e tente novamente.`,
+          code: "INVALID_PAYER_DOCUMENT_TYPE",
+        });
+      }
+
+      const documentExistence = await verifyDocumentExists(
+        documentValidation.type as "CPF" | "CNPJ",
+        payerDocument,
+      );
+
+      if (documentExistence.checked && !documentExistence.exists) {
+        logger.warn("[Checkout] Documento do pagador não existe na base oficial", {
+          orderId,
+          userId,
+          documentType: documentValidation.type,
+          situation: documentExistence.situation,
+        });
+        return res.status(400).json({
+          error:
+            documentExistence.message ||
+            "Documento não encontrado. Verifique os dados informados.",
+          code: "PAYER_DOCUMENT_NOT_FOUND",
+        });
+      }
+
       if (
         !paymentMethodId ||
         !["pix", "credit_card", "debit_card"].includes(paymentMethodId)
@@ -389,6 +447,7 @@ private static async resolveCheckoutContext(
         payment_method_id,
         frontendPublicKeyFingerprint,
         frontendPublicKeyPrefix,
+        couponCode,
       });
 
       res.status(201).json({
@@ -423,6 +482,43 @@ private static async resolveCheckoutContext(
         details: "Erro interno do servidor",
         status_detail: statusDetail,
       });
+    }
+  }
+
+  static async validateDocument(req: Request, res: Response) {
+    try {
+      const { value, type } = req.body as {
+        value?: string;
+        type?: "CPF" | "CNPJ";
+      };
+
+      const validation = validateBrazilianDocument(value || "");
+      if (!validation.valid) {
+        return res.status(200).json({
+          valid: false,
+          type: validation.type,
+          exists: false,
+          checked: false,
+          message: validation.message,
+        });
+      }
+
+      const existence = await verifyDocumentExists(
+        (type || validation.type) as "CPF" | "CNPJ",
+        value || "",
+      );
+
+      return res.status(200).json({
+        valid: true,
+        type: validation.type,
+        exists: existence.exists,
+        checked: existence.checked,
+        situation: existence.situation,
+        message: existence.message,
+      });
+    } catch (error) {
+      logger.error("Erro ao validar documento:", error);
+      res.status(500).json({ error: "Erro interno do servidor" });
     }
   }
 

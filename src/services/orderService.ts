@@ -1116,6 +1116,7 @@ class OrderService {
           delivery_city: orderData.delivery_city,
           delivery_state: orderData.delivery_state,
           recipient_phone: phoneDigits.length >= 10 ? phoneDigits : undefined,
+          customer_zip_code: data.customer_zip_code,
           delivery_date: orderData.delivery_date || null,
           delivery_slot: orderData.delivery_slot,
           shipping_price,
@@ -1328,6 +1329,8 @@ class OrderService {
                 ? normalizedRecipient
                 : undefined,
             delivery_date: data.delivery_date || null,
+            delivery_slot: data.delivery_slot,
+            customer_zip_code: data.customer_zip_code,
             payment_method:
               data.payment_method === "pix" || data.payment_method === "card"
                 ? data.payment_method
@@ -2243,12 +2246,6 @@ class OrderService {
           updateData.user_id = resolved.user.id;
         }
 
-        if (typeof customer.phone === "string" && customer.phone.trim() !== "") {
-          const digits = customer.phone.replace(/\D/g, "");
-          updateData.recipient_phone = digits.startsWith("55")
-            ? digits
-            : "55" + digits;
-        }
         if (typeof customer.address === "string" && customer.address.trim() !== "") {
           updateData.delivery_address = customer.address;
         }
@@ -2540,6 +2537,10 @@ class OrderService {
             delivery: updated.delivery_address
               ? {
                   address: updated.delivery_address,
+                  city: updated.delivery_city || undefined,
+                  state: updated.delivery_state || undefined,
+                  zipCode: updated.delivery_zip_code || undefined,
+                  recipientPhone: updated.recipient_phone || undefined,
                   date: updated.delivery_date || undefined,
                 }
               : undefined,

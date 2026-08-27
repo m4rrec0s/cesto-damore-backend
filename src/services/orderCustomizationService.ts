@@ -1043,6 +1043,9 @@ class OrderCustomizationService {
             driveFileId: upload.id,
             fileName: upload.fileName,
             subfolderName: folderName,
+            // Artes de imagem (inclusive quebra-cabeça) vão para a impressora de fotos.
+            type: customizationType === "TEXT" ? "carta" : "foto",
+            printerRole: customizationType === "TEXT" ? "letter" : "photo",
           });
         }
 
@@ -1292,7 +1295,7 @@ class OrderCustomizationService {
 
     if (mainFolderId) {
       try {
-        const summaryItems = order.items.map((item) => ({
+        const summaryItems = await Promise.all(order.items.map(async (item) => ({
           name: item.product?.name || "Produto não identificado",
           quantity: item.quantity,
           unitPrice: Number(item.price || 0),
@@ -1301,9 +1304,26 @@ class OrderCustomizationService {
             quantity: addition.quantity,
             price: Number(addition.price || 0),
           })),
-          customizations: item.customizations.map((customization) => {
+          customizations: await Promise.all(item.customizations.map(async (customization) => {
             const data = this.parseCustomizationData(customization.value);
+            const type = String(data.customization_type || "CUSTOMIZAÇÃO");
+            const computedLabel =
+              data.label_selected ||
+              data.selected_option_label ||
+              data.selected_item_label ||
+              (type === "MULTIPLE_CHOICE" || type === "DYNAMIC_LAYOUT"
+                ? await this.computeLabelSelected(
+                    type as CustomizationType,
+                    data,
+                    customization.customization_id,
+                    data.selected_layout_id,
+                  )
+                : undefined);
             const previewUrl =
+              data.final_artwork?.google_drive_url ||
+              data.final_artworks?.[0]?.google_drive_url ||
+              data.image?.google_drive_url ||
+              data.photos?.[0]?.google_drive_url ||
               data.final_artwork?.preview_url ||
               data.finalArtwork?.preview_url ||
               data.final_artworks?.[0]?.preview_url ||
@@ -1311,13 +1331,13 @@ class OrderCustomizationService {
               data.photos?.[0]?.preview_url ||
               data.previewUrl;
             return {
-              type: String(data.customization_type || "CUSTOMIZAÇÃO"),
+              type,
               text: typeof data.text === "string" ? data.text.trim() : undefined,
-              label: typeof data.label_selected === "string" ? data.label_selected : undefined,
+              label: typeof computedLabel === "string" ? computedLabel : undefined,
               previewUrl: typeof previewUrl === "string" ? previewUrl : undefined,
             };
-          }),
-        }));
+          })),
+        })));
         const itemTotal = order.items.reduce(
           (total, item) => total + Number(item.price || 0) * item.quantity,
           0,
@@ -1352,7 +1372,7 @@ class OrderCustomizationService {
             complement: order.complement,
             city: order.delivery_city || order.user?.city,
             state: order.delivery_state || order.user?.state,
-            zipCode: order.user?.zip_code,
+            zipCode: order.delivery_zip_code || order.user?.zip_code,
             recipientPhone: order.recipient_phone,
             date: order.delivery_date,
             time: deliveryTime,

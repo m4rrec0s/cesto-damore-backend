@@ -695,6 +695,8 @@ class WhatsAppService {
         address: string;
         city?: string;
         state?: string;
+        zipCode?: string;
+        recipientPhone?: string;
         date?: Date | string | null;
       };
       deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
@@ -741,6 +743,12 @@ class WhatsAppService {
             message += ` (${locationParts})`;
           }
         }
+        if (orderData.delivery.zipCode) {
+          message += ` | CEP: ${orderData.delivery.zipCode}`;
+        }
+        if (orderData.delivery.recipientPhone) {
+          message += `\n🎁 Destinatário: ${orderData.delivery.recipientPhone}`;
+        }
         const groupSchedule = this.formatDeliverySchedule(orderData);
         if (groupSchedule) {
           message += `\n🗓️ ${groupSchedule}`;
@@ -786,6 +794,12 @@ class WhatsAppService {
             if (locationParts) {
               message += ` (${locationParts})`;
             }
+          }
+          if (orderData.delivery.zipCode) {
+            message += ` | CEP: ${orderData.delivery.zipCode}`;
+          }
+          if (orderData.delivery.recipientPhone) {
+            message += `\n🎁 Destinatário: ${orderData.delivery.recipientPhone}`;
           }
           const customerSchedule = this.formatDeliverySchedule(orderData);
           if (customerSchedule) {

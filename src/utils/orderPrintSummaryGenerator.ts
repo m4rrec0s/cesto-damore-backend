@@ -57,6 +57,15 @@ const cell = (text: string, bold = false) =>
 const detailsTable = (rows: TableRow[]) =>
   new Table({ width: { size: 9000, type: WidthType.DXA }, layout: TableLayoutType.FIXED, rows });
 
+const CARTINHA_PREVIEW_LENGTH = 30;
+const truncateCartinhaPreview = (text?: string) => {
+  if (!text) return text;
+  const normalized = text.trim();
+  return normalized.length > CARTINHA_PREVIEW_LENGTH
+    ? `${normalized.slice(0, CARTINHA_PREVIEW_LENGTH)}...`
+    : normalized;
+};
+
 async function grayscalePreview(url: string): Promise<{ data: Buffer; width: number; height: number }> {
   let input: Buffer;
   if (url.startsWith("data:")) {
@@ -139,7 +148,16 @@ export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryIn
     }
 
     for (const customization of item.customizations) {
-      const details = [customization.type, customization.label, customization.text].filter(Boolean).join(": ");
+      const previewText =
+        customization.type === "TEXT" || customization.type === "CARTINHA"
+          ? truncateCartinhaPreview(customization.text)
+          : customization.text;
+      const details =
+        customization.type === "MULTIPLE_CHOICE" && customization.label
+          ? customization.label
+          : [customization.type, customization.label, previewText]
+              .filter(Boolean)
+              .join(": ");
       children.push(new Paragraph({ indent: { left: 360 }, children: [run(details || "Customização sem detalhes")] }));
       if (!customization.previewUrl) continue;
       try {

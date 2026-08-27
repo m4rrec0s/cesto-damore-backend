@@ -2928,9 +2928,9 @@ export class PaymentService {
       delivery: order.delivery_address
         ? {
             address: order.delivery_address,
-            city: order.user.city || "",
-            state: order.user.state || "",
-            zipCode: order.user.zip_code || "",
+            city: order.delivery_city || order.user.city || "",
+            state: order.delivery_state || order.user.state || "",
+            zipCode: order.delivery_zip_code || order.user.zip_code || "",
             date: order.delivery_date || undefined,
           }
         : undefined,

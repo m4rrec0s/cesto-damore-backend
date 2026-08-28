@@ -31,6 +31,7 @@ interface FinalizeResult {
     driveFileId: string;
     fileName: string;
     subfolderName: string;
+    folderId?: string;
     type?: "foto" | "carta" | "outro";
     printerRole?: "photo" | "letter";
     documentType?: "artwork" | "cartinha" | "order_summary";
@@ -1043,6 +1044,8 @@ class OrderCustomizationService {
             driveFileId: upload.id,
             fileName: upload.fileName,
             subfolderName: folderName,
+            folderId: targetFolder,
+            documentType: "artwork",
             // Artes de imagem (inclusive quebra-cabeça) vão para a impressora de fotos.
             type: customizationType === "TEXT" ? "carta" : "foto",
             printerRole: customizationType === "TEXT" ? "letter" : "photo",
@@ -1280,6 +1283,9 @@ class OrderCustomizationService {
             driveFileId: uploadedFile.id,
             fileName,
             subfolderName: 'Cartinha',
+            type: 'carta',
+            printerRole: 'letter',
+            documentType: 'cartinha',
           });
           logger.info({ orderId: order.id, fileId: uploadedFile.id }, 'cartinha_docx_uploaded');
           logger.info({

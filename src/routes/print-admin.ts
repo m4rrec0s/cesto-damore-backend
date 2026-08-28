@@ -538,6 +538,10 @@ export function createPrintAdminRoutes(router: Router): void {
             driveFileId: designUpload.id,
             fileName: designFileName,
             subfolderName: layout.name,
+            folderId: layoutFolderId,
+            type: "foto",
+            printerRole: "photo",
+            documentType: "artwork",
           },
         ];
 
@@ -556,6 +560,9 @@ export function createPrintAdminRoutes(router: Router): void {
             driveFileId: cartinhaUpload.id,
             fileName: cartinhaFileName,
             subfolderName: "Cartinha",
+            type: "carta",
+            printerRole: "letter",
+            documentType: "cartinha",
           });
           logger.info({
             orderId: order.id,

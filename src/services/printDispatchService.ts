@@ -70,9 +70,16 @@ export async function dispatchPrintForOrder(
   const allFiles: PrintJobFile[] = [];
 
   for (const file of preloadedFiles) {
-    if (file.folderId && !allowedCustomizationFolderIds.has(file.folderId)) {
+    const isOperationalDocument =
+      file.documentType === "cartinha" || file.documentType === "order_summary";
+    const isPrintableFrameArtwork =
+      file.documentType === "artwork" &&
+      !!file.folderId &&
+      allowedCustomizationFolderIds.has(file.folderId);
+
+    if (!isOperationalDocument && !isPrintableFrameArtwork) {
       logger.info(
-        { orderId, folderId: file.folderId, fileName: file.fileName },
+        { orderId, folderId: file.folderId, fileName: file.fileName, documentType: file.documentType },
         "print_skip_preloaded_non_frame_dynamic_layout",
       );
       continue;
@@ -152,7 +159,10 @@ async function resolvePrintableCustomizationFolderIds(
 
     const data = parseCustomizationData(customization.value);
     if (data?.customization_type !== "DYNAMIC_LAYOUT") {
-      allowed.add(folderId);
+      logger.info(
+        { folderId, customizationType: data?.customization_type ?? null },
+        "print_skip_non_dynamic_layout_artwork",
+      );
       continue;
     }
 
@@ -167,7 +177,7 @@ async function resolvePrintableCustomizationFolderIds(
       select: { type: true },
     });
 
-    if (layout?.type === "frame") {
+    if (String(layout?.type || "").toLowerCase() === "frame") {
       allowed.add(folderId);
     } else {
       logger.info(

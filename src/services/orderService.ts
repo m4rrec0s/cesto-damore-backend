@@ -86,11 +86,14 @@ type CreateOrderInput = {
   discount?: number;
   payment_method: "pix" | "card";
   delivery_address?: string | null;
+  delivery_number?: string | null;
+  delivery_neighborhood?: string | null;
   delivery_city: string;
   delivery_state: string;
   delivery_date?: Date | null;
   delivery_slot?: "morning" | "afternoon" | "to_be_arranged";
   recipient_phone: string;
+  recipient_is_customer?: boolean;
   complement?: string;
   items: CreateOrderItem[];
   is_draft?: boolean;
@@ -1113,9 +1116,12 @@ class OrderService {
           send_anonymously: data.send_anonymously || false,
           complement: orderData.complement,
           delivery_address: orderData.delivery_address,
+          delivery_number: orderData.delivery_number,
+          delivery_neighborhood: orderData.delivery_neighborhood,
           delivery_city: orderData.delivery_city,
           delivery_state: orderData.delivery_state,
           recipient_phone: phoneDigits.length >= 10 ? phoneDigits : undefined,
+          recipient_is_customer: data.recipient_is_customer,
           customer_zip_code: data.customer_zip_code,
           delivery_date: orderData.delivery_date || null,
           delivery_slot: orderData.delivery_slot,
@@ -1140,6 +1146,8 @@ class OrderService {
           discount,
           total,
           delivery_address: orderData.delivery_address,
+          delivery_number: orderData.delivery_number,
+          delivery_neighborhood: orderData.delivery_neighborhood,
           complement: orderData.complement,
           delivery_date: orderData.delivery_date || null,
           delivery_slot: orderData.delivery_slot,
@@ -1147,6 +1155,7 @@ class OrderService {
           payment_method: paymentMethod,
           grand_total,
           recipient_phone: phoneDigits,
+          recipient_is_customer: data.recipient_is_customer || false,
           send_anonymously: data.send_anonymously || false,
           delivery_city: orderData.delivery_city,
           delivery_state: orderData.delivery_state,
@@ -1322,12 +1331,15 @@ class OrderService {
             send_anonymously: data.send_anonymously || false,
             complement: data.complement,
             delivery_address: data.delivery_address,
+            delivery_number: data.delivery_number,
+            delivery_neighborhood: data.delivery_neighborhood,
             delivery_city: data.delivery_city,
             delivery_state: data.delivery_state,
             recipient_phone:
               normalizedRecipient.length >= 12
                 ? normalizedRecipient
                 : undefined,
+            recipient_is_customer: data.recipient_is_customer,
             delivery_date: data.delivery_date || null,
             delivery_slot: data.delivery_slot,
             customer_zip_code: data.customer_zip_code,
@@ -2012,9 +2024,12 @@ class OrderService {
       send_anonymously?: boolean;
       complement?: string;
       delivery_address?: string | null;
+      delivery_number?: string | null;
+      delivery_neighborhood?: string | null;
       delivery_city?: string | null;
       delivery_state?: string | null;
       recipient_phone?: string | null;
+      recipient_is_customer?: boolean;
       delivery_date?: Date | string | null;
       delivery_slot?: "morning" | "afternoon" | "to_be_arranged";
       shipping_price?: number;
@@ -2063,11 +2078,20 @@ class OrderService {
     if (typeof data.delivery_address === "string") {
       updateData.delivery_address = data.delivery_address || null;
     }
+    if (typeof data.delivery_number === "string") {
+      updateData.delivery_number = data.delivery_number || null;
+    }
+    if (typeof data.delivery_neighborhood === "string") {
+      updateData.delivery_neighborhood = data.delivery_neighborhood || null;
+    }
     if (typeof data.delivery_city === "string") {
       updateData.delivery_city = data.delivery_city || null;
     }
     if (typeof data.delivery_state === "string") {
       updateData.delivery_state = data.delivery_state || null;
+    }
+    if (typeof data.recipient_is_customer === "boolean") {
+      updateData.recipient_is_customer = data.recipient_is_customer;
     }
     if (typeof data.recipient_phone === "string") {
       const digits = data.recipient_phone.replace(/\D/g, "");
@@ -2537,10 +2561,13 @@ class OrderService {
             delivery: updated.delivery_address
               ? {
                   address: updated.delivery_address,
+                  number: updated.delivery_number || undefined,
+                  neighborhood: updated.delivery_neighborhood || undefined,
                   city: updated.delivery_city || undefined,
                   state: updated.delivery_state || undefined,
                   zipCode: updated.delivery_zip_code || undefined,
                   recipientPhone: updated.recipient_phone || undefined,
+                  recipientIsCustomer: updated.recipient_is_customer,
                   date: updated.delivery_date || undefined,
                 }
               : undefined,

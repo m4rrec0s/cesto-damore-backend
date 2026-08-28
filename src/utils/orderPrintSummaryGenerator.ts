@@ -28,6 +28,8 @@ export interface OrderPrintSummaryInput {
   delivery: {
     method?: string | null;
     address?: string | null;
+    number?: string | null;
+    neighborhood?: string | null;
     complement?: string | null;
     city?: string | null;
     state?: string | null;
@@ -122,7 +124,8 @@ export async function generateOrderPrintSummaryBuffer(input: OrderPrintSummaryIn
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: [run("Entrega", true)] }),
     detailsTable([
       new TableRow({ children: [cell("Método", true), cell(isPickup ? "Retirada na loja" : value(delivery.method))] }),
-      new TableRow({ children: [cell("Endereço", true), cell(value(delivery.address))] }),
+      new TableRow({ children: [cell("Endereço", true), cell([delivery.address, delivery.number].filter(Boolean).join(", ") || "Não informado")] }),
+      new TableRow({ children: [cell("Bairro", true), cell(value(delivery.neighborhood))] }),
       new TableRow({ children: [cell("Complemento", true), cell(value(delivery.complement))] }),
       new TableRow({ children: [cell("Cidade / UF", true), cell(`${value(delivery.city)} / ${value(delivery.state)}`)] }),
       new TableRow({ children: [cell("CEP", true), cell(value(delivery.zipCode))] }),

@@ -2920,6 +2920,7 @@ export class PaymentService {
       googleDriveUrl: finalGoogleDriveUrl,
       hasImageCustomizations,
       recipientPhone: order.recipient_phone || undefined,
+      recipientIsCustomer: order.recipient_is_customer,
       customer: {
         name: order.user.name || "Cliente",
         email: order.user.email || "",
@@ -2928,6 +2929,8 @@ export class PaymentService {
       delivery: order.delivery_address
         ? {
             address: order.delivery_address,
+            number: order.delivery_number || undefined,
+            neighborhood: order.delivery_neighborhood || undefined,
             city: order.delivery_city || order.user.city || "",
             state: order.delivery_state || order.user.state || "",
             zipCode: order.delivery_zip_code || order.user.zip_code || "",

@@ -1375,6 +1375,8 @@ class OrderCustomizationService {
           delivery: {
             method: order.delivery_method,
             address: order.delivery_address || order.user?.address,
+            number: order.delivery_number,
+            neighborhood: order.delivery_neighborhood,
             complement: order.complement,
             city: order.delivery_city || order.user?.city,
             state: order.delivery_state || order.user?.state,

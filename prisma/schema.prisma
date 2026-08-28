@@ -106,12 +106,15 @@ model Order {
   discount                          Float             @default(0)
   total                             Float             @map("total_price")
   delivery_address                  String?
+  delivery_number                   String?
+  delivery_neighborhood             String?
   delivery_date                     DateTime?
   delivery_slot                     String?
   shipping_price                    Float?
   payment_method                    String?
   grand_total                       Float?
   recipient_phone                   String?
+  recipient_is_customer             Boolean           @default(false)
   created_at                        DateTime          @default(now())
   updated_at                        DateTime          @updatedAt
   complement                        String?

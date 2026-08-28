@@ -402,6 +402,8 @@ class WhatsAppService {
     customer: { name: string; email: string; phone?: string };
     delivery?: {
       address: string;
+      number?: string;
+      neighborhood?: string;
       city?: string;
       state?: string;
       zipCode?: string;
@@ -410,6 +412,7 @@ class WhatsAppService {
     googleDriveUrl?: string;
     hasImageCustomizations?: boolean;
     recipientPhone?: string;
+    recipientIsCustomer?: boolean;
     send_anonymously?: boolean;
     complement?: string;
     deliveryMethod?: string;
@@ -451,6 +454,9 @@ class WhatsAppService {
     if (orderData.recipientPhone) {
       teamMessage += `\n🎁 *Destinatário:*\n`;
       teamMessage += `📱 ${orderData.recipientPhone}`;
+      if (orderData.recipientIsCustomer) {
+        teamMessage += " (eu mesmo)";
+      }
       if (isAnonymous) {
         teamMessage += ` _(Envio Anônimo)_`;
       }
@@ -463,7 +469,16 @@ class WhatsAppService {
 
     if (orderData.delivery) {
       teamMessage += `\n📍 *Endereço de Entrega:*\n`;
-      teamMessage += `${orderData.delivery.address}\n`;
+      const deliveryAddressLine = [
+        orderData.delivery.address,
+        orderData.delivery.number,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      teamMessage += `${deliveryAddressLine}\n`;
+      if (orderData.delivery.neighborhood) {
+        teamMessage += `${orderData.delivery.neighborhood}\n`;
+      }
       teamMessage += `${orderData.delivery.city} - ${orderData.delivery.state} | CEP: ${orderData.delivery.zipCode}\n`;
       if (complement) {
         teamMessage += `_Complemento: ${complement}_\n`;
@@ -693,10 +708,13 @@ class WhatsAppService {
       };
       delivery?: {
         address: string;
+        number?: string;
+        neighborhood?: string;
         city?: string;
         state?: string;
         zipCode?: string;
         recipientPhone?: string;
+        recipientIsCustomer?: boolean;
         date?: Date | string | null;
       };
       deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
@@ -731,7 +749,13 @@ class WhatsAppService {
       }
 
       if (orderData.delivery) {
-        message += `\n📍 *Entrega:* ${orderData.delivery.address}`;
+        const addressParts = [orderData.delivery.address, orderData.delivery.number]
+          .filter(Boolean)
+          .join(", ");
+        message += `\n📍 *Entrega:* ${addressParts}`;
+        if (orderData.delivery.neighborhood) {
+          message += `\n${orderData.delivery.neighborhood}`;
+        }
         if (orderData.delivery.city || orderData.delivery.state) {
           const locationParts = [
             orderData.delivery.city,
@@ -748,6 +772,9 @@ class WhatsAppService {
         }
         if (orderData.delivery.recipientPhone) {
           message += `\n🎁 Destinatário: ${orderData.delivery.recipientPhone}`;
+          if (orderData.delivery.recipientIsCustomer) {
+            message += " (eu mesmo)";
+          }
         }
         const groupSchedule = this.formatDeliverySchedule(orderData);
         if (groupSchedule) {
@@ -783,7 +810,13 @@ class WhatsAppService {
         message += `${statusInfo.customerHint}\n`;
 
         if (orderData.delivery) {
-          message += `\n📍 Entrega: ${orderData.delivery.address}`;
+          const addressParts = [orderData.delivery.address, orderData.delivery.number]
+            .filter(Boolean)
+            .join(", ");
+          message += `\n📍 Entrega: ${addressParts}`;
+          if (orderData.delivery.neighborhood) {
+            message += `\n${orderData.delivery.neighborhood}`;
+          }
           if (orderData.delivery.city || orderData.delivery.state) {
             const locationParts = [
               orderData.delivery.city,
@@ -800,6 +833,9 @@ class WhatsAppService {
           }
           if (orderData.delivery.recipientPhone) {
             message += `\n🎁 Destinatário: ${orderData.delivery.recipientPhone}`;
+            if (orderData.delivery.recipientIsCustomer) {
+              message += " (eu mesmo)";
+            }
           }
           const customerSchedule = this.formatDeliverySchedule(orderData);
           if (customerSchedule) {

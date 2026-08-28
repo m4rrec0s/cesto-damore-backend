@@ -30,7 +30,12 @@ function normalize(value?: string | null): string | undefined {
 function buildUserData(input: GuestCustomerInput): Record<string, string> {
   const data: Record<string, string> = {};
   const name = normalize(input.name);
-  const phone = normalize(input.phone);
+  const rawPhone = normalize(input.phone);
+  const phone = rawPhone
+    ? rawPhone.replace(/\D/g, "").startsWith("55")
+      ? rawPhone.replace(/\D/g, "")
+      : `55${rawPhone.replace(/\D/g, "")}`
+    : undefined;
   const address = normalize(input.address);
   const city = normalize(input.city);
   const state = normalize(input.state);

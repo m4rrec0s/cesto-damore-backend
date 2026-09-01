@@ -2164,17 +2164,16 @@ class OrderService {
       }
 
       const now = new Date();
-      const isDateOnlyDelivery = data.delivery_slot === "to_be_arranged";
       const deliveryDateKey = dt.toLocaleDateString("en-CA", {
         timeZone: "America/Sao_Paulo",
       });
       const todayKey = now.toLocaleDateString("en-CA", {
         timeZone: "America/Sao_Paulo",
       });
-      if (
-        (isDateOnlyDelivery && deliveryDateKey < todayKey) ||
-        (!isDateOnlyDelivery && dt < now)
-      ) {
+      // delivery_date represents selected delivery day; delivery_slot carries
+      // the time window. Comparing dt (window start) with now rejects valid
+      // same-day windows such as 09:00 while checkout is still open.
+      if (deliveryDateKey < todayKey) {
         throw validationError(
           "Data de entrega não pode ser no passado. Escolha uma nova data.",
         );

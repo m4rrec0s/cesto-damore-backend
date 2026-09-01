@@ -324,6 +324,8 @@ class WhatsAppService {
       };
       delivery?: {
         address: string;
+        number?: string;
+        neighborhood?: string;
         city: string;
         state: string;
         zipCode: string;
@@ -860,7 +862,14 @@ class WhatsAppService {
     orderNumber: string;
     customerName: string;
     recipientPhone?: string;
+    deliveryAddress?: string;
+    deliveryNumber?: string;
+    deliveryNeighborhood?: string;
+    deliveryCity?: string;
+    deliveryState?: string;
+    deliveryZipCode?: string;
     deliveryDate?: string | Date;
+    deliverySlot?: "morning" | "afternoon" | "to_be_arranged" | null;
     createdAt: string | Date;
     googleDriveUrl?: string;
     hasImageCustomizations?: boolean;
@@ -902,6 +911,31 @@ class WhatsAppService {
 
       message += `\n📅 *Criado em:* ${createdAtBrasilia}\n`;
       message += `🚚 *Entrega prevista:* ${deliveryDateBrasilia}\n`;
+      if (data.deliveryAddress) {
+        message += `📍 *Endereço:* ${[data.deliveryAddress, data.deliveryNumber]
+          .filter(Boolean)
+          .join(", ")}\n`;
+        if (data.deliveryNeighborhood) {
+          message += `🏘️ *Bairro:* ${data.deliveryNeighborhood}\n`;
+        }
+        if (data.deliveryCity || data.deliveryState) {
+          message += `📌 *Localidade:* ${[data.deliveryCity, data.deliveryState]
+            .filter(Boolean)
+            .join(" - ")}\n`;
+        }
+        if (data.deliveryZipCode) {
+          message += `📮 *CEP:* ${data.deliveryZipCode}\n`;
+        }
+        if (data.deliverySlot) {
+          const slotLabel =
+            data.deliverySlot === "morning"
+              ? "Manhã"
+              : data.deliverySlot === "afternoon"
+                ? "Tarde"
+                : "A combinar";
+          message += `⏰ *Horário:* ${slotLabel}\n`;
+        }
+      }
 
       message += `\n💰 *Total:* R$ ${data.total
         .toFixed(2)

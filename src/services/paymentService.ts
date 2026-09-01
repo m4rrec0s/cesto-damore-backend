@@ -2937,6 +2937,7 @@ export class PaymentService {
             date: order.delivery_date || undefined,
           }
         : undefined,
+      deliveryMethod: order.delivery_method || undefined,
       deliverySlot: order.delivery_slot as
         | "morning"
         | "afternoon"
@@ -2970,7 +2971,18 @@ export class PaymentService {
         orderNumber: order.id.substring(0, 8).toUpperCase(),
         customerName: order.user.name || "Cliente",
         recipientPhone: order.recipient_phone || undefined,
+        deliveryAddress: order.delivery_address || undefined,
+        deliveryNumber: order.delivery_number || undefined,
+        deliveryNeighborhood: order.delivery_neighborhood || undefined,
+        deliveryCity: order.delivery_city || order.user.city || undefined,
+        deliveryState: order.delivery_state || order.user.state || undefined,
+        deliveryZipCode: order.delivery_zip_code || order.user.zip_code || undefined,
         deliveryDate: order.delivery_date || undefined,
+        deliverySlot: order.delivery_slot as
+          | "morning"
+          | "afternoon"
+          | "to_be_arranged"
+          | null,
         createdAt: order.created_at,
         googleDriveUrl: hasImageCustomizations
           ? finalGoogleDriveUrl

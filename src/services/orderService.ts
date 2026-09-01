@@ -1086,6 +1086,16 @@ class OrderService {
       }
 
       const { items, ...orderData } = data;
+      const normalizedDeliveryDate =
+        orderData.delivery_date == null
+          ? null
+          : orderData.delivery_date instanceof Date
+            ? orderData.delivery_date
+            : new Date(String(orderData.delivery_date));
+
+      if (normalizedDeliveryDate && isNaN(Number(normalizedDeliveryDate))) {
+        throw new Error("Data de entrega inválida");
+      }
 
       if (!data.is_draft) {
         const stockValidation = await stockService.validateOrderStock(items);
@@ -1123,7 +1133,7 @@ class OrderService {
           recipient_phone: phoneDigits.length >= 10 ? phoneDigits : undefined,
           recipient_is_customer: data.recipient_is_customer,
           customer_zip_code: data.customer_zip_code,
-          delivery_date: orderData.delivery_date || null,
+           delivery_date: normalizedDeliveryDate,
           delivery_slot: orderData.delivery_slot,
           shipping_price,
           payment_method:
@@ -1149,7 +1159,7 @@ class OrderService {
           delivery_number: orderData.delivery_number,
           delivery_neighborhood: orderData.delivery_neighborhood,
           complement: orderData.complement,
-          delivery_date: orderData.delivery_date || null,
+           delivery_date: normalizedDeliveryDate,
           delivery_slot: orderData.delivery_slot,
           shipping_price,
           payment_method: paymentMethod,
@@ -2095,23 +2105,27 @@ class OrderService {
     }
     if (typeof data.recipient_phone === "string") {
       const digits = data.recipient_phone.replace(/\D/g, "");
-      let normalized = digits;
-      if (!digits.startsWith("55")) {
-        normalized = "55" + digits;
-      }
+      if (!digits) {
+        updateData.recipient_phone = null;
+      } else {
+        let normalized = digits;
+        if (!digits.startsWith("55")) {
+          normalized = "55" + digits;
+        }
 
-      const localDigits = normalized.startsWith("55")
-        ? normalized.substring(2)
-        : normalized;
-      if (localDigits.length < 10 || localDigits.length > 11) {
-        throw validationError(
-          "Telefone do destinatário inválido. Verifique o número com DDD.",
-        );
+        const localDigits = normalized.startsWith("55")
+          ? normalized.substring(2)
+          : normalized;
+        if (localDigits.length < 10 || localDigits.length > 11) {
+          throw validationError(
+            "Telefone do destinatário inválido. Verifique o número com DDD.",
+          );
+        }
+        updateData.recipient_phone = normalized;
       }
-      updateData.recipient_phone = normalized;
     }
 
-      if (data.delivery_date === null) {
+    if (data.delivery_date === null) {
       updateData.delivery_date = null;
     } else if (
       typeof data.delivery_date === "string" ||
@@ -2124,13 +2138,6 @@ class OrderService {
       if (isNaN(Number(dt))) {
         throw validationError("Data de entrega inválida");
       }
-
-    if (data.delivery_slot !== undefined) {
-      if (!['morning', 'afternoon', 'to_be_arranged'].includes(data.delivery_slot)) {
-        throw validationError("Faixa de entrega inválida");
-      }
-      updateData.delivery_slot = data.delivery_slot;
-    }
 
       const now = new Date();
       if (dt < now) {
@@ -2145,6 +2152,13 @@ class OrderService {
         );
       }
       updateData.delivery_date = dt;
+    }
+
+    if (data.delivery_slot !== undefined) {
+      if (!["morning", "afternoon", "to_be_arranged"].includes(data.delivery_slot)) {
+        throw validationError("Faixa de entrega inválida");
+      }
+      updateData.delivery_slot = data.delivery_slot;
     }
 
     if (typeof data.delivery_state === "string") {

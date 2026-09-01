@@ -1423,6 +1423,30 @@ class OrderService {
       throw new Error("Pedido com pagamento aprovado não pode ser deletado");
     }
 
+    const payment = order.payment;
+    const paymentNeedsCancellation = Boolean(
+      payment?.mercado_pago_id &&
+        ["PENDING", "IN_PROCESS"].includes(payment.status),
+    );
+
+    if (paymentNeedsCancellation) {
+      try {
+        const PaymentService = require("./paymentService").default;
+        await PaymentService.cancelPayment(payment.mercado_pago_id);
+        logger.info(
+          `✅ Pagamento ${payment.mercado_pago_id} cancelado no Mercado Pago antes da exclusão do pedido`,
+        );
+      } catch (error) {
+        logger.error(
+          `❌ Não foi possível cancelar pagamento ${payment.mercado_pago_id} no Mercado Pago; pedido preservado`,
+          error,
+        );
+        throw new Error(
+          "Não foi possível cancelar o pagamento no Mercado Pago. O pedido não foi excluído; tente novamente.",
+        );
+      }
+    }
+
     try {
       logger.info(`🗑️ [OrderService] Iniciando deleção do pedido ${id}`);
 

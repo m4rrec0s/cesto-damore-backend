@@ -2140,7 +2140,17 @@ class OrderService {
       }
 
       const now = new Date();
-      if (dt < now) {
+      const isDateOnlyDelivery = data.delivery_slot === "to_be_arranged";
+      const deliveryDateKey = dt.toLocaleDateString("en-CA", {
+        timeZone: "America/Sao_Paulo",
+      });
+      const todayKey = now.toLocaleDateString("en-CA", {
+        timeZone: "America/Sao_Paulo",
+      });
+      if (
+        (isDateOnlyDelivery && deliveryDateKey < todayKey) ||
+        (!isDateOnlyDelivery && dt < now)
+      ) {
         throw validationError(
           "Data de entrega não pode ser no passado. Escolha uma nova data.",
         );

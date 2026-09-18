@@ -79,6 +79,9 @@ class CustomizationAssetPersistenceService {
 
         if (url) {
           processed[key] = url;
+        } else if (key === "pdfUrl" || key === "pdf_url") {
+          processed.pdf_pending = true;
+          processed.pdf_pending_at = new Date().toISOString();
         }
 
         continue;

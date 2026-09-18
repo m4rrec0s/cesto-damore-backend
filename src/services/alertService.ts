@@ -13,6 +13,7 @@ export enum AlertCategory {
   STOCK_CRITICAL = "stock_critical",
   DRIVE_UPLOAD_FAILED = "drive_upload_failed",
   WEBHOOK_FAILURE = "webhook_failure",
+  DYNAMIC_LAYOUT_PDF_PENDING = "dynamic_layout_pdf_pending",
 }
 
 interface AlertData {

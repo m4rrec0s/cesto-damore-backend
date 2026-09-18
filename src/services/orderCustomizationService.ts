@@ -11,6 +11,7 @@ import tempFileService from "./tempFileService";
 import { generateCartinhaBuffer } from "../utils/cartinhaGenerator";
 import { generateOrderPrintSummaryBuffer } from "../utils/orderPrintSummaryGenerator";
 import { getToBeArrangedTimeRange } from "../utils/deliveryTimeRange";
+import alertService, { AlertCategory, AlertSeverity } from "./alertService";
 
 interface SaveOrderCustomizationInput {
   orderItemId: string;
@@ -942,6 +943,7 @@ class OrderCustomizationService {
     let uploadedFiles = 0;
     let base64Detected = false;
     const base64AffectedIds: string[] = [];
+    const pendingPdfCustomizationIds: string[] = [];
     const subfolderMap: Record<string, string> = {};
     const dispatchFiles: NonNullable<FinalizeResult["files"]> = [];
 
@@ -1007,6 +1009,14 @@ class OrderCustomizationService {
         const data = this.parseCustomizationData(customization.value);
         const customizationType = data.customization_type || "DEFAULT";
         const componentId = data.componentId as string | undefined;
+
+        if (
+          customizationType === "DYNAMIC_LAYOUT" &&
+          data.pdf_pending === true &&
+          !data.pdfUrl
+        ) {
+          pendingPdfCustomizationIds.push(customization.id);
+        }
 
         const folderName = (() => {
           if (componentId && additionalNameMap.has(componentId)) {
@@ -1214,6 +1224,17 @@ class OrderCustomizationService {
     }
 
     base64Detected = base64AffectedIds.length > 0;
+
+    if (pendingPdfCustomizationIds.length > 0) {
+      await alertService.sendAlert({
+        category: AlertCategory.DYNAMIC_LAYOUT_PDF_PENDING,
+        severity: AlertSeverity.CRITICAL,
+        title: "PDF da arte pendente",
+        message: `Pedido ${orderId} foi salvo, mas ${pendingPdfCustomizationIds.length} arte(s) DYNAMIC_LAYOUT aguardam PDF e não foram enviadas para impressão.`,
+        metadata: { orderId, customizationIds: pendingPdfCustomizationIds },
+        timestamp: new Date(),
+      });
+    }
 
     try {
       await prisma.order.update({
@@ -1591,6 +1612,10 @@ class OrderCustomizationService {
       [];
 
     if (data?.customization_type === "DYNAMIC_LAYOUT") {
+      if (data.pdf_pending === true && !data.pdfUrl) {
+        return assets;
+      }
+
       if (data.pdfUrl && typeof data.pdfUrl === "string" && !data.pdfUrl.startsWith("blob:")) {
         assets.push({
           url: data.pdfUrl,

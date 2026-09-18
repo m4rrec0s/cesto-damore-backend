@@ -582,16 +582,27 @@ class OrderCustomizationController {
         typeof customizationData.pdfUrl === "string" &&
         customizationData.pdfUrl.startsWith("data:application/pdf")
       ) {
-        const pdfUrl = await this.convertBase64ToFile(
-          customizationData.pdfUrl,
-          "design.pdf",
-        );
-        if (!pdfUrl) {
-          return res.status(422).json({
-            error: "Não foi possível salvar PDF da arte final",
-          });
+        let pdfUrl: string | null = null;
+        for (let attempt = 0; attempt < 3 && !pdfUrl; attempt++) {
+          pdfUrl = await this.convertBase64ToFile(
+            customizationData.pdfUrl,
+            "design.pdf",
+          );
+          if (!pdfUrl && attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+          }
         }
-        customizationData.pdfUrl = pdfUrl;
+
+        if (pdfUrl) {
+          customizationData.pdfUrl = pdfUrl;
+          delete customizationData.pdf_pending;
+          delete customizationData.pdf_pending_at;
+        } else {
+          delete customizationData.pdfUrl;
+          customizationData.pdf_pending = true;
+          customizationData.pdf_pending_at = new Date().toISOString();
+          logger.warn("PDF da arte final pendente; customização será salva sem bloquear checkout");
+        }
       }
 
       if (payload.customizationType === "TEXT") {

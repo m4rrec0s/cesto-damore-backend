@@ -6,6 +6,8 @@ import { printAgentHub } from "../routes/ws-print-agent";
 
 class PrintAgentWSManager {
   private oncePrinterStatus: ((printers: string[]) => void) | null = null;
+  private syncPendingJobsRunning = false;
+  private printingJobIds = new Set<string>();
 
   register(socket: WebSocket, clientId: string): void {
     printAgentHub.setAgentSocket(socket);
@@ -101,6 +103,7 @@ class PrintAgentWSManager {
         case "MOVING":
         case "SENDING_TO_PRINTER":
         case "FILE_PRINTED": {
+          if (this.printingJobIds.has(jobId)) break;
           const result = await prisma.printJob.updateMany({
             where: {
               ...whereClause,
@@ -109,6 +112,7 @@ class PrintAgentWSManager {
             data: { status: "PRINTING" },
           });
           if (result.count > 0) {
+            this.printingJobIds.add(jobId);
             logger.info({ jobId, type: msg.type, updated: result.count }, "db_updated_PRINTING");
           }
           break;
@@ -116,6 +120,7 @@ class PrintAgentWSManager {
 
         case "PRINTED":
         case "COMPLETED": {
+          this.printingJobIds.delete(jobId);
           const result = await prisma.printJob.updateMany({
             where: {
               ...whereClause,
@@ -132,6 +137,7 @@ class PrintAgentWSManager {
         }
 
         case "FAILED": {
+          this.printingJobIds.delete(jobId);
           const result = await prisma.printJob.updateMany({
             where: whereClause,
             data: {
@@ -213,6 +219,9 @@ class PrintAgentWSManager {
 
 
   async syncPendingJobs(): Promise<void> {
+    if (this.syncPendingJobsRunning) return;
+    this.syncPendingJobsRunning = true;
+    try {
     // Recovery windows:
     //  - PENDING: 48h (old, manual review)
     //  - SENT: 5min, no ACK → never reached app → FAILED
@@ -224,7 +233,7 @@ class PrintAgentWSManager {
     const jobs = await prisma.printJob.findMany({
       where: {
         OR: [
-          { status: "PENDING", createdAt: { gte: pendingCutoff } },
+          { status: "PENDING", createdAt: { lte: pendingCutoff } },
           { status: "SENT", sentAt: { lte: sentCutoff } },
           { status: { in: ["RECEIVED", "PRINTING"] }, updatedAt: { lte: printingCutoff } },
         ],
@@ -239,7 +248,7 @@ class PrintAgentWSManager {
       rawJobs = await prisma.$queryRawUnsafe(
         `SELECT id, order_id, customer_name, drive_folder_id, payload, status, created_at
          FROM print_jobs
-         WHERE (status = 'pending' AND created_at >= $1)
+         WHERE (status = 'pending' AND created_at <= $1)
             OR (status = 'sent' AND updated_at <= $2)
             OR (status IN ('received', 'printing') AND updated_at <= $3)
          ORDER BY created_at ASC
@@ -306,6 +315,9 @@ class PrintAgentWSManager {
       await adminNotificationService.notifyPendingPrintJobs(allJobs.length);
     } catch (err) {
       logger.error({ err }, "notify_pending_print_jobs_failed");
+    }
+    } finally {
+      this.syncPendingJobsRunning = false;
     }
   }
 

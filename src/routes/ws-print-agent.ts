@@ -962,7 +962,7 @@ export function createPrintDeviceRoutes(router: Router): void {
     // Keepalive ping every 25s to prevent proxy/browser timeout
     const keepaliveInterval = setInterval(() => {
       res.write(`: keepalive\n\n`);
-    }, 25_000);
+    }, 45_000);
 
     const off = printAgentHub.on("device:update", send);
     req.on("close", () => {

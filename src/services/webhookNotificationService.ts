@@ -59,7 +59,7 @@ class WebhookNotificationService {
       } catch (err) {
         logger.warn("🔔 Erro ao enviar ping SSE:", err);
       }
-    }, 20000);
+    }, 45000);
 
     const timeoutHandle = setTimeout(() => {
       logger.info(`⏱️ Timeout SSE para pedido ${orderId} - fechando conexão`);

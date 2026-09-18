@@ -14,7 +14,6 @@ import cron from "node-cron";
 import orderService from "./services/orderService";
 import { PaymentService } from "./services/paymentService";
 import { webhookNotificationService } from "./services/webhookNotificationService";
-import { chatRealtimeService } from "./services/chatRealtimeService";
 import scheduledJobsService from "./services/scheduledJobsService";
 import logger from "./utils/logger";
 import prisma from "./database/prisma";
@@ -125,12 +124,6 @@ app.get("/", async (req, res) => {
 app.use(routes);
 
 scheduledJobsService.start();
-chatRealtimeService
-  .initCursor()
-  .then(() => chatRealtimeService.startPolling())
-  .catch((error) => {
-    logger.error("❌ [ChatStream] Falha ao iniciar stream de chat:", error);
-  });
 
 cron.schedule("0 */6 * * *", async () => {
   try {
@@ -189,7 +182,6 @@ cron.schedule("30 */6 * * *", () => {
 cron.schedule("*/10 * * * *", async () => {
   try {
     const now = new Date();
-    const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
 
     const expiredSessionIds = await prisma.aIAgentSession.findMany({
       where: {
@@ -240,19 +232,6 @@ cron.schedule("*/10 * * * *", async () => {
       );
     }
 
-    const expiredN8nMessages = await prisma.n8n_chat_histories.deleteMany({
-      where: {
-        createdAt: {
-          lt: fiveDaysAgo,
-        },
-      },
-    });
-
-    if (expiredN8nMessages.count > 0) {
-      logger.info(
-        `🕒 [Cron] Deletadas ${expiredN8nMessages.count} mensagens n8n expiradas (5 dias)`,
-      );
-    }
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de dados expirados:", error);
   }
@@ -307,23 +286,13 @@ server.listen(PORT, () => {
       logger.warn(`⚠️ Redis healthcheck falhou: ${e}`);
     }
   })();
-  (async () => {
-    try {
-      await PaymentService.replayStoredWebhooks();
-      try {
-        await PaymentService.reprocessFailedFinalizations();
-      } catch (err) {
-        logger.error("Erro ao reprocessar finalizações na inicialização:", err);
-      }
-    } catch (err) {
-      logger.error("Erro ao executar replay de webhooks armazenados:", err);
-    }
-  })();
+  PaymentService.reprocessFailedFinalizations().catch((err) => {
+    logger.error("Erro ao reprocessar finalizações na inicialização:", err);
+  });
 });
 
 cron.schedule("*/5 * * * *", async () => {
   try {
-    await PaymentService.replayStoredWebhooks();
     await PaymentService.reprocessFailedFinalizations();
   } catch (err) {
     logger.error(
@@ -360,7 +329,6 @@ cron.schedule("15 */6 * * *", async () => {
 cron.schedule("*/10 * * * *", () => {
   try {
     webhookNotificationService.cleanupDeadConnections();
-    chatRealtimeService.cleanupDeadConnections();
   } catch (error) {
     logger.error("❌ [Cron] Erro na limpeza de conexões SSE:", error);
   }

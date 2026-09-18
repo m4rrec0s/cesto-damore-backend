@@ -90,7 +90,7 @@ class AdminNotificationService {
     const id = `${Date.now()}-${Math.random()}`;
     const pingInterval = setInterval(() => {
       try { res.write(`: ping\n\n`); } catch { this.removeClient(id); }
-    }, 25000);
+    }, 45000);
 
     this.clients.push({ id, response: res, pingInterval });
     logger.info(`📡 Admin SSE conectado [Instance: ${this.instanceId}] (${this.clients.length} clientes nesta instância)`);

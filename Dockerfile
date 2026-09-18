@@ -29,6 +29,7 @@ RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists
 
 ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
 ENV TZ=America/Sao_Paulo
+ENV FORCE_COLOR=1
 WORKDIR /usr/src/app
 
 RUN mkdir -p images/customizations \

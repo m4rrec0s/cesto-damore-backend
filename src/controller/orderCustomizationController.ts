@@ -357,7 +357,11 @@ class OrderCustomizationController {
       }
 
       for (const [key, value] of Object.entries(data)) {
-        if (key === "previewUrl" || key === "highQualityUrl") {
+        if (
+          key === "previewUrl" ||
+          key === "highQualityUrl" ||
+          key === "pdfUrl"
+        ) {
           continue;
         }
 
@@ -572,6 +576,23 @@ class OrderCustomizationController {
       const customizationData = {
         ...payload.data,
       };
+
+      if (
+        payload.customizationType === "DYNAMIC_LAYOUT" &&
+        typeof customizationData.pdfUrl === "string" &&
+        customizationData.pdfUrl.startsWith("data:application/pdf")
+      ) {
+        const pdfUrl = await this.convertBase64ToFile(
+          customizationData.pdfUrl,
+          "design.pdf",
+        );
+        if (!pdfUrl) {
+          return res.status(422).json({
+            error: "Não foi possível salvar PDF da arte final",
+          });
+        }
+        customizationData.pdfUrl = pdfUrl;
+      }
 
       if (payload.customizationType === "TEXT") {
         await this.validateTextCustomizationLimit(

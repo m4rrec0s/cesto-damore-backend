@@ -9,6 +9,8 @@ const DIRECT_URL_FIELDS = new Set([
   "high_quality_url",
   "text",
   "url",
+  "pdfUrl",
+  "pdf_url",
 ]);
 
 class CustomizationAssetPersistenceService {
@@ -36,7 +38,7 @@ class CustomizationAssetPersistenceService {
 
       // Adicionar extensão baseada no mimeType se não houver
       let finalFileName = fileName;
-      if (!fileName.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+      if (!fileName.match(/\.(png|jpg|jpeg|gif|webp|pdf)$/i)) {
         const ext = mimeType.split("/")[1] || "png";
         finalFileName = `${fileName}.${ext}`;
       }
@@ -69,7 +71,8 @@ class CustomizationAssetPersistenceService {
       if (
         typeof value === "string" &&
         DIRECT_URL_FIELDS.has(key) &&
-        value.startsWith("data:image")
+        (value.startsWith("data:image") ||
+          value.startsWith("data:application/pdf"))
       ) {
         const fileName = this.buildFileName(key, data);
         const url = await this.convertBase64ToTempUrl(value, fileName);
@@ -84,7 +87,8 @@ class CustomizationAssetPersistenceService {
       if (
         typeof value === "string" &&
         BASE64_FIELDS.has(key) &&
-        value.startsWith("data:image")
+        (value.startsWith("data:image") ||
+          value.startsWith("data:application/pdf"))
       ) {
         const fileName = this.buildFileName(key, data);
         const url = await this.convertBase64ToTempUrl(value, fileName);

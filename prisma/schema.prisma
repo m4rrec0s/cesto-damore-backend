@@ -184,6 +184,9 @@ model PrintJob {
   updatedAt     DateTime       @updatedAt
   order         Order          @relation(fields: [orderId], references: [id])
 
+  @@index([status, createdAt])
+  @@index([status, sentAt])
+  @@index([status, updatedAt])
   @@map("print_job_order")
 }
 
@@ -205,6 +208,8 @@ model Payment {
   created_at          DateTime      @default(now())
   updated_at          DateTime      @updatedAt
   order               Order         @relation(fields: [order_id], references: [id])
+
+  @@index([status, created_at])
 }
 
 model WebhookLog {

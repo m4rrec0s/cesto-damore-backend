@@ -1591,7 +1591,7 @@ class OrderCustomizationService {
       [];
 
     if (data?.customization_type === "DYNAMIC_LAYOUT") {
-      if (data.pdfUrl && typeof data.pdfUrl === "string" && !data.pdfUrl.startsWith("data:") && !data.pdfUrl.startsWith("blob:")) {
+      if (data.pdfUrl && typeof data.pdfUrl === "string" && !data.pdfUrl.startsWith("blob:")) {
         assets.push({
           url: data.pdfUrl,
           filename: `design-${Date.now()}.pdf`,
@@ -1810,6 +1810,13 @@ class OrderCustomizationService {
   ) {
     const sanitized = { ...data };
 
+    if (sanitized.customization_type === "DYNAMIC_LAYOUT" && uploads[0]?.mimeType === "application/pdf") {
+      sanitized.pdfUrl = uploads[0].webContentLink;
+      sanitized.pdf_file_name = uploads[0].fileName;
+      sanitized.google_drive_file_id = uploads[0].id;
+      sanitized.google_drive_url = uploads[0].webContentLink;
+    }
+
     if (sanitized.finalArtwork && !sanitized.final_artwork) {
       sanitized.final_artwork = sanitized.finalArtwork;
       delete sanitized.finalArtwork;
@@ -1983,7 +1990,7 @@ class OrderCustomizationService {
 
       const value = obj[key];
 
-      if (typeof value === "string" && value.startsWith("data:image")) {
+      if (typeof value === "string" && /^data:[^;]+;base64,/i.test(value)) {
         delete obj[key];
         removedCount++;
         continue;

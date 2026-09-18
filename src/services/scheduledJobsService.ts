@@ -13,6 +13,9 @@ class ScheduledJobsService {
   private metricsCleanupInterval: NodeJS.Timeout | null = null;
   private started = false;
   private metricsCleanupRunning = false;
+  private webhookReplayRunning = false;
+  private paymentReconciliationRunning = false;
+  private driveRetryRunning = false;
 
   
 
@@ -101,17 +104,19 @@ class ScheduledJobsService {
   
 
   private async replayOfflineWebhooks() {
+    if (this.webhookReplayRunning) return;
+    this.webhookReplayRunning = true;
     try {
-      logger.debug("🔍 Verificando webhooks offline armazenados...");
       await PaymentService.replayStoredWebhooks();
-      logger.debug("✅ Verificação de webhooks offline concluída");
     } catch (error) {
-      logger.error("❌ Erro ao reprocessar webhooks offline:", error);
+      logger.error("Erro ao reprocessar webhooks offline:", error);
+    } finally {
+      this.webhookReplayRunning = false;
     }
   }
 
   private startPendingPixReconcileJob() {
-    const INTERVAL_MS = 60 * 1000;
+    const INTERVAL_MS = 2 * 60 * 1000;
 
     logger.info(
       `💳 Agendando reconciliação de pagamentos pendentes (intervalo: ${INTERVAL_MS / 1000}s)`,
@@ -125,23 +130,23 @@ class ScheduledJobsService {
   }
 
   private async reconcilePendingPixPayments() {
+    if (this.paymentReconciliationRunning) return;
+    this.paymentReconciliationRunning = true;
     try {
       const result = await PaymentService.reconcilePendingPixPayments({
-        limit: 30,
-        maxAgeHours: 72,
+        limit: 20,
+        maxAgeHours: 24,
       });
 
       if (result.reprocessed > 0) {
         logger.info(
-          `✅ Reconciliação: ${result.reprocessed}/${result.scanned} pagamento(s) atualizado(s)`,
-        );
-      } else {
-        logger.debug(
-          `🔍 Reconciliação executada sem mudanças (${result.scanned} verificados)`,
+          `Reconciliação: ${result.reprocessed}/${result.scanned} pagamento(s) atualizado(s)`,
         );
       }
     } catch (error) {
-      logger.error("❌ Erro na reconciliação PIX pendente:", error);
+      logger.error("Erro na reconciliação de pagamentos pendentes:", error);
+    } finally {
+      this.paymentReconciliationRunning = false;
     }
   }
 
@@ -169,6 +174,8 @@ class ScheduledJobsService {
   
 
   private async retryPendingDriveLinks() {
+    if (this.driveRetryRunning) return;
+    this.driveRetryRunning = true;
     try {
       logger.debug("🔍 Buscando pedidos aprovados sem link do Drive...");
 
@@ -282,7 +289,9 @@ class ScheduledJobsService {
         `✅ Processamento de links do Drive concluído (${ordersWithoutDriveLink.length} pedidos)`,
       );
     } catch (error) {
-      logger.error("❌ Erro ao reprocessar links do Drive:", error);
+      logger.error("Erro ao reprocessar links do Drive:", error);
+    } finally {
+      this.driveRetryRunning = false;
     }
   }
 

@@ -1,5 +1,12 @@
 import chalk from "chalk";
 
+// Containers do not expose a TTY, so Chalk disables ANSI colors unless forced.
+if (process.env.NO_COLOR !== "true" && process.env.FORCE_COLOR !== "0") {
+  chalk.level = process.env.FORCE_COLOR || process.env.LOG_COLORS === "true"
+    ? 1
+    : chalk.level;
+}
+
 const isDebugEnabled =
   process.env.NODE_ENV !== "production" || process.env.DEBUG_LOGS === "true";
 
@@ -77,11 +84,9 @@ const formatLogMessage = (
     }[level.toUpperCase()] || chalk.white;
 
   const levelStr = levelColor(`${level.toUpperCase()}`);
-  const typeStr = chalk.gray(
-    `[${typeof message === "object" ? "object" : typeof message}]`,
-  );
-
-  return `${chalk.dim(timestamp)}  ${levelStr}  ${contextStr}  ${typeStr}`;
+  return [chalk.dim(timestamp), levelStr, contextStr]
+    .filter(Boolean)
+    .join(" ");
 };
 
 const isLoggerContext = (arg: any): arg is LoggerContext => {
@@ -191,7 +196,7 @@ const formatLogValue = (value: any): string => {
   }
 
   try {
-    return JSON.stringify(sanitize(value), null, 2);
+    return JSON.stringify(sanitize(value));
   } catch {
     return String(value);
   }

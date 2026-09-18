@@ -349,9 +349,11 @@ class ScheduledJobsService {
       }
     };
 
+    // Node timers cap at 2^31-1ms (~24.8 days); 30 days overflows to 1ms.
+    const INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
     this.metricsCleanupInterval = setInterval(() => {
       void run().catch((error) => logger.error("Erro ao limpar snapshots de métricas:", error));
-    }, 30 * 24 * 60 * 60 * 1000);
+    }, INTERVAL_MS);
   }
 
   private async cleanupExpiredPendingOrders() {

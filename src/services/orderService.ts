@@ -12,6 +12,10 @@ import fs from "fs";
 import path from "path";
 import { validateOrderCustomizations } from "../utils/customizationValidator";
 import { getToBeArrangedTimeRange } from "../utils/deliveryTimeRange";
+import {
+  getSaoPauloDateKey,
+  parseSaoPauloDeliveryDate,
+} from "../utils/saoPauloDate";
 import customizationAssetPersistenceService from "./customizationAssetPersistenceService";
 import guestUserService from "./guestUserService";
 import orderCustomizationService from "./orderCustomizationService";
@@ -2155,36 +2159,28 @@ class OrderService {
       typeof data.delivery_date === "string" ||
       data.delivery_date instanceof Date
     ) {
-      const dt =
-        data.delivery_date instanceof Date
-          ? data.delivery_date
-          : new Date(String(data.delivery_date));
-      if (isNaN(Number(dt))) {
+      const deliveryDate = parseSaoPauloDeliveryDate(data.delivery_date);
+      if (!deliveryDate) {
         throw validationError("Data de entrega inválida");
       }
 
-      const now = new Date();
-      const deliveryDateKey = dt.toLocaleDateString("en-CA", {
-        timeZone: "America/Sao_Paulo",
-      });
-      const todayKey = now.toLocaleDateString("en-CA", {
-        timeZone: "America/Sao_Paulo",
-      });
+      const deliveryDateKey = getSaoPauloDateKey(deliveryDate);
+      const todayKey = getSaoPauloDateKey(new Date());
       // delivery_date represents selected delivery day; delivery_slot carries
-      // the time window. Comparing dt (window start) with now rejects valid
+      // the time window. Comparing deliveryDate (window start) with now rejects valid
       // same-day windows such as 09:00 while checkout is still open.
       if (deliveryDateKey < todayKey) {
         throw validationError(
           "Data de entrega não pode ser no passado. Escolha uma nova data.",
         );
       }
-      const holiday = await holidayService.isDeliveryDateBlocked(dt);
+      const holiday = await holidayService.isDeliveryDateBlocked(deliveryDate);
       if (holiday) {
         throw validationError(
           `Não realizamos entregas no feriado ${holiday.name}. Escolha outra data.`,
         );
       }
-      updateData.delivery_date = dt;
+      updateData.delivery_date = deliveryDate;
     }
 
     if (data.delivery_slot !== undefined) {

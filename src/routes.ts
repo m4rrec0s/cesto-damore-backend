@@ -24,6 +24,7 @@ import customizationReviewController from "./controller/customizationReviewContr
 import tempUploadController from "./controller/tempUploadController";
 import oauthController from "./controller/oauthController";
 import { botFlowController } from "./controller/botFlowController";
+import discoveryController from "./controller/discoveryController";
 
 import agentLogsController from "./controller/agentLogsController";
 import statusController from "./controller/statusController";
@@ -1410,6 +1411,7 @@ router.post(
 );
 
 router.post("/bot/chat", botFlowController.handleWebhook);
+router.post("/discovery/recommendations", discoveryController.recommend);
 router.get("/bot/flow", botFlowController.getFlow);
 router.post(
   "/bot/flow",

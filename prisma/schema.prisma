@@ -62,6 +62,20 @@ model Product {
   @@index([embedding], map: "product_embedding_idx")
 }
 
+model DiscoveryQueryCache {
+  id           String   @id @default(uuid())
+  query_hash   String   @unique
+  query_text   String
+  embedding    Unsupported("vector")?
+  message      String
+  product_ids  Json
+  expires_at   DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([expires_at])
+}
+
 model ProductType {
   id         String    @id @default(uuid())
   name       String

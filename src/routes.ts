@@ -74,14 +74,14 @@ import {
   apiRateLimit,
   couponRateLimit,
 } from "./middleware/security";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 const router = Router();
 
 const discoveryRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 10,
-  keyGenerator: (req) => `${req.ip}:${req.get("x-discovery-visitor") || "anonymous"}`,
+  keyGenerator: (req) => `${ipKeyGenerator(req.ip || "")}:${req.get("x-discovery-visitor") || "anonymous"}`,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Limite de 10 buscas por hora atingido." },
@@ -1421,8 +1421,8 @@ router.post(
 );
 
 router.post("/bot/chat", botFlowController.handleWebhook);
-router.post("/discovery/recommendations", discoveryRateLimit, discoveryController.recommend);
-router.post("/discovery/recommendations/stream", discoveryRateLimit, discoveryController.recommendStream);
+router.post("/discovery/recommendations", discoveryRateLimit, (req, res) => discoveryController.recommend(req, res));
+router.post("/discovery/recommendations/stream", discoveryRateLimit, (req, res) => discoveryController.recommendStream(req, res));
 router.get("/bot/flow", botFlowController.getFlow);
 router.post(
   "/bot/flow",

@@ -1,132 +1,253 @@
+import { createHash } from "crypto";
 import type { Request, Response } from "express";
 import OpenAI from "openai";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
-import { createHash } from "crypto";
-type DiscoveryRequest = {
-  prompt?: unknown;
-  surprise?: unknown;
+type DiscoveryRequest = { prompt?: unknown; surprise?: unknown };
+type ModelResponse = { message: string; productIds: string[] };
+type CatalogProduct = {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  discount: number | null;
+  image_url: string | null;
+  categories: { category: { name: string } }[];
 };
 
-type ModelResponse = {
-  message: string;
-  productIds: string[];
-};
-
-const model = process.env.NVIDIA_DISCOVERY_MODEL || "meta/llama-3.1-8b-instruct";
+const model = process.env.NVIDIA_DISCOVERY_MODEL || "nvidia/nemotron-3-super-120b-a12b";
+const embeddingModel = process.env.NVIDIA_DISCOVERY_EMBEDDING_MODEL || "nvidia/nv-embed-v1";
+const cacheTtlMs = 1000 * 60 * 60 * 24 * 30;
 
 function readDiscoveryRequest(body: unknown): { prompt: string; surprise: boolean } | null {
   if (!body || typeof body !== "object") return null;
-
   const { prompt, surprise } = body as DiscoveryRequest;
-  if (typeof surprise === "boolean" && surprise) {
-    return { prompt: "", surprise: true };
-  }
+  if (surprise === true) return { prompt: "", surprise: true };
   if (typeof prompt !== "string" || !prompt.trim()) return null;
   return { prompt: prompt.trim().slice(0, 500), surprise: false };
 }
 
-function parseModelResponse(content: string | null): ModelResponse | null {
-  if (!content) return null;
-  const json = content.match(/\{[\s\S]*\}/)?.[0];
-  if (!json) return null;
-
+function parseModelResponse(content: string): ModelResponse | null {
+  const ids = content.match(/PRODUCT_IDS\s*:\s*(\[[^\]]*\])/i)?.[1];
+  const message = content.replace(/\s*PRODUCT_IDS\s*:\s*\[[\s\S]*$/i, "").trim();
+  if (!ids || !message) return null;
   try {
-    const parsed: unknown = JSON.parse(json);
-    if (!parsed || typeof parsed !== "object") return null;
-    const value = parsed as { message?: unknown; productIds?: unknown };
-    if (
-      typeof value.message !== "string" ||
-      !Array.isArray(value.productIds) ||
-      !value.productIds.every((id) => typeof id === "string")
-    ) {
-      return null;
-    }
-    return { message: value.message, productIds: value.productIds };
+    const productIds: unknown = JSON.parse(ids);
+    if (!Array.isArray(productIds) || !productIds.every((id) => typeof id === "string")) return null;
+    return { message, productIds };
   } catch {
     return null;
   }
 }
 
+function writeEvent(res: Response, event: string, data: unknown) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
 class DiscoveryController {
-  async recommendStream(req: Request, res: Response) {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-    const chunks: string[] = [];
-    const originalJson = res.json.bind(res);
-    res.json = ((payload: unknown) => {
-      const data = payload as { message?: string; products?: unknown[]; error?: string };
-      if (data.error) res.write(`event: error\ndata: ${JSON.stringify({ error: data.error })}\n\n`);
-      if (data.message) {
-        for (const word of data.message.split(/(\s+)/)) {
-          chunks.push(word);
-          res.write(`event: token\ndata: ${JSON.stringify({ token: word })}\n\n`);
-        }
-      }
-      res.write(`event: products\ndata: ${JSON.stringify({ products: data.products || [] })}\n\n`);
-      res.write("event: done\ndata: {}\n\n");
-      return res.end();
-    }) as Response["json"];
-    await this.recommend(req, res);
-    res.json = originalJson;
+  private async createEmbedding(client: OpenAI, query: string) {
+    const response = await client.embeddings.create({ model: embeddingModel, input: query });
+    const embedding = response.data[0]?.embedding;
+    return embedding?.length ? `[${embedding.join(",")}]` : null;
+  }
+
+  private async getSemanticCached(embedding: string, now: Date) {
+    try {
+      const rows = await prisma.$queryRawUnsafe<Array<{ message: string; product_ids: unknown }>>(
+        `SELECT message, product_ids FROM "DiscoveryQueryCache"
+         WHERE expires_at > $1 AND embedding IS NOT NULL
+         ORDER BY embedding <=> $2::vector LIMIT 1`,
+        now,
+        embedding,
+      );
+      const cached = rows[0];
+      if (!cached) return null;
+      const ids = Array.isArray(cached.product_ids)
+        ? cached.product_ids.filter((id): id is string => typeof id === "string")
+        : [];
+      const products = await prisma.product.findMany({ where: { id: { in: ids }, is_active: true } });
+      return products.length ? { message: cached.message, products } : null;
+    } catch (error) {
+      logger.warn({ error }, "Cache semântico de descoberta indisponível");
+      return null;
+    }
+  }
+
+  private async getLocalMatches(request: { prompt: string; surprise: boolean }) {
+    const terms = request.prompt
+      .toLocaleLowerCase("pt-BR")
+      .split(/\s+/)
+      .filter((term) => term.length >= 3)
+      .slice(0, 5);
+    if (!terms.length || request.surprise) return this.getCatalog(request).then((products) => products.slice(0, 3));
+    return prisma.product.findMany({
+      where: {
+        is_active: true,
+        OR: terms.flatMap((term) => [
+          { name: { contains: term, mode: "insensitive" } },
+          { description: { contains: term, mode: "insensitive" } },
+          { categories: { some: { category: { name: { contains: term, mode: "insensitive" } } } } },
+        ]),
+      },
+      orderBy: { updated_at: "desc" },
+      take: 3,
+      include: { categories: { include: { category: true } } },
+    });
+  }
+
+  private async getCached(queryHash: string, now: Date) {
+    const cached = await prisma.discoveryQueryCache.findUnique({ where: { query_hash: queryHash } });
+    if (!cached || cached.expires_at <= now) return null;
+    const ids = Array.isArray(cached.product_ids)
+      ? cached.product_ids.filter((id): id is string => typeof id === "string")
+      : [];
+    const products = await prisma.product.findMany({ where: { id: { in: ids }, is_active: true } });
+    return { message: cached.message, products };
+  }
+
+  private async getCatalog(request: { prompt: string; surprise: boolean }): Promise<CatalogProduct[]> {
+    return prisma.product.findMany({
+      where: { is_active: true },
+      orderBy: request.surprise ? { price: "desc" } : { updated_at: "desc" },
+      take: 24,
+      select: {
+        id: true, name: true, description: true, price: true, discount: true, image_url: true,
+        categories: { select: { category: { select: { name: true } } } },
+      },
+    });
+  }
+
+  private createCompletion(client: OpenAI, request: { prompt: string; surprise: boolean }, products: CatalogProduct[], stream: true) {
+    const catalog = products.map(({ id, name, description, price, categories }) => ({
+      id, name, description, price, categories: categories.map(({ category }) => category.name),
+    }));
+    return client.chat.completions.create({
+      model,
+      temperature: 0.4,
+      stream,
+      messages: [
+        { role: "system", content: "Você é curadora da Cesto d'Amore. Responda em português com uma frase curta e calorosa. Na última linha, escreva exatamente PRODUCT_IDS:[\"id1\",\"id2\"]. Escolha no máximo 3 IDs do catálogo. Não use markdown." },
+        { role: "user", content: `${request.surprise ? "Escolha até 3 opções premium e surpreendentes." : `Pedido da cliente: ${request.prompt}`}\nCatálogo: ${JSON.stringify(catalog)}` },
+      ],
+    });
+  }
+
+  private async persist(queryHash: string, query: string, response: ModelResponse, selected: CatalogProduct[], now: Date) {
+    await prisma.discoveryQueryCache.upsert({
+      where: { query_hash: queryHash },
+      create: { query_hash: queryHash, query_text: query, message: response.message, product_ids: selected.map((product) => product.id), expires_at: new Date(now.getTime() + cacheTtlMs) },
+      update: { message: response.message, product_ids: selected.map((product) => product.id), expires_at: new Date(now.getTime() + cacheTtlMs) },
+    });
+  }
+
+  private async persistEmbedding(queryHash: string, embedding: string | null) {
+    if (!embedding) return;
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "DiscoveryQueryCache" SET embedding = $1::vector WHERE query_hash = $2`,
+        embedding,
+        queryHash,
+      );
+    } catch (error) {
+      logger.warn({ error }, "Não foi possível salvar embedding de descoberta");
+    }
   }
 
   async recommend(req: Request, res: Response) {
     const request = readDiscoveryRequest(req.body);
-    if (!request) {
-      return res.status(400).json({ error: "Informe o que procura ou escolha uma surpresa." });
-    }
-
+    if (!request) return res.status(400).json({ error: "Informe o que procura ou escolha uma surpresa." });
     const query = request.surprise ? "surpreenda-me" : request.prompt.toLocaleLowerCase("pt-BR");
     const queryHash = createHash("sha256").update(query).digest("hex");
     const now = new Date();
-
     try {
-      const cached = await prisma.discoveryQueryCache.findUnique({ where: { query_hash: queryHash } });
-      if (cached && cached.expires_at > now) {
-        const productIds = Array.isArray(cached.product_ids) ? cached.product_ids.filter((id): id is string => typeof id === "string") : [];
-        const products = await prisma.product.findMany({ where: { id: { in: productIds }, is_active: true } });
-        return res.json({ message: cached.message, products, cached: true });
-      }
-
-      if (!process.env.NVIDIA_API_KEY) {
-        return res.status(503).json({ error: "Curadoria indisponível no momento." });
-      }
-
-      const products = await prisma.product.findMany({
-        where: { is_active: true },
-        orderBy: request.surprise ? { price: "desc" } : { updated_at: "desc" },
-        take: 24,
-        select: { id: true, name: true, description: true, price: true, discount: true, image_url: true, categories: { select: { category: { select: { name: true } } } } },
-      });
-      const catalog = products.map((product) => ({ id: product.id, name: product.name, description: product.description, price: product.price, categories: product.categories.map(({ category }) => category.name) }));
+      const cached = await this.getCached(queryHash, now);
+      if (cached) return res.json({ ...cached, cached: true });
+      if (!process.env.NVIDIA_API_KEY) return res.status(503).json({ error: "Curadoria indisponível no momento." });
       const client = new OpenAI({ apiKey: process.env.NVIDIA_API_KEY, baseURL: "https://integrate.api.nvidia.com/v1" });
-      const completion = await client.chat.completions.create({
-        model,
-        temperature: 0.4,
-        messages: [
-          { role: "system", content: "Você é curadora da Cesto d'Amore. Responda exclusivamente JSON válido: {\"message\": string, \"productIds\": string[]}. Escolha no máximo 3 IDs presentes no catálogo. Mensagem curta, calorosa, em português." },
-          { role: "user", content: `${request.surprise ? "Escolha até 3 opções premium e surpreendentes." : `Pedido da cliente: ${request.prompt}`}\nCatálogo: ${JSON.stringify(catalog)}` },
-        ],
-      });
-      const response = parseModelResponse(completion.choices[0]?.message.content ?? null);
+      const embedding = await this.createEmbedding(client, query).catch(() => null);
+      if (embedding) {
+        const semantic = await this.getSemanticCached(embedding, now);
+        if (semantic) return res.json({ ...semantic, cached: true, semantic: true });
+      }
+      const products = await this.getCatalog(request);
+      const stream = await this.createCompletion(client, request, products, true);
+      let content = "";
+      for await (const chunk of stream) content += chunk.choices[0]?.delta.content || "";
+      const response = parseModelResponse(content);
       if (!response) return res.status(502).json({ error: "Não consegui preparar uma seleção agora." });
-
       const byId = new Map(products.map((product) => [product.id, product]));
-      const selected = response.productIds.map((id) => byId.get(id)).filter((product): product is (typeof products)[number] => Boolean(product));
-      await prisma.discoveryQueryCache.upsert({
-        where: { query_hash: queryHash },
-        create: { query_hash: queryHash, query_text: query, message: response.message, product_ids: selected.map((product) => product.id), expires_at: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30) },
-        update: { message: response.message, product_ids: selected.map((product) => product.id), expires_at: new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30) },
-      });
+      const selected = response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
+      await this.persist(queryHash, query, response, selected, now);
+      await this.persistEmbedding(queryHash, embedding);
       return res.json({ message: response.message, products: selected, cached: false });
     } catch (error) {
       logger.error({ error }, "Erro ao recomendar produtos com NVIDIA");
-      return res.status(500).json({ error: "Não foi possível criar sua seleção." });
+      const products = await this.getLocalMatches(request);
+      return res.json({ message: "Encontrei essas opções para você 🤩", products, cached: false, fallback: true });
     }
+  }
+
+  async recommendStream(req: Request, res: Response) {
+    const request = readDiscoveryRequest(req.body);
+    if (!request) return res.status(400).json({ error: "Informe o que procura ou escolha uma surpresa." });
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    const query = request.surprise ? "surpreenda-me" : request.prompt.toLocaleLowerCase("pt-BR");
+    const queryHash = createHash("sha256").update(query).digest("hex");
+    const now = new Date();
+    try {
+      const cached = await this.getCached(queryHash, now);
+      if (cached) {
+        writeEvent(res, "token", { token: cached.message });
+        writeEvent(res, "products", { products: cached.products, cached: true });
+        writeEvent(res, "done", {});
+        return res.end();
+      }
+      if (!process.env.NVIDIA_API_KEY) throw new Error("NVIDIA_API_KEY ausente");
+      const client = new OpenAI({ apiKey: process.env.NVIDIA_API_KEY, baseURL: "https://integrate.api.nvidia.com/v1" });
+      const embedding = await this.createEmbedding(client, query).catch(() => null);
+      if (embedding) {
+        const semantic = await this.getSemanticCached(embedding, now);
+        if (semantic) {
+          writeEvent(res, "token", { token: semantic.message });
+          writeEvent(res, "products", { products: semantic.products, cached: true, semantic: true });
+          writeEvent(res, "done", {});
+          return res.end();
+        }
+      }
+      const products = await this.getCatalog(request);
+      const stream = await this.createCompletion(client, request, products, true);
+      let content = "";
+      let sent = 0;
+      for await (const chunk of stream) {
+        content += chunk.choices[0]?.delta.content || "";
+        const marker = content.search(/\n?PRODUCT_IDS\s*:/i);
+        const visible = marker >= 0 ? content.slice(0, marker) : content.slice(0, Math.max(0, content.length - 40));
+        if (visible.length > sent) {
+          writeEvent(res, "token", { token: visible.slice(sent) });
+          sent = visible.length;
+        }
+      }
+      const response = parseModelResponse(content);
+      if (!response) throw new Error("Resposta NVIDIA inválida");
+      if (response.message.length > sent) writeEvent(res, "token", { token: response.message.slice(sent) });
+      const byId = new Map(products.map((product) => [product.id, product]));
+      const selected = response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
+      await this.persist(queryHash, query, response, selected, now);
+      await this.persistEmbedding(queryHash, embedding);
+      writeEvent(res, "products", { products: selected, cached: false });
+      writeEvent(res, "done", {});
+    } catch (error) {
+      logger.error({ error }, "Erro no stream de descoberta");
+      const products = await this.getLocalMatches(request);
+      writeEvent(res, "token", { token: "Encontrei essas opções para você 🤩" });
+      writeEvent(res, "products", { products, fallback: true });
+      writeEvent(res, "done", {});
+    }
+    return res.end();
   }
 }
 

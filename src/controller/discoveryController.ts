@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import prisma from "../database/prisma";
 import logger from "../utils/logger";
 
-type DiscoveryRequest = { prompt?: unknown; surprise?: unknown };
+type DiscoveryRequest = { prompt?: unknown; surprise?: unknown; history?: unknown };
 type ModelResponse = { message: string; productIds: string[] };
 type CatalogProduct = {
   id: string;
@@ -20,12 +20,15 @@ const model = process.env.NVIDIA_DISCOVERY_MODEL || "nvidia/nemotron-3-super-120
 const embeddingModel = process.env.NVIDIA_DISCOVERY_EMBEDDING_MODEL || "nvidia/nv-embed-v1";
 const cacheTtlMs = 1000 * 60 * 60 * 24 * 30;
 
-function readDiscoveryRequest(body: unknown): { prompt: string; surprise: boolean } | null {
+function readDiscoveryRequest(body: unknown): { prompt: string; surprise: boolean; history: string[] } | null {
   if (!body || typeof body !== "object") return null;
   const { prompt, surprise } = body as DiscoveryRequest;
-  if (surprise === true) return { prompt: "", surprise: true };
+  const history = Array.isArray((body as DiscoveryRequest).history)
+    ? (body as DiscoveryRequest).history.filter((entry): entry is string => typeof entry === "string").slice(-6).map((entry) => entry.slice(0, 500))
+    : [];
+  if (surprise === true) return { prompt: "", surprise: true, history };
   if (typeof prompt !== "string" || !prompt.trim()) return null;
-  return { prompt: prompt.trim().slice(0, 500), surprise: false };
+  return { prompt: prompt.trim().slice(0, 500), surprise: false, history };
 }
 
 function parseModelResponse(content: string): ModelResponse | null {
@@ -80,7 +83,7 @@ class DiscoveryController {
       .split(/\s+/)
       .filter((term) => term.length >= 3)
       .slice(0, 5);
-    if (!terms.length || request.surprise) return this.getCatalog(request).then((products) => products.slice(0, 3));
+    if (!terms.length || request.surprise) return prisma.product.findMany({ where: { is_active: true }, orderBy: { price: "desc" }, include: { categories: { include: { category: true } } } });
     return prisma.product.findMany({
       where: {
         is_active: true,
@@ -90,8 +93,7 @@ class DiscoveryController {
           { categories: { some: { category: { name: { contains: term, mode: "insensitive" } } } } },
         ]),
       },
-      orderBy: { updated_at: "desc" },
-      take: 3,
+      orderBy: { price: "desc" },
       include: { categories: { include: { category: true } } },
     });
   }
@@ -102,15 +104,15 @@ class DiscoveryController {
     const ids = Array.isArray(cached.product_ids)
       ? cached.product_ids.filter((id): id is string => typeof id === "string")
       : [];
-    const products = await prisma.product.findMany({ where: { id: { in: ids }, is_active: true } });
+    const products = await prisma.product.findMany({ where: { id: { in: ids }, is_active: true }, orderBy: { price: "desc" } });
     return { message: cached.message, products };
   }
 
   private async getCatalog(request: { prompt: string; surprise: boolean }): Promise<CatalogProduct[]> {
     return prisma.product.findMany({
       where: { is_active: true },
-      orderBy: request.surprise ? { price: "desc" } : { updated_at: "desc" },
-      take: 24,
+      orderBy: { price: "desc" },
+      take: 48,
       select: {
         id: true, name: true, description: true, price: true, discount: true, image_url: true,
         categories: { select: { category: { select: { name: true } } } },
@@ -118,7 +120,7 @@ class DiscoveryController {
     });
   }
 
-  private createCompletion(client: OpenAI, request: { prompt: string; surprise: boolean }, products: CatalogProduct[], stream: true) {
+  private createCompletion(client: OpenAI, request: { prompt: string; surprise: boolean; history: string[] }, products: CatalogProduct[], stream: true) {
     const catalog = products.map(({ id, name, description, price, categories }) => ({
       id, name, description, price, categories: categories.map(({ category }) => category.name),
     }));
@@ -128,7 +130,7 @@ class DiscoveryController {
       stream,
       messages: [
         { role: "system", content: "Você é curadora da Cesto d'Amore. Responda em português com uma frase curta e calorosa. Na última linha, escreva exatamente PRODUCT_IDS:[\"id1\",\"id2\"]. Escolha no máximo 3 IDs do catálogo. Não use markdown." },
-        { role: "user", content: `${request.surprise ? "Escolha até 3 opções premium e surpreendentes." : `Pedido da cliente: ${request.prompt}`}\nCatálogo: ${JSON.stringify(catalog)}` },
+        { role: "user", content: `${request.history.length ? `Contexto da conversa: ${request.history.join("\n")}\n` : ""}${request.surprise ? "Escolha até 3 opções premium e surpreendentes." : `Pedido da cliente: ${request.prompt}`}\nCatálogo: ${JSON.stringify(catalog)}` },
       ],
     });
   }
@@ -176,8 +178,9 @@ class DiscoveryController {
       for await (const chunk of stream) content += chunk.choices[0]?.delta.content || "";
       const response = parseModelResponse(content);
       if (!response) return res.status(502).json({ error: "Não consegui preparar uma seleção agora." });
+      const localMatches = await this.getLocalMatches(request);
       const byId = new Map(products.map((product) => [product.id, product]));
-      const selected = response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
+      const selected = localMatches.length ? localMatches : response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
       await this.persist(queryHash, query, response, selected, now);
       await this.persistEmbedding(queryHash, embedding);
       return res.json({ message: response.message, products: selected, cached: false });
@@ -234,8 +237,9 @@ class DiscoveryController {
       const response = parseModelResponse(content);
       if (!response) throw new Error("Resposta NVIDIA inválida");
       if (response.message.length > sent) writeEvent(res, "token", { token: response.message.slice(sent) });
+      const localMatches = await this.getLocalMatches(request);
       const byId = new Map(products.map((product) => [product.id, product]));
-      const selected = response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
+      const selected = localMatches.length ? localMatches : response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
       await this.persist(queryHash, query, response, selected, now);
       await this.persistEmbedding(queryHash, embedding);
       writeEvent(res, "products", { products: selected, cached: false });

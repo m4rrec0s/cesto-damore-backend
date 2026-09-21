@@ -19,12 +19,26 @@ type CatalogProduct = {
 const model = process.env.NVIDIA_DISCOVERY_MODEL || "nvidia/nemotron-3-super-120b-a12b";
 const embeddingModel = process.env.NVIDIA_DISCOVERY_EMBEDDING_MODEL || "nvidia/nv-embed-v1";
 const cacheTtlMs = 1000 * 60 * 60 * 24 * 30;
+const stopWords = new Set(["a", "o", "as", "os", "uma", "um", "para", "pra", "de", "do", "da", "dos", "das", "com", "por", "que", "meu", "minha", "seu", "sua", "quero", "preciso", "gostaria", "presente", "favor"]);
+const intentTerms: Record<string, string[]> = {
+  mulher: ["romantica", "amor", "namorados", "cesta"], esposa: ["romantica", "amor", "namorados"], namorada: ["romantica", "amor", "namorados"],
+  mae: ["maes", "amor", "cesta"], aniversario: ["festa", "celebrar", "cesta"], bebe: ["bebe", "nascimento", "infantil"],
+  homem: ["bar", "cerveja", "time", "cesta"], amigo: ["amizade", "cesta", "bar"], rapido: ["express", "pronta entrega"],
+};
+
+function normalizeSearch(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+}
 
 function readDiscoveryRequest(body: unknown): { prompt: string; surprise: boolean; history: string[] } | null {
   if (!body || typeof body !== "object") return null;
   const { prompt, surprise } = body as DiscoveryRequest;
-  const history = Array.isArray((body as DiscoveryRequest).history)
-    ? (body as DiscoveryRequest).history.filter((entry): entry is string => typeof entry === "string").slice(-6).map((entry) => entry.slice(0, 500))
+  const rawHistory: unknown = (body as DiscoveryRequest).history;
+  const history = Array.isArray(rawHistory)
+    ? rawHistory
+        .filter((entry: unknown): entry is string => typeof entry === "string")
+        .slice(-6)
+        .map((entry: string) => entry.slice(0, 500))
     : [];
   if (surprise === true) return { prompt: "", surprise: true, history };
   if (typeof prompt !== "string" || !prompt.trim()) return null;
@@ -32,6 +46,18 @@ function readDiscoveryRequest(body: unknown): { prompt: string; surprise: boolea
 }
 
 function parseModelResponse(content: string): ModelResponse | null {
+  const json = content.match(/\{[\s\S]*\}/)?.[0];
+  if (json) {
+    try {
+      const parsed: unknown = JSON.parse(json);
+      if (parsed && typeof parsed === "object" && typeof (parsed as { message?: unknown }).message === "string" && Array.isArray((parsed as { productIds?: unknown }).productIds)) {
+        const productIds = (parsed as { productIds: unknown[] }).productIds;
+        if (productIds.every((id): id is string => typeof id === "string")) return { message: (parsed as { message: string }).message, productIds };
+      }
+    } catch {
+      // Try the streaming format below.
+    }
+  }
   const ids = content.match(/PRODUCT_IDS\s*:\s*(\[[^\]]*\])/i)?.[1];
   const message = content.replace(/\s*PRODUCT_IDS\s*:\s*\[[\s\S]*$/i, "").trim();
   if (!ids || !message) return null;
@@ -78,24 +104,22 @@ class DiscoveryController {
   }
 
   private async getLocalMatches(request: { prompt: string; surprise: boolean }) {
-    const terms = request.prompt
-      .toLocaleLowerCase("pt-BR")
-      .split(/\s+/)
-      .filter((term) => term.length >= 3)
-      .slice(0, 5);
-    if (!terms.length || request.surprise) return prisma.product.findMany({ where: { is_active: true }, orderBy: { price: "desc" }, include: { categories: { include: { category: true } } } });
-    return prisma.product.findMany({
-      where: {
-        is_active: true,
-        OR: terms.flatMap((term) => [
-          { name: { contains: term, mode: "insensitive" } },
-          { description: { contains: term, mode: "insensitive" } },
-          { categories: { some: { category: { name: { contains: term, mode: "insensitive" } } } } },
-        ]),
-      },
-      orderBy: { price: "desc" },
-      include: { categories: { include: { category: true } } },
-    });
+    const terms = normalizeSearch(request.prompt).split(/[^\p{L}\p{N}]+/u).filter((term) => term.length >= 3 && !stopWords.has(term));
+    const expandedTerms = [...new Set(terms.flatMap((term) => [term, ...(intentTerms[term] || [])]))];
+    const products = await prisma.product.findMany({ where: { is_active: true }, include: { categories: { include: { category: true } } } });
+    if (!expandedTerms.length || request.surprise) return products.sort((a, b) => b.price - a.price);
+
+    return products
+      .map((product) => {
+        const name = normalizeSearch(product.name);
+        const description = normalizeSearch(product.description || "");
+        const categories = normalizeSearch(product.categories.map(({ category }) => category.name).join(" "));
+        const score = expandedTerms.reduce((total, term) => total + (name.includes(term) ? 6 : 0) + (categories.includes(term) ? 4 : 0) + (description.includes(term) ? 2 : 0), 0);
+        return { product, score };
+      })
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.product.price - a.product.price || b.score - a.score)
+      .map(({ product }) => product);
   }
 
   private async getCached(queryHash: string, now: Date) {
@@ -112,11 +136,19 @@ class DiscoveryController {
     return prisma.product.findMany({
       where: { is_active: true },
       orderBy: { price: "desc" },
-      take: 48,
       select: {
         id: true, name: true, description: true, price: true, discount: true, image_url: true,
         categories: { select: { category: { select: { name: true } } } },
       },
+    });
+  }
+
+  private getAlsoLike(excludedIds: string[]) {
+    return prisma.product.findMany({
+      where: { is_active: true, id: { notIn: excludedIds } },
+      orderBy: { price: "desc" },
+      take: 8,
+      include: { categories: { include: { category: true } } },
     });
   }
 
@@ -129,7 +161,7 @@ class DiscoveryController {
       temperature: 0.4,
       stream,
       messages: [
-        { role: "system", content: "Você é curadora da Cesto d'Amore. Responda em português com uma frase curta e calorosa. Na última linha, escreva exatamente PRODUCT_IDS:[\"id1\",\"id2\"]. Escolha no máximo 3 IDs do catálogo. Não use markdown." },
+        { role: "system", content: "Você é curadora da Cesto d'Amore. Responda em português com uma frase curta e calorosa. Na última linha, escreva exatamente PRODUCT_IDS:[\"id1\",\"id2\"]. Inclua todos IDs do catálogo que combinam com pedido, sem limite artificial. Não use markdown." },
         { role: "user", content: `${request.history.length ? `Contexto da conversa: ${request.history.join("\n")}\n` : ""}${request.surprise ? "Escolha até 3 opções premium e surpreendentes." : `Pedido da cliente: ${request.prompt}`}\nCatálogo: ${JSON.stringify(catalog)}` },
       ],
     });
@@ -178,12 +210,11 @@ class DiscoveryController {
       for await (const chunk of stream) content += chunk.choices[0]?.delta.content || "";
       const response = parseModelResponse(content);
       if (!response) return res.status(502).json({ error: "Não consegui preparar uma seleção agora." });
-      const localMatches = await this.getLocalMatches(request);
       const byId = new Map(products.map((product) => [product.id, product]));
-      const selected = localMatches.length ? localMatches : response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
+      const selected = response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product)).sort((a, b) => b.price - a.price);
       await this.persist(queryHash, query, response, selected, now);
       await this.persistEmbedding(queryHash, embedding);
-      return res.json({ message: response.message, products: selected, cached: false });
+      return res.json({ message: response.message, products: selected, alsoLike: await this.getAlsoLike(selected.map((product) => product.id)), cached: false });
     } catch (error) {
       logger.error({ error }, "Erro ao recomendar produtos com NVIDIA");
       const products = await this.getLocalMatches(request);
@@ -206,6 +237,7 @@ class DiscoveryController {
       if (cached) {
         writeEvent(res, "token", { token: cached.message });
         writeEvent(res, "products", { products: cached.products, cached: true });
+        writeEvent(res, "also_like", { products: await this.getAlsoLike(cached.products.map((product) => product.id)) });
         writeEvent(res, "done", {});
         return res.end();
       }
@@ -217,6 +249,7 @@ class DiscoveryController {
         if (semantic) {
           writeEvent(res, "token", { token: semantic.message });
           writeEvent(res, "products", { products: semantic.products, cached: true, semantic: true });
+          writeEvent(res, "also_like", { products: await this.getAlsoLike(semantic.products.map((product) => product.id)) });
           writeEvent(res, "done", {});
           return res.end();
         }
@@ -237,18 +270,19 @@ class DiscoveryController {
       const response = parseModelResponse(content);
       if (!response) throw new Error("Resposta NVIDIA inválida");
       if (response.message.length > sent) writeEvent(res, "token", { token: response.message.slice(sent) });
-      const localMatches = await this.getLocalMatches(request);
       const byId = new Map(products.map((product) => [product.id, product]));
-      const selected = localMatches.length ? localMatches : response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product));
+      const selected = response.productIds.map((id) => byId.get(id)).filter((product): product is CatalogProduct => Boolean(product)).sort((a, b) => b.price - a.price);
       await this.persist(queryHash, query, response, selected, now);
       await this.persistEmbedding(queryHash, embedding);
       writeEvent(res, "products", { products: selected, cached: false });
+      writeEvent(res, "also_like", { products: await this.getAlsoLike(selected.map((product) => product.id)) });
       writeEvent(res, "done", {});
     } catch (error) {
       logger.error({ error }, "Erro no stream de descoberta");
       const products = await this.getLocalMatches(request);
       writeEvent(res, "token", { token: "Encontrei essas opções para você 🤩" });
       writeEvent(res, "products", { products, fallback: true });
+      writeEvent(res, "also_like", { products: await this.getAlsoLike(products.map((product) => product.id)) });
       writeEvent(res, "done", {});
     }
     return res.end();

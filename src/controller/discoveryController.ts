@@ -30,6 +30,14 @@ function normalizeSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
 }
 
+function getLocalMessage(prompt: string) {
+  const query = normalizeSearch(prompt);
+  if (/(namorada|esposa|mulher|romantica|amor)/.test(query)) return "Separei opções românticas para tornar esse momento ainda mais especial.";
+  if (/(mae|aniversario|celebrar)/.test(query)) return "Encontrei opções cheias de carinho para celebrar essa ocasião.";
+  if (/(homem|amigo|pai)/.test(query)) return "Estas opções combinam com o estilo e a ocasião que você descreveu.";
+  return "Encontrei opções que combinam com o que você procura 🤩";
+}
+
 function readDiscoveryRequest(body: unknown): { prompt: string; surprise: boolean; history: string[] } | null {
   if (!body || typeof body !== "object") return null;
   const { prompt, surprise } = body as DiscoveryRequest;
@@ -152,7 +160,7 @@ class DiscoveryController {
     });
   }
 
-  private createCompletion(client: OpenAI, request: { prompt: string; surprise: boolean; history: string[] }, products: CatalogProduct[], stream: true) {
+  private createCompletion(client: OpenAI, request: { prompt: string; surprise: boolean; history: string[] }, products: CatalogProduct[], stream: true, signal?: AbortSignal) {
     const catalog = products.map(({ id, name, description, price, categories }) => ({
       id, name, description, price, categories: categories.map(({ category }) => category.name),
     }));
@@ -164,7 +172,7 @@ class DiscoveryController {
         { role: "system", content: "Você é curadora da Cesto d'Amore. Responda em português com uma frase curta e calorosa. Na última linha, escreva exatamente PRODUCT_IDS:[\"id1\",\"id2\"]. Inclua todos IDs do catálogo que combinam com pedido, sem limite artificial. Não use markdown." },
         { role: "user", content: `${request.history.length ? `Contexto da conversa: ${request.history.join("\n")}\n` : ""}${request.surprise ? "Escolha até 3 opções premium e surpreendentes." : `Pedido da cliente: ${request.prompt}`}\nCatálogo: ${JSON.stringify(catalog)}` },
       ],
-    });
+    }, { signal });
   }
 
   private async persist(queryHash: string, query: string, response: ModelResponse, selected: CatalogProduct[], now: Date) {
@@ -232,6 +240,7 @@ class DiscoveryController {
     const query = request.surprise ? "surpreenda-me" : request.prompt.toLocaleLowerCase("pt-BR");
     const queryHash = createHash("sha256").update(query).digest("hex");
     const now = new Date();
+    let localProducts: Awaited<ReturnType<typeof this.getLocalMatches>> = [];
     try {
       const cached = await this.getCached(queryHash, now);
       if (cached) {
@@ -241,6 +250,8 @@ class DiscoveryController {
         writeEvent(res, "done", {});
         return res.end();
       }
+      localProducts = await this.getLocalMatches(request);
+      if (localProducts.length) writeEvent(res, "products", { products: localProducts, provisional: true });
       if (!process.env.NVIDIA_API_KEY) throw new Error("NVIDIA_API_KEY ausente");
       const client = new OpenAI({ apiKey: process.env.NVIDIA_API_KEY, baseURL: "https://integrate.api.nvidia.com/v1" });
       const embedding = await this.createEmbedding(client, query).catch(() => null);
@@ -255,7 +266,7 @@ class DiscoveryController {
         }
       }
       const products = await this.getCatalog(request);
-      const stream = await this.createCompletion(client, request, products, true);
+      const stream = await this.createCompletion(client, request, products, true, AbortSignal.timeout(8000));
       let content = "";
       let sent = 0;
       for await (const chunk of stream) {
@@ -279,9 +290,9 @@ class DiscoveryController {
       writeEvent(res, "done", {});
     } catch (error) {
       logger.error({ error }, "Erro no stream de descoberta");
-      const products = await this.getLocalMatches(request);
-      writeEvent(res, "token", { token: "Encontrei essas opções para você 🤩" });
-      writeEvent(res, "products", { products, fallback: true });
+      const products = localProducts.length ? localProducts : await this.getLocalMatches(request);
+      writeEvent(res, "token", { token: getLocalMessage(request.prompt) });
+      if (!localProducts.length) writeEvent(res, "products", { products, fallback: true });
       writeEvent(res, "also_like", { products: await this.getAlsoLike(products.map((product) => product.id)) });
       writeEvent(res, "done", {});
     }

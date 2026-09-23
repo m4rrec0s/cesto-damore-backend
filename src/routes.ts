@@ -25,6 +25,7 @@ import tempUploadController from "./controller/tempUploadController";
 import oauthController from "./controller/oauthController";
 import { botFlowController } from "./controller/botFlowController";
 import discoveryController from "./controller/discoveryController";
+import discoveryCurationController from "./controller/discoveryCurationController";
 
 import agentLogsController from "./controller/agentLogsController";
 import statusController from "./controller/statusController";
@@ -1423,6 +1424,18 @@ router.post(
 router.post("/bot/chat", botFlowController.handleWebhook);
 router.post("/discovery/recommendations", discoveryRateLimit, (req, res) => discoveryController.recommend(req, res));
 router.post("/discovery/recommendations/stream", discoveryRateLimit, (req, res) => discoveryController.recommendStream(req, res));
+router.get(
+  "/admin/discovery-curation",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => discoveryCurationController.list(req, res),
+);
+router.post(
+  "/admin/discovery-curation/diagnose",
+  authenticateToken,
+  requireAdmin,
+  (req, res) => discoveryCurationController.diagnose(req, res),
+);
 router.get("/bot/flow", botFlowController.getFlow);
 router.post(
   "/bot/flow",

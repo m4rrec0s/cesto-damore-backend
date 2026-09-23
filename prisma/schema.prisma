@@ -77,6 +77,23 @@ model DiscoveryQueryCache {
   @@index([expires_at])
 }
 
+model DiscoverySearchEvent {
+  id               String   @id @default(uuid())
+  query_text       String
+  normalized_query String
+  created_at       DateTime @default(now())
+
+  @@index([normalized_query, created_at])
+}
+
+model DiscoverySearchDiagnosis {
+  normalized_query String   @id
+  diagnosis        Json
+  diagnosed_count  Int
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+}
+
 model ProductType {
   id         String    @id @default(uuid())
   name       String

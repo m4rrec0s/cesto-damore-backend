@@ -148,10 +148,6 @@ class ProductController {
         }
       });
 
-      if (!Array.isArray(data.categories)) {
-        data.categories = [];
-      }
-
       const file = ((): any => {
         if (req.file) return req.file;
         if (Array.isArray(req.files) && req.files.length) return req.files[0];

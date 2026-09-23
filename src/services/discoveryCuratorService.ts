@@ -32,6 +32,13 @@ export type CuratedProduct<T extends CuratableProduct> = {
   reasons: string[];
 };
 
+export function discoveryMatchTier(score: number) {
+  if (score >= 17) return 3;
+  if (score >= 10) return 2;
+  if (score > 0) return 1;
+  return 0;
+}
+
 const stopWords = new Set([
   "a", "o", "as", "os", "uma", "um", "para", "pra", "de", "do", "da", "dos", "das", "com", "por", "que", "meu", "minha", "seu", "sua", "quero", "preciso", "gostaria", "presente", "favor", "porfavor", "ser", "e", "em", "no", "na",
 ]);
@@ -143,7 +150,7 @@ export function curateDiscoveryProducts<T extends CuratableProduct>(products: T[
 
       for (const [kind, weight] of [["recipient", 12], ["occasion", 10], ["style", 7]] as const) {
         for (const value of intent[kind] || []) {
-          const matched = matchesLabel(value, profileValues[kind]) || corpus.includes(value);
+          const matched = matchesLabel(value, profileValues[kind]);
           if (!matched) continue;
           score += weight;
           reasons.push(value);
@@ -158,8 +165,10 @@ export function curateDiscoveryProducts<T extends CuratableProduct>(products: T[
       }
       return { product, score, reasons };
     })
-    .filter(({ score }) => score > 0 || !intent.terms?.length)
-    .sort((a, b) => b.score - a.score || b.product.price - a.product.price);
+    .sort((a, b) =>
+      discoveryMatchTier(b.score) - discoveryMatchTier(a.score) ||
+      b.product.price - a.product.price,
+    );
 }
 
 export function describeDiscovery(intent: DiscoveryContext, count: number) {

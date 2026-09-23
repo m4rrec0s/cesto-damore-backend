@@ -54,7 +54,7 @@ class ProductController {
     try {
       const data = { ...req.body };
 
-      const arraysToParse = ["categories", "components", "additionals"];
+      const arraysToParse = ["categories", "components", "additionals", "search_profile"];
       arraysToParse.forEach((key) => {
         if (typeof data[key] === "string") {
           try {
@@ -132,7 +132,7 @@ class ProductController {
       const { id } = req.params;
       const data = { ...req.body };
 
-      const arraysToParse = ["categories", "components", "additionals"];
+      const arraysToParse = ["categories", "components", "additionals", "search_profile"];
       arraysToParse.forEach((key) => {
         if (typeof data[key] === "string") {
           try {

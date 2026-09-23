@@ -47,6 +47,7 @@ model Product {
   updated_at             DateTime               @updatedAt
   type_id                String
   production_time        Int?                   @default(0)
+  search_profile         Json?
   embedding              Unsupported("vector")?
   embedding_generated_at DateTime?              @db.Timestamp(6)
   stock_mode             String                 @default("PRODUCT_ONLY")

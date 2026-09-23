@@ -28,6 +28,13 @@ export type CreateProductInput = {
   type_id: string;
   production_time?: number | null;
   stock_mode?: "PRODUCT_ONLY" | "COMPONENTS_ONLY";
+  search_profile?: {
+    recipients?: string[];
+    occasions?: string[];
+    styles?: string[];
+    deliveryModes?: string[];
+    searchTerms?: string[];
+  };
   categories: string[];
   additionals?: string[];
 };
